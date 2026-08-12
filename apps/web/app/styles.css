@@ -9,6 +9,129 @@
 }
 body {
   margin: 0;
+  background: radial-gradient(circle at 70% 0%, #12372b 0, #07110e 42%);
+}
+.auth-page {
+  display: grid;
+  place-items: center;
+  padding-top: 8vh;
+}
+.auth-card {
+  width: min(100%, 480px);
+  padding: 42px;
+  border: 1px solid #244237;
+  border-radius: 24px;
+  background: rgba(8, 25, 19, 0.88);
+  box-shadow: 0 30px 80px #0008;
+}
+.auth-card h1 {
+  font-size: clamp(2.4rem, 7vw, 4rem);
+}
+form {
+  display: grid;
+  gap: 18px;
+  margin-top: 30px;
+}
+label {
+  display: grid;
+  gap: 8px;
+  color: #cfe4da;
+  font-size: 0.9rem;
+}
+input {
+  width: 100%;
+  padding: 14px 16px;
+  color: #edf7f1;
+  background: #07110e;
+  border: 1px solid #315447;
+  border-radius: 10px;
+  font: inherit;
+}
+input:focus {
+  outline: 2px solid #5ee0a0;
+  outline-offset: 2px;
+}
+button {
+  padding: 14px 20px;
+  border: 0;
+  border-radius: 10px;
+  background: #5ee0a0;
+  color: #062116;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.6;
+}
+.form-error {
+  color: #ff9c9c;
+  margin: 0;
+}
+.switch {
+  color: #aabbb3;
+}
+.switch a {
+  color: #5ee0a0;
+}
+.dashboard {
+  max-width: 1120px;
+  padding-top: 8vh;
+}
+.dashboard header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.dashboard h1 {
+  font-size: clamp(2.8rem, 7vw, 5.5rem);
+  margin-top: 12vh;
+}
+.account-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: #aabbb3;
+}
+.secondary {
+  border: 1px solid #315447;
+  background: transparent;
+  color: #edf7f1;
+  padding: 10px 16px;
+}
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin-top: 70px;
+}
+.dashboard-grid article {
+  min-height: 190px;
+  padding: 28px;
+  border: 1px solid #244237;
+  border-radius: 18px;
+  background: #0b1b15cc;
+}
+.dashboard-grid h2 {
+  margin: 24px 0 8px;
+}
+.dashboard-grid p {
+  color: #8ba198;
+}
+.icon {
+  color: #5ee0a0;
+  font-size: 1.4rem;
+}
+@media (max-width: 700px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .auth-card {
+    padding: 28px;
+  }
+  .account-actions span {
+    display: none;
+  }
 }
 main {
   min-height: 100vh;

@@ -4,7 +4,7 @@
 
 Arbion is intended to be an AI-powered financial orchestration platform. It combines a user experience, a provider-independent Neural Engine, deterministic financial controls, and external financial-provider adapters. This document describes the target boundaries; it does not claim that the conceptual capabilities are implemented.
 
-The current implementation remains a modular monolith plus one dedicated AI service. Live or automated trading, order execution, broker connections, AI-provider integrations, authentication, and legacy Flask migration are out of scope until explicitly designed and approved.
+The current implementation remains a modular monolith plus one dedicated AI service. Email/password authentication is implemented in the Go control plane. Live or automated trading, order execution, broker connections, AI-provider integrations, and legacy Flask migration remain out of scope until explicitly designed and approved.
 
 ## System model
 
@@ -14,7 +14,7 @@ The current implementation remains a modular monolith plus one dedicated AI serv
 │ Dashboard, portfolios, research/chat, charts, alerts,        │
 │ watchlists, and settings                                     │
 └──────────────────────────────┬────────────────────────────────┘
-                               │ authenticated API (future)
+                               │ cookie-authenticated API
 ┌──────────────────────────────▼────────────────────────────────┐
 │ Go modular monolith                                           │
 │                                                               │
@@ -73,6 +73,14 @@ A future MCP-compatible server could expose a deliberately approved subset of Ar
 ## Credential and trust boundaries
 
 AI-provider credentials and financial-provider credentials are separate secret classes with distinct access policies. AI vendors must never receive brokerage secrets. Financial connectors should prefer OAuth or token-based delegated authorization where supported. Stored secrets must never be returned to the browser, logged, or committed. The development vault uses authenticated encryption with an environment-supplied key and PostgreSQL ciphertext storage behind a vault interface; production should replace that adapter with a managed secret system without changing business logic. See [Security](SECURITY.md).
+
+## Authentication architecture
+
+Go owns registration, login, logout, session validation, user loading, throttling, and audit events. Transport handlers delegate to the `internal/auth` module, while Next.js is only the experience layer. The stable PostgreSQL user ID is deliberately independent of authentication methods so MFA factors, passkeys, OAuth identities, and enterprise SSO can later be attached without replacing the user model.
+
+PostgreSQL is authoritative for accounts. Redis stores only hashed opaque browser-session identifiers, expiry metadata, per-user session indexes for future bulk revocation, and short-lived rate-limit counters. Redis loss signs browsers out but cannot alter durable resources. Login issues a freshly generated 256-bit token and therefore rotates the session; logout deletes only that token and expires its cookie.
+
+**User authentication sessions are ephemeral. User integrations, credentials, and automation configuration are persistent server-side resources and are not tied to an active browser session.**
 
 ## Operations and evolution
 

@@ -1,14 +1,22 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import Home from "./page";
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
 
-describe("Home", () => {
-  it("describes the platform foundation", () => {
-    render(<Home />);
+import { AuthForm } from "./auth-form";
+
+describe("Authentication experience", () => {
+  it("renders accessible login fields", () => {
+    render(<AuthForm mode="login" />);
     expect(
-      screen.getByRole("heading", { name: /disciplined decisions/i }),
+      screen.getByRole("heading", { name: /welcome back/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/foundation online/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/password/i)).toHaveAttribute(
+      "minLength",
+      "12",
+    );
   });
 });
