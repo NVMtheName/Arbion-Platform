@@ -11,12 +11,14 @@ import (
 	"strings"
 
 	"github.com/arbion/platform/services/api/internal/auth"
+	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 )
 
 type identityKey struct{}
 type authHandler struct {
 	service *auth.Service
+	admin   *authorization.Service
 	cfg     config.Auth
 }
 type credentials struct {
@@ -31,17 +33,104 @@ type apiError struct {
 	} `json:"error"`
 }
 
-func NewApplicationHandler(database ReadinessChecker, timeout config.Config, service *auth.Service) stdhttp.Handler {
+func NewApplicationHandler(database ReadinessChecker, timeout config.Config, service *auth.Service, admins ...*authorization.Service) stdhttp.Handler {
 	mux := stdhttp.NewServeMux()
 	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("GET /readyz", readiness(database, timeout.Database.ReadinessTimeout))
 	h := &authHandler{service: service, cfg: timeout.Auth}
+	if len(admins) > 0 {
+		h.admin = admins[0]
+	}
 	mux.HandleFunc("POST /api/auth/register", h.register)
 	mux.HandleFunc("POST /api/auth/login", h.login)
 	mux.Handle("POST /api/auth/logout", h.require(stdhttp.HandlerFunc(h.logout)))
 	mux.Handle("GET /api/auth/me", h.require(stdhttp.HandlerFunc(h.me)))
 	mux.Handle("GET /api/auth/protected-test", h.require(stdhttp.HandlerFunc(h.me)))
+	if h.admin != nil {
+		mux.Handle("GET /api/admin/me", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.adminMe))))
+		mux.Handle("GET /api/admin/users", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.adminUsers))))
+		mux.Handle("GET /api/admin/users/{id}", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.adminUser))))
+		mux.Handle("PUT /api/admin/users/{id}/role", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.updateRole))))
+		mux.Handle("PUT /api/admin/users/{id}/entitlement", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.updateEntitlement))))
+	}
 	return securityHeaders(mux)
+}
+func principal(r *stdhttp.Request) authorization.Principal {
+	u, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	return authorization.Principal{UserID: u.ID, Role: authorization.Role(u.Role), Entitlement: authorization.Entitlement(u.Entitlement)}
+}
+func (h *authHandler) requireAdmin(next stdhttp.Handler) stdhttp.Handler {
+	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if authorization.RequireAdmin(principal(r)) != nil {
+			writeError(w, 403, "forbidden", "Administrative access is required.")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+func (h *authHandler) adminMe(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	u, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	writeJSON(w, 200, map[string]any{"user": u})
+}
+func (h *authHandler) adminUsers(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	v, e := h.admin.List(r.Context(), principal(r))
+	if e != nil {
+		h.adminError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"users": v})
+}
+func (h *authHandler) adminUser(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	v, e := h.admin.Get(r.Context(), principal(r), r.PathValue("id"))
+	if e != nil {
+		h.adminError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"user": v})
+}
+func (h *authHandler) updateRole(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var in struct {
+		Role authorization.Role `json:"role"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	v, e := h.admin.SetRole(r.Context(), principal(r), r.PathValue("id"), in.Role)
+	if e != nil {
+		h.adminError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"user": v})
+}
+func (h *authHandler) updateEntitlement(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var in struct {
+		Entitlement     authorization.Entitlement `json:"entitlement"`
+		BillingRequired bool                      `json:"billing_required"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	v, e := h.admin.SetEntitlement(r.Context(), principal(r), r.PathValue("id"), in.Entitlement, in.BillingRequired)
+	if e != nil {
+		h.adminError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"user": v})
+}
+func (h *authHandler) adminError(w stdhttp.ResponseWriter, e error) {
+	if errors.Is(e, authorization.ErrForbidden) {
+		writeError(w, 403, "forbidden", "The privileged change is not permitted.")
+		return
+	}
+	writeError(w, 500, "internal_error", "The request could not be completed.")
 }
 func securityHeaders(next stdhttp.Handler) stdhttp.Handler {
 	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {

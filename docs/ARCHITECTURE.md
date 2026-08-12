@@ -76,6 +76,22 @@ AI-provider credentials and financial-provider credentials are separate secret c
 
 ## Authentication architecture
 
+## Authorization and entitlement
+
+**Administrative authority and product entitlement are separate concepts.** Roles form the security hierarchy `superadmin > admin > user`; they do not grant paid product capabilities. Entitlements (`free`, `pro`, `premium`, `founder`, and `internal_comped`) describe product access and do not grant administrative authority. PostgreSQL is authoritative for both, while Redis sessions merely identify a user and never copy or own persistent authorization state.
+
+The centralized Go authorization module evaluates administrative requirements and product capability policy. Founder entitlement is non-expiring, never billing-required, and defaults to all present and future paid capabilities unless a capability is intentionally excluded. Other tier mappings remain conservative placeholders until product gates are designed.
+
+Stripe or another billing provider may influence entitlements in the future, but external billing systems must never determine Arbion administrative roles.
+
+### Founder bootstrap and recovery
+
+Infrastructure operators deliberately run `FOUNDER_EMAIL=normalized@example.com /bootstrap-founder` after the account already exists. The command normalizes and looks up that email, idempotently restores `superadmin` plus the non-billing, non-expiring `founder` entitlement, and writes `authorization.founder_bootstrap` without logging the email or credentials. A missing account fails closed. It is not run during API startup.
+
+Normal admin APIs reject founder demotion, founder entitlement replacement, and making founder access billing-required. Extraordinary recovery uses only this infrastructure-level command with explicit environment configuration and database/audit access; there is no password, URL, query parameter, or authentication bypass. Future deletion flows must likewise refuse founder deletion.
+
+Admin routes are `GET /api/admin/me`, `GET /api/admin/users`, `GET /api/admin/users/{id}`, `PUT /api/admin/users/{id}/role`, and `PUT /api/admin/users/{id}/entitlement`. Admins can view; only superadmins can mutate. Responses use deliberately safe projections. Administrative reads and changes, founder bootstrap, and role/entitlement changes are audited with actor, target, previous/new values, time, and available request correlation metadata; audit integrity and retention remain future work.
+
 Go owns registration, login, logout, session validation, user loading, throttling, and audit events. Transport handlers delegate to the `internal/auth` module, while Next.js is only the experience layer. The stable PostgreSQL user ID is deliberately independent of authentication methods so MFA factors, passkeys, OAuth identities, and enterprise SSO can later be attached without replacing the user model.
 
 PostgreSQL is authoritative for accounts. Redis stores only hashed opaque browser-session identifiers, expiry metadata, per-user session indexes for future bulk revocation, and short-lived rate-limit counters. Redis loss signs browsers out but cannot alter durable resources. Login issues a freshly generated 256-bit token and therefore rotates the session; logout deletes only that token and expires its cookie.
