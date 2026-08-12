@@ -27,6 +27,7 @@ Health checks are available at:
 
 - Web: <http://localhost:3000/api/health>
 - API: <http://localhost:8080/healthz>
+- API readiness: <http://localhost:8080/readyz>
 - AI: <http://localhost:8000/healthz>
 
 Stop the stack with `docker compose down`. Use `docker compose down -v` to also delete local database data.
@@ -40,7 +41,7 @@ Copy each service's example environment file before starting it. PostgreSQL and 
 cd apps/web && cp .env.example .env.local && npm ci && npm run dev
 
 # Go API
-cd services/api && cp .env.example .env && go run ./cmd/api
+cd services/api && cp .env.example .env && go run ./cmd/migrate && go run ./cmd/api
 
 # Python AI service
 cd services/ai && cp .env.example .env && python -m venv .venv

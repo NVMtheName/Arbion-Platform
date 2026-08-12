@@ -36,7 +36,9 @@ The current implementation remains a modular monolith plus one dedicated AI serv
         └───────────────────────┘
 ```
 
-PostgreSQL is the durable system of record. Redis is reserved for ephemeral caching, rate limiting, and coordination; correctness must not depend on cached data.
+PostgreSQL is the durable system of record, including provider-connection metadata and server-side automation configuration. Redis is reserved for ephemeral caching, rate limiting, queues, and worker coordination; correctness must not depend on cached data, and losing Redis must not change whether automation is enabled.
+
+Browser/login sessions are ephemeral and distinct from durable user resources. Logging out ends only the browser session: it does not delete provider connections, revoke their server-side credentials, or disable authorized automation. Future workers will operate independently of an open browser using server-side authorization and credentials.
 
 ## Layer responsibilities
 
@@ -70,7 +72,7 @@ A future MCP-compatible server could expose a deliberately approved subset of Ar
 
 ## Credential and trust boundaries
 
-AI-provider credentials and financial-provider credentials are separate secret classes with distinct access policies. AI vendors must never receive brokerage secrets. Financial connectors should prefer OAuth or token-based delegated authorization where supported. Stored secrets must never be returned to the browser, logged, or committed, and production storage will require managed encryption or a secret manager. See [Security](SECURITY.md).
+AI-provider credentials and financial-provider credentials are separate secret classes with distinct access policies. AI vendors must never receive brokerage secrets. Financial connectors should prefer OAuth or token-based delegated authorization where supported. Stored secrets must never be returned to the browser, logged, or committed. The development vault uses authenticated encryption with an environment-supplied key and PostgreSQL ciphertext storage behind a vault interface; production should replace that adapter with a managed secret system without changing business logic. See [Security](SECURITY.md).
 
 ## Operations and evolution
 

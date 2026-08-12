@@ -28,6 +28,8 @@ Financial providers are external systems. Their data and callbacks require authe
 
 PostgreSQL is the durable system of record. Redis is ephemeral and must not be the sole store for authorization, approvals, credential state, or audit facts. Production infrastructure requires encrypted transport, encryption at rest, backups, least-privilege identities, network restrictions, and monitored access.
 
+Login sessions are short-lived browser authorization state, not ownership of stored resources. Logout must not delete persistent provider connections or disable authorized, server-side automation. Automation enablement and configuration remain authoritative in PostgreSQL and survive browser closure, logout, process restarts, and Redis loss.
+
 ## Credential classes
 
 AI-provider and financial-provider credentials must be stored, authorized, audited, rotated, and revoked as distinct secret classes. Access to one class never implies access to the other.
@@ -39,6 +41,8 @@ AI-provider and financial-provider credentials must be stored, authorized, audit
 | Platform keys and session material | Narrow platform infrastructure components                           | AI/financial providers, application payloads, logs, or client-visible configuration                     |
 
 Secrets must never be committed to Git. Configuration examples use safe development values or blank placeholders. Production storage must use managed secret storage or strong application-level encryption with separated key management. Logs, traces, metrics, support tooling, exception reporting, and backups need consistent redaction and access controls.
+
+The development credential vault encrypts each payload with AES-256-GCM and binds ciphertext authentication to its user, connection, and AI-versus-financial credential class. Only encrypted payloads are persisted in PostgreSQL; normal provider models contain safe metadata only. The vault interface allows a future managed KMS or secrets-manager adapter. Production key custody, rotation, and managed-secret selection remain deferred.
 
 ## Financial action boundary
 
