@@ -7,9 +7,11 @@ import (
 	"os"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/platform/database"
 	platformhttp "github.com/arbion/platform/services/api/internal/platform/http"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -24,10 +26,24 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
+	redisOptions, err := redis.ParseURL(cfg.Redis.URL)
+	if err != nil {
+		slog.Error("invalid Redis configuration", "error", err)
+		os.Exit(1)
+	}
+	redisClient := redis.NewClient(redisOptions)
+	defer redisClient.Close()
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		slog.Error("Redis unavailable", "error", err)
+		os.Exit(1)
+	}
+	users := auth.NewPostgresStore(pool)
+	sessions := auth.NewRedisStore(redisClient)
+	authService := auth.NewService(users, sessions, sessions, users, cfg.Auth.SessionTTL)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           platformhttp.NewHandler(pool, cfg.Database.ReadinessTimeout),
+		Handler:           platformhttp.NewApplicationHandler(pool, cfg, authService),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

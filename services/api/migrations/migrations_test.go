@@ -17,3 +17,15 @@ func TestInitialMigrationDefinesRequiredSchema(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthenticationMigrationIsVersionedAndConstrained(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00002_user_authentication.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"ALTER TABLE users", "normalized_email", "password_hash", "email_verified_at", "users_normalized_email_unique_idx"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("authentication migration missing %q", required)
+		}
+	}
+}

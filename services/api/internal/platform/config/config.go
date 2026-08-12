@@ -25,6 +25,7 @@ type Config struct {
 	Database    Database
 	Redis       Redis
 	Credential  CredentialEncryption
+	Auth        Auth
 }
 
 type Database struct {
@@ -38,6 +39,12 @@ type Database struct {
 type Redis struct{ URL string }
 
 type CredentialEncryption struct{ Key []byte }
+type Auth struct {
+	SessionCookie  string
+	SessionTTL     time.Duration
+	CookieSecure   bool
+	AllowedOrigins []string
+}
 
 func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
 
@@ -84,7 +91,12 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil || minConnections > maxConnections {
 		return Config{}, errors.New("DATABASE_MIN_CONNECTIONS must be non-negative and no greater than DATABASE_MAX_CONNECTIONS")
 	}
-	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}}, nil
+	ttl, err := time.ParseDuration(get("AUTH_SESSION_TTL", "12h"))
+	if err != nil || ttl < time.Minute {
+		return Config{}, errors.New("AUTH_SESSION_TTL must be at least one minute")
+	}
+	origins := strings.Split(get("AUTH_ALLOWED_ORIGINS", "http://localhost:3000"), ",")
+	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins}}, nil
 }
 
 func allZero(value []byte) bool {

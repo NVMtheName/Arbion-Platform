@@ -12,7 +12,21 @@ The browser is untrusted. It must not receive stored provider secrets or make au
 
 ### Go control plane
 
-The Go modular monolith is the policy enforcement point and system of record for authorization decisions, account validation, risk rules, buying power, order validation, approvals, audit, and execution policy. Transport handlers and connector adapters cannot bypass domain policy. Authentication and authorization remain future work.
+The Go modular monolith is the authentication authority and policy enforcement point. It validates opaque Redis-backed sessions and loads the PostgreSQL user before protected handlers run. Transport handlers and connector adapters cannot bypass domain policy.
+
+## Browser authentication controls
+
+Passwords are accepted only in bounded JSON requests, never logged or serialized, and hashed with encapsulated Argon2id parameters (64 MiB memory, three iterations, two lanes, 16-byte random salt, 32-byte output). Passwords must be 12–1024 bytes; passphrases are encouraged and no composition rule is imposed. Encoded hashes carry their parameters to allow rehash upgrades.
+
+The browser receives a random opaque 256-bit token in an `HttpOnly`, `Path=/`, `SameSite=Lax` cookie. Production also sets `Secure`; localhost development intentionally does not. Only SHA-256 token hashes are Redis keys. Sessions expire after an environment-defined TTL, are rotated at authentication, can be individually deleted, and are indexed for future all-session revocation.
+
+Cookie-authenticated state changes use an explicit trusted-origin check in addition to `SameSite=Lax`; requests without an allowed `Origin` are rejected. This is the selected CSRF strategy and does not rely on CORS. Login and registration are protected too. JSON decoding rejects unknown fields and trailing values, bodies are capped at 4 KiB, common security headers are applied, and API errors do not expose internals. Redis sliding-window counters currently throttle registration by IP and login by IP plus normalized account identifier without permanent account lockout.
+
+Audit events record registration, successful and failed login, and logout outcomes without passwords, hashes, tokens, or provider secrets.
+
+## Required authentication follow-up
+
+Before public launch, Arbion must integrate an email delivery provider and require email verification. The schema already records verification time, but development registration is not blocked. Password recovery is intentionally absent until that trusted delivery channel exists; no temporary or insecure reset path is provided. MFA, passkeys, external OAuth identities, enterprise SSO, recovery codes, administrative session revocation UI, adaptive throttling, and step-up authentication remain future security work.
 
 ### Python Neural Engine and external AI providers
 
