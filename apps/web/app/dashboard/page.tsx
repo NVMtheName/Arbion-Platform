@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LogoutButton } from "./logout-button";
-type User = { email: string; display_name: string };
+type User = { email: string; display_name: string; entitlement: string };
 export default async function Dashboard() {
   const cookieStore = await cookies();
   const response = await fetch(
@@ -21,6 +21,7 @@ export default async function Dashboard() {
       </header>
       <h1>Welcome, {user.display_name || user.email}</h1>
       <p className="lede">Your secure command center is ready.</p>
+      <p className="plan">Plan: {user.entitlement.replaceAll("_", " ")}</p>
       <section className="dashboard-grid">
         <article>
           <span className="icon">✦</span>

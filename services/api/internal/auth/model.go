@@ -22,6 +22,9 @@ type User struct {
 	EmailVerifiedAt *time.Time
 	LastLoginAt     *time.Time
 	CreatedAt       time.Time
+	Role            string
+	Entitlement     string
+	BillingRequired bool
 }
 
 type SafeUser struct {
@@ -30,10 +33,12 @@ type SafeUser struct {
 	DisplayName   string `json:"display_name"`
 	Status        string `json:"status"`
 	EmailVerified bool   `json:"email_verified"`
+	Role          string `json:"role"`
+	Entitlement   string `json:"entitlement"`
 }
 
 func (u User) Safe() SafeUser {
-	return SafeUser{ID: u.ID, Email: u.Email, DisplayName: u.DisplayName, Status: u.Status, EmailVerified: u.EmailVerifiedAt != nil}
+	return SafeUser{ID: u.ID, Email: u.Email, DisplayName: u.DisplayName, Status: u.Status, EmailVerified: u.EmailVerifiedAt != nil, Role: u.Role, Entitlement: u.Entitlement}
 }
 func NormalizeEmail(email string) string { return strings.ToLower(strings.TrimSpace(email)) }
 

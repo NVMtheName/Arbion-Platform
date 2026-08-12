@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/auth"
+	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/platform/database"
 	platformhttp "github.com/arbion/platform/services/api/internal/platform/http"
@@ -40,10 +41,11 @@ func main() {
 	users := auth.NewPostgresStore(pool)
 	sessions := auth.NewRedisStore(redisClient)
 	authService := auth.NewService(users, sessions, sessions, users, cfg.Auth.SessionTTL)
+	authorizationService := authorization.NewService(authorization.NewPostgresStore(pool), users)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           platformhttp.NewApplicationHandler(pool, cfg, authService),
+		Handler:           platformhttp.NewApplicationHandler(pool, cfg, authService, authorizationService),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

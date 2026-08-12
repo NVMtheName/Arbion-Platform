@@ -81,6 +81,8 @@ A future MCP-compatible server for external clients would introduce a new public
 
 ## Audit and observability
 
+Administrative endpoints enforce centralized, deny-by-default role checks. Product entitlement is never interpreted as an administrative role, and administrative role is never interpreted as product access. Founder protections are domain invariants in the mutation service and database constraints, not client-side controls. Rejected privileged changes return a generic forbidden response without exposing sensitive account state.
+
 Security-relevant events should capture actor, tenant, decision, policy version, resource, time, correlation identifiers, approvals, and outcome. Audit records must avoid secrets and unnecessary sensitive payloads, be access-controlled, have defined retention, and eventually support integrity protection. Operational telemetry should default to metadata rather than prompts, model responses, order payloads, or provider bodies.
 
 ## Threats to address before integrations

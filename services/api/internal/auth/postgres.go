@@ -18,11 +18,11 @@ type PostgresStore struct{ db DB }
 
 func NewPostgresStore(db DB) *PostgresStore { return &PostgresStore{db: db} }
 
-const userColumns = `id::text,email,normalized_email,password_hash,COALESCE(display_name,''),status,email_verified_at,last_login_at,created_at`
+const userColumns = `id::text,email,normalized_email,password_hash,COALESCE(display_name,''),status,email_verified_at,last_login_at,created_at,role,COALESCE((SELECT entitlement_key FROM user_entitlements e WHERE e.user_id=users.id AND e.status='active' AND (e.expires_at IS NULL OR e.expires_at>now()) ORDER BY CASE entitlement_key WHEN 'founder' THEN 5 WHEN 'premium' THEN 4 WHEN 'pro' THEN 3 WHEN 'internal_comped' THEN 2 ELSE 1 END DESC LIMIT 1),'free'),COALESCE((SELECT billing_required FROM user_entitlements e WHERE e.user_id=users.id AND e.status='active' AND (e.expires_at IS NULL OR e.expires_at>now()) ORDER BY CASE entitlement_key WHEN 'founder' THEN 5 WHEN 'premium' THEN 4 WHEN 'pro' THEN 3 WHEN 'internal_comped' THEN 2 ELSE 1 END DESC LIMIT 1),false)`
 
 func scanUser(row pgx.Row) (User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Email, &u.NormalizedEmail, &u.PasswordHash, &u.DisplayName, &u.Status, &u.EmailVerifiedAt, &u.LastLoginAt, &u.CreatedAt)
+	err := row.Scan(&u.ID, &u.Email, &u.NormalizedEmail, &u.PasswordHash, &u.DisplayName, &u.Status, &u.EmailVerifiedAt, &u.LastLoginAt, &u.CreatedAt, &u.Role, &u.Entitlement, &u.BillingRequired)
 	return u, err
 }
 func (s *PostgresStore) Create(ctx context.Context, email, normalized, hash, name string) (User, error) {
