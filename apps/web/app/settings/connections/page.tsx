@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { ConnectionsManager } from "./connections-manager";
+import { FinancialManager } from "./financial-manager";
 
 export type Connection = {
   id: string;
@@ -22,6 +23,19 @@ type FinancialProvider = {
   id: string;
   label: string;
   availability: "implemented" | "planned";
+};
+export type FinancialConnection = {
+  id: string;
+  provider: string;
+  display_name: string;
+  status: string;
+  last_synced_at?: string;
+};
+export type FinancialAccount = {
+  id: string;
+  provider_connection_id: string;
+  display_name: string;
+  status: string;
 };
 export default async function ConnectionsPage() {
   const jar = await cookies();
@@ -46,6 +60,27 @@ export default async function ConnectionsPage() {
         can_connect_financial_accounts: boolean;
       })
     : { providers: [], can_connect_financial_accounts: false };
+  const [connectionsResponse, accountsResponse] = await Promise.all([
+    fetch(
+      `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/connections/financial`,
+      { headers: { cookie: jar.toString() }, cache: "no-store" },
+    ),
+    fetch(
+      `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/accounts`,
+      { headers: { cookie: jar.toString() }, cache: "no-store" },
+    ),
+  ]);
+  const financialConnections = connectionsResponse.ok
+    ? (
+        (await connectionsResponse.json()) as {
+          connections: FinancialConnection[];
+        }
+      ).connections
+    : [];
+  const financialAccounts = accountsResponse.ok
+    ? ((await accountsResponse.json()) as { accounts: FinancialAccount[] })
+        .accounts
+    : [];
   return (
     <>
       <ConnectionsManager
@@ -71,9 +106,14 @@ export default async function ConnectionsPage() {
               {provider.availability === "implemented" ? (
                 <>
                   <p>Secure read-only account connection</p>
-                  <button disabled={!financial.can_connect_financial_accounts}>
-                    Connect
-                  </button>
+                  <FinancialManager
+                    provider={provider}
+                    entitled={financial.can_connect_financial_accounts}
+                    connections={financialConnections.filter(
+                      (c) => c.provider === provider.id,
+                    )}
+                    accounts={financialAccounts}
+                  />
                 </>
               ) : (
                 <p className="unavailable">Coming soon</p>

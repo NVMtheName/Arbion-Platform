@@ -16,6 +16,10 @@ const nextConfig: NextConfig = {
         source: "/api/connections/:path*",
         destination: `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/connections/:path*`,
       },
+      {
+        source: "/api/accounts/:path*",
+        destination: `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/accounts/:path*`,
+      },
     ];
   },
 };

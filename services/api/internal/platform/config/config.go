@@ -27,6 +27,7 @@ type Config struct {
 	Credential  CredentialEncryption
 	Auth        Auth
 	AI          AIService
+	Schwab      Schwab
 }
 
 type Database struct {
@@ -38,6 +39,10 @@ type Database struct {
 }
 
 type Redis struct{ URL string }
+type Schwab struct {
+	ClientID, ClientSecret, RedirectURI, AuthorizationURL, TokenURL, TraderBaseURL string
+	Timeout                                                                        time.Duration
+}
 type AIService struct {
 	URL           string
 	InternalToken string
@@ -107,7 +112,8 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if internalToken == "" {
 		return Config{}, errors.New("AI_INTERNAL_SERVICE_TOKEN is required")
 	}
-	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins}, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 12 * time.Second}}, nil
+	schwab := Schwab{ClientID: get("SCHWAB_CLIENT_ID", ""), ClientSecret: get("SCHWAB_CLIENT_SECRET", ""), RedirectURI: get("SCHWAB_REDIRECT_URI", "http://localhost:8080/api/connections/financial/schwab/callback"), AuthorizationURL: get("SCHWAB_AUTHORIZATION_URL", "https://api.schwabapi.com/v1/oauth/authorize"), TokenURL: get("SCHWAB_TOKEN_URL", "https://api.schwabapi.com/v1/oauth/token"), TraderBaseURL: get("SCHWAB_TRADER_BASE_URL", "https://api.schwabapi.com/trader/v1"), Timeout: 10 * time.Second}
+	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins}, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 12 * time.Second}, Schwab: schwab}, nil
 }
 
 func allZero(value []byte) bool {

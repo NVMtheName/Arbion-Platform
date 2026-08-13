@@ -11,6 +11,9 @@ import (
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/credential"
+	"github.com/arbion/platform/services/api/internal/financial/oauthstate"
+	"github.com/arbion/platform/services/api/internal/financial/schwab"
+	"github.com/arbion/platform/services/api/internal/financialconnection"
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/platform/database"
@@ -53,10 +56,13 @@ func main() {
 	}
 	neuralClient := neural.NewHTTPClient(cfg.AI.URL, cfg.AI.InternalToken, &http.Client{Timeout: cfg.AI.Timeout})
 	aiConnections := aiconnection.NewService(aiconnection.NewPostgresStore(pool, registry), vault, users, registry, neuralClient)
+	states := oauthstate.New(oauthstate.NewRedisStore(redisClient), 10*time.Minute)
+	schwabClient := schwab.New(schwab.Config{ClientID: cfg.Schwab.ClientID, ClientSecret: cfg.Schwab.ClientSecret, RedirectURI: cfg.Schwab.RedirectURI, AuthorizationURL: cfg.Schwab.AuthorizationURL, TokenURL: cfg.Schwab.TokenURL, TraderBaseURL: cfg.Schwab.TraderBaseURL}, &http.Client{Timeout: cfg.Schwab.Timeout})
+	financialConnections := financialconnection.NewService(financialconnection.NewPostgresStore(pool), vault, states, schwabClient, users)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           platformhttp.NewFullApplicationHandler(pool, cfg, authService, authorizationService, aiConnections),
+		Handler:           platformhttp.NewFullApplicationHandler(pool, cfg, authService, authorizationService, aiConnections, financialConnections),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
