@@ -1,14 +1,21 @@
 package aiconnection
 
 type Provider struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
+	ID              string   `json:"id"`
+	Label           string   `json:"label"`
+	CredentialTypes []string `json:"credential_types"`
+	Capabilities    []string `json:"capabilities"`
 }
 
 type Registry struct{ providers map[string]Provider }
 
 func DefaultRegistry() Registry {
-	items := []Provider{{"openai", "OpenAI"}, {"anthropic", "Anthropic / Claude"}, {"gemini", "Google Gemini"}}
+	common := []string{"credential_verification", "model_discovery", "text_generation", "streaming"}
+	items := []Provider{
+		{ID: "openai", Label: "OpenAI", CredentialTypes: []string{"authorization_key"}, Capabilities: append(common, "structured_output", "tool_calling", "vision", "reasoning", "web_search")},
+		{ID: "anthropic", Label: "Anthropic / Claude", CredentialTypes: []string{"api_key"}, Capabilities: append(common, "structured_output", "tool_calling", "vision", "reasoning")},
+		{ID: "gemini", Label: "Google Gemini", CredentialTypes: []string{"api_key"}, Capabilities: append(common, "structured_output", "tool_calling", "vision", "reasoning")},
+	}
 	r := Registry{providers: make(map[string]Provider, len(items))}
 	for _, item := range items {
 		r.providers[item.ID] = item

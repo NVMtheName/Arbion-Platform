@@ -8,6 +8,7 @@ import (
 
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/credential"
+	"github.com/arbion/platform/services/api/internal/neural"
 )
 
 type memoryStore struct{ items map[string]Connection }
@@ -49,6 +50,19 @@ func (ms *memoryStore) SetCredentialPending(_ context.Context, user, id, hint st
 	c.CredentialHint = hint
 	ms.items[id] = c
 	return c, e
+}
+func (ms *memoryStore) SetVerification(_ context.Context, user, id, status string, verified bool) (Connection, error) {
+	c, e := ms.SetStatus(context.Background(), user, id, status)
+	if verified {
+		now := time.Now()
+		c.LastVerifiedAt = &now
+		ms.items[id] = c
+	}
+	return c, e
+}
+func (ms *memoryStore) GetPreference(context.Context, string) (*Preference, error) { return nil, nil }
+func (ms *memoryStore) SetPreference(_ context.Context, user, id, model string) (Preference, error) {
+	return Preference{ConnectionID: id, ModelID: model, UpdatedAt: time.Now()}, nil
 }
 func (ms *memoryStore) Delete(_ context.Context, user, id string) error {
 	if _, ok := ms.items[id]; !ok {
@@ -99,6 +113,62 @@ func setup(t *testing.T) (*Service, *memoryStore, *blobs) {
 		t.Fatal(e)
 	}
 	return NewService(ms, v, audit{}, DefaultRegistry()), ms, bs
+}
+
+type fakeNeural struct{ err error }
+
+func (f fakeNeural) Verify(context.Context, string, []byte) error { return f.err }
+func (f fakeNeural) Models(context.Context, string, []byte) ([]neural.Model, error) {
+	return []neural.Model{{ID: "model-1", Provider: "openai"}}, f.err
+}
+func TestVerificationTransitionsAndPreservesCredential(t *testing.T) {
+	s, ms, bs := setup(t)
+	s.neural = fakeNeural{}
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	c, e := s.Create(context.Background(), p, "openai", "Mine", []byte("secret-value"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	verified, e := s.Verify(context.Background(), p, c.ID)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if verified.Status != "active" || verified.LastVerifiedAt == nil {
+		t.Fatal("verification did not activate and timestamp connection")
+	}
+	cipher := string(bs.data[c.ID])
+	s.neural = fakeNeural{err: &neural.ProviderError{Code: neural.AuthenticationFailed}}
+	_, e = s.Verify(context.Background(), p, c.ID)
+	if neural.Code(e) != neural.AuthenticationFailed || ms.items[c.ID].Status != "error" {
+		t.Fatal("failed verification was not normalized")
+	}
+	if string(bs.data[c.ID]) != cipher {
+		t.Fatal("failed verification removed credential")
+	}
+}
+func TestDisabledVerificationRejected(t *testing.T) {
+	s, _, _ := setup(t)
+	s.neural = fakeNeural{}
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	c, _ := s.Create(context.Background(), p, "openai", "Mine", []byte("secret-value"))
+	_, _ = s.SetEnabled(context.Background(), p, c.ID, false)
+	if _, e := s.Verify(context.Background(), p, c.ID); !errors.Is(e, ErrDisabled) {
+		t.Fatal("disabled connection verified")
+	}
+}
+func TestPreferenceRequiresActiveDiscoveredModel(t *testing.T) {
+	s, _, _ := setup(t)
+	s.neural = fakeNeural{}
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	c, _ := s.Create(context.Background(), p, "openai", "Mine", []byte("secret-value"))
+	if _, e := s.SetPreference(context.Background(), p, c.ID, "model-1"); !errors.Is(e, ErrInactive) {
+		t.Fatal("pending connection selected")
+	}
+	_, _ = s.Verify(context.Background(), p, c.ID)
+	pref, e := s.SetPreference(context.Background(), p, c.ID, "model-1")
+	if e != nil || pref.ModelID != "model-1" {
+		t.Fatal("active model preference rejected")
+	}
 }
 func TestEntitlementIsIndependentOfAdminRole(t *testing.T) {
 	s, _, _ := setup(t)

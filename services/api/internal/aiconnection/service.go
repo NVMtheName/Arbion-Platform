@@ -8,6 +8,7 @@ import (
 
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/credential"
+	"github.com/arbion/platform/services/api/internal/neural"
 )
 
 var (
@@ -15,6 +16,9 @@ var (
 	ErrNotFound  = errors.New("connection not found")
 	ErrInvalid   = errors.New("invalid connection input")
 	ErrConflict  = errors.New("connection has durable dependencies")
+	ErrDisabled  = errors.New("connection is disabled")
+	ErrInactive  = errors.New("connection is not active")
+	ErrProvider  = errors.New("neural provider failure")
 )
 
 const MaxCredentialBytes = 4096
@@ -39,6 +43,9 @@ type Store interface {
 	Rename(context.Context, string, string, string) (Connection, error)
 	SetStatus(context.Context, string, string, string) (Connection, error)
 	SetCredentialPending(context.Context, string, string, string) (Connection, error)
+	SetVerification(context.Context, string, string, string, bool) (Connection, error)
+	GetPreference(context.Context, string) (*Preference, error)
+	SetPreference(context.Context, string, string, string) (Preference, error)
 	Delete(context.Context, string, string) error
 	HasDependencies(context.Context, string, string) (bool, error)
 }
@@ -50,17 +57,124 @@ type Service struct {
 	vault    credential.Vault
 	audit    Auditor
 	registry Registry
+	neural   neural.Client
 }
 
-func NewService(s Store, v credential.Vault, a Auditor, r Registry) *Service {
-	return &Service{s, v, a, r}
+func NewService(s Store, v credential.Vault, a Auditor, r Registry, clients ...neural.Client) *Service {
+	var client neural.Client
+	if len(clients) > 0 {
+		client = clients[0]
+	}
+	return &Service{store: s, vault: v, audit: a, registry: r, neural: client}
 }
+
+type Preference struct {
+	ConnectionID string    `json:"connection_id"`
+	ModelID      string    `json:"model_id"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 func (s *Service) Providers() []Provider { return s.registry.List() }
 func (s *Service) List(ctx context.Context, p authorization.Principal) ([]Connection, error) {
 	if authorization.RequireAuthenticated(p) != nil {
 		return nil, ErrForbidden
 	}
 	return s.store.List(ctx, p.UserID)
+}
+func (s *Service) Verify(ctx context.Context, p authorization.Principal, id string) (Connection, error) {
+	c, err := s.ownedMutation(ctx, p, id, "ai_connection.verification_rejected")
+	if err != nil {
+		return Connection{}, err
+	}
+	if c.Status == "disabled" {
+		return Connection{}, ErrDisabled
+	}
+	secret, err := s.vault.Retrieve(ctx, credential.Locator{ConnectionID: id, UserID: p.UserID, Class: credential.AI})
+	if err != nil {
+		return Connection{}, err
+	}
+	defer clear(secret)
+	if s.neural == nil {
+		return Connection{}, ErrProvider
+	}
+	err = s.neural.Verify(ctx, c.Provider, secret)
+	if err != nil {
+		c, _ = s.store.SetVerification(ctx, p.UserID, id, "error", false)
+		code := neural.Code(err)
+		action := "ai_connection.verification_failed"
+		if code == neural.ProviderUnavailable || code == neural.Timeout {
+			action = "ai_connection.provider_unavailable"
+		}
+		s.record(ctx, p.UserID, action, c, map[string]any{"outcome": code})
+		return c, &neural.ProviderError{Code: code}
+	}
+	c, err = s.store.SetVerification(ctx, p.UserID, id, "active", true)
+	if err == nil {
+		s.record(ctx, p.UserID, "ai_connection.verification_succeeded", c, map[string]any{"outcome": "verified"})
+	}
+	return c, err
+}
+func (s *Service) Models(ctx context.Context, p authorization.Principal, id string) ([]neural.Model, error) {
+	c, err := s.ownedMutation(ctx, p, id, "ai_connection.models_rejected")
+	if err != nil {
+		return nil, err
+	}
+	if c.Status == "disabled" {
+		return nil, ErrDisabled
+	}
+	if c.Status != "active" {
+		return nil, ErrInactive
+	}
+	secret, err := s.vault.Retrieve(ctx, credential.Locator{ConnectionID: id, UserID: p.UserID, Class: credential.AI})
+	if err != nil {
+		return nil, err
+	}
+	defer clear(secret)
+	return s.neural.Models(ctx, c.Provider, secret)
+}
+func (s *Service) Preference(ctx context.Context, p authorization.Principal) (*Preference, error) {
+	if !s.allowed(ctx, p, "neural_preference.read_rejected", "", "") {
+		return nil, ErrForbidden
+	}
+	return s.store.GetPreference(ctx, p.UserID)
+}
+func (s *Service) SetPreference(ctx context.Context, p authorization.Principal, connectionID, modelID string) (Preference, error) {
+	if !s.allowed(ctx, p, "neural_preference.change_rejected", connectionID, "") {
+		return Preference{}, ErrForbidden
+	}
+	c, err := s.store.Get(ctx, p.UserID, connectionID)
+	if err != nil {
+		return Preference{}, err
+	}
+	if c.Status != "active" {
+		return Preference{}, ErrInactive
+	}
+	models, err := s.Models(ctx, p, connectionID)
+	if err != nil {
+		return Preference{}, err
+	}
+	found := false
+	for _, m := range models {
+		if m.ID == modelID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return Preference{}, ErrInvalid
+	}
+	previous, _ := s.store.GetPreference(ctx, p.UserID)
+	pref, err := s.store.SetPreference(ctx, p.UserID, connectionID, modelID)
+	if err != nil {
+		return Preference{}, err
+	}
+	if previous == nil || previous.ConnectionID != connectionID {
+		s.record(ctx, p.UserID, "neural_preference.provider_changed", c, map[string]any{"model_id": modelID})
+	}
+	if previous == nil || previous.ModelID != modelID {
+		s.record(ctx, p.UserID, "neural_preference.model_changed", c, map[string]any{"model_id": modelID})
+	}
+	return pref, nil
 }
 func (s *Service) Create(ctx context.Context, p authorization.Principal, provider, name string, secret []byte) (Connection, error) {
 	if !s.allowed(ctx, p, "ai_connection.create_rejected", "", provider) {

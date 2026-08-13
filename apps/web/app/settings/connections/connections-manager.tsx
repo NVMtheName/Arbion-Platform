@@ -16,6 +16,10 @@ export function ConnectionsManager({
   const [connecting, setConnecting] = useState<string | null>(null);
   const [replacing, setReplacing] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [models, setModels] = useState<Record<string, Model[]>>({});
+  const [selectedConnection, setSelectedConnection] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  type Model = { id: string; display_name: string; provider: string };
   async function request(path: string, method: string, body?: unknown) {
     setError("");
     const response = await fetch(path, {
@@ -75,6 +79,32 @@ export function ConnectionsManager({
     const data = await request(`/api/connections/ai/${c.id}`, "DELETE");
     if (data) setConnections((v) => v.filter((x) => x.id !== c.id));
   }
+  async function verify(c: Connection) {
+    const data = (await request(
+      `/api/connections/ai/${c.id}/verify`,
+      "POST",
+    )) as { connection: Connection } | null;
+    if (data) {
+      setConnections((items) =>
+        items.map((item) => (item.id === c.id ? data.connection : item)),
+      );
+      await loadModels(data.connection);
+    }
+  }
+  async function loadModels(c: Connection) {
+    const data = (await request(
+      `/api/connections/ai/${c.id}/models`,
+      "GET",
+    )) as { models: Model[] } | null;
+    if (data) setModels((current) => ({ ...current, [c.id]: data.models }));
+  }
+  async function saveDefault(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    await request("/api/settings/neural-engine", "PUT", {
+      connection_id: selectedConnection,
+      model_id: selectedModel,
+    });
+  }
   return (
     <main className="connections-page">
       <Link href="/dashboard">← Dashboard</Link>
@@ -120,8 +150,35 @@ export function ConnectionsManager({
                         : c.status}
                     </p>
                     <p>Credential: {c.credential_hint}</p>
+                    {c.last_verified_at && (
+                      <p>
+                        Verified:{" "}
+                        {new Date(c.last_verified_at).toLocaleString()}
+                      </p>
+                    )}
+                    {models[c.id] && (
+                      <p>Models available: {models[c.id].length}</p>
+                    )}
                     {entitled && (
                       <div className="connection-actions">
+                        {c.status !== "disabled" && (
+                          <button onClick={() => verify(c)}>
+                            {c.status === "active"
+                              ? "Reverify"
+                              : "Verify Connection"}
+                          </button>
+                        )}
+                        {c.status === "active" && (
+                          <button
+                            className="secondary"
+                            onClick={() => {
+                              setSelectedConnection(c.id);
+                              void loadModels(c);
+                            }}
+                          >
+                            Configure Neural Engine
+                          </button>
+                        )}
                         <button
                           className="secondary"
                           onClick={() => setReplacing(c.id)}
@@ -182,6 +239,54 @@ export function ConnectionsManager({
             </article>
           );
         })}
+      </section>
+      <section className="neural-default">
+        <h2>Neural Engine</h2>
+        <p>Choose the default provider connection and model for AI features.</p>
+        <form onSubmit={saveDefault}>
+          <label>
+            Connection
+            <select
+              required
+              value={selectedConnection}
+              onChange={(event) => {
+                const id = event.target.value;
+                setSelectedConnection(id);
+                setSelectedModel("");
+                const connection = connections.find((item) => item.id === id);
+                if (connection) void loadModels(connection);
+              }}
+            >
+              <option value="">Select an active connection</option>
+              {connections
+                .filter((connection) => connection.status === "active")
+                .map((connection) => (
+                  <option key={connection.id} value={connection.id}>
+                    {connection.provider_label} — {connection.display_name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label>
+            Model
+            <select
+              required
+              value={selectedModel}
+              onChange={(event) => setSelectedModel(event.target.value)}
+              disabled={!selectedConnection}
+            >
+              <option value="">Select a model</option>
+              {(models[selectedConnection] ?? []).map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button disabled={!selectedConnection || !selectedModel}>
+            Save Default
+          </button>
+        </form>
       </section>
     </main>
   );

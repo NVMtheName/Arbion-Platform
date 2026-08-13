@@ -7,7 +7,7 @@ import (
 )
 
 func validEnvironment() map[string]string {
-	return map[string]string{"ARBION_ENV": "development", "DATABASE_URL": "postgres://user:pass@localhost/db?sslmode=disable", "REDIS_URL": "redis://localhost:6379/0", "CREDENTIAL_ENCRYPTION_KEY": base64.StdEncoding.EncodeToString(make([]byte, 32))}
+	return map[string]string{"ARBION_ENV": "development", "DATABASE_URL": "postgres://user:pass@localhost/db?sslmode=disable", "REDIS_URL": "redis://localhost:6379/0", "CREDENTIAL_ENCRYPTION_KEY": base64.StdEncoding.EncodeToString(make([]byte, 32)), "AI_INTERNAL_SERVICE_TOKEN": "test-internal-token"}
 }
 func load(values map[string]string) (Config, error) {
 	return LoadFrom(func(k string) (string, bool) { v, ok := values[k]; return v, ok })

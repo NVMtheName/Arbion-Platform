@@ -10,8 +10,14 @@ export type Connection = {
   status: string;
   enabled: boolean;
   credential_hint: string;
+  last_verified_at?: string;
 };
-export type Provider = { id: string; label: string };
+export type Provider = {
+  id: string;
+  label: string;
+  credential_types: string[];
+  capabilities: string[];
+};
 export default async function ConnectionsPage() {
   const jar = await cookies();
   const response = await fetch(

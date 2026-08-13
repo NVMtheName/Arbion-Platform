@@ -13,6 +13,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/authorization"
+	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 )
 
@@ -78,8 +79,59 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.Handle("PUT /api/connections/ai/{id}/credential", h.require(stdhttp.HandlerFunc(h.replaceAI)))
 	mux.Handle("POST /api/connections/ai/{id}/enable", h.require(stdhttp.HandlerFunc(h.enableAI)))
 	mux.Handle("POST /api/connections/ai/{id}/disable", h.require(stdhttp.HandlerFunc(h.disableAI)))
+	mux.Handle("POST /api/connections/ai/{id}/verify", h.require(stdhttp.HandlerFunc(h.verifyAI)))
+	mux.Handle("GET /api/connections/ai/{id}/models", h.require(stdhttp.HandlerFunc(h.modelsAI)))
+	mux.Handle("GET /api/settings/neural-engine", h.require(stdhttp.HandlerFunc(h.getNeuralPreference)))
+	mux.Handle("PUT /api/settings/neural-engine", h.require(stdhttp.HandlerFunc(h.setNeuralPreference)))
 	mux.Handle("DELETE /api/connections/ai/{id}", h.require(stdhttp.HandlerFunc(h.deleteAI)))
 	return securityHeaders(mux)
+}
+func (h *authHandler) verifyAI(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	c, e := h.ai.Verify(r.Context(), principal(r), r.PathValue("id"))
+	if e != nil {
+		h.aiError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"connection": c})
+}
+func (h *authHandler) modelsAI(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	models, e := h.ai.Models(r.Context(), principal(r), r.PathValue("id"))
+	if e != nil {
+		h.aiError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"models": models})
+}
+func (h *authHandler) getNeuralPreference(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	p, e := h.ai.Preference(r.Context(), principal(r))
+	if e != nil {
+		h.aiError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"preference": p})
+}
+func (h *authHandler) setNeuralPreference(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var in struct {
+		ConnectionID string `json:"connection_id"`
+		ModelID      string `json:"model_id"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	p, e := h.ai.SetPreference(r.Context(), principal(r), in.ConnectionID, in.ModelID)
+	if e != nil {
+		h.aiError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"preference": p})
 }
 
 func (h *authHandler) listAI(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -188,6 +240,16 @@ func (h *authHandler) aiError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 400, "invalid_request", "Connection details are invalid.")
 	case errors.Is(e, aiconnection.ErrConflict):
 		writeError(w, 409, "connection_in_use", "Resolve dependent configuration before removing this connection.")
+	case errors.Is(e, aiconnection.ErrDisabled):
+		writeError(w, 409, "connection_disabled", "Enable the connection before verifying it.")
+	case errors.Is(e, aiconnection.ErrInactive):
+		writeError(w, 409, "connection_not_active", "Verify the connection before selecting it.")
+	case neural.Code(e) == neural.AuthenticationFailed:
+		writeError(w, 401, "provider_authentication_failed", "Authentication was rejected by the AI provider. Your saved credential was not removed.")
+	case neural.Code(e) == neural.RateLimited:
+		writeError(w, 429, "provider_rate_limited", "The provider rate limit was reached. Please try again later.")
+	case neural.Code(e) == neural.ProviderUnavailable || neural.Code(e) == neural.Timeout:
+		writeError(w, 503, "provider_unavailable", "Provider is temporarily unavailable. Your saved credential was not removed.")
 	default:
 		writeError(w, 500, "internal_error", "The request could not be completed.")
 	}

@@ -62,6 +62,10 @@ The development credential vault encrypts each payload with AES-256-GCM and bind
 
 AI connection endpoints authenticate every request, scope every lookup and mutation by user ID and the `ai` credential class, enforce trusted origins on mutations, and cap JSON bodies and API keys. Foreign and missing connection identifiers are indistinguishable. Audit events contain provider/connection identifiers and state transitions but no request body, key, ciphertext, nonce, or vault details. Logout removes only the session and has no connection lifecycle side effect.
 
+For verification and model discovery, Go checks entitlement, ownership, and state before retrieving plaintext through the Vault. It sends the credential in a bounded JSON body over an internal-only, bearer-authenticated service route; it never uses an environment variable or query string. Python holds it only for request scope, selects a fixed adapter destination, bounds time and response size, performs no uncontrolled retry, and returns only normalized results or errors. Raw provider bodies are never relayed. Local Compose does not publish the AI port; production additionally requires encrypted transport, workload identity/rotation, restrictive network policy, and trace/log redaction.
+
+**AI provider verification does not grant trading authority. AI provider credentials never cross into financial-provider connectors.**
+
 ## Financial action boundary
 
 AI output enters the control plane as an untrusted proposal. Before any future financial action, the platform must establish:
