@@ -13,6 +13,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/authorization"
+	"github.com/arbion/platform/services/api/internal/automation"
 	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/financialconnection"
 	"github.com/arbion/platform/services/api/internal/neural"
@@ -26,6 +27,7 @@ type authHandler struct {
 	ai                 *aiconnection.Service
 	financialProviders financial.Registry
 	financial          *financialconnection.Service
+	automation         *automation.Service
 	cfg                config.Auth
 }
 type credentials struct {
@@ -105,6 +107,20 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 		mux.Handle("GET /api/accounts/{id}/balances", h.require(stdhttp.HandlerFunc(h.getBalances)))
 		mux.Handle("GET /api/accounts/{id}/positions", h.require(stdhttp.HandlerFunc(h.getPositions)))
 	}
+	registerAutomationRoutes(mux, h)
+	return securityHeaders(mux)
+}
+
+func NewFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service) stdhttp.Handler {
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), financial: finances, automation: automations}
+	mux := stdhttp.NewServeMux()
+	mux.HandleFunc("GET /healthz", health)
+	mux.HandleFunc("GET /readyz", readiness(database, cfg.Database.ReadinessTimeout))
+	// Reuse the complete router and attach automation to a small outer router. Existing
+	// routes keep their established middleware and behavior.
+	base := NewFullApplicationHandler(database, cfg, service, admin, ai, finances)
+	registerAutomationRoutes(mux, h)
+	mux.Handle("/", base)
 	return securityHeaders(mux)
 }
 

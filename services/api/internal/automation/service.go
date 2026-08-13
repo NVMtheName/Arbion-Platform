@@ -1,0 +1,302 @@
+package automation
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"math/big"
+	"regexp"
+	"strings"
+
+	"github.com/arbion/platform/services/api/internal/authorization"
+)
+
+var (
+	ErrForbidden = errors.New("automation entitlement required")
+	ErrInvalid   = errors.New("invalid automation configuration")
+	ErrNotFound  = errors.New("automation resource not found")
+	ErrConflict  = errors.New("automation version or dependency conflict")
+)
+
+type AccountFacts struct {
+	Owned           bool
+	Options, Margin string
+}
+type AIFacts struct{ Owned, Active, ModelValid bool }
+type Store interface {
+	AccountFacts(context.Context, string, string) (AccountFacts, error)
+	AIFacts(context.Context, string, string, string) (AIFacts, error)
+	CreateBucket(context.Context, string, CreateBucketCommand) (CapitalBucket, error)
+	FixedAllocated(context.Context, string, string) (*big.Rat, error)
+	ListBuckets(context.Context, string) ([]CapitalBucket, error)
+	GetBucket(context.Context, string, string) (CapitalBucket, error)
+	UpdateBucket(context.Context, string, string, CreateBucketCommand) (CapitalBucket, error)
+	DeleteBucket(context.Context, string, string) error
+	CreateMandate(context.Context, string, MandateCommand, bool) (Mandate, error)
+	ListMandates(context.Context, string) ([]Mandate, error)
+	GetMandate(context.Context, string, string) (Mandate, error)
+	UpdateMandate(context.Context, string, string, int, MandateCommand, bool, string) (Mandate, error)
+	Transition(context.Context, string, string, int, string, string) (Mandate, error)
+	Versions(context.Context, string, string) ([]Version, error)
+	Version(context.Context, string, string, int) (Version, error)
+}
+type Auditor interface {
+	Record(context.Context, *string, string, map[string]any) error
+}
+type Service struct {
+	store Store
+	audit Auditor
+}
+
+func NewService(s Store, a Auditor) *Service { return &Service{s, a} }
+func allowed(p authorization.Principal) bool {
+	return authorization.CanUseAutomation(p) && authorization.CanConnectFinancialAccounts(p)
+}
+func (s *Service) auditEvent(ctx context.Context, p authorization.Principal, a string, m map[string]any) {
+	if s.audit != nil {
+		_ = s.audit.Record(ctx, &p.UserID, a, m)
+	}
+}
+func decimal(v string, positive bool) (*big.Rat, bool) {
+	if !regexp.MustCompile(`^\d+(\.\d{1,10})?$`).MatchString(v) {
+		return nil, false
+	}
+	r, ok := new(big.Rat).SetString(v)
+	return r, ok && (!positive || r.Sign() > 0)
+}
+func (s *Service) CreateBucket(ctx context.Context, p authorization.Principal, c CreateBucketCommand) (CapitalBucket, error) {
+	if !allowed(p) {
+		return CapitalBucket{}, ErrForbidden
+	}
+	f, e := s.store.AccountFacts(ctx, p.UserID, c.FinancialAccountID)
+	if e != nil || !f.Owned {
+		return CapitalBucket{}, ErrNotFound
+	}
+	c.Name = strings.TrimSpace(c.Name)
+	c.Currency = strings.ToUpper(c.Currency)
+	v, ok := decimal(c.AllocationValue, true)
+	if c.Name == "" || len(c.Name) > 100 || len(c.Currency) != 3 || !ok {
+		return CapitalBucket{}, ErrInvalid
+	}
+	if c.AllocationType != "FIXED_AMOUNT" && c.AllocationType != "PERCENT_OF_AVAILABLE_CASH" && c.AllocationType != "PERCENT_OF_BUYING_POWER" {
+		return CapitalBucket{}, ErrInvalid
+	}
+	if c.AllocationType != "FIXED_AMOUNT" && v.Cmp(big.NewRat(100, 1)) > 0 {
+		return CapitalBucket{}, ErrInvalid
+	}
+	if _, ok = decimal(c.ProtectedAmount, false); !ok {
+		return CapitalBucket{}, ErrInvalid
+	}
+	if c.AllocationType == "FIXED_AMOUNT" && c.AllocationLimit != nil {
+		limit, lok := decimal(*c.AllocationLimit, true)
+		used, e := s.store.FixedAllocated(ctx, p.UserID, c.FinancialAccountID)
+		if !lok || e != nil || new(big.Rat).Add(used, v).Cmp(limit) > 0 {
+			return CapitalBucket{}, ErrConflict
+		}
+	}
+	b, e := s.store.CreateBucket(ctx, p.UserID, c)
+	if e == nil {
+		s.auditEvent(ctx, p, "capital_bucket.created", map[string]any{"capital_bucket_id": b.ID, "account_id": b.FinancialAccountID})
+	}
+	return b, e
+}
+func (s *Service) ListBuckets(c context.Context, p authorization.Principal) ([]CapitalBucket, error) {
+	if !allowed(p) {
+		return nil, ErrForbidden
+	}
+	return s.store.ListBuckets(c, p.UserID)
+}
+func (s *Service) GetBucket(c context.Context, p authorization.Principal, id string) (CapitalBucket, error) {
+	if !allowed(p) {
+		return CapitalBucket{}, ErrForbidden
+	}
+	return s.store.GetBucket(c, p.UserID, id)
+}
+func (s *Service) UpdateBucket(c context.Context, p authorization.Principal, id string, x CreateBucketCommand) (CapitalBucket, error) {
+	if !allowed(p) {
+		return CapitalBucket{}, ErrForbidden
+	}
+	old, e := s.store.GetBucket(c, p.UserID, id)
+	if e != nil {
+		return CapitalBucket{}, ErrNotFound
+	}
+	if x.FinancialAccountID != old.FinancialAccountID {
+		return CapitalBucket{}, ErrInvalid
+	}
+	x.Name = strings.TrimSpace(x.Name)
+	x.Currency = strings.ToUpper(x.Currency)
+	v, ok := decimal(x.AllocationValue, true)
+	if x.Name == "" || len(x.Currency) != 3 || !ok {
+		return CapitalBucket{}, ErrInvalid
+	}
+	if x.AllocationType != "FIXED_AMOUNT" && x.AllocationType != "PERCENT_OF_AVAILABLE_CASH" && x.AllocationType != "PERCENT_OF_BUYING_POWER" {
+		return CapitalBucket{}, ErrInvalid
+	}
+	if x.AllocationType != "FIXED_AMOUNT" && v.Cmp(big.NewRat(100, 1)) > 0 {
+		return CapitalBucket{}, ErrInvalid
+	}
+	b, e := s.store.UpdateBucket(c, p.UserID, id, x)
+	if e == nil {
+		s.auditEvent(c, p, "capital_bucket.changed", map[string]any{"capital_bucket_id": id, "account_id": old.FinancialAccountID})
+	}
+	return b, e
+}
+func (s *Service) DeleteBucket(c context.Context, p authorization.Principal, id string) error {
+	if !allowed(p) {
+		return ErrForbidden
+	}
+	e := s.store.DeleteBucket(c, p.UserID, id)
+	if e == nil {
+		s.auditEvent(c, p, "capital_bucket.archived", map[string]any{"capital_bucket_id": id})
+	}
+	return e
+}
+func (s *Service) validate(ctx context.Context, p authorization.Principal, c MandateCommand, ready bool) (bool, error) {
+	if !allowed(p) {
+		return false, ErrForbidden
+	}
+	af, e := s.store.AccountFacts(ctx, p.UserID, c.FinancialAccountID)
+	if e != nil || !af.Owned {
+		return false, ErrNotFound
+	}
+	b, e := s.store.GetBucket(ctx, p.UserID, c.CapitalBucketID)
+	if e != nil || b.FinancialAccountID != c.FinancialAccountID || b.Status != "ACTIVE" || b.IsReserve {
+		return false, ErrInvalid
+	}
+	if _, ok := map[string]bool{"AI_AUTONOMOUS": true, "STRATEGY": true, "HYBRID": true}[c.AutomationType]; !ok {
+		return false, ErrInvalid
+	}
+	strategy := c.AutomationType == "STRATEGY" || c.AutomationType == "HYBRID"
+	ai := c.AutomationType == "AI_AUTONOMOUS" || c.AutomationType == "HYBRID"
+	var meta Strategy
+	if strategy {
+		if c.StrategyIdentifier == nil {
+			return false, ErrInvalid
+		}
+		var ok bool
+		meta, ok = Strategies[*c.StrategyIdentifier]
+		if !ok {
+			return false, ErrInvalid
+		}
+	}
+	if ai {
+		if !authorization.CanUseNeuralEngine(p) || c.AIProviderConnectionID == nil || c.AIModelID == nil {
+			return false, ErrForbidden
+		}
+		facts, e := s.store.AIFacts(ctx, p.UserID, *c.AIProviderConnectionID, *c.AIModelID)
+		if e != nil || !facts.Owned || !facts.Active || !facts.ModelValid {
+			return false, ErrInvalid
+		}
+	}
+	if _, ok := map[string]bool{"RESEARCH_ONLY": true, "SUGGEST": true, "CONFIRM_EACH": true, "STRATEGY_AUTONOMOUS": true, "FULL_AUTONOMOUS": true}[c.AutonomyLevel]; !ok {
+		return false, ErrInvalid
+	}
+	if c.AutonomyLevel == "STRATEGY_AUTONOMOUS" && !strategy {
+		return false, ErrInvalid
+	}
+	if ready && c.AutonomyLevel == "FULL_AUTONOMOUS" && c.AutomationType == "STRATEGY" {
+		return false, ErrInvalid
+	}
+	if _, ok := map[string]bool{"BACKTEST": true, "PAPER": true, "SHADOW": true, "LIVE": true}[c.ExecutionMode]; !ok {
+		return false, ErrInvalid
+	}
+	if len(c.StrategyParameters) > 0 && !json.Valid(c.StrategyParameters) {
+		return false, ErrInvalid
+	}
+	if len(c.ScheduleConditions) > 0 && !json.Valid(c.ScheduleConditions) {
+		return false, ErrInvalid
+	}
+	for _, v := range []*string{c.Risk.MaxCapitalDeployed, c.Risk.MaxSinglePositionAmount, c.Risk.MaxSinglePositionPercentage, c.Risk.MaxDailyLoss, c.Risk.MinimumCashReserve} {
+		if v != nil {
+			r, ok := decimal(*v, false)
+			if !ok || r.Sign() < 0 {
+				return false, ErrInvalid
+			}
+		}
+	}
+	if c.Risk.MaxSinglePositionPercentage != nil {
+		r, _ := decimal(*c.Risk.MaxSinglePositionPercentage, false)
+		if r.Cmp(big.NewRat(100, 1)) > 0 {
+			return false, ErrInvalid
+		}
+	}
+	if c.Risk.MaxTradesPerDay != nil && *c.Risk.MaxTradesPerDay < 0 {
+		return false, ErrInvalid
+	}
+	unverified := false
+	if meta.OptionsRequired {
+		if af.Options == "UNSUPPORTED" {
+			return false, ErrInvalid
+		}
+		if af.Options != "SUPPORTED" {
+			unverified = true
+		}
+	}
+	return unverified, nil
+}
+func (s *Service) Create(ctx context.Context, p authorization.Principal, c MandateCommand) (Mandate, error) {
+	u, e := s.validate(ctx, p, c, false)
+	if e != nil {
+		return Mandate{}, e
+	}
+	m, e := s.store.CreateMandate(ctx, p.UserID, c, u)
+	if e == nil {
+		s.auditEvent(ctx, p, "automation_mandate.created", map[string]any{"mandate_id": m.ID, "version": m.CurrentVersion, "account_id": m.FinancialAccountID, "automation_type": m.AutomationType, "capital_bucket_id": m.CapitalBucketID, "source": "UI"})
+		s.auditEvent(ctx, p, "automation_mandate.version_created", map[string]any{"mandate_id": m.ID, "version": m.CurrentVersion, "source": "UI"})
+	}
+	return m, e
+}
+func (s *Service) List(c context.Context, p authorization.Principal) ([]Mandate, error) {
+	if !allowed(p) {
+		return nil, ErrForbidden
+	}
+	return s.store.ListMandates(c, p.UserID)
+}
+func (s *Service) Get(c context.Context, p authorization.Principal, id string) (Mandate, error) {
+	if !allowed(p) {
+		return Mandate{}, ErrForbidden
+	}
+	return s.store.GetMandate(c, p.UserID, id)
+}
+func (s *Service) Update(c context.Context, p authorization.Principal, id string, expected int, cmd MandateCommand) (Mandate, error) {
+	u, e := s.validate(c, p, cmd, false)
+	if e != nil {
+		return Mandate{}, e
+	}
+	return s.store.UpdateMandate(c, p.UserID, id, expected, cmd, u, "UI")
+}
+func (s *Service) Transition(c context.Context, p authorization.Principal, id string, expected int, status string) (Mandate, error) {
+	if !allowed(p) {
+		return Mandate{}, ErrForbidden
+	}
+	old, e := s.store.GetMandate(c, p.UserID, id)
+	if e != nil {
+		return Mandate{}, e
+	}
+	if status == "READY" {
+		cmd := commandFrom(old)
+		if _, e = s.validate(c, p, cmd, true); e != nil {
+			return Mandate{}, e
+		}
+	}
+	m, e := s.store.Transition(c, p.UserID, id, expected, status, "UI")
+	if e == nil {
+		s.auditEvent(c, p, "automation_mandate."+strings.ToLower(status), map[string]any{"mandate_id": id, "version": m.CurrentVersion, "source": "UI"})
+	}
+	return m, e
+}
+func commandFrom(m Mandate) MandateCommand {
+	return MandateCommand{m.FinancialAccountID, m.AutomationType, m.CapitalBucketID, m.AutonomyLevel, m.ExecutionMode, m.StrategyIdentifier, m.AIProviderConnectionID, m.AIModelID, m.StrategyParameters, m.Risk, m.AllowedUniverse, m.ProhibitedUniverse, m.MarginAllowed, m.OptionsAllowed, m.ScheduleConditions, &m.EffectiveFrom, m.EffectiveUntil}
+}
+func (s *Service) Versions(c context.Context, p authorization.Principal, id string) ([]Version, error) {
+	if !allowed(p) {
+		return nil, ErrForbidden
+	}
+	return s.store.Versions(c, p.UserID, id)
+}
+func (s *Service) Version(c context.Context, p authorization.Principal, id string, v int) (Version, error) {
+	if !allowed(p) {
+		return Version{}, ErrForbidden
+	}
+	return s.store.Version(c, p.UserID, id, v)
+}

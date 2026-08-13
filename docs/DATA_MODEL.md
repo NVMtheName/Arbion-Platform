@@ -43,3 +43,15 @@ The normal API model omits `user_id`, opaque provider account identity, and prov
 `provider_connections` remains the sole durable connection table. Schwab rows use category `financial`, provider `schwab`, one stable display name per user, safe status/expiry/verification timestamps, and encrypted-database credential storage. Token plaintext is present only inside the Vault payload. Reauthorization upserts the existing row instead of creating duplicates.
 
 `financial_accounts` stores the owning user and connection, Schwab's server-only account hash, a masked display label, normalized type/currency/status/capabilities, and discovery/sync timestamps. `(provider_connection_id, provider_account_id)` makes repeat discovery idempotent. Ownership is present in every account query and enforced again by the database trigger. Missing accounts become `unavailable`; disconnect retires them as `closed` rather than destroying inventory or audit history. Full account numbers, balances, and positions are not persisted.
+
+## Durable automation authorization records
+
+Migration `00006_automation_mandates.sql` replaces the early placeholder in place: `automation_configs` is renamed and normalized as `automation_mandates`, so there are not two active automation concepts. Stable security fields are columns; validated extensible strategy/risk/universe/condition documents remain structured JSON. Each mandate binds a same-owner `financial_accounts` row and `capital_buckets` row and has a lifecycle status, effective interval, and monotonically increasing current version.
+
+`capital_buckets` stores exact PostgreSQL numeric allocation values, currency, allocation basis, optional absolute limit/protected amount, reserve semantics, and durable status. It is explicit Arbion authorization, distinct from transient broker balances. Referenced buckets cannot be silently deleted.
+
+`automation_mandate_versions` is append-only and protected by a database trigger against update/delete. Its complete credential-free JSON snapshot records account, type, strategy, AI references/model, bucket, autonomy, mode, lifecycle, parameters, risk, universes, margin/options policy, conditions, effective dates, capability warning, and `execution_capable=false`. Expected-version updates atomically advance the mandate and append the next version, otherwise returning a conflict.
+
+**A configured or READY Automation Mandate does not itself execute trades.**
+
+**Broker-reported buying power is not Arbion trading authority.**

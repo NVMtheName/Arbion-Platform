@@ -10,6 +10,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/authorization"
+	"github.com/arbion/platform/services/api/internal/automation"
 	"github.com/arbion/platform/services/api/internal/credential"
 	"github.com/arbion/platform/services/api/internal/financial/oauthstate"
 	"github.com/arbion/platform/services/api/internal/financial/schwab"
@@ -59,10 +60,11 @@ func main() {
 	states := oauthstate.New(oauthstate.NewRedisStore(redisClient), 10*time.Minute)
 	schwabClient := schwab.New(schwab.Config{ClientID: cfg.Schwab.ClientID, ClientSecret: cfg.Schwab.ClientSecret, RedirectURI: cfg.Schwab.RedirectURI, AuthorizationURL: cfg.Schwab.AuthorizationURL, TokenURL: cfg.Schwab.TokenURL, TraderBaseURL: cfg.Schwab.TraderBaseURL}, &http.Client{Timeout: cfg.Schwab.Timeout})
 	financialConnections := financialconnection.NewService(financialconnection.NewPostgresStore(pool), vault, states, schwabClient, users)
+	automations := automation.NewService(automation.NewPostgresStore(pool), users)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           platformhttp.NewFullApplicationHandler(pool, cfg, authService, authorizationService, aiConnections, financialConnections),
+		Handler:           platformhttp.NewFullApplicationHandlerWithAutomation(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
