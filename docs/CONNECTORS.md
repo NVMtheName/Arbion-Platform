@@ -62,3 +62,25 @@ Future adapters should use explicit deadlines, bounded retries with jitter, rate
 ## Deferred decisions
 
 Later design must choose the initial providers and capabilities, canonical account/asset/order models, decimal and currency rules, market-data sources and licensing, polling/webhook strategy, OAuth scope sets, secret storage, reconciliation and idempotency schemes, sandbox certification, error taxonomy, provider outage behavior, and the approval model for any live execution.
+
+## Implemented read-only financial foundation (Schwab)
+
+The first implementation target is the Charles Schwab Trader API. The Go `financial.BrokerProvider` boundary contains only verification, authorization refresh, account discovery, account and balance reads, position reads, capability reads, and disconnect. It deliberately has no order preview, placement, cancellation, or trading method. The centralized registry marks `schwab` implemented and `etrade`/`coinbase` planned and unavailable. Auth type is metadata rather than an OAuth assumption, reserving OAuth 1, OAuth 2 authorization code, API key, JWT/key-pair, managed credential, and provider-specific adapters.
+
+Schwab authorization is an OAuth 2 authorization-code redirect. Arbion generates a 256-bit URL-safe state, binds it to the initiating authenticated and `CanConnectFinancialAccounts`-entitled user, stores it ephemerally with a short expiry, and consumes it exactly once before exchanging a code. The callback never accepts a caller-selected redirect. Cancellation, invalid/expired/reused state, provider denial, token exchange failure, and success are distinct outcomes. Authorization codes, access tokens, refresh tokens, client secrets, full account numbers, and raw provider bodies are excluded from logs, audits, metadata, and browser responses.
+
+Platform/client credentials (`SCHWAB_CLIENT_ID`, `SCHWAB_CLIENT_SECRET`, and the exact registered redirect URI) are deployment configuration, never per-user data. User access/refresh tokens and expiry metadata form a structured payload encrypted as credential class `financial` in the existing Vault. On-demand server-side refresh replaces that payload atomically; callers must serialize refresh per connection to prevent token-rotation races. A terminal refresh denial moves the connection to `expired` or `revoked`; transient failures do not erase usable encrypted material. Browser logout only destroys the browser session and has no provider-connection side effect.
+
+Account discovery first obtains Schwab's opaque account hash identifiers, then upserts every accessible account by `(provider_connection_id, provider_account_id)`. Full brokerage account numbers are not required: APIs and UI expose labels such as `Schwab Brokerage ••••4821`, while opaque API identifiers remain server-side. Repeated synchronization updates inventory and does not duplicate it. One connection may own many accounts.
+
+Balances and positions use JSON decimal strings at transport boundaries and are never converted to binary floating point. Missing Schwab fields remain absent rather than being synthesized. Instrument types are preserved instead of assuming equity. Capability values are `SUPPORTED`, `UNSUPPORTED`, or `UNKNOWN`; unknown is the default unless Schwab supplies a reliable fact (for example, an account type explicitly reported as margin).
+
+**Buying power is information, not trading permission.**
+
+**Broker-reported buying power does not grant Arbion authority to deploy that capital.**
+
+### Official documentation and external app setup
+
+Schwab-specific deployment must be revalidated against the current, authenticated [Charles Schwab Developer Portal](https://developer.schwab.com/) before release. The portal was consulted for the Trader API product boundary; its documentation is access-controlled and the repository therefore keeps authorization, token, and Trader base URLs configurable rather than treating source constants as an immutable specification. An operator must create and obtain approval for a Schwab developer application, enable the Trader API read access offered to that app, register the exact HTTPS callback URI, obtain the app key/client ID and secret, accept Schwab agreements, and complete any provider-required account linking/certification. Do not request execution access for this milestone. Confirm the approved app's current endpoints, required consent/scopes, token and refresh lifetimes/rotation, account-hash behavior, response schemas, limits, and disconnect/revocation procedure in the portal before production deployment.
+
+The current documented account flow uses the Trader API account-number mapping and account reads; the adapter defaults shown in `.env.example` remain explicit deploy-time configuration. Schwab does not currently expose a verified safe revocation call in this implementation, so disconnect deletes Arbion's Vault material and retires the local connection; the user/operator must also revoke application access through Schwab when required.

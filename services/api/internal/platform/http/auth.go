@@ -13,16 +13,18 @@ import (
 	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/authorization"
+	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 )
 
 type identityKey struct{}
 type authHandler struct {
-	service *auth.Service
-	admin   *authorization.Service
-	ai      *aiconnection.Service
-	cfg     config.Auth
+	service            *auth.Service
+	admin              *authorization.Service
+	ai                 *aiconnection.Service
+	financialProviders financial.Registry
+	cfg                config.Auth
 }
 type credentials struct {
 	Email       string `json:"email"`
@@ -60,7 +62,7 @@ func NewApplicationHandler(database ReadinessChecker, timeout config.Config, ser
 }
 
 func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service) stdhttp.Handler {
-	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth}
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry()}
 	mux := stdhttp.NewServeMux()
 	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("GET /readyz", readiness(database, cfg.Database.ReadinessTimeout))
@@ -84,7 +86,11 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.Handle("GET /api/settings/neural-engine", h.require(stdhttp.HandlerFunc(h.getNeuralPreference)))
 	mux.Handle("PUT /api/settings/neural-engine", h.require(stdhttp.HandlerFunc(h.setNeuralPreference)))
 	mux.Handle("DELETE /api/connections/ai/{id}", h.require(stdhttp.HandlerFunc(h.deleteAI)))
+	mux.Handle("GET /api/connections/financial/providers", h.require(stdhttp.HandlerFunc(h.listFinancialProviders)))
 	return securityHeaders(mux)
+}
+func (h *authHandler) listFinancialProviders(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	writeJSON(w, 200, map[string]any{"providers": h.financialProviders.List(), "can_connect_financial_accounts": authorization.CanConnectFinancialAccounts(principal(r))})
 }
 func (h *authHandler) verifyAI(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	if !h.csrf(r) {

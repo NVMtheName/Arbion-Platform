@@ -29,3 +29,11 @@ Decision records store structured rationale, input references, rule outcomes, ap
 ## Deliberately deferred
 
 Concrete schemas, tenancy, provider adapters and OAuth flows, automation workers, order or trading execution, audit retention/integrity controls, retention and partitioning, and the production managed-secret provider require later designs.
+
+## Financial account inventory
+
+Migration `00005_financial_accounts.sql` adds the durable `financial_accounts` inventory. Each row is owned by a user, linked restrictively to a same-owner `provider_category='financial'` connection, and stores provider name, a server-only opaque provider account identifier, masked/display labels, account type, base currency, lifecycle status, tri-state capability JSON, discovery/sync times, and ordinary timestamps. `(provider_connection_id, provider_account_id)` is unique so synchronization upserts rather than duplicates and a connection can contain multiple accounts. The trigger guards against cross-user and wrong-category links.
+
+The normal API model omits `user_id`, opaque provider account identity, and provider instrument identifiers. It never stores or returns full account numbers. Financial values are provider-precision decimal strings, not binary floats. Balance observations and buying power are read-only provider facts; no allocation, mandate, order, strategy, or execution schema is introduced.
+
+**Broker-reported buying power does not grant Arbion authority to deploy that capital.**

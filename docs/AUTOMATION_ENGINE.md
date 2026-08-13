@@ -92,3 +92,9 @@ Arbion must not store private model chain-of-thought. It stores user-appropriate
 ## Deferred implementation decisions
 
 Schemas, APIs, workers, schedules, leases, concurrency rules, notification transports, allocation arithmetic, mandate-diff significance, approval UX, and live enablement are intentionally deferred. This document authorizes no trading implementation.
+
+## Relationship to read-only financial connections
+
+The implemented financial connector milestone supplies durable account inventory and read-only balance, position, and tri-state capability observations. It creates no Automation Mandate, capital bucket, worker, paper account, strategy, or execution authority. A disabled financial connection is ineligible for future server-side use; logout does not disable it. Future mandate design must explicitly allocate capital and treat unknown capabilities as unavailable until resolved.
+
+**Broker-reported buying power does not grant Arbion authority to deploy that capital.**

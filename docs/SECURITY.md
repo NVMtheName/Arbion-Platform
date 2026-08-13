@@ -119,3 +119,13 @@ Automated and AI-assisted actions also require a structured Decision Journal lin
 ## Required future security decisions
 
 Before product integration work, Arbion must choose its identity and tenancy model, authorization policy system, consent and step-up approval design, secret manager and cryptographic ownership, data classification and retention policy, audit integrity controls, AI-provider privacy requirements, connector OAuth scopes, incident-response process, and formal threat models for tools, connectors, MCP, and any execution workflow.
+
+## Financial authorization implementation controls
+
+Schwab app credentials are infrastructure secrets; user OAuth grants are per-user financial Vault records authenticated to user, connection, and secret class. Tokens are never connection metadata, database plaintext columns, audit metadata, URLs, browser storage/responses, or Neural Engine input. Only the selected Go adapter receives decrypted financial credentials for a bounded request. Conversely, AI Vault records are retrieved only by the AI connection domain and can never be selected by a financial locator. Tests cover this AAD-enforced class separation and safe JSON projections.
+
+Pending OAuth state is random, expiring, user-bound, and single-use. A mismatched attempt consumes the state to stop swapping attempts. Provider redirects are fixed configuration, not request parameters. Read bodies and durations are bounded; authentication failures are not retried. Concurrent token refresh must be serialized by connection, encrypted replacement must complete before expiry metadata/status changes, and terminal authorization failure fails closed without leaking the provider body.
+
+Disable preserves authorization and inventory while preventing use. Disconnect removes Vault material and retires the Arbion connection while preserving audit history. Logout only revokes an ephemeral browser session: it does not delete tokens, accounts, or provider authorization.
+
+**Financial-provider credentials never enter the Neural Engine.** Financial credentials flow `Go/Vault -> broker only`; AI credentials flow `Go/Vault -> Neural Engine -> selected AI provider only`. Neither credential class may cross into the other provider domain.
