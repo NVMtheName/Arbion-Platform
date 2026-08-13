@@ -55,3 +55,7 @@ Migration `00006_automation_mandates.sql` replaces the early placeholder in plac
 **A configured or READY Automation Mandate does not itself execute trades.**
 
 **Broker-reported buying power is not Arbion trading authority.**
+
+## Risk and control records
+
+Migration `00007_risk_control.sql` adds durable `risk_circuit_breakers` for global, user, account, and automation scopes and compact `risk_evaluations` for future Decision Journal references. Evaluation rows preserve references, exact mandate version, decision, approval requirement, stable reason codes, deterministic checks, and timestamp while omitting portfolio snapshots, credentials, broker payloads, and model reasoning. A constraint records `platform_execution_available=false` for this milestone.

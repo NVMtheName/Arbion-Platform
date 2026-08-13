@@ -15,7 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-	"pytest-asyncio==1.1.0",
+  "pytest-asyncio==1.1.0",
   "mypy==1.17.1",
   "pytest==8.4.1",
   "ruff==0.12.8",

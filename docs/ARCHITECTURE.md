@@ -152,3 +152,7 @@ The modular Go control plane now contains `internal/automation`; authenticated H
 The implementation is deliberately configuration-only: there is no execution endpoint, worker, strategy state machine, broker write/preview call, AI inference call, or financial-data transfer to Python. `LIVE` and `READY` are inert persisted values while the platform-level execution capability is false.
 
 **A configured or READY Automation Mandate does not itself execute trades.** **Broker-reported buying power is not Arbion trading authority.**
+
+## Deterministic risk foundation
+
+The risk foundation lives in `services/api/internal/risk`. It consumes normalized snapshots rather than calling financial or AI providers, evaluates an ordered provider-independent registry, and emits explainable evidence. The Risk/Control Engine authorizes or denies proposed actions; it never decides that a trade is desirable. A successful risk evaluation does not execute a trade.
