@@ -1,4 +1,6 @@
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import FastAPI, Header, HTTPException
@@ -7,7 +9,22 @@ from pydantic import BaseModel, Field
 from .neural.models import NeuralProviderError
 from .neural.registry import default_registry
 
-app = FastAPI(title="Arbion AI", version="0.1.0")
+
+def validate_production_configuration() -> None:
+    if os.environ.get("ARBION_ENV") != "production":
+        return
+    token = os.environ.get("INTERNAL_SERVICE_TOKEN", "")
+    if len(token) < 32 or token == "local-internal-development-token":
+        raise RuntimeError("production internal service authentication is not configured")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    validate_production_configuration()
+    yield
+
+
+app = FastAPI(title="Arbion AI", version="0.1.0", lifespan=lifespan)
 registry = default_registry()
 
 
@@ -60,3 +77,9 @@ async def models(
 def health() -> dict[str, str]:
     """Report process liveness without checking downstream dependencies."""
     return {"service": "ai", "status": "ok"}
+
+
+@app.get("/readyz")
+def ready() -> dict[str, str]:
+    """Report readiness after startup configuration validation has succeeded."""
+    return {"service": "ai", "status": "ready"}

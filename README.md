@@ -1,6 +1,6 @@
 # Arbion Platform
 
-Production-oriented foundation for Arbion. This repository intentionally contains no live trading, automated trading, broker integration, or migrated legacy Flask code.
+Production-oriented foundation for Arbion. The Schwab integration is read-only and strategy execution is limited to PAPER and SHADOW. No live broker-write adapter or background auto-trading worker exists.
 
 ## Repository layout
 
@@ -10,6 +10,10 @@ Production-oriented foundation for Arbion. This repository intentionally contain
 - `docs` — architectural decisions and boundaries
 
 See [the architecture guide](docs/ARCHITECTURE.md) for component responsibilities.
+
+## Production readiness
+
+The repository includes a single-host production Compose topology with Caddy-managed HTTPS for `www.arbion.ai`, private application/data services, durable volumes, one-shot migrations, fail-closed configuration, and operator scripts. It prepares deployment but does **not** claim Arbion is deployed. See [the production deployment runbook](docs/DEPLOYMENT.md).
 
 ## Prerequisites
 
@@ -61,4 +65,3 @@ docker compose config --quiet
 ```
 
 CI runs the same component checks on every push and pull request.
-

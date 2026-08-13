@@ -37,3 +37,4 @@ These instructions apply to the entire repository.
 - API: standard Go formatting and small internal packages with tests.
 - AI: typed Python formatted/linted by Ruff and tested with pytest.
 - Update `docs/ARCHITECTURE.md` when changing component boundaries or infrastructure.
+- Production deployment changes must keep only the reverse proxy publicly exposed; never add a live-execution or background-trading switch.

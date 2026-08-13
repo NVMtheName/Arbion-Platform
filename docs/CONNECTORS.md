@@ -1,5 +1,9 @@
 # Financial Connectors
 
+## Production Schwab callback
+
+Schwab must register exactly `https://www.arbion.ai/api/connections/financial/schwab/callback`. Caddy routes that unchanged `/api/*` path to Go. `SCHWAB_CLIENT_ID` and `SCHWAB_CLIENT_SECRET` remain host-managed secrets; production fails closed for partial configuration or a different callback. Production verification is manual and read-only: account discovery, balances, positions, and duplicate-safe sync only. It never places an order.
+
 ## Role and scope
 
 The financial connector layer will translate Arbion's provider-independent financial operations into external provider APIs. Candidate providers include Schwab, E\*TRADE, Coinbase, Alpaca, Interactive Brokers, and future providers. This document defines boundaries only; it does not implement or claim support for a provider.

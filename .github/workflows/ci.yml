@@ -64,3 +64,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cp .env.example .env && docker compose config --quiet
+      - name: Validate production deployment configuration
+        env:
+          POSTGRES_DB: arbion
+          POSTGRES_USER: arbion
+          POSTGRES_PASSWORD: ci-validation-not-a-production-secret
+          DATABASE_URL: postgres://arbion:ci-validation-not-a-production-secret@postgres:5432/arbion?sslmode=disable
+          REDIS_URL: redis://redis:6379/0
+          CREDENTIAL_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+          AI_INTERNAL_SERVICE_TOKEN: ci-validation-token-0123456789abcdef
+          AUTH_ALLOWED_ORIGINS: https://www.arbion.ai
+          SCHWAB_REDIRECT_URI: https://www.arbion.ai/api/connections/financial/schwab/callback
+        run: docker compose -f docker-compose.prod.yml config --quiet
+      - run: docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile
+      - run: bash -n scripts/deploy-production.sh scripts/smoke-production.sh
