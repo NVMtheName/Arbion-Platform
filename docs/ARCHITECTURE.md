@@ -74,6 +74,8 @@ A future MCP-compatible server could expose a deliberately approved subset of Ar
 
 AI-provider credentials and financial-provider credentials are separate secret classes with distinct access policies. AI vendors must never receive brokerage secrets. Financial connectors should prefer OAuth or token-based delegated authorization where supported. Stored secrets must never be returned to the browser, logged, or committed. The development vault uses authenticated encryption with an environment-supplied key and PostgreSQL ciphertext storage behind a vault interface; production should replace that adapter with a managed secret system without changing business logic. See [Security](SECURITY.md).
 
+The Go `aiconnection` domain owns authenticated AI-provider connection lifecycle and uses the shared credential vault, provider connection table, audit store, and authorization policy. Its centralized registry currently describes `openai`, `anthropic`, and `gemini`; adding a provider extends that registry and later its adapter rather than transport handlers. No provider is contacted by connection management.
+
 ## Authentication architecture
 
 ## Authorization and entitlement

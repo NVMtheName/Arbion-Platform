@@ -7,8 +7,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/authorization"
+	"github.com/arbion/platform/services/api/internal/credential"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/platform/database"
 	platformhttp "github.com/arbion/platform/services/api/internal/platform/http"
@@ -42,10 +44,17 @@ func main() {
 	sessions := auth.NewRedisStore(redisClient)
 	authService := auth.NewService(users, sessions, sessions, users, cfg.Auth.SessionTTL)
 	authorizationService := authorization.NewService(authorization.NewPostgresStore(pool), users)
+	registry := aiconnection.DefaultRegistry()
+	vault, err := credential.NewEncryptedVault(cfg.Credential.Key, credential.NewPostgresStore(pool))
+	if err != nil {
+		slog.Error("credential vault unavailable", "error", err)
+		os.Exit(1)
+	}
+	aiConnections := aiconnection.NewService(aiconnection.NewPostgresStore(pool, registry), vault, users, registry)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           platformhttp.NewApplicationHandler(pool, cfg, authService, authorizationService),
+		Handler:           platformhttp.NewFullApplicationHandler(pool, cfg, authService, authorizationService, aiConnections),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
