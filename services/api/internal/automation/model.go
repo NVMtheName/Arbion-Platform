@@ -1,0 +1,101 @@
+package automation
+
+import (
+	"encoding/json"
+	"time"
+)
+
+const ExecutionCapable = false
+
+type CapitalBucket struct {
+	ID, UserID, FinancialAccountID, Name      string
+	AllocationType, AllocationValue, Currency string
+	IsReserve                                 bool
+	ProtectedAmount                           string
+	AllocationLimit                           *string
+	Status                                    string
+	CreatedAt, UpdatedAt                      time.Time
+}
+
+type RiskPolicy struct {
+	MaxCapitalDeployed          *string `json:"max_capital_deployed,omitempty"`
+	MaxSinglePositionAmount     *string `json:"max_single_position_amount,omitempty"`
+	MaxSinglePositionPercentage *string `json:"max_single_position_percentage,omitempty"`
+	MaxDailyLoss                *string `json:"max_daily_loss,omitempty"`
+	MaxTradesPerDay             *int    `json:"max_trades_per_day,omitempty"`
+	MinimumCashReserve          *string `json:"minimum_cash_reserve,omitempty"`
+}
+
+type Universe struct {
+	Symbols     []string `json:"symbols"`
+	UniverseIDs []string `json:"universe_ids,omitempty"`
+}
+
+type Mandate struct {
+	ID, UserID, FinancialAccountID, AutomationType        string
+	StrategyIdentifier                                    *string
+	AIProviderConnectionID, AIModelID                     *string
+	CapitalBucketID, AutonomyLevel, ExecutionMode, Status string
+	CurrentVersion                                        int
+	StrategyParameters                                    json.RawMessage
+	Risk                                                  RiskPolicy
+	AllowedUniverse, ProhibitedUniverse                   Universe
+	MarginAllowed, OptionsAllowed, CapabilityUnverified   bool
+	ScheduleConditions                                    json.RawMessage
+	EffectiveFrom                                         time.Time
+	EffectiveUntil                                        *time.Time
+	CreatedAt, UpdatedAt                                  time.Time
+	ExecutionCapable                                      bool
+}
+
+type Version struct {
+	ID, MandateID           string
+	VersionNumber           int
+	CreatedAt               time.Time
+	CreatedByUserID, Source string
+	Snapshot                json.RawMessage
+	ChangeSummary           json.RawMessage
+}
+
+type Strategy struct {
+	ID, DisplayName, Description                            string
+	OptionsRequired, MarginRelevant, ExistingSharesRelevant bool
+	ParameterSchemaID                                       string
+}
+
+var Strategies = map[string]Strategy{
+	"wheel":            {"wheel", "Wheel", "Configure a future deterministic Wheel strategy.", true, true, false, "wheel.v1"},
+	"covered_call":     {"covered_call", "Covered Call", "Configure a future covered-call strategy.", true, false, true, "covered_call.v1"},
+	"cash_secured_put": {"cash_secured_put", "Cash-Secured Put", "Configure a future cash-secured-put strategy.", true, false, false, "cash_secured_put.v1"},
+	"collar":           {"collar", "Collar", "Configure a future protective Collar strategy.", true, false, true, "collar.v1"},
+}
+
+type CreateBucketCommand struct {
+	FinancialAccountID string  `json:"financial_account_id"`
+	Name               string  `json:"name"`
+	AllocationType     string  `json:"allocation_type"`
+	AllocationValue    string  `json:"allocation_value"`
+	Currency           string  `json:"currency"`
+	ProtectedAmount    string  `json:"protected_amount"`
+	AllocationLimit    *string `json:"allocation_limit,omitempty"`
+	IsReserve          bool    `json:"is_reserve"`
+}
+type MandateCommand struct {
+	FinancialAccountID     string          `json:"financial_account_id"`
+	AutomationType         string          `json:"automation_type"`
+	CapitalBucketID        string          `json:"capital_bucket_id"`
+	AutonomyLevel          string          `json:"autonomy_level"`
+	ExecutionMode          string          `json:"execution_mode"`
+	StrategyIdentifier     *string         `json:"strategy_identifier,omitempty"`
+	AIProviderConnectionID *string         `json:"ai_provider_connection_id,omitempty"`
+	AIModelID              *string         `json:"ai_model_id,omitempty"`
+	StrategyParameters     json.RawMessage `json:"strategy_parameters"`
+	Risk                   RiskPolicy      `json:"risk_parameters"`
+	AllowedUniverse        Universe        `json:"allowed_universe"`
+	ProhibitedUniverse     Universe        `json:"prohibited_universe"`
+	MarginAllowed          bool            `json:"margin_allowed"`
+	OptionsAllowed         bool            `json:"options_allowed"`
+	ScheduleConditions     json.RawMessage `json:"schedule_conditions"`
+	EffectiveFrom          *time.Time      `json:"effective_from,omitempty"`
+	EffectiveUntil         *time.Time      `json:"effective_until,omitempty"`
+}

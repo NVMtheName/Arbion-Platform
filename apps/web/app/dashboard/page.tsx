@@ -63,7 +63,8 @@ export default async function Dashboard() {
         <article>
           <span className="icon">◈</span>
           <h2>Automation</h2>
-          <p>Disabled</p>
+          <p>Configuration only · execution disabled</p>
+          <Link href="/automations">Build automations</Link>
         </article>
       </section>
     </main>

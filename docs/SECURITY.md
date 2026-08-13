@@ -131,3 +131,11 @@ Disable preserves authorization and inventory while preventing use. Disconnect r
 **Financial-provider credentials never enter the Neural Engine.** Financial credentials flow `Go/Vault -> broker only`; AI credentials flow `Go/Vault -> Neural Engine -> selected AI provider only`. Neither credential class may cross into the other provider domain.
 
 The Schwab callback is intentionally independent of a surviving browser session: the single-use Redis record identifies the initiating user and contains no secret or redirect. The post-callback destination is selected only from configured trusted origins. OAuth codes are exchanged server-side and never returned. PostgreSQL advisory locks serialize token refresh across API instances; encrypted replacement is stored before safe expiry metadata advances. Logout deletes only Redis session data and cannot delete the durable connection, account inventory, or encrypted financial credential.
+
+## Automation authorization controls implemented
+
+Automation mutations require centralized `CanUseAutomation` and financial-account entitlement checks; AI-bearing mandates additionally require `CanUseNeuralEngine`. Administrative roles do not grant these product capabilities. Stores scope account, bucket, mandate, version, and AI references to the user; active AI/model preference checks occur without invoking AI or revealing credentials. Version snapshots and audit metadata contain identifiers and safe configuration only.
+
+The API exposes configuration and lifecycle routes only. There are no order, preview, execute, worker, strategy-evaluation, broker-write, or AI-portfolio routes. `execution_capable=false` is a permanent milestone safeguard returned with mandate configuration.
+
+**A configured or READY Automation Mandate does not itself execute trades.** **Broker-reported buying power is not Arbion trading authority.**

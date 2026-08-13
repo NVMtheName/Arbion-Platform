@@ -66,3 +66,7 @@ See [Automation Engine](AUTOMATION_ENGINE.md), [Risk and Control Engine](RISK_CO
 ## Deferred decisions
 
 The strategy-definition format, transition/event taxonomy, pricing and fill simulation, corporate actions, assignment/exercise semantics, multi-leg atomicity, calendars, deterministic replay requirements, state migration, and mode-switch policy remain for later design. No engine or backtester is implemented here.
+
+## Implemented configuration registry
+
+The Go automation domain exposes metadata for `wheel`, `covered_call`, `cash_secured_put`, and `collar`, including future capability and parameter-schema hints. The registry validates mandate configuration only. It contains no states, transitions, evaluator, scheduler, market data, order preview, or execution adapter. Definitively unsupported required options capability rejects configuration; `UNKNOWN` is saved only with `capability_unverified=true`.

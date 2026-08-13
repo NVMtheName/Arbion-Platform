@@ -98,3 +98,15 @@ Schemas, APIs, workers, schedules, leases, concurrency rules, notification trans
 The implemented financial connector milestone supplies durable account inventory and read-only balance, position, and tri-state capability observations. It creates no Automation Mandate, capital bucket, worker, paper account, strategy, or execution authority. A disabled financial connection is ineligible for future server-side use; logout does not disable it. Future mandate design must explicitly allocate capital and treat unknown capabilities as unavailable until resolved.
 
 **Broker-reported buying power does not grant Arbion authority to deploy that capital.**
+
+## Implemented durable mandate foundation
+
+Migration `00006_automation_mandates.sql` evolves (renames) the original `automation_configs` table in place into `automation_mandates`; it does not create a competing active automation concept. It resolves each legacy connection-scoped row to one discovered, same-owner financial account, fails the migration when that cannot be done safely, creates a minimal migration bucket, converts its mode, and records the migrated configuration as immutable version 1 with source `SYSTEM`.
+
+The Go `internal/automation` domain now owns typed Automation Mandates, Capital Buckets, the configuration-only strategy registry, lifecycle commands, structural/capability checks, entitlement checks, immutable snapshots, and expected-version concurrency. UI and future conversation must call this same service. Mandates use `DRAFT`, `READY`, `PAUSED`, `DISABLED`, and `ARCHIVED`; none means executable. `BACKTEST`, `PAPER`, `SHADOW`, and `LIVE` are persisted configuration only, and every API projection declares execution incapable/disabled.
+
+Capital buckets are account- and user-bound exact-decimal allocations. Fixed allocations can carry an explicit configured allocation limit, against which active fixed buckets are summed to detect deterministic overlap. Percentage allocations must be greater than zero and at most 100%, and may carry an absolute cap. Reserve buckets cannot be attached to a mandate. This is configured-allocation validation only; a future Risk/Control Engine must validate fresh broker facts immediately before action.
+
+**A configured or READY Automation Mandate does not itself execute trades.**
+
+**Broker-reported buying power is not Arbion trading authority.**

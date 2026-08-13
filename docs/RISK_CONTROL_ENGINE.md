@@ -42,3 +42,9 @@ See [Execution Engine](EXECUTION_ENGINE.md) for lifecycle and reconciliation and
 ## Deferred decisions
 
 The policy language, numerical defaults, jurisdictional rules, loss calculation, cross-account aggregation, reservation accounting, snapshot freshness thresholds, breaker reset workflows, administrative dual control, audit integrity, and formal live-trading safety case remain deferred. This document implements no risk service or trading capability.
+
+## Implemented mandate risk-policy foundation
+
+Automation Mandate versions now preserve validated exact-decimal configuration for maximum deployed capital, single-position amount and percentage, daily loss, minimum cash reserve, maximum trades per day, margin policy, options policy, structured allowed/prohibited universes, and conditions. These fields are authorization inputs only: no risk evaluator or execution path is implemented. Configured allocation checks do not claim real-time broker sufficiency.
+
+**A configured or READY Automation Mandate does not itself execute trades.** **Broker-reported buying power is not Arbion trading authority.**

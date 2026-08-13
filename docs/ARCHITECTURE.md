@@ -144,3 +144,11 @@ The provider registry is centralized and auth-polymorphic. Schwab is implemented
 **Financial-provider credentials never enter the Neural Engine.**
 
 The financial foundation is now wired as a functional lifecycle: thin authenticated HTTP handlers delegate to `internal/financialconnection`, provider-specific requests remain in the existing Schwab adapter, Redis stores only pending single-use OAuth state, PostgreSQL stores lifecycle/account inventory and supplies cross-instance refresh locking, and the existing Vault stores encrypted token material. Account list/detail, current balance, and current position screens are read-only. Dashboard summaries report inventory only and do not fabricate unavailable or cross-currency values.
+
+## Implemented Automation Builder boundary
+
+The modular Go control plane now contains `internal/automation`; authenticated HTTP handlers and the ordinary `/automations` UI both submit typed commands to that service. PostgreSQL stores account-bound mandates, immutable versions, and capital buckets independently of Redis/browser sessions, so logout cannot remove or pause them. Future Ask Arbion mutation must call this same domain command boundary and may not write mandate tables directly.
+
+The implementation is deliberately configuration-only: there is no execution endpoint, worker, strategy state machine, broker write/preview call, AI inference call, or financial-data transfer to Python. `LIVE` and `READY` are inert persisted values while the platform-level execution capability is false.
+
+**A configured or READY Automation Mandate does not itself execute trades.** **Broker-reported buying power is not Arbion trading authority.**
