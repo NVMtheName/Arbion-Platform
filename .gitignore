@@ -17,3 +17,11 @@ __pycache__/
 *.out
 *.tsbuildinfo
 .DS_Store
+
+# Terraform local state, plans, and operator backend/variable files
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+backend.hcl
+*.auto.tfvars

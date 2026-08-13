@@ -65,3 +65,7 @@ docker compose config --quiet
 ```
 
 CI runs the same component checks on every push and pull request.
+
+## Production deployment options
+
+Arbion retains the supported Docker Compose/Caddy single-host deployment for simpler operations. The intended scalable production foundation is AWS ECS/Fargate with a public ALB and private application/data tiers, defined in Terraform without applying resources. Start with [the AWS deployment runbook](docs/AWS_DEPLOYMENT.md); it covers one-time state/OIDC bootstrap, operator-populated Secrets Manager values, manual application and infrastructure workflows, migrations, DNS cutover, rollback, monitoring, and costs. Neither topology enables live trading.

@@ -1,0 +1,62 @@
+name: Deploy application to AWS
+on:
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency: {group: production-application, cancel-in-progress: false}
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions: {contents: read, id-token: write}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      ECS_CLUSTER: arbion-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_APPLICATION_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: account
+        run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push immutable images
+        env: {ACCOUNT_ID: "${{ steps.account.outputs.id }}"}
+        run: |
+          set -euo pipefail
+          registry="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+          docker build -t "$registry/arbion-web:$GITHUB_SHA" apps/web
+          docker build -t "$registry/arbion-api:$GITHUB_SHA" services/api
+          docker build -t "$registry/arbion-ai:$GITHUB_SHA" services/ai
+          docker push "$registry/arbion-web:$GITHUB_SHA"
+          docker push "$registry/arbion-api:$GITHUB_SHA"
+          docker push "$registry/arbion-ai:$GITHUB_SHA"
+      - name: Register migration revision and run it
+        env: {ACCOUNT_ID: "${{ steps.account.outputs.id }}"}
+        run: |
+          set -euo pipefail
+          family=arbion-production-migration
+          aws ecs describe-task-definition --task-definition "$family" --query taskDefinition > /tmp/task.json
+          jq --arg image "$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/arbion-api:$GITHUB_SHA" '.containerDefinitions[0].image=$image | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' /tmp/task.json > /tmp/new-task.json
+          migration_task=$(aws ecs register-task-definition --cli-input-json file:///tmp/new-task.json --query taskDefinition.taskDefinitionArn --output text)
+          task=$(aws ecs run-task --cluster "$ECS_CLUSTER" --launch-type FARGATE --task-definition "$migration_task" --network-configuration "awsvpcConfiguration={subnets=[${{ vars.AWS_PRIVATE_APP_SUBNETS }}],securityGroups=[${{ vars.AWS_MIGRATION_SECURITY_GROUP }}],assignPublicIp=DISABLED}" --query 'tasks[0].taskArn' --output text)
+          aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$task"
+          code=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$task" --query 'tasks[0].containers[0].exitCode' --output text)
+          test "$code" = 0
+      - name: Register application revisions and deploy
+        env: {ACCOUNT_ID: "${{ steps.account.outputs.id }}"}
+        run: |
+          set -euo pipefail
+          for component in web api ai; do
+            family="arbion-production-$component"
+            aws ecs describe-task-definition --task-definition "$family" --query taskDefinition > /tmp/task.json
+            jq --arg image "$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/arbion-$component:$GITHUB_SHA" '.containerDefinitions[0].image=$image | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)' /tmp/task.json > /tmp/new-task.json
+            revision=$(aws ecs register-task-definition --cli-input-json file:///tmp/new-task.json --query taskDefinition.taskDefinitionArn --output text)
+            aws ecs update-service --cluster "$ECS_CLUSTER" --service "arbion-$component" --task-definition "$revision" >/dev/null
+          done
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services arbion-web arbion-api arbion-ai
+      - name: Smoke test
+        run: |
+          curl --fail --silent --show-error --retry 5 https://www.arbion.ai/healthz >/dev/null
+          curl --fail --silent --show-error --retry 5 https://www.arbion.ai/ >/dev/null

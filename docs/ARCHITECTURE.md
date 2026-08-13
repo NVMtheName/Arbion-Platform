@@ -164,3 +164,9 @@ The risk foundation lives in `services/api/internal/risk`. It consumes normalize
 The Go modular monolith now contains `internal/strategy`, a pure deterministic definition/evaluation layer plus PAPER and SHADOW adapters and a persistence boundary. The flow is mandate/version → instance → normalized evaluation → existing ProposedAction → authoritative risk gate → non-live adapter → atomic state/history/journal persistence. HTTP handlers expose initialization and ownership-scoped non-live read APIs; evaluation remains an explicit invocation and no worker was introduced.
 
 PAPER portfolios are a distinct persistence domain. SHADOW can consume normalized account facts supplied through the Go financial read boundary, but the strategy engine cannot call Schwab. Neither adapter has connector credentials or a broker-write method. There is no live adapter.
+
+## Scalable AWS production topology
+
+The long-term scalable production foundation retains the same modular-monolith-plus-Neural-Engine boundary. A public AWS ALB terminates ACM TLS and routes `/api/*` to private Go Fargate tasks and default traffic to private Next.js tasks. Python is private and discovered through AWS Cloud Map; token authentication remains mandatory. Private Multi-AZ RDS is durable truth and encrypted ElastiCache is ephemeral coordination/session infrastructure. Application tasks use private subnets with NAT egress for fixed provider adapters, while data subnets have no Internet route. ECR, Secrets Manager/KMS, CloudWatch, and GitHub OIDC supply image, secret, telemetry, and temporary deployment-identity boundaries. See [AWS deployment](AWS_DEPLOYMENT.md).
+
+This infrastructure introduces no worker or new product service. Future automation or market-data workers can reuse the application/data network tiers only after their domain, safety, and operational design is approved. The Caddy single-host topology remains supported.

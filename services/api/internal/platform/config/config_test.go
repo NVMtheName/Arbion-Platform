@@ -108,3 +108,21 @@ func TestLoadRejectsInvalidPoolBounds(t *testing.T) {
 		t.Fatal("expected pool bounds error")
 	}
 }
+
+func TestLoadBuildsEscapedDatabaseURLFromProductionFields(t *testing.T) {
+	values := validProduction()
+	delete(values, "DATABASE_URL")
+	values["DATABASE_HOST"] = "database.internal"
+	values["DATABASE_PORT"] = "5432"
+	values["DATABASE_NAME"] = "arbion"
+	values["DATABASE_USER"] = "arbion"
+	values["DATABASE_PASSWORD"] = "strong:p@ssword"
+	values["DATABASE_SSLMODE"] = "verify-full"
+	cfg, err := load(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(cfg.Database.URL, "strong:p@ssword") || !strings.Contains(cfg.Database.URL, "sslmode=verify-full") {
+		t.Fatalf("database URL was not safely constructed")
+	}
+}

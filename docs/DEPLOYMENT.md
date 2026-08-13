@@ -109,3 +109,7 @@ Manual Schwab test (never place an order):
 7. Register the founder, run the explicit idempotent bootstrap, and confirm its audit event.
 8. Perform the read-only manual Schwab test if configured.
 9. Reconfirm no broker-write routes/adapters, workers, or live toggle exist before announcing availability.
+
+## Scalable AWS production option
+
+The Caddy/single-host topology above remains a supported simpler deployment and is not replaced. The intended long-term scalable topology is the Terraform-prepared AWS ECS/Fargate architecture described in [AWS deployment](AWS_DEPLOYMENT.md): public ALB only, private web/API/AI tasks, private Multi-AZ RDS and ElastiCache, ECR, Secrets Manager/KMS, CloudWatch, ACM, optional existing-Route-53 integration, and GitHub OIDC. Infrastructure creation, application release, migration, and deliberate DNS cutover are separate operations. Neither deployment option enables live trading.
