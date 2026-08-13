@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/platform/config"
@@ -19,6 +20,7 @@ type identityKey struct{}
 type authHandler struct {
 	service *auth.Service
 	admin   *authorization.Service
+	ai      *aiconnection.Service
 	cfg     config.Auth
 }
 type credentials struct {
@@ -54,6 +56,141 @@ func NewApplicationHandler(database ReadinessChecker, timeout config.Config, ser
 		mux.Handle("PUT /api/admin/users/{id}/entitlement", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.updateEntitlement))))
 	}
 	return securityHeaders(mux)
+}
+
+func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service) stdhttp.Handler {
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth}
+	mux := stdhttp.NewServeMux()
+	mux.HandleFunc("GET /healthz", health)
+	mux.HandleFunc("GET /readyz", readiness(database, cfg.Database.ReadinessTimeout))
+	mux.HandleFunc("POST /api/auth/register", h.register)
+	mux.HandleFunc("POST /api/auth/login", h.login)
+	mux.Handle("POST /api/auth/logout", h.require(stdhttp.HandlerFunc(h.logout)))
+	mux.Handle("GET /api/auth/me", h.require(stdhttp.HandlerFunc(h.me)))
+	mux.Handle("GET /api/admin/me", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.adminMe))))
+	mux.Handle("GET /api/admin/users", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.adminUsers))))
+	mux.Handle("GET /api/admin/users/{id}", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.adminUser))))
+	mux.Handle("PUT /api/admin/users/{id}/role", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.updateRole))))
+	mux.Handle("PUT /api/admin/users/{id}/entitlement", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.updateEntitlement))))
+	mux.Handle("GET /api/connections/ai", h.require(stdhttp.HandlerFunc(h.listAI)))
+	mux.Handle("POST /api/connections/ai", h.require(stdhttp.HandlerFunc(h.createAI)))
+	mux.Handle("PATCH /api/connections/ai/{id}", h.require(stdhttp.HandlerFunc(h.renameAI)))
+	mux.Handle("PUT /api/connections/ai/{id}/credential", h.require(stdhttp.HandlerFunc(h.replaceAI)))
+	mux.Handle("POST /api/connections/ai/{id}/enable", h.require(stdhttp.HandlerFunc(h.enableAI)))
+	mux.Handle("POST /api/connections/ai/{id}/disable", h.require(stdhttp.HandlerFunc(h.disableAI)))
+	mux.Handle("DELETE /api/connections/ai/{id}", h.require(stdhttp.HandlerFunc(h.deleteAI)))
+	return securityHeaders(mux)
+}
+
+func (h *authHandler) listAI(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	items, e := h.ai.List(r.Context(), principal(r))
+	if e != nil {
+		h.aiError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"connections": items, "providers": h.ai.Providers(), "can_use_neural_engine": authorization.CanUseNeuralEngine(principal(r))})
+}
+func (h *authHandler) csrf(r *stdhttp.Request) bool { return h.originAllowed(r) }
+func (h *authHandler) createAI(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var in struct {
+		Provider    string `json:"provider"`
+		DisplayName string `json:"display_name"`
+		Credential  string `json:"credential"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	secret := []byte(in.Credential)
+	in.Credential = ""
+	c, e := h.ai.Create(r.Context(), principal(r), in.Provider, in.DisplayName, secret)
+	clear(secret)
+	if e != nil {
+		h.aiError(w, e)
+		return
+	}
+	writeJSON(w, 201, map[string]any{"connection": c})
+}
+func (h *authHandler) renameAI(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var in struct {
+		DisplayName string `json:"display_name"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	c, e := h.ai.Rename(r.Context(), principal(r), r.PathValue("id"), in.DisplayName)
+	if e != nil {
+		h.aiError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"connection": c})
+}
+func (h *authHandler) replaceAI(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var in struct {
+		Credential string `json:"credential"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	secret := []byte(in.Credential)
+	in.Credential = ""
+	c, e := h.ai.Replace(r.Context(), principal(r), r.PathValue("id"), secret)
+	clear(secret)
+	if e != nil {
+		h.aiError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"connection": c})
+}
+func (h *authHandler) enableAI(w stdhttp.ResponseWriter, r *stdhttp.Request)  { h.stateAI(w, r, true) }
+func (h *authHandler) disableAI(w stdhttp.ResponseWriter, r *stdhttp.Request) { h.stateAI(w, r, false) }
+func (h *authHandler) stateAI(w stdhttp.ResponseWriter, r *stdhttp.Request, enabled bool) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	c, e := h.ai.SetEnabled(r.Context(), principal(r), r.PathValue("id"), enabled)
+	if e != nil {
+		h.aiError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"connection": c})
+}
+func (h *authHandler) deleteAI(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	if e := h.ai.Delete(r.Context(), principal(r), r.PathValue("id")); e != nil {
+		h.aiError(w, e)
+		return
+	}
+	w.WriteHeader(204)
+}
+func (h *authHandler) aiError(w stdhttp.ResponseWriter, e error) {
+	switch {
+	case errors.Is(e, aiconnection.ErrForbidden):
+		writeError(w, 403, "neural_engine_unavailable", "Neural Engine access is unavailable for the current plan.")
+	case errors.Is(e, aiconnection.ErrNotFound):
+		writeError(w, 404, "connection_not_found", "Connection not found.")
+	case errors.Is(e, aiconnection.ErrInvalid):
+		writeError(w, 400, "invalid_request", "Connection details are invalid.")
+	case errors.Is(e, aiconnection.ErrConflict):
+		writeError(w, 409, "connection_in_use", "Resolve dependent configuration before removing this connection.")
+	default:
+		writeError(w, 500, "internal_error", "The request could not be completed.")
+	}
 }
 func principal(r *stdhttp.Request) authorization.Principal {
 	u, _ := r.Context().Value(identityKey{}).(auth.SafeUser)

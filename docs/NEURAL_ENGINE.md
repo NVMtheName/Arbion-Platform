@@ -4,7 +4,19 @@
 
 The Neural Engine is Arbion's Python boundary for AI-assisted and quantitative computation. It can eventually support chat, reasoning, research, structured analysis, streaming, tool calling, security analysis, and backtesting. It is advisory and computational, not an authorization or execution authority.
 
-No AI-provider integration or product functionality is introduced by this document.
+Secure provider connection management is implemented, but inference and external provider verification are not. No prompts are sent to AI providers in this milestone.
+
+## Connection lifecycle
+
+Entitled users can create, rename, replace credentials for, enable, disable, list, and delete their own AI connections. New and replaced credentials enter `pending`; encryption success is not verification. The documented lifecycle vocabulary is `pending`, `active`, `error`, `expired`, `revoked`, and `disabled`. A future verifier may move a pending connection to active or an appropriate failure state after contacting only its registered provider adapter.
+
+Disabling preserves the connection and encrypted credential but makes it ineligible for future Neural Engine use. Enabling returns it to pending eligibility and does not claim validity. Deletion first refuses connections referenced by durable configuration, then removes the vault secret and connection. Ownership-filtered queries return the same not-found result for absent and foreign IDs.
+
+All mutations are checked through centralized `CanUseNeuralEngine` policy. Founder and premium entitlements currently satisfy that capability naturally. **Administrative role does not itself grant Neural Engine product access; entitlement policy controls Neural Engine access.**
+
+The registry contains provider identifiers and safe labels for OpenAI, Anthropic / Claude, and Google Gemini. Connections store only safe metadata and a deliberately masked suffix; plaintext is accepted in a bounded request, passed to the server-side authenticated-encryption vault, cleared from the immediate byte buffer, and never returned. **AI-provider credentials belong to the Arbion user and persist independently of browser sessions.**
+
+Future work will add external credential verification and provider-independent Neural Engine consumption. It must exclude disabled/non-active connections as policy requires, retrieve credentials only inside the authorized server-side boundary, and preserve the rule that Go remains authoritative for entitlement, ownership, and vault access.
 
 ## Provider abstraction
 

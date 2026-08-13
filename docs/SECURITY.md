@@ -58,6 +58,8 @@ Secrets must never be committed to Git. Configuration examples use safe developm
 
 The development credential vault encrypts each payload with AES-256-GCM and binds ciphertext authentication to its user, connection, and AI-versus-financial credential class. Only encrypted payloads are persisted in PostgreSQL; normal provider models contain safe metadata only. The vault interface allows a future managed KMS or secrets-manager adapter. Production key custody, rotation, and managed-secret selection remain deferred.
 
+AI connection endpoints authenticate every request, scope every lookup and mutation by user ID and the `ai` credential class, enforce trusted origins on mutations, and cap JSON bodies and API keys. Foreign and missing connection identifiers are indistinguishable. Audit events contain provider/connection identifiers and state transitions but no request body, key, ciphertext, nonce, or vault details. Logout removes only the session and has no connection lifecycle side effect.
+
 ## Financial action boundary
 
 AI output enters the control plane as an untrusted proposal. Before any future financial action, the platform must establish:
