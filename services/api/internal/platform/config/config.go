@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -72,7 +73,10 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	}
 	databaseURL := get("DATABASE_URL", "")
 	if databaseURL == "" {
-		return Config{}, errors.New("DATABASE_URL is required")
+		databaseURL = databaseURLFromParts(get)
+	}
+	if databaseURL == "" {
+		return Config{}, errors.New("DATABASE_URL or all DATABASE_HOST, DATABASE_NAME, DATABASE_USER, and DATABASE_PASSWORD fields are required")
 	}
 	parsedDB, err := url.Parse(databaseURL)
 	if err != nil || (parsedDB.Scheme != "postgres" && parsedDB.Scheme != "postgresql") || parsedDB.Host == "" || strings.Trim(parsedDB.Path, "/") == "" {
@@ -131,6 +135,20 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		}
 	}
 	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins}, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 12 * time.Second}, Schwab: schwab}, nil
+}
+
+func databaseURLFromParts(get func(string, string) string) string {
+	host, name, user, password := get("DATABASE_HOST", ""), get("DATABASE_NAME", ""), get("DATABASE_USER", ""), get("DATABASE_PASSWORD", "")
+	if host == "" || name == "" || user == "" || password == "" {
+		return ""
+	}
+	port := get("DATABASE_PORT", "5432")
+	sslmode := get("DATABASE_SSLMODE", "require")
+	result := &url.URL{Scheme: "postgres", Host: net.JoinHostPort(host, port), Path: "/" + name, User: url.UserPassword(user, password)}
+	query := result.Query()
+	query.Set("sslmode", sslmode)
+	result.RawQuery = query.Encode()
+	return result.String()
 }
 
 func passwordMissingOrDevelopment(parsed *url.URL) bool {

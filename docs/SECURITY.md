@@ -157,3 +157,11 @@ No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine
 Strategy state, transitions, market fixtures, paper records, and Decision Journal rationale contain only normalized safe data. They exclude financial/AI credentials, full account numbers, raw provider payloads, and private chain-of-thought. Ownership and `CanUseAutomation`/financial entitlement are checked server-side for instance APIs.
 
 PAPER and SHADOW traverse the same Risk/Control Engine. PAPER mutates only separate simulated tables; SHADOW mutates no holdings and explicitly records that no order was sent. The strategy package imports neither Schwab nor Neural Engine code, and no live or broker execution adapter exists.
+
+## AWS production trust boundaries
+
+The AWS foundation exposes only the ALB. ECS tasks have no public IP; AI accepts only API-security-group ingress; RDS and ElastiCache are private and accept only explicitly authorized task groups. NAT provides outbound HTTPS without adding inbound reachability. Cloud Map network discovery does not replace the AI internal token. Financial-provider secrets remain consumable only by Go, and Neural Engine tasks receive no Schwab or database credentials.
+
+GitHub authenticates with repository- and production-environment-restricted OIDC roles, never static AWS access keys. Separate Terraform plan/apply and application deployment roles are distinct from least-privilege ECS execution/task roles. Secrets Manager contains operator-populated values encrypted under KMS; Terraform creates containers and never stores values in source or outputs. RDS credentials are AWS-managed, Redis requires TLS and authentication, and the stable application credential-encryption key is not interchangeable with a KMS key.
+
+Deletion protection, final snapshots, secret recovery windows, protected state/KMS resources, manual apply/deploy approval, and DNS-disabled-by-default settings reduce accidental production loss or takeover. No AWS resource was created as part of repository preparation, and live broker execution remains absent.
