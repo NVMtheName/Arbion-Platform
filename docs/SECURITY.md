@@ -1,5 +1,13 @@
 # Security and Trust Boundaries
 
+## Production deployment controls
+
+Production startup rejects missing or development-placeholder database credentials, credential encryption keys, and internal AI tokens. Trusted origins are explicit and restricted to `https://www.arbion.ai`; wildcards and reflected Host/Origin trust are forbidden. Session cookies are `HttpOnly`, `SameSite=Lax`, scoped to `/`, and forced `Secure` in production while localhost development remains usable.
+
+`CREDENTIAL_ENCRYPTION_KEY` is a cryptographically random, base64-encoded 32-byte key generated once per environment. Back it up in a restricted secret store; never commit or casually rotate it. Losing it can make encrypted provider credentials unreadable. Automatic rotation is intentionally out of scope.
+
+Container logs use stdout/stderr, but operators must never log environment dumps or secret-bearing requests. Schwab secrets/codes/tokens, AI API keys, encryption keys, session cookies, internal tokens, and database passwords are prohibited from logs and support bundles. Backups contain sensitive customer and product data and require encryption and restricted access.
+
 ## Security posture
 
 Arbion combines probabilistic AI, sensitive financial data, user-supplied credentials, and potentially consequential actions. Its primary invariant is that AI can propose or analyze, but only Arbion-controlled deterministic systems can authorize and dispatch financial operations. This is a target security model, not a statement that integrations or execution are implemented. Authentication is implemented; live and automated trading remain prohibited without a separate explicit task and safety approval.

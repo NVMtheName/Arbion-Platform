@@ -79,7 +79,12 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, errors.New("DATABASE_URL must be a valid PostgreSQL URL with host and database name")
 	}
 	if environment == Production && (parsedDB.Query().Get("sslmode") == "disable" || parsedDB.Query().Get("sslmode") == "") {
-		return Config{}, errors.New("production DATABASE_URL must enable TLS with sslmode")
+		if parsedDB.Hostname() != "postgres" || parsedDB.Query().Get("sslmode") != "disable" {
+			return Config{}, errors.New("production DATABASE_URL must enable TLS unless using the private Compose postgres service")
+		}
+	}
+	if environment == Production && (parsedDB.User == nil || parsedDB.User.Username() == "" || passwordMissingOrDevelopment(parsedDB)) {
+		return Config{}, errors.New("production DATABASE_URL must include non-development database credentials")
 	}
 	redisURL := get("REDIS_URL", "")
 	parsedRedis, err := url.Parse(redisURL)
@@ -106,14 +111,46 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil || ttl < time.Minute {
 		return Config{}, errors.New("AUTH_SESSION_TTL must be at least one minute")
 	}
-	origins := strings.Split(get("AUTH_ALLOWED_ORIGINS", "http://localhost:3000"), ",")
+	origins, err := allowedOrigins(get("AUTH_ALLOWED_ORIGINS", "http://localhost:3000"), environment)
+	if err != nil {
+		return Config{}, err
+	}
 	aiURL := strings.TrimRight(get("AI_SERVICE_URL", "http://localhost:8000"), "/")
 	internalToken := get("AI_INTERNAL_SERVICE_TOKEN", "")
 	if internalToken == "" {
 		return Config{}, errors.New("AI_INTERNAL_SERVICE_TOKEN is required")
 	}
+	if environment == Production && (internalToken == "local-internal-development-token" || len(internalToken) < 32) {
+		return Config{}, errors.New("production AI_INTERNAL_SERVICE_TOKEN must be a strong non-development secret")
+	}
 	schwab := Schwab{ClientID: get("SCHWAB_CLIENT_ID", ""), ClientSecret: get("SCHWAB_CLIENT_SECRET", ""), RedirectURI: get("SCHWAB_REDIRECT_URI", "http://localhost:8080/api/connections/financial/schwab/callback"), AuthorizationURL: get("SCHWAB_AUTHORIZATION_URL", "https://api.schwabapi.com/v1/oauth/authorize"), TokenURL: get("SCHWAB_TOKEN_URL", "https://api.schwabapi.com/v1/oauth/token"), TraderBaseURL: get("SCHWAB_TRADER_BASE_URL", "https://api.schwabapi.com/trader/v1"), Timeout: 10 * time.Second}
+	if environment == Production {
+		enabled := schwab.ClientID != "" || schwab.ClientSecret != ""
+		if enabled && (schwab.ClientID == "" || schwab.ClientSecret == "" || schwab.RedirectURI != "https://www.arbion.ai/api/connections/financial/schwab/callback") {
+			return Config{}, errors.New("production Schwab configuration requires client ID, client secret, and the approved callback URI")
+		}
+	}
 	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins}, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 12 * time.Second}, Schwab: schwab}, nil
+}
+
+func passwordMissingOrDevelopment(parsed *url.URL) bool {
+	password, ok := parsed.User.Password()
+	return !ok || password == "" || password == "local-development-only"
+}
+
+func allowedOrigins(value string, environment Environment) ([]string, error) {
+	items := strings.Split(value, ",")
+	for i := range items {
+		items[i] = strings.TrimSpace(items[i])
+		parsed, err := url.Parse(items[i])
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || strings.Contains(items[i], "*") {
+			return nil, errors.New("AUTH_ALLOWED_ORIGINS must contain explicit origins without wildcards or paths")
+		}
+		if environment == Production && (parsed.Scheme != "https" || items[i] != "https://www.arbion.ai") {
+			return nil, errors.New("production AUTH_ALLOWED_ORIGINS must be https://www.arbion.ai")
+		}
+	}
+	return items, nil
 }
 
 func allZero(value []byte) bool {

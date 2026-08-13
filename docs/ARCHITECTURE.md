@@ -117,6 +117,8 @@ PostgreSQL is authoritative for accounts. Redis stores only hashed opaque browse
 
 Components are containerized and coordinated locally with Docker Compose. Production deployments must add TLS, authentication and authorization, managed secrets, structured observability with redaction, backups, migrations, dependency readiness checks, and restrictive network policies.
 
+The initial production topology is a vendor-neutral Linux Docker host. Caddy is the only public container and terminates HTTPS for `www.arbion.ai`; it redirects the apex domain, routes `/api/*` and API health paths to Go, and routes all other traffic to Next.js. Go, the Neural Engine, PostgreSQL, and Redis share a non-published Docker network. PostgreSQL, Redis, and Caddy certificate state use named volumes. A one-shot migration container must succeed before API startup. See [Deployment](DEPLOYMENT.md).
+
 Prefer a module within the Go application to a new service. Split a service only for a measured scaling, isolation, ownership, or technology constraint, and record the decision in this document or an ADR. Preserve the Next.js experience, Go control/connector, and Python AI/quantitative boundaries.
 
 ## Deferred architecture decisions

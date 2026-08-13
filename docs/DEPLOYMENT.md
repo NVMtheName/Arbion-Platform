@@ -1,0 +1,111 @@
+# Production deployment runbook
+
+## Status, topology, and safety boundary
+
+This repository is prepared for operation; it does **not** claim Arbion is deployed. Existing PAPER simulation, SHADOW intent recording, and read-only real Schwab data may be served. There is no scheduler, broker-write interface, order-submission adapter, live-trading implementation, or live feature flag.
+
+```text
+Internet :80/:443 -> Caddy (only published service)
+  /api/*, /healthz, /readyz -> Go API :8080
+  everything else           -> Next.js :3000
+Private Docker network: Go, Neural Engine :8000, PostgreSQL :5432, Redis :6379
+```
+
+API, AI, PostgreSQL, and Redis have no host port mappings. Outbound provider access remains possible. Financial credentials flow only through Go/Vault to Schwab, never Python.
+
+## DNS and host prerequisites
+
+Use a patched Linux host with Docker Engine, Compose v2, `curl`, durable disk, and inbound TCP 80/443 plus UDP 443. Point both `www.arbion.ai` and `arbion.ai` at the separately chosen host—no IP is hard-coded here. Caddy obtains/renews HTTPS certificates, redirects HTTP to HTTPS, and redirects the apex to `https://www.arbion.ai`. Preserve its certificate volume.
+
+## Environment and secret generation
+
+Copy `.env.production.example` to ignored `.env.production` and populate it only on the host:
+
+- `ARBION_ENV=production`;
+- PostgreSQL database/user and a strong `POSTGRES_PASSWORD`;
+- `DATABASE_URL` with matching non-development credentials. Bundled private PostgreSQL may use `postgres://...@postgres:5432/arbion?sslmode=disable` only inside this host; external databases must use TLS;
+- `REDIS_URL=redis://redis:6379/0`;
+- `CREDENTIAL_ENCRYPTION_KEY`, generated once with `openssl rand -base64 32`;
+- `AI_INTERNAL_SERVICE_TOKEN`, generated with `openssl rand -base64 48`;
+- `AUTH_ALLOWED_ORIGINS=https://www.arbion.ai`;
+- explicit `FOUNDER_EMAIL` only for bootstrap; and
+- when Schwab is enabled, both client values and `SCHWAB_REDIRECT_URI=https://www.arbion.ai/api/connections/financial/schwab/callback`.
+
+Compose rejects absent required values. Go rejects invalid URLs, known development database/key/token values, weak AI tokens, wildcard/noncanonical origins, and partial or misdirected Schwab settings. Python independently rejects missing/weak production internal authentication. Never print, commit, or send the environment file to support.
+
+The encryption key must be cryptographically random, generated once, securely backed up, never committed, and never casually rotated. Losing it may make encrypted provider credentials unreadable. There is no automatic key rotation.
+
+## Release, migrations, and deploy helper
+
+The safe sequence is: review and back up; validate Compose; build images; start healthy PostgreSQL/Redis; run the one-shot embedded Goose migrations exactly once; start AI/API/Web; wait for health; start Caddy; verify public health. Migration failure stops deployment and the API's completed-migration dependency prevents a healthy release. Runtime schema creation is not used.
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml config --quiet
+ARBION_PRODUCTION_ENV_FILE=.env.production ./scripts/deploy-production.sh
+./scripts/smoke-production.sh
+```
+
+The deploy script fails fast, does not echo secrets, delete volumes, or overwrite data. Never run `docker compose down -v` in production.
+
+## Health checks and logging
+
+- Go `/healthz` reports liveness and `/readyz` checks database readiness.
+- Python provides `/healthz` and startup-validated `/readyz`.
+- Next.js provides `/api/health`; PostgreSQL uses `pg_isready`; Redis uses `PING`.
+- Caddy waits on healthy API/Web and exposes Go health paths through the public origin.
+
+Checks have start periods, bounded timeouts, and nonaggressive intervals. Logs remain container stdout/stderr. Never dump environments or log Schwab secrets/codes/tokens, AI keys, encryption keys, cookies, internal tokens, or database passwords.
+
+## Founder bootstrap
+
+Register the intended account normally, explicitly configure `FOUNDER_EMAIL`, then run:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml run --rm --entrypoint /bootstrap-founder api
+```
+
+The existing command fails if the account is absent, is idempotent, promotes only the explicit address, and writes an audit event. It is never automatic.
+
+## PostgreSQL backup, restore, and Redis loss
+
+`postgres-production-data` is durable product truth. Configure encrypted, off-host, retention-managed backups before launch. Create a restricted logical backup outside the repository:
+
+```bash
+umask 077
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T postgres \
+  pg_dump -U arbion -d arbion -Fc > /secure/off-host-staging/arbion-$(date -u +%Y%m%dT%H%M%SZ).dump
+```
+
+Transfer and verify it in approved encrypted storage. Backups contain sensitive customer/product data and need the separately backed-up encryption key. Restore only in a planned outage to an empty, version-compatible database: preserve the failed database, validate the backup, stop application traffic, use reviewed `pg_restore` arguments, rerun migrations, and verify readiness/inventory. Never overwrite the only production copy or delete volumes as recovery.
+
+Redis AOF improves continuity but Redis is ephemeral. Loss ends active sessions and pending OAuth flows must restart. Users, provider connections, mandates, strategy instances, paper portfolios, and durable automation state remain in PostgreSQL.
+
+## Rollback
+
+Retain the prior reviewed revision/images and a verified pre-release backup. Roll application code back without deleting volumes. Migrations are forward-managed; do not improvise destructive schema downgrades. For incompatibility, stop traffic and use the migration-specific reviewed recovery or verified backup restoration plan.
+
+## Public and Schwab smoke tests
+
+`scripts/smoke-production.sh` checks HTTPS root, API health/readiness, login/register pages, and the apex HTTP redirect. It never signs in to Schwab. Inspect session cookies for `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`, and verify foreign origins are rejected.
+
+Manual Schwab test (never place an order):
+
+1. Sign into Arbion and open **Settings → Connections**.
+2. Click **Connect Schwab** and confirm the redirect reaches Schwab.
+3. Authenticate directly with Schwab and authorize Arbion.
+4. Confirm return to `https://www.arbion.ai/api/connections/financial/schwab/callback` and a successful connection display.
+5. Confirm discovered accounts, balances, and positions.
+6. Run **Sync** and confirm there is no duplicate account inventory.
+7. Confirm UI distinctions among PAPER, SHADOW, and real read-only Schwab data.
+
+## Exact first-host checklist
+
+1. Provision/patch Linux; install Docker/Compose; permit public 80/443 only (plus restricted administration).
+2. Clone the reviewed commit and point apex/`www` DNS to the host.
+3. Create `.env.production`; generate, store, and separately back up all secrets. Register the exact Schwab callback if enabled.
+4. Establish encrypted off-host PostgreSQL backups and restoration ownership.
+5. Validate Compose, then run `scripts/deploy-production.sh`.
+6. Run `scripts/smoke-production.sh`; inspect Compose health and sanitized logs.
+7. Register the founder, run the explicit idempotent bootstrap, and confirm its audit event.
+8. Perform the read-only manual Schwab test if configured.
+9. Reconfirm no broker-write routes/adapters, workers, or live toggle exist before announcing availability.
