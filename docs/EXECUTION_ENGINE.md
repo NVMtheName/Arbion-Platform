@@ -53,3 +53,7 @@ The same strategy core uses Historical, Paper, Shadow, or future Live adapters a
 ## Deferred decisions
 
 No order tables, endpoints, adapters, SDKs, reconciliation jobs, or provider calls are added by this design. Canonical order/leg schemas, precision rules, preview expiry, provider mapping, webhook/poll strategy, cancellation/replacement semantics, correction handling, multi-leg guarantees, and live retry protocols require future provider-specific threat modeling and approval.
+
+## Proposed-action boundary
+
+The implemented `ProposedAction` is not an Order Intent or broker payload. It terminates at a structured, non-executing risk evaluation. No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine.

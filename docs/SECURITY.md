@@ -139,3 +139,7 @@ Automation mutations require centralized `CanUseAutomation` and financial-accoun
 The API exposes configuration and lifecycle routes only. There are no order, preview, execute, worker, strategy-evaluation, broker-write, or AI-portfolio routes. `execution_capable=false` is a permanent milestone safeguard returned with mandate configuration.
 
 **A configured or READY Automation Mandate does not itself execute trades.** **Broker-reported buying power is not Arbion trading authority.**
+
+## Implemented risk trust boundary
+
+No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine. Applicable durable breakers are evaluated before mandate and financial rules, unknown safety-critical inputs fail closed, and neither administrative status nor AI output can override a breaker. Evidence contains normalized references and deterministic messages, never credentials or private chain-of-thought.

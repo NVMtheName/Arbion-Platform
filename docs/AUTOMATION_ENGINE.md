@@ -110,3 +110,7 @@ Capital buckets are account- and user-bound exact-decimal allocations. Fixed all
 **A configured or READY Automation Mandate does not itself execute trades.**
 
 **Broker-reported buying power is not Arbion trading authority.**
+
+## Risk-gate integration
+
+All future automation proposals bind to an exact immutable mandate version and enter the deterministic risk registry. `PAUSED`, `DISABLED`, and `ARCHIVED` deny new authorization; autonomy only changes approval semantics. A successful risk evaluation does not execute a trade.

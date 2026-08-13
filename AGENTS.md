@@ -26,6 +26,9 @@ These instructions apply to the entire repository.
 - Do not store private model chain-of-thought. Store concise, structured decision rationale instead.
 - Automated execution remains server-side and independent of browser sessions.
 - No live trading may be implemented without an explicit future task and the required architecture and security approval.
+- The Risk/Control Engine authorizes or denies proposed actions; it never decides that a trade is desirable.
+- A successful risk evaluation does not execute a trade.
+- No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine.
 
 ## Conventions
 

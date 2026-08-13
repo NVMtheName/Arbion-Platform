@@ -48,3 +48,15 @@ The policy language, numerical defaults, jurisdictional rules, loss calculation,
 Automation Mandate versions now preserve validated exact-decimal configuration for maximum deployed capital, single-position amount and percentage, daily loss, minimum cash reserve, maximum trades per day, margin policy, options policy, structured allowed/prohibited universes, and conditions. These fields are authorization inputs only: no risk evaluator or execution path is implemented. Configured allocation checks do not claim real-time broker sufficiency.
 
 **A configured or READY Automation Mandate does not itself execute trades.** **Broker-reported buying power is not Arbion trading authority.**
+
+## Implemented deterministic evaluation foundation
+
+The Go `internal/risk` package defines provider-independent `ProposedAction`, normalized account and daily-activity snapshots, stable reason codes, structured `RiskEvaluation` evidence, and an ordered rule registry. Exact decimal arithmetic avoids binary floating point, and security-critical unknowns fail closed. Migration `00007_risk_control.sql` adds durable scoped circuit-breaker and compact evaluation evidence tables. `LIVE` remains configuration metadata and every result reports platform execution unavailable.
+
+**The Risk/Control Engine authorizes or denies proposed actions; it never decides that a trade is desirable.**
+
+**A successful risk evaluation does not execute a trade.**
+
+**No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine.**
+
+The package imports no connector or Neural Engine code and exposes no broker-write operation. Authenticated persistence services and production breaker mutation/evaluation HTTP wiring remain deferred; the safety view is informational and disabled rather than pretending client-side state is authoritative.

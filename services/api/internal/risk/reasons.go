@@ -1,0 +1,35 @@
+package risk
+
+type ReasonCode string
+
+const (
+	Allowed                      ReasonCode = "ALLOWED"
+	AuthorizationDenied          ReasonCode = "AUTHORIZATION_DENIED"
+	AccountOwnershipMismatch     ReasonCode = "ACCOUNT_OWNERSHIP_MISMATCH"
+	ConnectionUnavailable        ReasonCode = "CONNECTION_UNAVAILABLE"
+	MandateNotReady              ReasonCode = "MANDATE_NOT_READY"
+	MandatePaused                ReasonCode = "MANDATE_PAUSED"
+	MandateVersionMismatch       ReasonCode = "MANDATE_VERSION_MISMATCH"
+	MandateOwnershipMismatch     ReasonCode = "MANDATE_OWNERSHIP_MISMATCH"
+	MandateExpired               ReasonCode = "MANDATE_EXPIRED"
+	AutonomyDenied               ReasonCode = "AUTONOMY_DENIED"
+	AutonomyRequiresApproval     ReasonCode = "AUTONOMY_REQUIRES_APPROVAL"
+	StrategyMismatch             ReasonCode = "STRATEGY_MISMATCH"
+	CapitalLimitExceeded         ReasonCode = "CAPITAL_LIMIT_EXCEEDED"
+	ReserveViolation             ReasonCode = "RESERVE_VIOLATION"
+	InsufficientBuyingPower      ReasonCode = "INSUFFICIENT_BUYING_POWER"
+	PositionLimitExceeded        ReasonCode = "POSITION_LIMIT_EXCEEDED"
+	DailyLossLimitExceeded       ReasonCode = "DAILY_LOSS_LIMIT_EXCEEDED"
+	TradeCountLimitExceeded      ReasonCode = "TRADE_COUNT_LIMIT_EXCEEDED"
+	SymbolNotAllowed             ReasonCode = "SYMBOL_NOT_ALLOWED"
+	UniverseUnsupported          ReasonCode = "UNIVERSE_UNSUPPORTED"
+	OptionsNotAllowed            ReasonCode = "OPTIONS_NOT_ALLOWED"
+	OptionsCapabilityUnsupported ReasonCode = "OPTIONS_CAPABILITY_UNSUPPORTED"
+	MarginNotAllowed             ReasonCode = "MARGIN_NOT_ALLOWED"
+	MarginCapabilityUnsupported  ReasonCode = "MARGIN_CAPABILITY_UNSUPPORTED"
+	StaleAccountData             ReasonCode = "STALE_ACCOUNT_DATA"
+	ActivityDataUnavailable      ReasonCode = "ACTIVITY_DATA_UNAVAILABLE"
+	CircuitBreakerActive         ReasonCode = "CIRCUIT_BREAKER_ACTIVE"
+	InvalidAction                ReasonCode = "INVALID_ACTION"
+	PlatformExecutionDisabled    ReasonCode = "PLATFORM_EXECUTION_DISABLED"
+)
