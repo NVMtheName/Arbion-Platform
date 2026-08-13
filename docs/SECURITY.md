@@ -2,13 +2,15 @@
 
 ## Security posture
 
-Arbion combines probabilistic AI, sensitive financial data, user-supplied credentials, and potentially consequential actions. Its primary invariant is that AI can propose or analyze, but only Arbion-controlled deterministic systems can authorize and dispatch financial operations. This is a target security model, not a statement that authentication, integrations, or execution are currently implemented.
+Arbion combines probabilistic AI, sensitive financial data, user-supplied credentials, and potentially consequential actions. Its primary invariant is that AI can propose or analyze, but only Arbion-controlled deterministic systems can authorize and dispatch financial operations. This is a target security model, not a statement that integrations or execution are implemented. Authentication is implemented; live and automated trading remain prohibited without a separate explicit task and safety approval.
 
 ## Trust zones
 
 ### Browser and experience layer
 
 The browser is untrusted. It must not receive stored provider secrets or make authoritative claims about identity, permission, approval, account ownership, risk, or order validity. Client-side checks improve usability but never replace server-side enforcement.
+
+Traditional UI and Ask Arbion are equivalent untrusted inputs to shared structured commands. Natural-language interpretation, conversation history, and actionable notification buttons cannot create a privileged execution path.
 
 ### Go control plane
 
@@ -75,6 +77,12 @@ AI output enters the control plane as an untrusted proposal. Before any future f
 
 No prompt, model selection, confidence score, tool call, or provider response can waive these checks. Direct live execution and automated trading require explicit future design approval and are not part of the current system.
 
+The active immutable Automation Mandate version is an additional authorization ceiling for automation. Available broker buying power is not consent to deploy capital; explicit capital buckets, reservations, protected amounts, and absolute limits constrain use. Autonomy changes human-approval requirements but never weakens the deterministic gate.
+
+Hard circuit breakers cover loss/deployment limits, reserves, concentration/frequency, connectivity, stale or abnormal data, volatility, execution failures, reconciliation mismatch, capability changes, and scoped kill switches. They fail closed for affected new action and cannot be overridden or reset by AI. See [Risk and Control Engine](RISK_CONTROL_ENGINE.md).
+
+Future submission must be idempotent and duplicate-resistant. Submission or provider acknowledgement is not a fill. Broker truth is authoritative for execution state, and reconciliation must detect partial fills, cancellations, rejections, external trades, drift, and lost acknowledgements before dependent strategy state advances. See [Execution Engine](EXECUTION_ENGINE.md).
+
 ## Tool boundary
 
 Internal MCP-like tools are deny-by-default capabilities, not raw network or database access. Each invocation must bind to an identity, tenant, account, purpose, schema version, permission set, deadline, and audit correlation identifier. Inputs and outputs are validated and minimized. Tool descriptions and retrieved content are data, not policy instructions.
@@ -87,6 +95,8 @@ Administrative endpoints enforce centralized, deny-by-default role checks. Produ
 
 Security-relevant events should capture actor, tenant, decision, policy version, resource, time, correlation identifiers, approvals, and outcome. Audit records must avoid secrets and unnecessary sensitive payloads, be access-controlled, have defined retention, and eventually support integrity protection. Operational telemetry should default to metadata rather than prompts, model responses, order payloads, or provider bodies.
 
+Automated and AI-assisted actions also require a structured Decision Journal linking the exact mandate version, strategy state, market references, concise rationale, risk checks, approval, order, broker response, and resulting state. Arbion does not store private model chain-of-thought. Explainability uses these records rather than model guesswork.
+
 ## Threats to address before integrations
 
 - prompt injection and tool-confusion attacks;
@@ -97,7 +107,10 @@ Security-relevant events should capture actor, tenant, decision, policy version,
 - stale, manipulated, or incorrectly normalized financial data;
 - duplicate, reordered, ambiguous, or partially completed side effects;
 - provider compromise, outage, rate limiting, and dependency substitution; and
-- unauthorized automation or approval bypass.
+- unauthorized automation or approval bypass;
+- capital double allocation or stale mandate/version use;
+- circuit-breaker bypass or unaudited emergency reset; and
+- execution-state confusion caused by treating submission as a fill.
 
 ## Required future security decisions
 

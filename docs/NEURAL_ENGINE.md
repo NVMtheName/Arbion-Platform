@@ -4,6 +4,8 @@
 
 The Neural Engine is Arbion's Python boundary for AI-assisted and quantitative computation. It can eventually support chat, reasoning, research, structured analysis, streaming, tool calling, security analysis, and backtesting. It is advisory and computational, not an authorization or execution authority.
 
+Ask Arbion is one input surface, not an AI-owned trading path. It interprets natural language into a structured Arbion Intent that joins the same Go domain commands used by the UI. Conversation state is not authoritative for mandates, strategies, approvals, orders, positions, or execution.
+
 Secure provider connection management is implemented, but inference and external provider verification are not. No prompts are sent to AI providers in this milestone.
 
 ## Connection lifecycle
@@ -42,24 +44,34 @@ The Neural Engine and external AI providers must never receive brokerage credent
 
 ## Controlled tool model
 
-Arbion may expose MCP-like internal tools to models, including:
+Arbion may eventually expose controlled internal tools to models, including:
 
-- `get_portfolio`
-- `get_position`
+- `get_accounts`
+- `get_balances`
 - `get_buying_power`
+- `get_positions`
+- `get_orders`
+- `get_automations`
+- `get_capital_buckets`
 - `get_market_quote`
-- `get_recent_orders`
-- `get_watchlist`
+- `get_strategy_state`
+- `get_decision_journal`
+- `preview_order`
 - `analyze_security`
 - `run_backtest`
 - `calculate_risk`
-- `preview_order`
 
 This is a conceptual catalog, not an implemented API. Arbion owns tool names, versioned input/output schemas, identity context, permissions, validation, timeouts, resource limits, data minimization, and audit records. A model can request a tool call; it cannot grant itself access or define the trusted meaning of its arguments.
 
 Tool output is also untrusted at subsequent boundaries: external data can be stale or malicious, and model interpretation can be wrong. Results should carry provenance and freshness where relevant and must be validated before they influence a financial action.
 
-Direct trade execution must not be offered as an unrestricted AI tool. A future execution workflow would require explicit user intent and approval plus deterministic control-plane checks.
+Tools are permissioned and scoped to the authenticated user, account, and purpose. Direct trade execution must not be offered as an unrestricted AI tool. A future execution workflow requires a structured intent plus authorization, active mandate validation where applicable, deterministic risk/control, approval policy, and the shared execution boundary.
+
+## Multi-model operation
+
+A future request may use a primary model, verifier, and secondary analyst (for example Claude, OpenAI, and Gemini), or a consensus mode in which models produce separate schema-constrained proposals. Arbion may compare, score, or aggregate those proposals using an explicit policy. Agreement is evidence, not authority: consensus cannot create permission, change a strategy transition, clear a breaker, or bypass deterministic validation.
+
+The Decision Journal records provider/model identity, proposal references, selected structured factors, and concise rationale where appropriate. It does not store private model chain-of-thought. Explanations must be reconstructed from authoritative mandates, strategy state, market references, policy decisions, orders, and broker reconciliation rather than generated from conversational memory. See [Automation Engine](AUTOMATION_ENGINE.md#decision-journal-and-explainability).
 
 ## Control-plane relationship
 
@@ -74,6 +86,8 @@ The Go control plane mediates the Neural Engine's access to platform and connect
 7. Any proposed financial action is treated as untrusted and enters a separate deterministic validation and approval workflow.
 
 The Neural Engine cannot call financial providers directly, hold financial-provider credentials, bypass approval, or turn natural-language output into execution authority.
+
+AI assistance in `AI_AUTONOMOUS` or `HYBRID` automation is bounded by the active immutable mandate. In a Hybrid strategy, AI may choose among allowed decision variables but cannot define or skip deterministic state transitions. The [Risk and Control Engine](RISK_CONTROL_ENGINE.md) remains authoritative.
 
 ## Trust and safety properties
 

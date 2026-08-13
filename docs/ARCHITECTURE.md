@@ -2,7 +2,9 @@
 
 ## Purpose and scope
 
-Arbion is intended to be an AI-powered financial orchestration platform. It combines a user experience, a provider-independent Neural Engine, deterministic financial controls, and external financial-provider adapters. This document describes the target boundaries; it does not claim that the conceptual capabilities are implemented.
+Arbion is a full trading platform with two equal control surfaces: traditional UI and Ask Arbion. **Arbion is UI-first and conversationally enhanced.** Both surfaces manipulate the same structured domain objects and enter the same command, mandate, control, approval, journal, and execution paths. Conversation is never the source of truth or a separate trading subsystem.
+
+Arbion combines that user experience with a provider-independent Neural Engine, deterministic financial controls, strategy and automation domains, and external financial-provider adapters. This document describes target boundaries; it does not claim that the conceptual capabilities are implemented.
 
 The current implementation remains a modular monolith plus one dedicated AI service. Email/password authentication is implemented in the Go control plane. Live or automated trading, order execution, broker connections, AI-provider integrations, and legacy Flask migration remain out of scope until explicitly designed and approved.
 
@@ -11,18 +13,16 @@ The current implementation remains a modular monolith plus one dedicated AI serv
 ```text
 ┌───────────────────────────────────────────────────────────────┐
 │ Experience layer: Next.js / React / TypeScript               │
-│ Dashboard, portfolios, research/chat, charts, alerts,        │
-│ watchlists, and settings                                     │
+│ UI controls and Ask Arbion: trading, automation, portfolio,  │
+│ research, charts, alerts, watchlists, and settings            │
 └──────────────────────────────┬────────────────────────────────┘
                                │ cookie-authenticated API
 ┌──────────────────────────────▼────────────────────────────────┐
 │ Go modular monolith                                           │
 │                                                               │
-│ Control plane                 Financial connector layer       │
-│ authorization and permissions provider-independent adapters   │
-│ risk and account validation   accounts, positions, orders,    │
-│ buying power and order policy quotes, and transactions        │
-│ approvals and audit                                           │
+│ Shared domain commands, Automation Mandates, strategy engine  │
+│ deterministic control/risk, approvals, execution, journal     │
+│ provider-independent financial connector adapters             │
 └───────────────┬───────────────────────────────┬───────────────┘
                 │ bounded requests              │ OAuth/tokens
 ┌───────────────▼────────────────┐       ┌──────▼───────────────┐
@@ -46,11 +46,20 @@ Browser/login sessions are ephemeral and distinct from durable user resources. L
 
 `apps/web` is the Next.js App Router application and owns browser presentation and interaction for the trading dashboard, portfolios, research/chat, charts, alerts, watchlists, and settings. It must not own financial policy, store provider secrets, or make trusted execution decisions. Secrets are accepted only through secure platform flows and are never returned after storage.
 
+Every important capability must be operable through ordinary UI controls without conversation. UI forms, trading tickets, automation builders, conversational intents, and notification actions translate into the same typed commands. They may provide different input ergonomics, but not different domain semantics.
+
 ### Control plane
 
 `services/api` is the core platform and the sole authority for sensitive financial actions. It remains a Go modular monolith: `cmd/api` owns startup and wiring; business and platform packages belong beneath `internal`; transport handlers delegate domain behavior.
 
 All AI output is untrusted input. Every proposed financial action must pass through deterministic authorization, permissions, risk rules, account validation, buying-power checks, order validation, approval requirements, audit logging, and execution policy. An AI response, tool call, or confidence score cannot authorize an action. Live execution requires a separate, explicit architecture and security approval before implementation.
+
+The permanent domain design is split into focused specifications:
+
+- [Automation Engine](AUTOMATION_ENGINE.md) defines immutable Automation Mandates, automation/autonomy types, capital buckets, server-side operation, and the Decision Journal.
+- [Strategy Engine](STRATEGY_ENGINE.md) defines deterministic state machines shared across backtest, paper, shadow, and live adapters.
+- [Execution Engine](EXECUTION_ENGINE.md) defines provider-independent Order Intents, lifecycle, idempotency, capability discovery, and broker reconciliation.
+- [Risk and Control Engine](RISK_CONTROL_ENGINE.md) defines the authoritative deterministic gate and non-bypassable circuit breakers.
 
 ### Neural Engine
 
@@ -69,6 +78,10 @@ The connector layer is subordinate to the control plane: it translates approved 
 The Neural Engine may conceptually request MCP-like tools such as portfolio lookup, quotes, analysis, backtesting, risk calculation, and order preview. Arbion owns the tool registry, schemas, permissions, resource limits, validation, and audit trail. Tools that read or compute are not inherently trusted, and direct trade execution must not be exposed as an unrestricted AI tool.
 
 A future MCP-compatible server could expose a deliberately approved subset of Arbion tools to external AI clients. It would remain an Arbion-controlled interface subject to the same identity, authorization, credential, policy, and audit boundaries. No MCP server is part of the current scope.
+
+## Durable automation and execution truth
+
+PostgreSQL will hold immutable mandate versions, exact strategy state, structured decision evidence, approval evidence, and execution/reconciliation state when those concepts are implemented. Redis may coordinate future workers but is never authoritative. Broker records are authoritative for live execution facts; a submitted request is not a fill. Automated operation is server-side and continues independently of browser sessions, subject to its durable mandate and controls.
 
 ## Credential and trust boundaries
 
@@ -116,6 +129,8 @@ The following require later design and approval:
 - supported connector sequence, normalized financial data and order semantics, OAuth lifecycle, webhook validation, and reconciliation;
 - secret-management technology, key ownership, encryption, rotation, revocation, and incident response;
 - risk-policy language, approval thresholds, audit retention, idempotency, and failure recovery;
+- the concrete schemas and APIs for mandates, capital buckets, strategy instances, decision journals, orders, and reconciliation;
+- strategy definition format, simulation semantics, worker topology, scheduling, concurrency, and notification transport;
 - market-data licensing, freshness, provenance, and caching rules;
 - the safety case and explicit design approval for any future live or automated execution; and
 - whether, when, and how to expose an authenticated MCP-compatible server.
