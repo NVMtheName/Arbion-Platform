@@ -29,3 +29,20 @@ func TestAuthenticationMigrationIsVersionedAndConstrained(t *testing.T) {
 		}
 	}
 }
+
+func TestNonLiveStrategyMigrationSeparatesSimulationAndHistory(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00008_nonlive_strategy.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"strategy_instances", "strategy_state_transitions", "paper_portfolios", "paper_positions", "nonlive_execution_records", "decision_journal_entries", "WOULD_HAVE_SUBMITTED", "reject_nonlive_history_mutation"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("non-live strategy migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"broker_orders", "SchwabExecutionAdapter", "LIVE')"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("non-live strategy migration unexpectedly contains %q", prohibited)
+		}
+	}
+}

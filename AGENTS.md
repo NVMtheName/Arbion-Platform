@@ -22,6 +22,7 @@ These instructions apply to the entire repository.
 - Strategies are deterministic state machines. AI may assist within allowed transitions but may not redefine them.
 - The deterministic risk/control engine is authoritative. AI output is always untrusted, and AI cannot override circuit breakers.
 - Backtest, paper, shadow, and live execution modes should share core strategy logic and differ through adapters.
+- Paper execution is simulation and never represents a broker fill; shadow records intent and never submits an order.
 - Broker execution must be reconciled. Never assume submitted means filled, and design future order submission for idempotency.
 - Do not store private model chain-of-thought. Store concise, structured decision rationale instead.
 - Automated execution remains server-side and independent of browser sessions.

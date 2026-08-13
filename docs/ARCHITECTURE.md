@@ -156,3 +156,9 @@ The implementation is deliberately configuration-only: there is no execution end
 ## Deterministic risk foundation
 
 The risk foundation lives in `services/api/internal/risk`. It consumes normalized snapshots rather than calling financial or AI providers, evaluates an ordered provider-independent registry, and emits explainable evidence. The Risk/Control Engine authorizes or denies proposed actions; it never decides that a trade is desirable. A successful risk evaluation does not execute a trade.
+
+## Deterministic non-live automation implementation
+
+The Go modular monolith now contains `internal/strategy`, a pure deterministic definition/evaluation layer plus PAPER and SHADOW adapters and a persistence boundary. The flow is mandate/version → instance → normalized evaluation → existing ProposedAction → authoritative risk gate → non-live adapter → atomic state/history/journal persistence. HTTP handlers expose initialization and ownership-scoped non-live read APIs; evaluation remains an explicit invocation and no worker was introduced.
+
+PAPER portfolios are a distinct persistence domain. SHADOW can consume normalized account facts supplied through the Go financial read boundary, but the strategy engine cannot call Schwab. Neither adapter has connector credentials or a broker-write method. There is no live adapter.

@@ -61,13 +61,16 @@ type Strategy struct {
 	ID, DisplayName, Description                            string
 	OptionsRequired, MarginRelevant, ExistingSharesRelevant bool
 	ParameterSchemaID                                       string
+	DefinitionVersion                                       int
+	InitialState                                            string
+	Implemented                                             bool
 }
 
 var Strategies = map[string]Strategy{
-	"wheel":            {"wheel", "Wheel", "Configure a future deterministic Wheel strategy.", true, true, false, "wheel.v1"},
-	"covered_call":     {"covered_call", "Covered Call", "Configure a future covered-call strategy.", true, false, true, "covered_call.v1"},
-	"cash_secured_put": {"cash_secured_put", "Cash-Secured Put", "Configure a future cash-secured-put strategy.", true, false, false, "cash_secured_put.v1"},
-	"collar":           {"collar", "Collar", "Configure a future protective Collar strategy.", true, false, true, "collar.v1"},
+	"wheel":            {"wheel", "Wheel", "Deterministic cash-secured-put and covered-call cycle.", true, true, false, "wheel.v1", 1, "READY_FOR_PUT", true},
+	"covered_call":     {"covered_call", "Covered Call", "Deterministic covered-call state machine.", true, false, true, "covered_call.v1", 1, "READY_FOR_CALL", true},
+	"cash_secured_put": {"cash_secured_put", "Cash-Secured Put", "Deterministic cash-secured-put state machine.", true, false, false, "cash_secured_put.v1", 1, "READY_FOR_PUT", true},
+	"collar":           {"collar", "Collar", "Configure a future protective Collar strategy.", true, false, true, "collar.v1", 1, "", false},
 }
 
 type CreateBucketCommand struct {

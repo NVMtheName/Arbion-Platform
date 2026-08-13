@@ -57,3 +57,13 @@ No order tables, endpoints, adapters, SDKs, reconciliation jobs, or provider cal
 ## Proposed-action boundary
 
 The implemented `ProposedAction` is not an Order Intent or broker payload. It terminates at a structured, non-executing risk evaluation. No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine.
+
+## Implemented non-live adapters
+
+The provider-independent non-live adapter boundary accepts the existing Risk Engine `ProposedAction`, a successful `RiskEvaluation`, supplied market facts, and an expected deterministic state. PAPER uses a conservative deterministic bid-based option-credit fixture and rejects missing/invalid price data. SHADOW records `WOULD_HAVE_SUBMITTED` and an expected transition but mutates neither paper nor real holdings.
+
+Non-live statuses are `PROPOSED`, `RISK_DENIED`, `SIMULATED_FILLED`, `SIMULATED_REJECTED`, `WOULD_HAVE_SUBMITTED`, `CANCELED`, and `ERROR`; they are not broker order states. Durable event identities and unique idempotency keys prevent duplicate simulated fills. Persistence implementations commit execution, paper accounting, journal evidence, and optimistic state transitions atomically.
+
+**Paper execution is simulation and never represents a broker fill.**
+
+**Shadow mode records what Arbion would have attempted but never submits an order.**

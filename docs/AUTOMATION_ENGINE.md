@@ -114,3 +114,9 @@ Capital buckets are account- and user-bound exact-decimal allocations. Fixed all
 ## Risk-gate integration
 
 All future automation proposals bind to an exact immutable mandate version and enter the deterministic risk registry. `PAUSED`, `DISABLED`, and `ARCHIVED` deny new authorization; autonomy only changes approval semantics. A successful risk evaluation does not execute a trade.
+
+## Non-live instance and journal implementation
+
+A manual request can initialize an implemented deterministic strategy from a READY `STRATEGY` mandate in PAPER or SHADOW mode. Initialization copies the exact mandate version into the instance; HYBRID evaluation is explicitly unsupported in this milestone and does not imply AI participation. There is no scheduler or background worker.
+
+Decision Journal entries are append-only structured decision evidence: selected facts, rule outcomes, references, and resulting state. Audit events are reserved for security- or lifecycle-significant commands such as initialization, reset, pause, and exceptional lifecycle handling; routine evaluations belong in the journal rather than flooding the security audit. Neither record stores private chain-of-thought.

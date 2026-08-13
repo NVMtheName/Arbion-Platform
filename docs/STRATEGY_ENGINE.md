@@ -70,3 +70,13 @@ The strategy-definition format, transition/event taxonomy, pricing and fill simu
 ## Implemented configuration registry
 
 The Go automation domain exposes metadata for `wheel`, `covered_call`, `cash_secured_put`, and `collar`, including future capability and parameter-schema hints. The registry validates mandate configuration only. It contains no states, transitions, evaluator, scheduler, market data, order preview, or execution adapter. Definitively unsupported required options capability rejects configuration; `UNKNOWN` is saved only with `capability_unverified=true`.
+
+## Implemented deterministic non-live foundation
+
+The existing automation registry is now the `StrategyDefinition` catalog: implemented definitions carry a definition version and initial state. A durable `StrategyInstance` is separate user state bound permanently to one account, execution mode, definition version, and exact immutable mandate version. Editing a mandate never retargets an instance.
+
+Cash-Secured Put and Covered Call use explicit legal states and provider-independent normalized inputs. Wheel composes their shared option lifecycle transitions. Candidate selection filters symbol, option type, DTE, delta, and premium, then deterministically ranks by distance to target delta, earliest expiration, and lowest strike. Required missing data fails closed. Covered calls conservatively require 100 normalized equity shares per standard contract.
+
+`StrategyEvaluationInput`, `MarketSnapshot`, and `OptionCandidate` use exact decimal strings and caller-supplied timestamps. The engine has no Schwab, broker, market-vendor, or AI dependency. Explicit `EXPIRE_WORTHLESS`, `ASSIGNED`, and `CALLED_AWAY` events drive lifecycle state; no probability is invented.
+
+**The same deterministic strategy definition is intended to serve paper, shadow, and future live execution.** Future live execution remains unavailable and requires separate approval.

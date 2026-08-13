@@ -60,3 +60,9 @@ The Go `internal/risk` package defines provider-independent `ProposedAction`, no
 **No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine.**
 
 The package imports no connector or Neural Engine code and exposes no broker-write operation. Authenticated persistence services and production breaker mutation/evaluation HTTP wiring remain deferred; the safety view is informational and disabled rather than pretending client-side state is authoritative.
+
+## Non-live strategy integration
+
+The deterministic strategy orchestrator emits the existing `ProposedAction` and invokes this engine unchanged for PAPER and SHADOW. A DENY records denial and cannot fill or advance execution-dependent state. Circuit breakers, stale data, exact mandate version, account options capability, allocation, reserve, and autonomy rules remain authoritative; simulation has no risk bypass.
+
+**Every strategy action must pass the Risk/Control Engine.** An ALLOW result permits only the selected non-live adapter in this milestone and is not broker authorization.
