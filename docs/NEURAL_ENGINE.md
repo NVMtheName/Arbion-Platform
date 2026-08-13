@@ -6,11 +6,25 @@ The Neural Engine is Arbion's Python boundary for AI-assisted and quantitative c
 
 Ask Arbion is one input surface, not an AI-owned trading path. It interprets natural language into a structured Arbion Intent that joins the same Go domain commands used by the UI. Conversation state is not authoritative for mandates, strategies, approvals, orders, positions, or execution.
 
-Secure provider connection management is implemented, but inference and external provider verification are not. No prompts are sent to AI providers in this milestone.
+Secure provider connection management, credential verification, model discovery, and default provider/model preferences are implemented. Generation, prompts, streaming, structured output, and tool invocation remain unimplemented.
+
+## Implemented provider connectivity
+
+`NeuralProvider` is the provider-independent Python contract. It defines credential verification, model listing, capability metadata, credential types, and future method boundaries for generation, structured output, streaming, and tool support. OpenAI, Anthropic/Claude, and Gemini adapters own their authentication headers, trusted fixed API destinations, response parsing, and error mapping. Arbion uses direct `httpx` calls rather than vendor SDKs for this narrow milestone: each official models API is a small, stable HTTP surface, direct calls avoid three large runtime dependency graphs, and transports remain straightforward to mock.
+
+The adapters declare capabilities independently. Capability metadata describes the external provider/API surface—not Arbion authorization—and does not expose trading tools. Credential metadata supports evolving types (`api_key`, `authorization_key`, and future OAuth or managed identity forms); the current UI accepts the documented API-key/authorization-key form for each initial provider.
+
+Verification uses the smallest safe officially documented model-list request: OpenAI `GET /v1/models` with bearer authorization, Anthropic `GET /v1/models?limit=1` with `x-api-key` and `anthropic-version`, and Gemini `GET /v1beta/models?pageSize=1` with `x-goog-api-key`. Full model discovery uses those same official list APIs and returns normalized IDs, display names, providers, and only capabilities that can be safely stated. There is no hard-coded global model catalog.
+
+Implementation references the current official [OpenAI API specification](https://github.com/openai/openai-openapi), [Anthropic Models API](https://platform.claude.com/docs/en/api/models/list), [Anthropic API overview](https://platform.claude.com/docs/en/api/overview), [Gemini Models API](https://ai.google.dev/api/models), and [Gemini API-key guidance](https://ai.google.dev/gemini-api/docs/api-key). These references must be rechecked before changing an adapter because authentication and catalogs evolve.
+
+Normalized failures are `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `TIMEOUT`, `INVALID_REQUEST`, `UNSUPPORTED`, and `INTERNAL_ERROR`. Provider bodies stay inside the adapter boundary and the browser receives a sanitized message. Normalized response metadata reserves optional provider, model, input/output usage, request ID, latency, and provider-supplied usage metadata fields; absent fields are never fabricated.
+
+The default Neural Engine preference is a durable user setting pointing to one active, owned AI connection and a model returned for that credential. It is only a default; future Automation Mandates may choose another connection/model. Logging out affects only the browser session and preserves both connections and this preference.
 
 ## Connection lifecycle
 
-Entitled users can create, rename, replace credentials for, enable, disable, list, and delete their own AI connections. New and replaced credentials enter `pending`; encryption success is not verification. The documented lifecycle vocabulary is `pending`, `active`, `error`, `expired`, `revoked`, and `disabled`. A future verifier may move a pending connection to active or an appropriate failure state after contacting only its registered provider adapter.
+Entitled users can create, rename, replace credentials for, verify, enable, disable, list, and delete their own AI connections. New and replaced credentials enter `pending`; encryption success is not verification. The documented lifecycle vocabulary is `pending`, `active`, `error`, `expired`, `revoked`, and `disabled`. Verification moves a pending connection to active or error after contacting only its registered provider adapter; failed verification preserves the stored credential so it can be replaced.
 
 Disabling preserves the connection and encrypted credential but makes it ineligible for future Neural Engine use. Enabling returns it to pending eligibility and does not claim validity. Deletion first refuses connections referenced by durable configuration, then removes the vault secret and connection. Ownership-filtered queries return the same not-found result for absent and foreign IDs.
 
@@ -18,7 +32,15 @@ All mutations are checked through centralized `CanUseNeuralEngine` policy. Found
 
 The registry contains provider identifiers and safe labels for OpenAI, Anthropic / Claude, and Google Gemini. Connections store only safe metadata and a deliberately masked suffix; plaintext is accepted in a bounded request, passed to the server-side authenticated-encryption vault, cleared from the immediate byte buffer, and never returned. **AI-provider credentials belong to the Arbion user and persist independently of browser sessions.**
 
-Future work will add external credential verification and provider-independent Neural Engine consumption. It must exclude disabled/non-active connections as policy requires, retrieve credentials only inside the authorized server-side boundary, and preserve the rule that Go remains authoritative for entitlement, ownership, and vault access.
+Verification and discovery exclude disabled connections; default selection additionally requires an active connection. Go remains authoritative for entitlement, ownership, state, preferences, and vault access.
+
+The secret flow is browser → authenticated Go API → ownership and entitlement checks → vault retrieval/decryption → authenticated internal Python request → one fixed provider adapter → external provider. Python uses the credential only in request memory and does not persist or log it. Credentials are never placed in URLs, query strings, environment variables, browser responses, provider errors, traces, or audit metadata. Request and response bodies, deadlines, and upstream responses are bounded, and authentication failures are not retried.
+
+The internal service token prevents the Python endpoints from becoming a public browser proxy, and Compose exposes the service only to the internal network. Production must replace the development token/cleartext container network with strong workload identity, encrypted service-to-service transport, token rotation, restrictive network policy, and redacted observability.
+
+**AI provider verification does not grant trading authority.**
+
+**AI provider credentials never cross into financial-provider connectors.**
 
 ## Provider abstraction
 

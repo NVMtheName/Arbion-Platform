@@ -11,6 +11,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/credential"
+	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/platform/database"
 	platformhttp "github.com/arbion/platform/services/api/internal/platform/http"
@@ -50,7 +51,8 @@ func main() {
 		slog.Error("credential vault unavailable", "error", err)
 		os.Exit(1)
 	}
-	aiConnections := aiconnection.NewService(aiconnection.NewPostgresStore(pool, registry), vault, users, registry)
+	neuralClient := neural.NewHTTPClient(cfg.AI.URL, cfg.AI.InternalToken, &http.Client{Timeout: cfg.AI.Timeout})
+	aiConnections := aiconnection.NewService(aiconnection.NewPostgresStore(pool, registry), vault, users, registry, neuralClient)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

@@ -63,6 +63,22 @@ func (s *PostgresStore) SetStatus(ctx context.Context, user, id, status string) 
 func (s *PostgresStore) SetCredentialPending(ctx context.Context, user, id, hint string) (Connection, error) {
 	return s.scan(s.db.QueryRow(ctx, `UPDATE provider_connections SET status='pending',credential_metadata=jsonb_build_object('hint',$3),updated_at=now(),last_verified_at=NULL WHERE id=$1 AND user_id=$2 AND provider_category='ai' RETURNING `+columns, id, user, hint))
 }
+func (s *PostgresStore) SetVerification(ctx context.Context, user, id, status string, verified bool) (Connection, error) {
+	return s.scan(s.db.QueryRow(ctx, `UPDATE provider_connections SET status=$3,last_verified_at=CASE WHEN $4 THEN now() ELSE last_verified_at END,updated_at=now() WHERE id=$1 AND user_id=$2 AND provider_category='ai' RETURNING `+columns, id, user, status, verified))
+}
+func (s *PostgresStore) GetPreference(ctx context.Context, user string) (*Preference, error) {
+	var p Preference
+	err := s.db.QueryRow(ctx, `SELECT provider_connection_id::text,model_id,updated_at FROM neural_engine_preferences WHERE user_id=$1`, user).Scan(&p.ConnectionID, &p.ModelID, &p.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return &p, err
+}
+func (s *PostgresStore) SetPreference(ctx context.Context, user, id, model string) (Preference, error) {
+	var p Preference
+	err := s.db.QueryRow(ctx, `INSERT INTO neural_engine_preferences(user_id,provider_connection_id,model_id) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET provider_connection_id=excluded.provider_connection_id,model_id=excluded.model_id,updated_at=now() RETURNING provider_connection_id::text,model_id,updated_at`, user, id, model).Scan(&p.ConnectionID, &p.ModelID, &p.UpdatedAt)
+	return p, err
+}
 func (s *PostgresStore) Delete(ctx context.Context, user, id string) error {
 	tag, e := s.db.Exec(ctx, `DELETE FROM provider_connections WHERE id=$1 AND user_id=$2 AND provider_category='ai'`, id, user)
 	if e != nil {

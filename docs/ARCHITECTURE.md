@@ -6,7 +6,7 @@ Arbion is a full trading platform with two equal control surfaces: traditional U
 
 Arbion combines that user experience with a provider-independent Neural Engine, deterministic financial controls, strategy and automation domains, and external financial-provider adapters. This document describes target boundaries; it does not claim that the conceptual capabilities are implemented.
 
-The current implementation remains a modular monolith plus one dedicated AI service. Email/password authentication is implemented in the Go control plane. Live or automated trading, order execution, broker connections, AI-provider integrations, and legacy Flask migration remain out of scope until explicitly designed and approved.
+The current implementation remains a modular monolith plus one dedicated AI service. Email/password authentication and AI-provider connection verification/configuration are implemented. Live or automated trading, order execution, broker connections, inference, and legacy Flask migration remain out of scope until explicitly designed and approved.
 
 ## System model
 
@@ -63,7 +63,7 @@ The permanent domain design is split into focused specifications:
 
 ### Neural Engine
 
-`services/ai` is the Python/FastAPI boundary for AI and quantitative computation. It will eventually abstract OpenAI, Anthropic/Claude, and Google Gemini behind a common provider interface for chat, reasoning, research, structured analysis, streaming, and tool calling. Task-to-provider and task-to-model selection may evolve without changing callers.
+`services/ai` is the Python/FastAPI boundary for AI and quantitative computation. It now abstracts OpenAI, Anthropic/Claude, and Google Gemini behind a common provider interface for credential verification and model discovery, with capability contracts reserving future generation, reasoning, structured analysis, streaming, and tool calling. Go calls bounded, service-authenticated internal endpoints; provider destinations are fixed by adapters rather than request input.
 
 The Neural Engine receives only the minimum data and tools authorized for a request. It neither receives financial-provider credentials nor directly invokes financial providers. Tool requests return to Arbion-controlled systems for permission checks and execution. See [Neural Engine](NEURAL_ENGINE.md).
 
@@ -87,7 +87,7 @@ PostgreSQL will hold immutable mandate versions, exact strategy state, structure
 
 AI-provider credentials and financial-provider credentials are separate secret classes with distinct access policies. AI vendors must never receive brokerage secrets. Financial connectors should prefer OAuth or token-based delegated authorization where supported. Stored secrets must never be returned to the browser, logged, or committed. The development vault uses authenticated encryption with an environment-supplied key and PostgreSQL ciphertext storage behind a vault interface; production should replace that adapter with a managed secret system without changing business logic. See [Security](SECURITY.md).
 
-The Go `aiconnection` domain owns authenticated AI-provider connection lifecycle and uses the shared credential vault, provider connection table, audit store, and authorization policy. Its centralized registry currently describes `openai`, `anthropic`, and `gemini`; adding a provider extends that registry and later its adapter rather than transport handlers. No provider is contacted by connection management.
+The Go `aiconnection` domain owns authenticated AI-provider connection lifecycle and uses the shared credential vault, provider connection and Neural preference tables, audit store, authorization policy, and narrow Python client. Its centralized registry describes `openai`, `anthropic`, and `gemini`; adding a provider extends that registry and its Python adapter rather than transport handlers. Production service-to-service traffic requires workload identity, TLS, and restrictive networking beyond the local shared-token mechanism.
 
 ## Authentication architecture
 

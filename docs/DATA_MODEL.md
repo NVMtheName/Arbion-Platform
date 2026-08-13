@@ -7,13 +7,14 @@ PostgreSQL is Arbion's durable system of record. Schema changes are explicit, ve
 - `users` supplies a stable UUID and authentication fields: original and normalized email, an Argon2id password hash, display name, account status, email verification time, last login time, and timestamps. A partial unique index on normalized email provides case-insensitive uniqueness while preserving compatibility with pre-authentication rows.
 - `users.role` is durable administrative authority (`user`, `admin`, or `superadmin`). `user_entitlements` independently records effective product access, its source, lifecycle, and whether billing is required. Founder rows are constrained to be non-expiring and non-billing.
 - `provider_connections` records AI or financial provider identity, status, scopes, safe credential metadata, token expiry, verification time, and either authenticated ciphertext or a managed-secret reference. Provider protocols remain adapter concerns.
+- `neural_engine_preferences` stores one user's default active AI provider connection and discovered model ID. It is an ordinary durable preference, not authority for future automations; its restrictive connection foreign key prevents silent deletion.
 
 AI rows always use `provider_category = 'ai'`. Their safe credential metadata may contain only the masked display hint; ciphertext remains in the vault-owned storage column and is excluded from application/API connection models. Status `pending` means stored but not externally verified, while `disabled` preserves the encrypted credential but prevents future selection. Durable references block explicit deletion rather than cascading silently.
 
 - `automation_configs` is the currently existing placeholder for future server-side configuration. It must not be treated as the permanent Automation Mandate model or used to infer that execution exists.
 - `audit_events` is append-oriented and records actors, actions, resources, correlation identifiers, timestamps, and non-secret JSON metadata.
 
-Browser sessions are separate and ephemeral. Provider connections and automation state persist across logout, browser closure, Redis loss, and application restarts. Stored provider credentials are server-side only and never part of normal API models.
+Browser sessions are separate and ephemeral. Provider connections, Neural Engine preferences, and automation state persist across logout, browser closure, Redis loss, and application restarts. Stored provider credentials are server-side only and never part of normal API models.
 
 ## Target domain records (not implemented)
 

@@ -26,6 +26,7 @@ type Config struct {
 	Redis       Redis
 	Credential  CredentialEncryption
 	Auth        Auth
+	AI          AIService
 }
 
 type Database struct {
@@ -37,6 +38,11 @@ type Database struct {
 }
 
 type Redis struct{ URL string }
+type AIService struct {
+	URL           string
+	InternalToken string
+	Timeout       time.Duration
+}
 
 type CredentialEncryption struct{ Key []byte }
 type Auth struct {
@@ -96,7 +102,12 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, errors.New("AUTH_SESSION_TTL must be at least one minute")
 	}
 	origins := strings.Split(get("AUTH_ALLOWED_ORIGINS", "http://localhost:3000"), ",")
-	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins}}, nil
+	aiURL := strings.TrimRight(get("AI_SERVICE_URL", "http://localhost:8000"), "/")
+	internalToken := get("AI_INTERNAL_SERVICE_TOKEN", "")
+	if internalToken == "" {
+		return Config{}, errors.New("AI_INTERNAL_SERVICE_TOKEN is required")
+	}
+	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins}, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 12 * time.Second}}, nil
 }
 
 func allZero(value []byte) bool {
