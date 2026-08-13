@@ -134,3 +134,11 @@ The following require later design and approval:
 - market-data licensing, freshness, provenance, and caching rules;
 - the safety case and explicit design approval for any future live or automated execution; and
 - whether, when, and how to expose an authenticated MCP-compatible server.
+
+## Read-only financial connection implementation
+
+The Go modular monolith now contains a provider-independent, read-only financial connector foundation and a Schwab Trader API adapter. The trust path is strictly `Next.js -> authenticated Go control plane -> financial Vault class -> selected Go broker adapter -> Schwab`. Financial traffic and secrets never transit the Python service. Redis may hold single-use pending OAuth state; PostgreSQL and the Vault hold durable connections and discovered account inventory, so Redis or browser-session loss cannot disconnect an existing account.
+
+The provider registry is centralized and auth-polymorphic. Schwab is implemented for delegated authorization and reads; E*TRADE and Coinbase are visible planned entries with no external calls. This changes the earlier connector boundary from wholly conceptual to read-only connectivity only. Order, execution, strategy, mandate, allocation, paper, shadow, live, and automated trading remain unimplemented.
+
+**Financial-provider credentials never enter the Neural Engine.**

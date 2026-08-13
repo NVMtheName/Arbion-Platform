@@ -171,6 +171,14 @@ button:disabled {
   border-radius: 10px;
   color: #cfe4da;
 }
+.financial-connections {
+  min-height: auto;
+  padding-top: 32px;
+}
+.financial-connections h2 {
+  font-size: 2.4rem;
+  margin: 8px 0 20px;
+}
 .dashboard-grid a,
 .connections-page > a {
   color: #5ee0a0;
