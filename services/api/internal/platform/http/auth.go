@@ -14,6 +14,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/financialconnection"
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 )
@@ -24,6 +25,7 @@ type authHandler struct {
 	admin              *authorization.Service
 	ai                 *aiconnection.Service
 	financialProviders financial.Registry
+	financial          *financialconnection.Service
 	cfg                config.Auth
 }
 type credentials struct {
@@ -61,8 +63,11 @@ func NewApplicationHandler(database ReadinessChecker, timeout config.Config, ser
 	return securityHeaders(mux)
 }
 
-func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service) stdhttp.Handler {
+func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances ...*financialconnection.Service) stdhttp.Handler {
 	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry()}
+	if len(finances) > 0 {
+		h.financial = finances[0]
+	}
 	mux := stdhttp.NewServeMux()
 	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("GET /readyz", readiness(database, cfg.Database.ReadinessTimeout))
@@ -87,7 +92,140 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.Handle("PUT /api/settings/neural-engine", h.require(stdhttp.HandlerFunc(h.setNeuralPreference)))
 	mux.Handle("DELETE /api/connections/ai/{id}", h.require(stdhttp.HandlerFunc(h.deleteAI)))
 	mux.Handle("GET /api/connections/financial/providers", h.require(stdhttp.HandlerFunc(h.listFinancialProviders)))
+	if h.financial != nil {
+		mux.Handle("GET /api/connections/financial", h.require(stdhttp.HandlerFunc(h.listFinancialConnections)))
+		mux.Handle("POST /api/connections/financial/schwab/start", h.require(stdhttp.HandlerFunc(h.startSchwab)))
+		mux.HandleFunc("GET /api/connections/financial/schwab/callback", h.callbackSchwab)
+		mux.Handle("POST /api/connections/financial/{id}/sync", h.require(stdhttp.HandlerFunc(h.syncFinancial)))
+		mux.Handle("POST /api/connections/financial/{id}/disable", h.require(stdhttp.HandlerFunc(h.disableFinancial)))
+		mux.Handle("POST /api/connections/financial/{id}/enable", h.require(stdhttp.HandlerFunc(h.enableFinancial)))
+		mux.Handle("DELETE /api/connections/financial/{id}", h.require(stdhttp.HandlerFunc(h.disconnectFinancial)))
+		mux.Handle("GET /api/accounts", h.require(stdhttp.HandlerFunc(h.listAccounts)))
+		mux.Handle("GET /api/accounts/{id}", h.require(stdhttp.HandlerFunc(h.getAccount)))
+		mux.Handle("GET /api/accounts/{id}/balances", h.require(stdhttp.HandlerFunc(h.getBalances)))
+		mux.Handle("GET /api/accounts/{id}/positions", h.require(stdhttp.HandlerFunc(h.getPositions)))
+	}
 	return securityHeaders(mux)
+}
+
+func (h *authHandler) financialError(w stdhttp.ResponseWriter, e error) {
+	status := 500
+	code := "INTERNAL_ERROR"
+	message := "The request could not be completed."
+	if errors.Is(e, financialconnection.ErrForbidden) {
+		status = 403
+		code = "PERMISSION_DENIED"
+		message = "Your plan does not allow financial connections."
+	} else if errors.Is(e, financialconnection.ErrNotFound) {
+		status = 404
+		code = "ACCOUNT_NOT_FOUND"
+		message = "The requested resource was not found."
+	} else if errors.Is(e, financialconnection.ErrDisabled) {
+		status = 409
+		code = "CONNECTION_DISABLED"
+		message = "The connection is disabled."
+	} else {
+		var pe *financial.ProviderError
+		if errors.As(e, &pe) {
+			code = string(pe.Code)
+			status = 502
+			if pe.Code == financial.AccountNotFound {
+				status = 404
+			}
+		}
+	}
+	writeError(w, status, code, message)
+}
+func (h *authHandler) mutationOK(w stdhttp.ResponseWriter, r *stdhttp.Request, fn func() error) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	if e := fn(); e != nil {
+		h.financialError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+func (h *authHandler) listFinancialConnections(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	v, e := h.financial.ListConnections(r.Context(), principal(r))
+	if e != nil {
+		h.financialError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"connections": v})
+}
+func (h *authHandler) startSchwab(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	u, e := h.financial.StartAuthorization(r.Context(), principal(r))
+	if e != nil {
+		h.financialError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"authorization_url": u})
+}
+func (h *authHandler) callbackSchwab(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	_, e := h.financial.CompleteAuthorization(r.Context(), r.URL.Query().Get("state"), r.URL.Query().Get("code"), r.URL.Query().Get("error"))
+	target := strings.TrimRight(h.cfg.AllowedOrigins[0], "/") + "/settings/connections?financial="
+	if e != nil {
+		target += "error"
+	} else {
+		target += "connected"
+	}
+	stdhttp.Redirect(w, r, target, stdhttp.StatusSeeOther)
+}
+func (h *authHandler) syncFinancial(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.mutationOK(w, r, func() error { return h.financial.Sync(r.Context(), principal(r), r.PathValue("id")) })
+}
+func (h *authHandler) disableFinancial(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.mutationOK(w, r, func() error {
+		_, e := h.financial.SetEnabled(r.Context(), principal(r), r.PathValue("id"), false)
+		return e
+	})
+}
+func (h *authHandler) enableFinancial(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.mutationOK(w, r, func() error {
+		_, e := h.financial.SetEnabled(r.Context(), principal(r), r.PathValue("id"), true)
+		return e
+	})
+}
+func (h *authHandler) disconnectFinancial(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.mutationOK(w, r, func() error { return h.financial.Disconnect(r.Context(), principal(r), r.PathValue("id")) })
+}
+func (h *authHandler) listAccounts(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	v, e := h.financial.ListAccounts(r.Context(), principal(r))
+	if e != nil {
+		h.financialError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"accounts": v})
+}
+func (h *authHandler) getAccount(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	v, e := h.financial.GetAccount(r.Context(), principal(r), r.PathValue("id"))
+	if e != nil {
+		h.financialError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"account": v})
+}
+func (h *authHandler) getBalances(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	v, e := h.financial.GetBalances(r.Context(), principal(r), r.PathValue("id"))
+	if e != nil {
+		h.financialError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"balances": v})
+}
+func (h *authHandler) getPositions(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	v, e := h.financial.GetPositions(r.Context(), principal(r), r.PathValue("id"))
+	if e != nil {
+		h.financialError(w, e)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"positions": v})
 }
 func (h *authHandler) listFinancialProviders(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	writeJSON(w, 200, map[string]any{"providers": h.financialProviders.List(), "can_connect_financial_accounts": authorization.CanConnectFinancialAccounts(principal(r))})

@@ -142,3 +142,5 @@ The Go modular monolith now contains a provider-independent, read-only financial
 The provider registry is centralized and auth-polymorphic. Schwab is implemented for delegated authorization and reads; E*TRADE and Coinbase are visible planned entries with no external calls. This changes the earlier connector boundary from wholly conceptual to read-only connectivity only. Order, execution, strategy, mandate, allocation, paper, shadow, live, and automated trading remain unimplemented.
 
 **Financial-provider credentials never enter the Neural Engine.**
+
+The financial foundation is now wired as a functional lifecycle: thin authenticated HTTP handlers delegate to `internal/financialconnection`, provider-specific requests remain in the existing Schwab adapter, Redis stores only pending single-use OAuth state, PostgreSQL stores lifecycle/account inventory and supplies cross-instance refresh locking, and the existing Vault stores encrypted token material. Account list/detail, current balance, and current position screens are read-only. Dashboard summaries report inventory only and do not fabricate unavailable or cross-currency values.

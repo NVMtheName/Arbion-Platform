@@ -37,3 +37,9 @@ Migration `00005_financial_accounts.sql` adds the durable `financial_accounts` i
 The normal API model omits `user_id`, opaque provider account identity, and provider instrument identifiers. It never stores or returns full account numbers. Financial values are provider-precision decimal strings, not binary floats. Balance observations and buying power are read-only provider facts; no allocation, mandate, order, strategy, or execution schema is introduced.
 
 **Broker-reported buying power does not grant Arbion authority to deploy that capital.**
+
+## Schwab read-only connection records
+
+`provider_connections` remains the sole durable connection table. Schwab rows use category `financial`, provider `schwab`, one stable display name per user, safe status/expiry/verification timestamps, and encrypted-database credential storage. Token plaintext is present only inside the Vault payload. Reauthorization upserts the existing row instead of creating duplicates.
+
+`financial_accounts` stores the owning user and connection, Schwab's server-only account hash, a masked display label, normalized type/currency/status/capabilities, and discovery/sync timestamps. `(provider_connection_id, provider_account_id)` makes repeat discovery idempotent. Ownership is present in every account query and enforced again by the database trigger. Missing accounts become `unavailable`; disconnect retires them as `closed` rather than destroying inventory or audit history. Full account numbers, balances, and positions are not persisted.

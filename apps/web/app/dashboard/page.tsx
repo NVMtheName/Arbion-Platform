@@ -19,6 +19,14 @@ export default async function Dashboard() {
     ? ((await connectionsResponse.json()) as { connections: unknown[] })
         .connections.length
     : 0;
+  const accountsResponse = await fetch(
+    `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/accounts`,
+    { headers: { cookie: cookieStore.toString() }, cache: "no-store" },
+  );
+  const accountCount = accountsResponse.ok
+    ? ((await accountsResponse.json()) as { accounts: unknown[] }).accounts
+        .length
+    : 0;
   return (
     <main className="dashboard">
       <header>
@@ -44,8 +52,13 @@ export default async function Dashboard() {
         </article>
         <article>
           <span className="icon">◎</span>
-          <h2>Trading Accounts</h2>
-          <p>No accounts connected</p>
+          <h2>Financial Accounts</h2>
+          <p>
+            {accountCount === 0
+              ? "No accounts connected"
+              : `${accountCount} connected account${accountCount === 1 ? "" : "s"}`}
+          </p>
+          <Link href="/accounts">View accounts</Link>
         </article>
         <article>
           <span className="icon">◈</span>
