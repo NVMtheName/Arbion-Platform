@@ -19,6 +19,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/platform/database"
 	platformhttp "github.com/arbion/platform/services/api/internal/platform/http"
+	"github.com/arbion/platform/services/api/internal/strategy"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -61,10 +62,11 @@ func main() {
 	schwabClient := schwab.New(schwab.Config{ClientID: cfg.Schwab.ClientID, ClientSecret: cfg.Schwab.ClientSecret, RedirectURI: cfg.Schwab.RedirectURI, AuthorizationURL: cfg.Schwab.AuthorizationURL, TokenURL: cfg.Schwab.TokenURL, TraderBaseURL: cfg.Schwab.TraderBaseURL}, &http.Client{Timeout: cfg.Schwab.Timeout})
 	financialConnections := financialconnection.NewService(financialconnection.NewPostgresStore(pool), vault, states, schwabClient, users)
 	automations := automation.NewService(automation.NewPostgresStore(pool), users)
+	strategies := strategy.NewInstanceService(strategy.NewPostgresStore(pool), automations)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           platformhttp.NewFullApplicationHandlerWithAutomation(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations),
+		Handler:           platformhttp.NewFullApplicationHandlerWithAutomation(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

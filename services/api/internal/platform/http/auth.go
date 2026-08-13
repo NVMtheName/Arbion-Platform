@@ -18,6 +18,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/financialconnection"
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/platform/config"
+	"github.com/arbion/platform/services/api/internal/strategy"
 )
 
 type identityKey struct{}
@@ -28,6 +29,7 @@ type authHandler struct {
 	financialProviders financial.Registry
 	financial          *financialconnection.Service
 	automation         *automation.Service
+	strategies         *strategy.InstanceService
 	cfg                config.Auth
 }
 type credentials struct {
@@ -111,8 +113,11 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	return securityHeaders(mux)
 }
 
-func NewFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service) stdhttp.Handler {
+func NewFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies ...*strategy.InstanceService) stdhttp.Handler {
 	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), financial: finances, automation: automations}
+	if len(strategies) > 0 {
+		h.strategies = strategies[0]
+	}
 	mux := stdhttp.NewServeMux()
 	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("GET /readyz", readiness(database, cfg.Database.ReadinessTimeout))
@@ -120,6 +125,7 @@ func NewFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg conf
 	// routes keep their established middleware and behavior.
 	base := NewFullApplicationHandler(database, cfg, service, admin, ai, finances)
 	registerAutomationRoutes(mux, h)
+	registerStrategyRoutes(mux, h)
 	mux.Handle("/", base)
 	return securityHeaders(mux)
 }

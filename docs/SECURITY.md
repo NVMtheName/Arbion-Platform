@@ -143,3 +143,9 @@ The API exposes configuration and lifecycle routes only. There are no order, pre
 ## Implemented risk trust boundary
 
 No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine. Applicable durable breakers are evaluated before mandate and financial rules, unknown safety-critical inputs fail closed, and neither administrative status nor AI output can override a breaker. Evidence contains normalized references and deterministic messages, never credentials or private chain-of-thought.
+
+## Non-live strategy security boundary
+
+Strategy state, transitions, market fixtures, paper records, and Decision Journal rationale contain only normalized safe data. They exclude financial/AI credentials, full account numbers, raw provider payloads, and private chain-of-thought. Ownership and `CanUseAutomation`/financial entitlement are checked server-side for instance APIs.
+
+PAPER and SHADOW traverse the same Risk/Control Engine. PAPER mutates only separate simulated tables; SHADOW mutates no holdings and explicitly records that no order was sent. The strategy package imports neither Schwab nor Neural Engine code, and no live or broker execution adapter exists.

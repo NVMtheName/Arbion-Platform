@@ -59,3 +59,9 @@ Migration `00006_automation_mandates.sql` replaces the early placeholder in plac
 ## Risk and control records
 
 Migration `00007_risk_control.sql` adds durable `risk_circuit_breakers` for global, user, account, and automation scopes and compact `risk_evaluations` for future Decision Journal references. Evaluation rows preserve references, exact mandate version, decision, approval requirement, stable reason codes, deterministic checks, and timestamp while omitting portfolio snapshots, credentials, broker payloads, and model reasoning. A constraint records `platform_execution_available=false` for this milestone.
+
+## Durable non-live strategy records
+
+Migration `00008_nonlive_strategy.sql` adds strategy instances bound by a composite foreign key to an immutable mandate version; append-only state transitions with unique `(instance,state_version)` optimistic concurrency; durable evaluation event identities; separate exact-decimal paper portfolios and positions; generic non-live execution records; and structured Decision Journal entries. Paper data never enters `financial_accounts` or provider position records.
+
+History update/delete triggers make state transitions and journal evidence immutable. Execution idempotency and per-instance event identities are database-enforced. Browser logout changes only Redis session state and cannot remove instances, paper portfolios, executions, decisions, or state history.
