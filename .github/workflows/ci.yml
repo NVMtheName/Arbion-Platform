@@ -75,6 +75,13 @@ jobs:
           AI_INTERNAL_SERVICE_TOKEN: ci-validation-token-0123456789abcdef
           AUTH_ALLOWED_ORIGINS: https://www.arbion.ai
           SCHWAB_REDIRECT_URI: https://www.arbion.ai/api/connections/financial/schwab/callback
-        run: docker compose -f docker-compose.prod.yml config --quiet
+        run: |
+          trap 'docker compose -f docker-compose.prod.yml down --volumes --remove-orphans' EXIT
+          docker compose -f docker-compose.prod.yml config --quiet
+          docker compose -f docker-compose.prod.yml config --format json |
+            jq -e '.services.migrate.environment.AUTH_ALLOWED_ORIGINS == "https://www.arbion.ai"' >/dev/null
+          docker compose -f docker-compose.prod.yml up -d postgres
+          docker compose -f docker-compose.prod.yml up --no-deps --exit-code-from migrate migrate
+          docker compose -f docker-compose.prod.yml up -d --no-deps --build --wait --wait-timeout 120 web
       - run: docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile
       - run: bash -n scripts/deploy-production.sh scripts/smoke-production.sh
