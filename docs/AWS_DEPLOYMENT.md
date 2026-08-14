@@ -16,7 +16,7 @@ Only the ALB accepts Internet ingress. Fargate tasks receive no public IP. RDS a
 
 ## Layout and prerequisites
 
-`infrastructure/terraform/bootstrap` is the one-time administrator stack. Reusable, deliberately small modules live in `modules`; `environments/production` composes them and can later be reused for staging without deploying staging now. Terraform `>= 1.10, < 2.0` and AWS provider `~> 6.0` are pinned. Prerequisites are an AWS account, administrator-operated bootstrap credentials, Terraform, AWS CLI, a GitHub `production` environment restricted to `main` with required reviewers, and the existing repository `NVMtheName/Arbion-Platform`.
+`infrastructure/terraform/bootstrap` is the one-time administrator stack. Reusable, deliberately small modules live in `modules`; `environments/production` composes them and can later be reused for staging without deploying staging now. Terraform `>= 1.10, < 2.0` and AWS provider `~> 6.0` are pinned. Prerequisites are an AWS account, administrator-operated bootstrap credentials, Terraform, AWS CLI, a GitHub `production` environment restricted to `main`, and the existing repository `NVMtheName/Arbion-Platform`. Configure required reviewers when the repository's GitHub plan supports them; otherwise follow the documented single-operator exception below.
 
 Do not run bootstrap or primary apply from Codex. No permanent AWS key belongs in GitHub.
 
@@ -68,6 +68,8 @@ Generate `CREDENTIAL_ENCRYPTION_KEY` exactly once as a base64-encoded 32-byte va
 `terraform.yml` validates formatting/init/validate on infrastructure changes without AWS credentials. Only manual dispatch on `main`, through protected `production`, can assume the apply role and apply a reviewed saved plan. Fork PRs cannot receive AWS credentials. `deploy-aws.yml` is also manual and approval-gated: OIDC, build/push SHA images, migration, service revisions, stable wait, then smoke tests. Infrastructure and application releases remain separate.
 
 Configure non-secret GitHub environment variables for role ARN, region, state identifiers, private subnet IDs, and migration security group. Store production secret values only in Secrets Manager—not GitHub. No workflow applies on merge, destroys infrastructure, changes DNS, or uses access keys.
+
+For a private repository whose GitHub plan does not support required environment reviewers, a single-operator exception may be used temporarily: restrict the `production` environment to `main`, keep infrastructure and deployment workflows manual, leave the apply input disabled by default, and trigger a run only after reviewing its saved plan. This is an explicit reduction in separation of duties, not equivalent to independent approval. Configure required reviewers before granting another operator write access or when the repository moves to a plan that supports reviewer protection for private repositories.
 
 ## First deployment and DNS cutover
 
