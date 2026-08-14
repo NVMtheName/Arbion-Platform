@@ -68,15 +68,23 @@ The existing command fails if the account is absent, is idempotent, promotes onl
 
 ## PostgreSQL backup, restore, and Redis loss
 
-`postgres-production-data` is durable product truth. Configure encrypted, off-host, retention-managed backups before launch. Create a restricted logical backup outside the repository:
+`postgres-production-data` is durable product truth. Configure encrypted, off-host, retention-managed backups before launch. The single-host deployment uses `scripts/backup-postgres.sh` from a root-owned systemd service. It creates a PostgreSQL custom-format dump with mode `0600`, validates the archive catalog, writes a SHA-256 checksum, uploads both files over TLS with S3 AES-256 server-side encryption, and removes the local staging copy. The dedicated bucket blocks public access, enforces TLS and AES-256 uploads, enables versioning, applies 35-day S3 Object Lock governance retention, and expires daily objects after 45 days. The host identity should have write-only access to the dedicated backup prefix: no object read or delete permission.
+
+Install `deploy/systemd/arbion-postgres-backup.service` and its timer under `/etc/systemd/system`. Put the dedicated S3 writer credentials and these settings in root-owned `/etc/arbion/postgres-backup.env` with mode `0600`:
 
 ```bash
-umask 077
-docker compose --env-file .env.production -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U arbion -d arbion -Fc > /secure/off-host-staging/arbion-$(date -u +%Y%m%dT%H%M%SZ).dump
+AWS_ACCESS_KEY_ID=replace-on-host
+AWS_SECRET_ACCESS_KEY=replace-on-host
+AWS_DEFAULT_REGION=us-east-1
+AWS_REGION=us-east-1
+AWS_EC2_METADATA_DISABLED=true
+ARBION_BACKUP_BUCKET=replace-with-dedicated-bucket
+ARBION_BACKUP_PREFIX=postgres/daily
 ```
 
-Transfer and verify it in approved encrypted storage. Backups contain sensitive customer/product data and need the separately backed-up encryption key. Restore only in a planned outage to an empty, version-compatible database: preserve the failed database, validate the backup, stop application traffic, use reviewed `pg_restore` arguments, rerun migrations, and verify readiness/inventory. Never overwrite the only production copy or delete volumes as recovery.
+Enable the timer and run the service once immediately. Confirm that both the dump and checksum exist remotely, use the required encryption, and are covered by the bucket retention controls. Monitor failures with `systemctl status arbion-postgres-backup.service` and `journalctl -u arbion-postgres-backup.service`; logs contain object names but no database contents or credentials.
+
+Backups contain sensitive customer/product data. Restore only in a planned outage to an empty, version-compatible PostgreSQL instance: preserve the failed database, download with an authorized recovery identity, validate the SHA-256 checksum and archive catalog, restore with reviewed `pg_restore` arguments, rerun migrations, and verify readiness and inventory. Rehearse this process after setup and periodically thereafter. Never grant the host read/delete access, overwrite the only production copy, or delete production volumes as recovery.
 
 Redis AOF improves continuity but Redis is ephemeral. Loss ends active sessions and pending OAuth flows must restart. Users, provider connections, mandates, strategy instances, paper portfolios, and durable automation state remain in PostgreSQL.
 
