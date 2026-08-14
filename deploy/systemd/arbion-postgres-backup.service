@@ -1,0 +1,31 @@
+[Unit]
+Description=Arbion encrypted off-host PostgreSQL backup
+Requires=docker.service network-online.target
+After=docker.service network-online.target
+ConditionPathExists=/opt/arbion/.env.production
+ConditionPathExists=/etc/arbion/postgres-backup.env
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/arbion/postgres-backup.env
+ExecStart=/opt/arbion/scripts/backup-postgres.sh
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/arbion
+ReadWritePaths=/var/lib/arbion-backups
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+NoNewPrivileges=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
