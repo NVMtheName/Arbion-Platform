@@ -25,7 +25,9 @@ ALTER INDEX automation_configs_user_id_idx RENAME TO automation_mandates_user_id
 DROP INDEX automation_configs_enabled_idx;
 ALTER TABLE automation_mandates ADD COLUMN financial_account_id uuid;
 UPDATE automation_mandates m SET financial_account_id=(SELECT f.id FROM financial_accounts f WHERE f.user_id=m.user_id AND f.provider_connection_id=m.financial_provider_connection_id ORDER BY f.created_at LIMIT 1);
+-- +goose StatementBegin
 DO $$ BEGIN IF EXISTS (SELECT 1 FROM automation_mandates WHERE financial_account_id IS NULL) THEN RAISE EXCEPTION 'legacy automation config has no financial account; connect/sync its account before migration'; END IF; END $$;
+-- +goose StatementEnd
 ALTER TABLE automation_mandates ADD COLUMN capital_bucket_id uuid;
 INSERT INTO capital_buckets(user_id,financial_account_id,name,allocation_type,allocation_value,currency)
 SELECT m.user_id,m.financial_account_id,'Migrated automation allocation','FIXED_AMOUNT',0.0000000001,f.base_currency FROM automation_mandates m JOIN financial_accounts f ON f.id=m.financial_account_id;
@@ -78,7 +80,9 @@ SELECT id,1,user_id,'SYSTEM',jsonb_build_object('financial_account_id',financial
 UPDATE automation_mandates SET current_version=1 WHERE current_version=0;
 
 -- Immutable means UPDATE and DELETE are rejected even for application mistakes.
+-- +goose StatementBegin
 CREATE FUNCTION reject_mandate_version_mutation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'automation mandate versions are immutable'; END $$;
+-- +goose StatementEnd
 CREATE TRIGGER automation_mandate_versions_immutable BEFORE UPDATE OR DELETE ON automation_mandate_versions FOR EACH ROW EXECUTE FUNCTION reject_mandate_version_mutation();
 
 -- +goose Down

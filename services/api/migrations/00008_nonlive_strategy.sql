@@ -69,7 +69,9 @@ CREATE INDEX strategy_transitions_history_idx ON strategy_state_transitions(stra
 CREATE INDEX strategy_decisions_history_idx ON decision_journal_entries(strategy_instance_id,created_at DESC);
 CREATE INDEX strategy_executions_history_idx ON nonlive_execution_records(strategy_instance_id,created_at DESC);
 
+-- +goose StatementBegin
 CREATE FUNCTION reject_nonlive_history_mutation() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'non-live strategy history is immutable'; END $$;
+-- +goose StatementEnd
 CREATE TRIGGER strategy_transition_immutable BEFORE UPDATE OR DELETE ON strategy_state_transitions FOR EACH ROW EXECUTE FUNCTION reject_nonlive_history_mutation();
 CREATE TRIGGER decision_journal_immutable BEFORE UPDATE OR DELETE ON decision_journal_entries FOR EACH ROW EXECUTE FUNCTION reject_nonlive_history_mutation();
 

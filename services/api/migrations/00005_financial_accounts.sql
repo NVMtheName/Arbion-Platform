@@ -22,6 +22,7 @@ CREATE INDEX financial_accounts_user_idx ON financial_accounts(user_id, provider
 CREATE INDEX financial_accounts_connection_idx ON financial_accounts(provider_connection_id);
 
 -- Prevent cross-user or non-financial connection links even if an application bug supplies them.
+-- +goose StatementBegin
 CREATE FUNCTION enforce_financial_account_connection() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM provider_connections p WHERE p.id=NEW.provider_connection_id AND p.user_id=NEW.user_id AND p.provider_category='financial') THEN
@@ -29,6 +30,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+-- +goose StatementEnd
 CREATE TRIGGER financial_accounts_connection_guard BEFORE INSERT OR UPDATE ON financial_accounts FOR EACH ROW EXECUTE FUNCTION enforce_financial_account_connection();
 
 -- +goose Down
