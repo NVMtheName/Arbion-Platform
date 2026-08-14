@@ -2,6 +2,10 @@
 	email ops@arbion.ai
 }
 
+http://arbion.ai {
+	redir https://www.arbion.ai{uri} permanent
+}
+
 arbion.ai {
 	redir https://www.arbion.ai{uri} permanent
 }
