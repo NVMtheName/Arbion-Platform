@@ -119,16 +119,44 @@ resource "aws_iam_role_policy" "plan_state" {
     }]
   })
 }
-# Apply/deploy policies are deliberately bounded to Arbion-tagged services and named repositories
-# operators extend them only when reviewed modules require it.
+# Some infrastructure service create/list APIs cannot be resource-scoped. IAM role mutation,
+# managed-policy attachment, role passing, and Terraform state access are constrained below.
 resource "aws_iam_role_policy" "apply" {
 
   name = "arbion-infrastructure"
   role = aws_iam_role.github["apply"].id
   policy = jsonencode({
-    Version = "2012-10-17", Statement = [{
-      Effect = "Allow", Action = ["ec2:*", "ecs:*", "ecr:*", "elasticloadbalancing:*", "rds:*", "elasticache:*", "servicediscovery:*", "logs:*", "cloudwatch:*", "secretsmanager:*", "kms:*", "acm:*", "route53:*", "iam:Get*", "iam:List*", "iam:CreateRole", "iam:DeleteRole", "iam:PassRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:TagRole", "s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"], Resource = "*"
-    }]
+    Version = "2012-10-17", Statement = [
+      {
+        Sid = "InfrastructureServices", Effect = "Allow", Action = ["ec2:*", "ecs:*", "ecr:*", "elasticloadbalancing:*", "rds:*", "elasticache:*", "servicediscovery:*", "logs:*", "cloudwatch:*", "secretsmanager:*", "kms:*", "acm:*", "route53:*"], Resource = "*"
+      },
+      {
+        Sid = "IamRead", Effect = "Allow", Action = ["iam:Get*", "iam:List*"], Resource = "*"
+      },
+      {
+        Sid = "ManageArbionRoles", Effect = "Allow", Action = ["iam:CreateRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:TagRole", "iam:UntagRole"], Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/arbion-production-*"
+      },
+      {
+        Sid = "ManageArbionExecutionPolicy", Effect = "Allow", Action = ["iam:AttachRolePolicy", "iam:DetachRolePolicy"], Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/arbion-production-*", Condition = {
+          ArnEquals = {
+            "iam:PolicyARN" = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+          }
+        }
+      },
+      {
+        Sid = "PassArbionRolesToEcsTasks", Effect = "Allow", Action = "iam:PassRole", Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/arbion-production-*", Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ecs-tasks.amazonaws.com"
+          }
+        }
+      },
+      {
+        Sid = "TerraformStateBucket", Effect = "Allow", Action = "s3:ListBucket", Resource = aws_s3_bucket.state.arn
+      },
+      {
+        Sid = "TerraformStateObjects", Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${aws_s3_bucket.state.arn}/*"
+      }
+    ]
   })
 }
 resource "aws_iam_role_policy" "deploy" {
@@ -143,7 +171,11 @@ resource "aws_iam_role_policy" "deploy" {
       }, {
       Effect = "Allow", Action = ["ecs:Describe*", "ecs:List*", "ecs:RegisterTaskDefinition", "ecs:RunTask", "ecs:UpdateService"], Resource = "*"
       }, {
-      Effect = "Allow", Action = "iam:PassRole", Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/arbion-production-*"
+      Effect = "Allow", Action = "iam:PassRole", Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/arbion-production-*", Condition = {
+        StringEquals = {
+          "iam:PassedToService" = "ecs-tasks.amazonaws.com"
+        }
+      }
     }]
   })
 }
