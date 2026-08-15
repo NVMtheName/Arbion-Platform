@@ -2,6 +2,7 @@
 Description=Prune old Arbion Docker build cache
 Requires=docker.service
 After=docker.service
+OnFailure=arbion-ops-alert@%n.service
 
 [Service]
 Type=oneshot

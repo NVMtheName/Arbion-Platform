@@ -1,0 +1,26 @@
+[Unit]
+Description=Publish Arbion operational alert for %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=/etc/arbion/postgres-backup.env
+EnvironmentFile=/etc/arbion/ops-alert.env
+Environment=HOME=/run/arbion-ops-alert
+Environment=AWS_PAGER=
+RuntimeDirectory=arbion-ops-alert
+RuntimeDirectoryMode=0700
+ExecStart=/opt/arbion/scripts/send-ops-alert.sh %i
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+NoNewPrivileges=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
