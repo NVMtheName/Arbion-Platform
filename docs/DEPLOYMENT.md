@@ -93,7 +93,7 @@ ARBION_BACKUP_PREFIX=postgres/daily
 
 Enable the backup timer and run the backup service once immediately. Each completed upload records a root-only local success marker. Also install and enable `arbion-postgres-backup-freshness.service` and its timer; it checks every six hours and enters a failed state when no successful upload has been recorded within 36 hours. Confirm that both the dump and checksum exist remotely, use the required encryption, and are covered by the bucket retention controls. Monitor failures with `systemctl --failed`, `systemctl status arbion-postgres-backup.service arbion-postgres-backup-freshness.service`, and their journals; logs contain object names but no database contents or credentials.
 
-For external failure delivery, create a dedicated SNS topic and a confirmed operator subscription. Grant the host backup identity only `sns:Publish` to that exact topic, put `ARBION_ALERT_TOPIC_ARN=<topic-arn>` in root-owned `/etc/arbion/ops-alert.env`, and install `arbion-ops-alert@.service`. Backup, freshness-monitor, host-capacity, and Docker-cache-maintenance failures invoke the publisher with only the unit name, host name, and UTC timestamp; alerts contain no database contents or credentials.
+For external failure delivery, create a dedicated SNS topic and a confirmed operator subscription. Grant the host backup identity only `sns:Publish` to that exact topic, put `ARBION_ALERT_TOPIC_ARN=<topic-arn>` in root-owned `/etc/arbion/ops-alert.env`, and install `arbion-ops-alert@.service`. Backup, freshness-monitor, host-capacity, public-health, and Docker-cache-maintenance failures invoke the publisher with only the unit name, host name, and UTC timestamp; alerts contain no database contents or credentials.
 
 Backups contain sensitive customer/product data. Restore only in a planned outage to an empty, version-compatible PostgreSQL instance: preserve the failed database, download with an authorized recovery identity, validate the SHA-256 checksum and archive catalog, restore with reviewed `pg_restore` arguments, rerun migrations, and verify readiness and inventory. Rehearse this process after setup and periodically thereafter. Never grant the host read/delete access, overwrite the only production copy, or delete production volumes as recovery.
 
@@ -107,7 +107,7 @@ Retain the prior reviewed revision/images and a verified pre-release backup. Rol
 
 ## Public and Schwab smoke tests
 
-`scripts/smoke-production.sh` checks HTTPS root, API health/readiness, login/register pages, and the apex HTTP redirect. It never signs in to Schwab. Inspect session cookies for `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`, and verify foreign origins are rejected.
+`scripts/smoke-production.sh` checks HTTPS root, API health/readiness, login/register pages, security headers, and the apex HTTP redirect. It never signs in to Schwab. Install and enable `arbion-production-health.service` and its timer to run these public checks every five minutes and invoke the operations alert path on failure. Inspect session cookies for `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`, and verify foreign origins are rejected.
 
 Manual Schwab test (never place an order):
 
