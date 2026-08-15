@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/mail"
 	"net/url"
 	"os"
 	"strconv"
@@ -52,10 +53,12 @@ type AIService struct {
 
 type CredentialEncryption struct{ Key []byte }
 type Auth struct {
-	SessionCookie  string
-	SessionTTL     time.Duration
-	CookieSecure   bool
-	AllowedOrigins []string
+	SessionCookie          string
+	SessionTTL             time.Duration
+	CookieSecure           bool
+	AllowedOrigins         []string
+	RegistrationRestricted bool
+	RegistrationAllowlist  []string
 }
 
 func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
@@ -119,6 +122,12 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	registrationValue, registrationConfigured := lookup("REGISTRATION_ALLOWLIST")
+	registrationAllowlist, err := allowedRegistrationEmails(registrationValue)
+	if err != nil {
+		return Config{}, err
+	}
+	registrationRestricted := environment == Production || (registrationConfigured && strings.TrimSpace(registrationValue) != "")
 	aiURL := strings.TrimRight(get("AI_SERVICE_URL", "http://localhost:8000"), "/")
 	internalToken := get("AI_INTERNAL_SERVICE_TOKEN", "")
 	if internalToken == "" {
@@ -134,7 +143,28 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, errors.New("production Schwab configuration requires client ID, client secret, and the approved callback URI")
 		}
 	}
-	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins}, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 12 * time.Second}, Schwab: schwab}, nil
+	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins, RegistrationRestricted: registrationRestricted, RegistrationAllowlist: registrationAllowlist}, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 12 * time.Second}, Schwab: schwab}, nil
+}
+
+func allowedRegistrationEmails(value string) ([]string, error) {
+	seen := map[string]struct{}{}
+	result := []string{}
+	if strings.TrimSpace(value) == "" {
+		return result, nil
+	}
+	for _, item := range strings.Split(value, ",") {
+		normalized := strings.ToLower(strings.TrimSpace(item))
+		parsed, err := mail.ParseAddress(normalized)
+		if err != nil || parsed.Address != normalized || len(normalized) > 320 {
+			return nil, errors.New("REGISTRATION_ALLOWLIST must contain valid comma-separated email addresses")
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result, nil
 }
 
 func databaseURLFromParts(get func(string, string) string) string {

@@ -19,7 +19,7 @@ resource "aws_kms_alias" "this" {
 }
 locals {
 
-  names = toset(["credential-encryption-key", "ai-internal-service-token", "schwab-client-id", "schwab-client-secret", "redis-auth-token", "redis-url"])
+  names = toset(["credential-encryption-key", "ai-internal-service-token", "registration-allowlist", "schwab-client-id", "schwab-client-secret", "redis-auth-token", "redis-url"])
 }
 resource "aws_secretsmanager_secret" "this" {
 

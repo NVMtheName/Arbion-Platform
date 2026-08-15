@@ -48,7 +48,7 @@ func main() {
 	}
 	users := auth.NewPostgresStore(pool)
 	sessions := auth.NewRedisStore(redisClient)
-	authService := auth.NewService(users, sessions, sessions, users, cfg.Auth.SessionTTL)
+	authService := auth.NewService(users, sessions, sessions, users, cfg.Auth.SessionTTL, auth.RegistrationPolicy{Restricted: cfg.Auth.RegistrationRestricted, AllowedEmails: cfg.Auth.RegistrationAllowlist})
 	authorizationService := authorization.NewService(authorization.NewPostgresStore(pool), users)
 	registry := aiconnection.DefaultRegistry()
 	vault, err := credential.NewEncryptedVault(cfg.Credential.Key, credential.NewPostgresStore(pool))

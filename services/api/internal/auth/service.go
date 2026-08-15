@@ -8,17 +8,31 @@ import (
 )
 
 type Service struct {
-	users    UserStore
-	sessions SessionStore
-	limiter  RateLimiter
-	audit    Auditor
-	hasher   PasswordHasher
-	ttl      time.Duration
-	now      func() time.Time
+	users                  UserStore
+	sessions               SessionStore
+	limiter                RateLimiter
+	audit                  Auditor
+	hasher                 PasswordHasher
+	ttl                    time.Duration
+	now                    func() time.Time
+	registrationRestricted bool
+	registrationAllowlist  map[string]struct{}
 }
 
-func NewService(users UserStore, sessions SessionStore, limiter RateLimiter, audit Auditor, ttl time.Duration) *Service {
-	return &Service{users: users, sessions: sessions, limiter: limiter, audit: audit, hasher: NewPasswordHasher(), ttl: ttl, now: time.Now}
+type RegistrationPolicy struct {
+	Restricted    bool
+	AllowedEmails []string
+}
+
+func NewService(users UserStore, sessions SessionStore, limiter RateLimiter, audit Auditor, ttl time.Duration, policies ...RegistrationPolicy) *Service {
+	s := &Service{users: users, sessions: sessions, limiter: limiter, audit: audit, hasher: NewPasswordHasher(), ttl: ttl, now: time.Now, registrationAllowlist: map[string]struct{}{}}
+	if len(policies) > 0 {
+		s.registrationRestricted = policies[0].Restricted
+		for _, email := range policies[0].AllowedEmails {
+			s.registrationAllowlist[NormalizeEmail(email)] = struct{}{}
+		}
+	}
+	return s
 }
 func validEmail(v string) bool {
 	a, e := mail.ParseAddress(v)
@@ -33,6 +47,10 @@ func (s *Service) Register(ctx context.Context, email, password, name, rateKey s
 		return SafeUser{}, "", ErrRateLimited
 	}
 	n := NormalizeEmail(email)
+	if _, allowed := s.registrationAllowlist[n]; s.registrationRestricted && !allowed {
+		_ = s.audit.Record(ctx, nil, "auth.registration_rejected", map[string]any{"reason": "not_allowlisted"})
+		return SafeUser{}, "", ErrRegistrationUnavailable
+	}
 	if !validEmail(n) || len(name) > 100 {
 		return SafeUser{}, "", errors.New("invalid registration")
 	}

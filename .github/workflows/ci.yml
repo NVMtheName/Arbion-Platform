@@ -74,12 +74,15 @@ jobs:
           CREDENTIAL_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
           AI_INTERNAL_SERVICE_TOKEN: ci-validation-token-0123456789abcdef
           AUTH_ALLOWED_ORIGINS: https://www.arbion.ai
+          REGISTRATION_ALLOWLIST: founder@example.com
           SCHWAB_REDIRECT_URI: https://www.arbion.ai/api/connections/financial/schwab/callback
         run: |
           trap 'docker compose -f docker-compose.prod.yml down --volumes --remove-orphans' EXIT
           docker compose -f docker-compose.prod.yml config --quiet
           docker compose -f docker-compose.prod.yml config --format json |
             jq -e '.services.migrate.environment.AUTH_ALLOWED_ORIGINS == "https://www.arbion.ai"' >/dev/null
+          docker compose -f docker-compose.prod.yml config --format json |
+            jq -e '.services.api.environment.REGISTRATION_ALLOWLIST == "founder@example.com"' >/dev/null
           docker compose -f docker-compose.prod.yml up -d postgres
           docker compose -f docker-compose.prod.yml up --no-deps --exit-code-from migrate migrate
           docker compose -f docker-compose.prod.yml up -d --no-deps --build --wait --wait-timeout 120 web

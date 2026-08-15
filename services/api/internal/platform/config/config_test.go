@@ -52,6 +52,25 @@ func TestCookieSecurityFollowsEnvironment(t *testing.T) {
 	if development.Auth.CookieSecure || !production.Auth.CookieSecure {
 		t.Fatalf("cookie secure flags: development=%v production=%v", development.Auth.CookieSecure, production.Auth.CookieSecure)
 	}
+	if development.Auth.RegistrationRestricted || !production.Auth.RegistrationRestricted || len(production.Auth.RegistrationAllowlist) != 0 {
+		t.Fatal("production registration must default deny while development remains open")
+	}
+}
+
+func TestRegistrationAllowlistIsNormalizedAndValidated(t *testing.T) {
+	values := validProduction()
+	values["REGISTRATION_ALLOWLIST"] = " Founder@Example.com, tester@example.com,FOUNDER@example.com "
+	cfg, err := load(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Auth.RegistrationRestricted || len(cfg.Auth.RegistrationAllowlist) != 2 || cfg.Auth.RegistrationAllowlist[0] != "founder@example.com" {
+		t.Fatalf("unexpected allowlist: %#v", cfg.Auth.RegistrationAllowlist)
+	}
+	values["REGISTRATION_ALLOWLIST"] = "not-an-email"
+	if _, err = load(values); err == nil || !strings.Contains(err.Error(), "REGISTRATION_ALLOWLIST") {
+		t.Fatalf("expected invalid allowlist rejection, got %v", err)
+	}
 }
 
 func TestProductionRejectsUnsafeSecretsAndOrigins(t *testing.T) {

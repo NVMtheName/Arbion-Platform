@@ -141,6 +141,27 @@ func TestRegistrationLoginLogoutPreservesDurableResources(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistrationAllowlistDefaultsClosedWhenRestricted(t *testing.T) {
+	m := miniredis.RunT(t)
+	sessions := NewRedisStore(redis.NewClient(&redis.Options{Addr: m.Addr()}))
+	users := &fakeUsers{}
+	audit := &fakeAudit{}
+	svc := NewService(users, sessions, sessions, audit, time.Hour, RegistrationPolicy{Restricted: true, AllowedEmails: []string{"Founder@Example.com"}})
+
+	if _, _, err := svc.Register(context.Background(), "outsider@example.com", "correct horse battery staple", "", "ip-1"); !errors.Is(err, ErrRegistrationUnavailable) {
+		t.Fatalf("non-allowlisted registration returned %v", err)
+	}
+	if users.user.ID != "" {
+		t.Fatal("non-allowlisted account was created")
+	}
+	if _, _, err := svc.Register(context.Background(), " FOUNDER@example.com ", "correct horse battery staple", "Founder", "ip-2"); err != nil {
+		t.Fatalf("normalized allowlisted registration failed: %v", err)
+	}
+	if len(audit.actions) < 2 || audit.actions[0] != "auth.registration_rejected" || audit.actions[1] != "auth.registration" {
+		t.Fatalf("unexpected registration audit actions: %#v", audit.actions)
+	}
+}
 func TestSafeSerializationOmitsSecrets(t *testing.T) {
 	u := User{ID: "1", Email: "a@b.co", PasswordHash: "secret", NormalizedEmail: "a@b.co", Status: "active"}.Safe()
 	if u.Email != "a@b.co" {
