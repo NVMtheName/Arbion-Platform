@@ -52,6 +52,8 @@ The deploy script fails fast, does not echo secrets, delete volumes, or overwrit
 
 Production containers use Docker's local `json-file` logging with five rotated 10 MiB files per container. This bounds routine container logs to approximately 50 MiB per service while preserving recent diagnostics; export longer-lived security or audit records to a dedicated system rather than increasing local retention indefinitely.
 
+Install and enable `arbion-docker-build-cache-prune.service` and its timer on the single host. It runs weekly with a randomized delay and removes only build cache unused for at least seven days; it does not prune containers, application images, or volumes. Continue monitoring filesystem and inode capacity independently.
+
 - Go `/healthz` reports liveness and `/readyz` checks database readiness.
 - Python provides `/healthz` and startup-validated `/readyz`.
 - Next.js provides `/api/health`; PostgreSQL uses `pg_isready`; Redis uses `PING`.
