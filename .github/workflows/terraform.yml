@@ -17,7 +17,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: hashicorp/setup-terraform@v3
         with: {terraform_version: 1.13.0}
       - run: terraform fmt -check -recursive infrastructure/terraform
@@ -30,7 +30,7 @@ jobs:
     environment: production
     permissions: {contents: read, id-token: write}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: hashicorp/setup-terraform@v3
         with: {terraform_version: 1.13.0}
       - uses: aws-actions/configure-aws-credentials@v4
