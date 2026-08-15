@@ -14,8 +14,8 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -33,10 +33,11 @@ jobs:
       run:
         working-directory: services/api
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: services/api/go.mod
+          cache-dependency-path: services/api/go.sum
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...
@@ -47,8 +48,8 @@ jobs:
       run:
         working-directory: services/ai
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
@@ -62,7 +63,7 @@ jobs:
   compose:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: cp .env.example .env && docker compose config --quiet
       - name: Validate production deployment configuration
         env:
