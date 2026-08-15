@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with: {terraform_version: 1.13.0}
       - run: terraform fmt -check -recursive infrastructure/terraform
       - run: terraform -chdir=infrastructure/terraform/bootstrap init -backend=false && terraform -chdir=infrastructure/terraform/bootstrap validate
@@ -31,7 +31,7 @@ jobs:
     permissions: {contents: read, id-token: write}
     steps:
       - uses: actions/checkout@v5
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with: {terraform_version: 1.13.0}
       - uses: aws-actions/configure-aws-credentials@v4
         with:
