@@ -61,6 +61,24 @@ Install and enable `arbion-docker-build-cache-prune.service` and its timer on th
 
 Checks have start periods, bounded timeouts, and nonaggressive intervals. Logs remain container stdout/stderr. Never dump environments or log Schwab secrets/codes/tokens, AI keys, encryption keys, cookies, internal tokens, or database passwords.
 
+## External host failure monitoring
+
+Host-local checks cannot notify when the entire instance or its network is unavailable. For a Lightsail host, configure a regional email notification contact and verify it separately from the application SNS subscription. Add a Lightsail instance alarm with these settings:
+
+- metric `StatusCheckFailed`, statistic `Sum`, and threshold greater than `0`;
+- two of two five-minute evaluation periods;
+- missing metric data treated as breaching; and
+- email notifications for both `ALARM` and recovery to `OK`.
+
+Use a stable alarm name such as `arbion-production-status-check-failed`, tag it for the production environment, and confirm that its initial `INSUFFICIENT_DATA` state settles to `OK`. After the email contact is verified and the alarm is `OK`, exercise notification delivery without stopping the instance:
+
+```bash
+aws lightsail test-alarm --alarm-name arbion-production-status-check-failed --state ALARM
+aws lightsail test-alarm --alarm-name arbion-production-status-check-failed --state OK
+```
+
+The alarm test changes only the simulated alarm state. Confirm receipt of both the alert and all-clear emails, then recheck the actual alarm state and production health.
+
 ## Founder bootstrap
 
 Register the intended account normally, explicitly configure `FOUNDER_EMAIL`, then run:
