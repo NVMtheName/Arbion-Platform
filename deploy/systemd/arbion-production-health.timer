@@ -1,0 +1,12 @@
+[Unit]
+Description=Check Arbion public production health every five minutes
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=5m
+RandomizedDelaySec=1m
+Persistent=true
+Unit=arbion-production-health.service
+
+[Install]
+WantedBy=timers.target
