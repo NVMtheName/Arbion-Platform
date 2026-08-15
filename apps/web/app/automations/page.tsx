@@ -2,6 +2,8 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { asList } from "./response";
+
 export default async function Automations() {
   const jar = await cookies();
   const headers = { cookie: jar.toString() };
@@ -11,20 +13,24 @@ export default async function Automations() {
     fetch(`${base}/api/capital-buckets`, { headers, cache: "no-store" }),
   ]);
   if (mandatesResponse.status === 401) redirect("/login");
-  const mandates = mandatesResponse.ok
-    ? (
-        (await mandatesResponse.json()) as {
-          automations: Record<string, unknown>[];
-        }
-      ).automations
-    : [];
-  const buckets = bucketsResponse.ok
-    ? (
-        (await bucketsResponse.json()) as {
-          capital_buckets: Record<string, unknown>[];
-        }
-      ).capital_buckets
-    : [];
+  const mandates = asList(
+    mandatesResponse.ok
+      ? (
+          (await mandatesResponse.json()) as {
+            automations?: Record<string, unknown>[] | null;
+          }
+        ).automations
+      : [],
+  );
+  const buckets = asList(
+    bucketsResponse.ok
+      ? (
+          (await bucketsResponse.json()) as {
+            capital_buckets?: Record<string, unknown>[] | null;
+          }
+        ).capital_buckets
+      : [],
+  );
   return (
     <main className="connections-page automation-page">
       <Link href="/dashboard">← Dashboard</Link>
@@ -40,6 +46,11 @@ export default async function Automations() {
         </Link>
       </div>
       <section className="provider-list">
+        {mandates.length === 0 && (
+          <p>
+            No automations yet. Create a draft when your connections are ready.
+          </p>
+        )}
         {mandates.map((m) => (
           <article key={String(m.ID ?? m.id)}>
             <p className="eyebrow">{String(m.Status ?? m.status)}</p>
@@ -61,6 +72,12 @@ export default async function Automations() {
           Broker buying power is informational. It is not Arbion trading
           authority and is never allocated automatically.
         </p>
+        {buckets.length === 0 && (
+          <p>
+            No capital buckets yet. Connect an account before allocating
+            capital.
+          </p>
+        )}
         {buckets.map((b) => (
           <article key={String(b.ID ?? b.id)}>
             <strong>{String(b.Name ?? b.name)}</strong>

@@ -72,7 +72,7 @@ func (h *authHandler) listBuckets(w stdhttp.ResponseWriter, r *stdhttp.Request) 
 		h.automationError(w, e)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"capital_buckets": v})
+	writeJSON(w, 200, map[string]any{"capital_buckets": nonNil(v)})
 }
 func (h *authHandler) getBucket(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	v, e := h.automation.GetBucket(r.Context(), principal(r), r.PathValue("id"))
@@ -129,7 +129,7 @@ func (h *authHandler) listAutomations(w stdhttp.ResponseWriter, r *stdhttp.Reque
 		h.automationError(w, e)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"automations": v, "execution_enabled": false})
+	writeJSON(w, 200, map[string]any{"automations": nonNil(v), "execution_enabled": false})
 }
 func (h *authHandler) getAutomation(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	v, e := h.automation.Get(r.Context(), principal(r), r.PathValue("id"))
@@ -181,7 +181,14 @@ func (h *authHandler) versions(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		h.automationError(w, e)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"versions": v})
+	writeJSON(w, 200, map[string]any{"versions": nonNil(v)})
+}
+
+func nonNil[T any](items []T) []T {
+	if items == nil {
+		return []T{}
+	}
+	return items
 }
 func (h *authHandler) version(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	n, e := strconv.Atoi(r.PathValue("version"))

@@ -2,7 +2,12 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LogoutButton } from "./logout-button";
 import Link from "next/link";
-type User = { email: string; display_name: string; entitlement: string };
+type User = {
+  email: string;
+  display_name: string;
+  entitlement: string;
+  role: string;
+};
 export default async function Dashboard() {
   const cookieStore = await cookies();
   const response = await fetch(
@@ -32,7 +37,10 @@ export default async function Dashboard() {
       <header>
         <p className="eyebrow">ARBION</p>
         <div className="account-actions">
-          <span>Account</span>
+          <Link href="/settings/risk">Risk</Link>
+          {(user.role === "admin" || user.role === "superadmin") && (
+            <Link href="/admin">Admin</Link>
+          )}
           <LogoutButton />
         </div>
       </header>
