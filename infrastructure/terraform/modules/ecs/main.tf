@@ -161,6 +161,8 @@ locals {
           }, {
           name = "AI_INTERNAL_SERVICE_TOKEN", valueFrom = var.secret_arns["ai-internal-service-token"]
           }, {
+          name = "REGISTRATION_ALLOWLIST", valueFrom = var.secret_arns["registration-allowlist"]
+          }, {
           name = "SCHWAB_CLIENT_ID", valueFrom = var.secret_arns["schwab-client-id"]
           }, {
           name = "SCHWAB_CLIENT_SECRET", valueFrom = var.secret_arns["schwab-client-secret"]

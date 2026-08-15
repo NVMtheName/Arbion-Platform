@@ -595,7 +595,7 @@ func (h *authHandler) login(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 }
 func (h *authHandler) authError(w stdhttp.ResponseWriter, e error) {
 	switch {
-	case errors.Is(e, auth.ErrConflict):
+	case errors.Is(e, auth.ErrConflict), errors.Is(e, auth.ErrRegistrationUnavailable):
 		writeError(w, 409, "registration_unavailable", "Unable to create account with those details.")
 	case errors.Is(e, auth.ErrInvalidCredentials):
 		writeError(w, 401, "invalid_credentials", "Email or password is incorrect.")

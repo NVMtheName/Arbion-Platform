@@ -120,3 +120,24 @@ func TestAuthenticationRoutesCSRFAndProtection(t *testing.T) {
 		t.Fatal("session retained after logout")
 	}
 }
+
+func TestRegistrationAllowlistUsesGenericRejection(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	sessions := auth.NewRedisStore(redisClient)
+	service := auth.NewService(&authUsers{}, sessions, sessions, auditSink{}, time.Hour, auth.RegistrationPolicy{Restricted: true, AllowedEmails: []string{"founder@example.com"}})
+	cfg := config.Config{Database: config.Database{ReadinessTimeout: time.Second}, Auth: config.Auth{SessionCookie: "session", SessionTTL: time.Hour, AllowedOrigins: []string{"http://localhost:3000"}}}
+	handler := NewApplicationHandler(checker{}, cfg, service)
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{"email":"outsider@example.com","password":"correct horse battery staple"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "http://localhost:3000")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"code":"registration_unavailable"`) || strings.Contains(recorder.Body.String(), "outsider@example.com") {
+		t.Fatalf("unsafe allowlist rejection: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if len(recorder.Result().Cookies()) != 0 {
+		t.Fatal("rejected registration created a session cookie")
+	}
+}

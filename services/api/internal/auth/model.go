@@ -11,6 +11,7 @@ var ErrConflict = errors.New("account already exists")
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrUnauthenticated = errors.New("authentication required")
 var ErrRateLimited = errors.New("too many attempts")
+var ErrRegistrationUnavailable = errors.New("registration unavailable")
 
 type User struct {
 	ID              string

@@ -59,7 +59,7 @@ ElastiCache is a private, Multi-AZ Redis-compatible replication group with TLS, 
 
 ## Secrets Manager and KMS
 
-Terraform creates empty protected secret containers for `credential-encryption-key`, `ai-internal-service-token`, Schwab client ID/secret, Redis token, and Redis URL; RDS manages its own credential secret. It never creates application secret values or outputs them. Before primary apply where required, an operator uses an approved workstation and `aws secretsmanager put-secret-value --secret-id <ARN> --secret-string file://...` (or equivalent secure input), avoiding shell history and logs. The Redis URL contains the cache endpoint and URL-escaped token.
+Terraform creates empty protected secret containers for `credential-encryption-key`, `ai-internal-service-token`, the production registration allowlist, Schwab client ID/secret, Redis token, and Redis URL; RDS manages its own credential secret. It never creates application secret values or outputs them. Before primary apply where required, an operator uses an approved workstation and `aws secretsmanager put-secret-value --secret-id <ARN> --secret-string file://...` (or equivalent secure input), avoiding shell history and logs. The registration value is a comma-separated list of normalized email addresses and may be empty to deny all registrations. The Redis URL contains the cache endpoint and URL-escaped token.
 
 Generate `CREDENTIAL_ENCRYPTION_KEY` exactly once as a base64-encoded 32-byte value, back it up under dual control, and populate its existing container. Never regenerate it during deploy: the application's encryption key is distinct from the AWS KMS key. This milestone adds no key-rotation procedure.
 

@@ -28,6 +28,7 @@ Copy `.env.production.example` to ignored `.env.production` and populate it only
 - `CREDENTIAL_ENCRYPTION_KEY`, generated once with `openssl rand -base64 32`;
 - `AI_INTERNAL_SERVICE_TOKEN`, generated with `openssl rand -base64 48`;
 - `AUTH_ALLOWED_ORIGINS=https://www.arbion.ai`;
+- `REGISTRATION_ALLOWLIST`, containing the comma-separated normalized email addresses permitted to register. Production is default-deny when this value is blank;
 - explicit `FOUNDER_EMAIL` only for bootstrap; and
 - when Schwab is enabled, both client values and `SCHWAB_REDIRECT_URI=https://www.arbion.ai/api/connections/financial/schwab/callback`.
 
@@ -65,6 +66,10 @@ docker compose --env-file .env.production -f docker-compose.prod.yml run --rm --
 ```
 
 The existing command fails if the account is absent, is idempotent, promotes only the explicit address, and writes an audit event. It is never automatic.
+
+## Registration access
+
+Production registration is always restricted by `REGISTRATION_ALLOWLIST`. Matching is case-insensitive after trimming and normalization. A missing or blank list denies every new registration; existing accounts can still sign in. Rejected attempts are rate-limited, audited without the submitted address, and return the same generic response used for an unavailable registration. Add a tester's exact email to the host-only list and restart the API before inviting them; remove it after registration if no further account creation is expected.
 
 ## PostgreSQL backup, restore, and Redis loss
 

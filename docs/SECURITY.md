@@ -36,7 +36,7 @@ Audit events record registration, successful and failed login, and logout outcom
 
 ## Required authentication follow-up
 
-Before public launch, Arbion must integrate an email delivery provider and require email verification. The schema already records verification time, but development registration is not blocked. Password recovery is intentionally absent until that trusted delivery channel exists; no temporary or insecure reset path is provided. MFA, passkeys, external OAuth identities, enterprise SSO, recovery codes, administrative session revocation UI, adaptive throttling, and step-up authentication remain future security work.
+Before a broad public launch, Arbion must integrate an email delivery provider and require email verification. The schema already records verification time, but development registration is not blocked. Production uses a normalized email allowlist and defaults to denying all new registrations when the list is empty; this is suitable for owner-operated testing but is not a substitute for verified email. Password recovery is intentionally absent until that trusted delivery channel exists; no temporary or insecure reset path is provided. MFA, passkeys, external OAuth identities, enterprise SSO, recovery codes, administrative session revocation UI, adaptive throttling, and step-up authentication remain future security work.
 
 ### Python Neural Engine and external AI providers
 
