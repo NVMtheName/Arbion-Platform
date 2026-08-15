@@ -11,6 +11,12 @@ x-api-environment: &api-environment
   AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:?AUTH_ALLOWED_ORIGINS is required}
   REGISTRATION_ALLOWLIST: ${REGISTRATION_ALLOWLIST:-}
 
+x-json-logging: &json-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   proxy:
     image: caddy:2.10-alpine
@@ -28,6 +34,7 @@ services:
       web:
         condition: service_healthy
     networks: [edge, private]
+    logging: *json-logging
     restart: unless-stopped
 
   postgres:
@@ -45,6 +52,7 @@ services:
       retries: 10
       start_period: 20s
     networks: [private]
+    logging: *json-logging
     restart: unless-stopped
 
   redis:
@@ -59,6 +67,7 @@ services:
       retries: 10
       start_period: 10s
     networks: [private]
+    logging: *json-logging
     restart: unless-stopped
 
   migrate:
@@ -69,6 +78,7 @@ services:
       postgres:
         condition: service_healthy
     networks: [private]
+    logging: *json-logging
     restart: "no"
 
   api:
@@ -98,6 +108,7 @@ services:
       ai:
         condition: service_healthy
     networks: [private]
+    logging: *json-logging
     restart: unless-stopped
 
   ai:
@@ -114,6 +125,7 @@ services:
       retries: 5
       start_period: 20s
     networks: [private]
+    logging: *json-logging
     restart: unless-stopped
 
   web:
@@ -133,6 +145,7 @@ services:
       api:
         condition: service_healthy
     networks: [private]
+    logging: *json-logging
     restart: unless-stopped
 
 networks:
