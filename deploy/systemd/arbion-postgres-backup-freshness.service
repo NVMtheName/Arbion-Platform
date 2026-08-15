@@ -1,6 +1,7 @@
 [Unit]
 Description=Verify Arbion PostgreSQL backup freshness
 After=arbion-postgres-backup.service
+OnFailure=arbion-ops-alert@%n.service
 
 [Service]
 Type=oneshot

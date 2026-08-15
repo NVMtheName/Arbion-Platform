@@ -2,6 +2,7 @@
 Description=Arbion encrypted off-host PostgreSQL backup
 Requires=docker.service network-online.target
 After=docker.service network-online.target
+OnFailure=arbion-ops-alert@%n.service
 ConditionPathExists=/opt/arbion/.env.production
 ConditionPathExists=/etc/arbion/postgres-backup.env
 
