@@ -15,7 +15,7 @@ API, AI, PostgreSQL, and Redis have no host port mappings. Outbound provider acc
 
 ## DNS and host prerequisites
 
-Use a patched Linux host with Docker Engine, Compose v2, `curl`, durable disk, and inbound TCP 80/443 plus UDP 443. Point both `www.arbion.ai` and `arbion.ai` at the separately chosen host—no IP is hard-coded here. Caddy obtains/renews HTTPS certificates, redirects HTTP to HTTPS, and redirects the apex to `https://www.arbion.ai`. Preserve its certificate volume.
+Use a patched Linux host with Docker Engine, Compose v2, `curl`, `jq`, durable disk, and inbound TCP 80/443 plus UDP 443. Point both `www.arbion.ai` and `arbion.ai` at the separately chosen host—no IP is hard-coded here. Caddy obtains/renews HTTPS certificates, redirects HTTP to HTTPS, and redirects the apex to `https://www.arbion.ai`. Preserve its certificate volume.
 
 ## Environment and secret generation
 
@@ -52,7 +52,7 @@ The deploy script fails fast, does not echo secrets, delete volumes, or overwrit
 
 Production containers use Docker's local `json-file` logging with five rotated 10 MiB files per container. This bounds routine container logs to approximately 50 MiB per service while preserving recent diagnostics; export longer-lived security or audit records to a dedicated system rather than increasing local retention indefinitely.
 
-Install and enable `arbion-docker-build-cache-prune.service` and its timer on the single host. It runs weekly with a randomized delay and removes only build cache unused for at least seven days; it does not prune containers, application images, or volumes. Also install and enable `arbion-host-capacity.service` and its timer. Every 30 minutes it checks disk and inode utilization for the filesystem containing `/var/lib/docker` and fails at 85% utilization so the operations alert path warns before storage exhaustion.
+Install and enable `arbion-docker-build-cache-prune.service` and its timer on the single host. It runs weekly with a randomized delay and removes only build cache unused for at least seven days; it does not prune containers, application images, or volumes. Also install and enable `arbion-host-capacity.service` and its timer. Every 30 minutes it checks disk and inode utilization for the filesystem containing `/var/lib/docker` and fails at 85% utilization so the operations alert path warns before storage exhaustion. Install and enable `arbion-production-containers.service` and its timer to verify every five minutes that the six long-running Compose services are present and that each configured Docker health check is healthy.
 
 - Go `/healthz` reports liveness and `/readyz` checks database readiness.
 - Python provides `/healthz` and startup-validated `/readyz`.
@@ -93,7 +93,7 @@ ARBION_BACKUP_PREFIX=postgres/daily
 
 Enable the backup timer and run the backup service once immediately. Each completed upload records a root-only local success marker. Also install and enable `arbion-postgres-backup-freshness.service` and its timer; it checks every six hours and enters a failed state when no successful upload has been recorded within 36 hours. Confirm that both the dump and checksum exist remotely, use the required encryption, and are covered by the bucket retention controls. Monitor failures with `systemctl --failed`, `systemctl status arbion-postgres-backup.service arbion-postgres-backup-freshness.service`, and their journals; logs contain object names but no database contents or credentials.
 
-For external failure delivery, create a dedicated SNS topic and a confirmed operator subscription. Grant the host backup identity only `sns:Publish` to that exact topic, put `ARBION_ALERT_TOPIC_ARN=<topic-arn>` in root-owned `/etc/arbion/ops-alert.env`, and install `arbion-ops-alert@.service`. Backup, freshness-monitor, host-capacity, public-health, and Docker-cache-maintenance failures invoke the publisher with only the unit name, host name, and UTC timestamp; alerts contain no database contents or credentials.
+For external failure delivery, create a dedicated SNS topic and a confirmed operator subscription. Grant the host backup identity only `sns:Publish` to that exact topic, put `ARBION_ALERT_TOPIC_ARN=<topic-arn>` in root-owned `/etc/arbion/ops-alert.env`, and install `arbion-ops-alert@.service`. Backup, freshness-monitor, host-capacity, container-health, public-health, and Docker-cache-maintenance failures invoke the publisher with only the unit name, host name, and UTC timestamp; alerts contain no database contents or credentials.
 
 Backups contain sensitive customer/product data. Restore only in a planned outage to an empty, version-compatible PostgreSQL instance: preserve the failed database, download with an authorized recovery identity, validate the SHA-256 checksum and archive catalog, restore with reviewed `pg_restore` arguments, rerun migrations, and verify readiness and inventory. Rehearse this process after setup and periodically thereafter. Never grant the host read/delete access, overwrite the only production copy, or delete production volumes as recovery.
 
