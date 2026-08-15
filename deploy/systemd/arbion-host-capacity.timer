@@ -1,0 +1,12 @@
+[Unit]
+Description=Check Arbion host filesystem capacity every 30 minutes
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=30m
+RandomizedDelaySec=5m
+Persistent=true
+Unit=arbion-host-capacity.service
+
+[Install]
+WantedBy=timers.target
