@@ -51,7 +51,15 @@ func (s *PostgresStore) SetRole(c context.Context, id string, r Role) (Role, err
 func (s *PostgresStore) SetEntitlement(c context.Context, id string, e Entitlement, b bool, source string) (Entitlement, error) {
 	var old Entitlement
 	_ = s.db.QueryRow(c, `SELECT COALESCE((SELECT entitlement_key FROM user_entitlements WHERE user_id=$1 AND status='active' ORDER BY updated_at DESC LIMIT 1),'free')`, id).Scan(&old)
-	_, err := s.db.Exec(c, `UPDATE user_entitlements SET status='revoked',updated_at=now() WHERE user_id=$1 AND entitlement_key<>$2 AND status='active'; INSERT INTO user_entitlements(user_id,entitlement_key,source,status,billing_required) VALUES($1,$2,$3,'active',$4) ON CONFLICT(user_id,entitlement_key) DO UPDATE SET source=$3,status='active',billing_required=$4,expires_at=NULL,updated_at=now()`, id, e, source, b)
+	_, err := s.db.Exec(c, `WITH revoked AS (
+		UPDATE user_entitlements
+		SET status='revoked',updated_at=now()
+		WHERE user_id=$1 AND entitlement_key<>$2 AND status='active'
+	)
+	INSERT INTO user_entitlements(user_id,entitlement_key,source,status,billing_required)
+	VALUES($1,$2,$3,'active',$4)
+	ON CONFLICT(user_id,entitlement_key) DO UPDATE
+	SET source=$3,status='active',billing_required=$4,expires_at=NULL,updated_at=now()`, id, e, source, b)
 	return old, err
 }
 func (s *PostgresStore) BootstrapFounder(c context.Context, email string) (User, bool, error) {
@@ -60,7 +68,16 @@ func (s *PostgresStore) BootstrapFounder(c context.Context, email string) (User,
 		return User{}, false, e
 	}
 	changed := u.Role != RoleSuperadmin || u.Entitlement != EntitlementFounder || u.BillingRequired
-	_, e = s.db.Exec(c, `UPDATE users SET role='superadmin',updated_at=now() WHERE id=$1; INSERT INTO user_entitlements(user_id,entitlement_key,source,status,billing_required) VALUES($1,'founder','bootstrap','active',false) ON CONFLICT(user_id,entitlement_key) DO UPDATE SET source='bootstrap',status='active',billing_required=false,expires_at=NULL,updated_at=now()`, u.ID)
+	_, e = s.db.Exec(c, `WITH updated_user AS (
+		UPDATE users
+		SET role='superadmin',updated_at=now()
+		WHERE id=$1
+		RETURNING id
+	)
+	INSERT INTO user_entitlements(user_id,entitlement_key,source,status,billing_required)
+	SELECT id,'founder','bootstrap','active',false FROM updated_user
+	ON CONFLICT(user_id,entitlement_key) DO UPDATE
+	SET source='bootstrap',status='active',billing_required=false,expires_at=NULL,updated_at=now()`, u.ID)
 	if e != nil {
 		return User{}, false, e
 	}
