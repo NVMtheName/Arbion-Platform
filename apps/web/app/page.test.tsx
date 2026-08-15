@@ -19,4 +19,14 @@ describe("Authentication experience", () => {
       "12",
     );
   });
+
+  it("describes registration as invite-only", () => {
+    render(<AuthForm mode="register" />);
+    expect(
+      screen.getByRole("heading", { name: /create your invited account/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/registration is limited to invited email addresses/i),
+    ).toBeInTheDocument();
+  });
 });

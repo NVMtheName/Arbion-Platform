@@ -1,6 +1,9 @@
+import Link from "next/link";
+
 export default function RiskSafetyPage() {
   return (
     <main className="dashboard-shell">
+      <Link href="/dashboard">← Dashboard</Link>
       <section className="hero-panel">
         <p className="eyebrow">Safety controls</p>
         <h1>Risk / Control status</h1>

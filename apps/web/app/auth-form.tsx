@@ -33,9 +33,13 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     <main className="auth-page">
       <section className="auth-card">
         <p className="eyebrow">ARBION</p>
-        <h1>{mode === "login" ? "Welcome back." : "Create your account."}</h1>
+        <h1>
+          {mode === "login" ? "Welcome back." : "Create your invited account."}
+        </h1>
         <p className="lede">
-          A secure workspace for disciplined financial decisions.
+          {mode === "login"
+            ? "A secure workspace for disciplined financial decisions."
+            : "Registration is limited to invited email addresses."}
         </p>
         <form onSubmit={submit}>
           {mode === "register" && (
@@ -77,9 +81,9 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           </button>
         </form>
         <p className="switch">
-          {mode === "login" ? "New to Arbion?" : "Already registered?"}{" "}
+          {mode === "login" ? "Have an invite?" : "Already registered?"}{" "}
           <Link href={mode === "login" ? "/register" : "/login"}>
-            {mode === "login" ? "Create an account" : "Log in"}
+            {mode === "login" ? "Create your account" : "Log in"}
           </Link>
         </p>
       </section>

@@ -27,6 +27,7 @@ type authHandler struct {
 	admin              *authorization.Service
 	ai                 *aiconnection.Service
 	financialProviders financial.Registry
+	schwabConfigured   bool
 	financial          *financialconnection.Service
 	automation         *automation.Service
 	strategies         *strategy.InstanceService
@@ -68,7 +69,7 @@ func NewApplicationHandler(database ReadinessChecker, timeout config.Config, ser
 }
 
 func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances ...*financialconnection.Service) stdhttp.Handler {
-	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry()}
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != ""}
 	if len(finances) > 0 {
 		h.financial = finances[0]
 	}
@@ -114,7 +115,7 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 }
 
 func NewFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies ...*strategy.InstanceService) stdhttp.Handler {
-	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), financial: finances, automation: automations}
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", financial: finances, automation: automations}
 	if len(strategies) > 0 {
 		h.strategies = strategies[0]
 	}
@@ -178,6 +179,10 @@ func (h *authHandler) listFinancialConnections(w stdhttp.ResponseWriter, r *stdh
 	writeJSON(w, 200, map[string]any{"connections": v})
 }
 func (h *authHandler) startSchwab(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.schwabConfigured {
+		writeError(w, 503, "PROVIDER_UNAVAILABLE", "Charles Schwab is not configured.")
+		return
+	}
 	if !h.csrf(r) {
 		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
 		return
@@ -250,7 +255,19 @@ func (h *authHandler) getPositions(w stdhttp.ResponseWriter, r *stdhttp.Request)
 	writeJSON(w, 200, map[string]any{"positions": v})
 }
 func (h *authHandler) listFinancialProviders(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-	writeJSON(w, 200, map[string]any{"providers": h.financialProviders.List(), "can_connect_financial_accounts": authorization.CanConnectFinancialAccounts(principal(r))})
+	type providerResponse struct {
+		financial.ProviderDefinition
+		Configured bool `json:"configured"`
+	}
+	providers := make([]providerResponse, 0, len(h.financialProviders))
+	for _, provider := range h.financialProviders.List() {
+		configured := provider.Availability == financial.Implemented
+		if provider.ID == "schwab" {
+			configured = h.schwabConfigured
+		}
+		providers = append(providers, providerResponse{ProviderDefinition: provider, Configured: configured})
+	}
+	writeJSON(w, 200, map[string]any{"providers": providers, "can_connect_financial_accounts": authorization.CanConnectFinancialAccounts(principal(r))})
 }
 func (h *authHandler) verifyAI(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	if !h.csrf(r) {

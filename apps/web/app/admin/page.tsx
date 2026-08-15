@@ -21,6 +21,7 @@ export default async function Admin() {
   const { users } = (await response.json()) as { users: User[] };
   return (
     <main className="dashboard">
+      <Link href="/dashboard">← Dashboard</Link>
       <p className="eyebrow">ARBION ADMIN</p>
       <h1>Arbion Admin</h1>
       <p>System role: {user.role}</p>

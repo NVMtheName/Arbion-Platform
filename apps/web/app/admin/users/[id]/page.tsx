@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 export default async function UserDetail({
@@ -22,6 +23,7 @@ export default async function UserDetail({
   };
   return (
     <main className="dashboard">
+      <Link href="/admin">← Admin</Link>
       <p className="eyebrow">ARBION ADMIN</p>
       <h1>User detail</h1>
       <dl>

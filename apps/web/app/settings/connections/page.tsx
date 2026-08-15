@@ -23,6 +23,7 @@ type FinancialProvider = {
   id: string;
   label: string;
   availability: "implemented" | "planned";
+  configured: boolean;
 };
 export type FinancialConnection = {
   id: string;
@@ -103,7 +104,8 @@ export default async function ConnectionsPage() {
           {financial.providers.map((provider) => (
             <article key={provider.id}>
               <h3>{provider.label}</h3>
-              {provider.availability === "implemented" ? (
+              {provider.availability === "implemented" &&
+              provider.configured ? (
                 <>
                   <p>Secure read-only account connection</p>
                   <FinancialManager
@@ -115,6 +117,8 @@ export default async function ConnectionsPage() {
                     accounts={financialAccounts}
                   />
                 </>
+              ) : provider.availability === "implemented" ? (
+                <p className="unavailable">Not configured</p>
               ) : (
                 <p className="unavailable">Coming soon</p>
               )}
