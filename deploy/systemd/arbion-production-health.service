@@ -6,7 +6,9 @@ OnFailure=arbion-ops-alert@%n.service
 
 [Service]
 Type=oneshot
-DynamicUser=true
+User=root
+Group=root
+CapabilityBoundingSet=
 ExecStart=/opt/arbion/scripts/smoke-production.sh
 PrivateTmp=true
 PrivateDevices=true
