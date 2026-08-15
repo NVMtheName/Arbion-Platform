@@ -1,0 +1,24 @@
+[Unit]
+Description=Check whether the Arbion production host requires a reboot
+OnFailure=arbion-ops-alert@%n.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+ExecStart=/opt/arbion/scripts/check-reboot-required.sh
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/arbion /run
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+NoNewPrivileges=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX

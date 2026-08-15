@@ -1,0 +1,11 @@
+[Unit]
+Description=Check daily whether the Arbion production host requires a reboot
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+Unit=arbion-reboot-required.service
+
+[Install]
+WantedBy=timers.target
