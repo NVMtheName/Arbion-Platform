@@ -89,7 +89,7 @@ ARBION_BACKUP_BUCKET=replace-with-dedicated-bucket
 ARBION_BACKUP_PREFIX=postgres/daily
 ```
 
-Enable the timer and run the service once immediately. Confirm that both the dump and checksum exist remotely, use the required encryption, and are covered by the bucket retention controls. Monitor failures with `systemctl status arbion-postgres-backup.service` and `journalctl -u arbion-postgres-backup.service`; logs contain object names but no database contents or credentials.
+Enable the backup timer and run the backup service once immediately. Each completed upload records a root-only local success marker. Also install and enable `arbion-postgres-backup-freshness.service` and its timer; it checks every six hours and enters a failed state when no successful upload has been recorded within 36 hours. Confirm that both the dump and checksum exist remotely, use the required encryption, and are covered by the bucket retention controls. Monitor failures with `systemctl --failed`, `systemctl status arbion-postgres-backup.service arbion-postgres-backup-freshness.service`, and their journals; logs contain object names but no database contents or credentials.
 
 Backups contain sensitive customer/product data. Restore only in a planned outage to an empty, version-compatible PostgreSQL instance: preserve the failed database, download with an authorized recovery identity, validate the SHA-256 checksum and archive catalog, restore with reviewed `pg_restore` arguments, rerun migrations, and verify readiness and inventory. Rehearse this process after setup and periodically thereafter. Never grant the host read/delete access, overwrite the only production copy, or delete production volumes as recovery.
 
