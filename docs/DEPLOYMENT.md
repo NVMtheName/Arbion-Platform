@@ -50,6 +50,8 @@ The deploy script fails fast, does not echo secrets, delete volumes, or overwrit
 
 ## Health checks and logging
 
+Production containers use Docker's local `json-file` logging with five rotated 10 MiB files per container. This bounds routine container logs to approximately 50 MiB per service while preserving recent diagnostics; export longer-lived security or audit records to a dedicated system rather than increasing local retention indefinitely.
+
 - Go `/healthz` reports liveness and `/readyz` checks database readiness.
 - Python provides `/healthz` and startup-validated `/readyz`.
 - Next.js provides `/api/health`; PostgreSQL uses `pg_isready`; Redis uses `PING`.
