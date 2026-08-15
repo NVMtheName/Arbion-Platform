@@ -1,0 +1,22 @@
+[Unit]
+Description=Prune old Arbion Docker build cache
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/docker builder prune --force --filter until=168h
+Nice=15
+IOSchedulingClass=idle
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+NoNewPrivileges=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX
