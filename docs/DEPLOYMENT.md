@@ -79,6 +79,16 @@ aws lightsail test-alarm --alarm-name arbion-production-status-check-failed --st
 
 The alarm test changes only the simulated alarm state. Confirm receipt of both the alert and all-clear emails, then recheck the actual alarm state and production health.
 
+## Cost guardrail
+
+For the owner-operated Lightsail topology, configure a notification-only monthly AWS cost budget without automated actions. The current `$44` instance baseline uses a `$60` account-wide budget so ordinary backup and notification usage has headroom while unexpected resources or traffic still surface promptly. Send direct operator email notifications at:
+
+- `80%` of actual monthly spend;
+- `100%` of actual monthly spend; and
+- `100%` of forecasted monthly spend.
+
+Keep the budget account-wide so it also catches costs outside Lightsail, tag it for Arbion production, and review it whenever the hosting plan or expected usage changes. Budget data and forecasts are delayed; this is a spending warning, not a real-time limit. Do not attach an automatic shutdown action to production.
+
 ## Founder bootstrap
 
 Register the intended account normally, explicitly configure `FOUNDER_EMAIL`, then run:
