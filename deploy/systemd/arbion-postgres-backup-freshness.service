@@ -1,0 +1,21 @@
+[Unit]
+Description=Verify Arbion PostgreSQL backup freshness
+After=arbion-postgres-backup.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=ARBION_BACKUP_MAX_AGE_SECONDS=129600
+ExecStart=/opt/arbion/scripts/check-postgres-backup-freshness.sh
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/arbion /var/lib/arbion-backups
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+LockPersonality=true
+NoNewPrivileges=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX

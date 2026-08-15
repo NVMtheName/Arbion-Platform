@@ -20,6 +20,7 @@ env_file="${ARBION_PRODUCTION_ENV_FILE:-$arbion_root/.env.production}"
 backup_bucket="${ARBION_BACKUP_BUCKET:?ARBION_BACKUP_BUCKET is required}"
 backup_prefix="${ARBION_BACKUP_PREFIX:-postgres/daily}"
 staging_dir="${ARBION_BACKUP_STAGING_DIR:-/var/lib/arbion-backups/staging}"
+status_file="${ARBION_BACKUP_STATUS_FILE:-/var/lib/arbion-backups/last-success}"
 
 [[ -f "$env_file" ]] || {
   echo "Missing production environment file: $env_file" >&2
@@ -35,6 +36,7 @@ staging_dir="${ARBION_BACKUP_STAGING_DIR:-/var/lib/arbion-backups/staging}"
 }
 
 install -d -o root -g root -m 0700 "$staging_dir"
+install -d -o root -g root -m 0700 "$(dirname "$status_file")"
 exec 9>"$staging_dir/.backup.lock"
 flock -n 9 || {
   echo "Another PostgreSQL backup is already running." >&2
@@ -46,9 +48,11 @@ filename="arbion-$timestamp.dump"
 dump_path="$staging_dir/$filename"
 checksum_path="$dump_path.sha256"
 backup_key="$backup_prefix/$filename"
+status_tmp=""
 
 cleanup() {
   rm -f -- "$dump_path" "$checksum_path"
+  [[ -z "$status_tmp" ]] || rm -f -- "$status_tmp"
 }
 trap cleanup EXIT
 
@@ -85,5 +89,10 @@ aws s3 cp "$dump_path" "s3://$backup_bucket/$backup_key" \
 aws s3 cp "$checksum_path" "s3://$backup_bucket/$backup_key.sha256" \
   --sse AES256 \
   --only-show-errors
+
+status_tmp="$status_file.tmp.$$"
+printf '%s %s\n' "$(date -u +%s)" "$backup_key" >"$status_tmp"
+chmod 0600 "$status_tmp"
+mv -f -- "$status_tmp" "$status_file"
 
 echo "Uploaded verified PostgreSQL backup to s3://$backup_bucket/$backup_key"

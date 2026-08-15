@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Arbion PostgreSQL backup freshness every six hours
+
+[Timer]
+OnBootSec=15m
+OnUnitActiveSec=6h
+Persistent=true
+Unit=arbion-postgres-backup-freshness.service
+
+[Install]
+WantedBy=timers.target
