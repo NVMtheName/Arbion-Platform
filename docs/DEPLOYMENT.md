@@ -93,6 +93,8 @@ Enable the timer and run the service once immediately. Confirm that both the dum
 
 Backups contain sensitive customer/product data. Restore only in a planned outage to an empty, version-compatible PostgreSQL instance: preserve the failed database, download with an authorized recovery identity, validate the SHA-256 checksum and archive catalog, restore with reviewed `pg_restore` arguments, rerun migrations, and verify readiness and inventory. Rehearse this process after setup and periodically thereafter. Never grant the host read/delete access, overwrite the only production copy, or delete production volumes as recovery.
 
+After downloading a dump and its checksum with an authorized recovery identity, rehearse the isolated validation with `scripts/verify-postgres-restore.sh <backup.dump> <backup.dump.sha256>`. The script verifies the checksum, disables networking on a temporary PostgreSQL 17 container, restores with ownership and privileges excluded, checks critical tables, and removes its temporary container and volume on exit. It never connects to the production database or production Docker volumes.
+
 Redis AOF improves continuity but Redis is ephemeral. Loss ends active sessions and pending OAuth flows must restart. Users, provider connections, mandates, strategy instances, paper portfolios, and durable automation state remain in PostgreSQL.
 
 ## Rollback
