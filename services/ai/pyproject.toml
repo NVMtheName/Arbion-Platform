@@ -8,16 +8,17 @@ version = "0.1.0"
 description = "Arbion AI service foundation"
 requires-python = ">=3.13"
 dependencies = [
-  "fastapi==0.116.1",
+  "fastapi==0.141.1",
   "httpx==0.28.1",
+  "starlette==1.6.0",
   "uvicorn[standard]==0.35.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest-asyncio==1.1.0",
+  "pytest-asyncio==1.4.0",
   "mypy==1.17.1",
-  "pytest==8.4.1",
+  "pytest==9.0.3",
   "ruff==0.12.8",
 ]
 
