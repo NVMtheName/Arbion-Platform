@@ -1,6 +1,6 @@
 module github.com/arbion/platform/services/api
 
-go 1.25.0
+go 1.25.13
 
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0

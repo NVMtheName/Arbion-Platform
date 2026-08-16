@@ -18,7 +18,7 @@ The repository includes a single-host production Compose topology with Caddy-man
 ## Prerequisites
 
 - Docker with Docker Compose (recommended), or
-- Node.js 22+, Go 1.25+, Python 3.13+, PostgreSQL 17, and Redis 7
+- Node.js 22+, Go 1.25.13+, Python 3.13+, PostgreSQL 17, and Redis 7
 
 ## Run with Docker Compose
 
