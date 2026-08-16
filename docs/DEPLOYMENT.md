@@ -63,14 +63,13 @@ Checks have start periods, bounded timeouts, and nonaggressive intervals. Logs r
 
 ## External host failure monitoring
 
-Host-local checks cannot notify when the entire instance or its network is unavailable. For a Lightsail host, configure a regional email notification contact and verify it separately from the application SNS subscription. Add a Lightsail instance alarm with these settings:
+Host-local checks cannot notify when the entire instance or its network is unavailable. For a Lightsail host, configure a regional email notification contact and verify it separately from the application SNS subscription. Add these Lightsail instance alarms:
 
-- metric `StatusCheckFailed`, statistic `Sum`, and threshold greater than `0`;
-- two of two five-minute evaluation periods;
-- missing metric data treated as breaching; and
-- email notifications for both `ALARM` and recovery to `OK`.
+- `arbion-production-status-check-failed`: `StatusCheckFailed` sum greater than `0` for two of two five-minute periods, with missing data treated as breaching;
+- `arbion-production-cpu-high`: average `CPUUtilization` greater than `80%` for three of three five-minute periods, with missing data treated as not breaching; and
+- `arbion-production-burst-capacity-low`: average `BurstCapacityPercentage` less than `20%` for two of two five-minute periods, with missing data treated as not breaching.
 
-Use a stable alarm name such as `arbion-production-status-check-failed`, tag it for the production environment, and confirm that its initial `INSUFFICIENT_DATA` state settles to `OK`. After the email contact is verified and the alarm is `OK`, exercise notification delivery without stopping the instance:
+Tag every alarm for the production environment, enable email notifications for both `ALARM` and recovery to `OK`, and confirm that each initial `INSUFFICIENT_DATA` state settles to `OK`. Review recent utilization before changing performance thresholds. After the email contact is verified and an alarm is `OK`, exercise notification delivery without stopping the instance:
 
 ```bash
 aws lightsail test-alarm --alarm-name arbion-production-status-check-failed --state ALARM
