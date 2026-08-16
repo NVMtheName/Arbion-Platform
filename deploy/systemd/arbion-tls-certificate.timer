@@ -1,0 +1,11 @@
+[Unit]
+Description=Check the Arbion production TLS certificate daily
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+Unit=arbion-tls-certificate.service
+
+[Install]
+WantedBy=timers.target
