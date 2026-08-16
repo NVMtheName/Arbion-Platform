@@ -49,7 +49,7 @@ func (s *PostgresStore) List(ctx context.Context, user string) ([]Connection, er
 	return out, rows.Err()
 }
 func (s *PostgresStore) Create(ctx context.Context, user, provider, name, hint string) (Connection, error) {
-	return s.scan(s.db.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status,credential_metadata) VALUES($1,'ai',$2,$3,'pending',jsonb_build_object('hint',$4)) RETURNING `+columns, user, provider, name, hint))
+	return s.scan(s.db.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status,credential_metadata) VALUES($1,'ai',$2,$3,'pending',jsonb_build_object('hint',$4::text)) RETURNING `+columns, user, provider, name, hint))
 }
 func (s *PostgresStore) Get(ctx context.Context, user, id string) (Connection, error) {
 	return s.scan(s.db.QueryRow(ctx, `SELECT `+columns+` FROM provider_connections WHERE id=$1 AND user_id=$2 AND provider_category='ai'`, id, user))
