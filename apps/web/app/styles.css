@@ -91,6 +91,34 @@ select {
   padding: 16px 0;
   border-top: 1px solid #244237;
 }
+.capital-bucket-form,
+.mandate-controls {
+  margin: 24px 0;
+  padding: 22px;
+  border: 1px solid #244237;
+  border-radius: 14px;
+  background: #07110e;
+}
+.capital-bucket-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.capital-bucket-form > :last-child,
+.capital-bucket-form > .security-note,
+.capital-bucket-form > button,
+.capital-bucket-form > .checkbox-row {
+  grid-column: 1 / -1;
+}
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.checkbox-row input {
+  width: auto;
+}
+.mandate-controls form {
+  max-width: 460px;
+}
 .builder fieldset {
   display: grid;
   gap: 10px;
@@ -355,6 +383,9 @@ button:disabled {
 }
 @media (max-width: 700px) {
   .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .capital-bucket-form {
     grid-template-columns: 1fr;
   }
   .auth-card {

@@ -7,12 +7,15 @@ type Item = {
   display_name?: string;
   name?: string;
   status?: string;
+  is_reserve?: boolean;
+  financial_account_id?: string;
 };
 export default function AutomationBuilder() {
   const [accounts, setAccounts] = useState<Item[]>([]);
   const [buckets, setBuckets] = useState<Item[]>([]);
   const [ai, setAI] = useState<Item[]>([]);
   const [type, setType] = useState("STRATEGY");
+  const [accountID, setAccountID] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -23,8 +26,37 @@ export default function AutomationBuilder() {
       fetch("/api/connections/ai").then((r) => r.json()),
     ])
       .then(([a, b, c]) => {
-        setAccounts(Array.isArray(a.accounts) ? a.accounts : []);
-        setBuckets(Array.isArray(b.capital_buckets) ? b.capital_buckets : []);
+        const accountItems = Array.isArray(a.accounts)
+          ? a.accounts.map((account: Record<string, unknown>) => ({
+              id: String(account.id ?? account.ID ?? ""),
+              display_name: String(
+                account.display_name ??
+                  account.DisplayName ??
+                  "Financial account",
+              ),
+              status: String(account.status ?? account.Status ?? ""),
+            }))
+          : [];
+        setAccounts(accountItems);
+        setAccountID(
+          accountItems.find((account: Item) => account.status === "active")
+            ?.id ?? "",
+        );
+        setBuckets(
+          Array.isArray(b.capital_buckets)
+            ? b.capital_buckets.map((bucket: Record<string, unknown>) => ({
+                id: String(bucket.id ?? bucket.ID ?? ""),
+                name: String(bucket.name ?? bucket.Name ?? "Capital bucket"),
+                status: String(bucket.status ?? bucket.Status ?? ""),
+                is_reserve: Boolean(bucket.is_reserve ?? bucket.IsReserve),
+                financial_account_id: String(
+                  bucket.financial_account_id ??
+                    bucket.FinancialAccountID ??
+                    "",
+                ),
+              }))
+            : [],
+        );
         setAI(Array.isArray(c.connections) ? c.connections : []);
       })
       .catch(() => setLoadError(true))
@@ -63,13 +95,22 @@ export default function AutomationBuilder() {
         : "The draft could not be saved. Check entitlement and configuration.",
     );
   }
+  const activeAccounts = accounts.filter(
+    (account) => account.status === "active",
+  );
   const activeAI = ai.filter((x) => x.status === "active");
+  const eligibleBuckets = buckets.filter(
+    (bucket) =>
+      (bucket.status === undefined || bucket.status === "ACTIVE") &&
+      !bucket.is_reserve &&
+      bucket.financial_account_id === accountID,
+  );
   const aiRequired = type !== "STRATEGY";
   const ready =
     !loading &&
     !loadError &&
-    accounts.length > 0 &&
-    buckets.length > 0 &&
+    activeAccounts.length > 0 &&
+    eligibleBuckets.length > 0 &&
     (!aiRequired || activeAI.length > 0);
   return (
     <form className="builder" onSubmit={submit}>
@@ -79,7 +120,7 @@ export default function AutomationBuilder() {
           Connections could not be loaded. Try again later.
         </p>
       )}
-      {!loading && !loadError && accounts.length === 0 && (
+      {!loading && !loadError && activeAccounts.length === 0 && (
         <p className="security-note">
           Connect and sync a financial account before creating an automation.{" "}
           <Link href="/settings/connections">Manage connections</Link>
@@ -87,8 +128,8 @@ export default function AutomationBuilder() {
       )}
       {!loading &&
         !loadError &&
-        accounts.length > 0 &&
-        buckets.length === 0 && (
+        activeAccounts.length > 0 &&
+        eligibleBuckets.length === 0 && (
           <p className="security-note">
             Create a capital bucket for the connected account before saving an
             automation draft.
@@ -96,9 +137,15 @@ export default function AutomationBuilder() {
         )}
       <label>
         Account
-        <select name="account" required disabled={accounts.length === 0}>
-          {accounts.length === 0 && <option>No connected accounts</option>}
-          {accounts.map((a) => (
+        <select
+          name="account"
+          required
+          disabled={activeAccounts.length === 0}
+          value={accountID}
+          onChange={(event) => setAccountID(event.target.value)}
+        >
+          {activeAccounts.length === 0 && <option>No active accounts</option>}
+          {activeAccounts.map((a) => (
             <option key={a.id} value={a.id}>
               {a.display_name}
             </option>
@@ -151,9 +198,11 @@ export default function AutomationBuilder() {
       )}
       <label>
         Capital Bucket
-        <select name="bucket" required disabled={buckets.length === 0}>
-          {buckets.length === 0 && <option>No capital buckets</option>}
-          {buckets.map((b) => (
+        <select name="bucket" required disabled={eligibleBuckets.length === 0}>
+          {eligibleBuckets.length === 0 && (
+            <option>No eligible capital buckets</option>
+          )}
+          {eligibleBuckets.map((b) => (
             <option key={b.id} value={b.id}>
               {b.name}
             </option>

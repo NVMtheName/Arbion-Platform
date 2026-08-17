@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+
+import { MandateControls } from "../mandate-controls";
 export default async function MandateReview({
   params,
 }: {
@@ -92,6 +94,15 @@ export default async function MandateReview({
         supported. A configured or READY Automation Mandate does not itself
         execute trades.
       </p>
+      <MandateControls
+        automationId={id}
+        currentVersion={Number(m.current_version ?? m.CurrentVersion ?? 0)}
+        status={read("status", "Status")}
+        automationType={read("automation_type", "AutomationType")}
+        executionMode={read("execution_mode", "ExecutionMode")}
+        strategyIdentifier={read("strategy_identifier", "StrategyIdentifier")}
+        instanceExists={Boolean(instance)}
+      />
       <section className="review-grid" aria-label="Non-live strategy">
         <div>
           <p className="eyebrow">STRATEGY INSTANCE</p>
