@@ -19,6 +19,23 @@ type RedisStore struct {
 	now    func() time.Time
 }
 
+var weightedRateLimitScript = redis.NewScript(`
+local current = tonumber(redis.call("GET", KEYS[1]) or "0")
+local cost = tonumber(ARGV[1])
+local limit = tonumber(ARGV[2])
+if current > 0 and redis.call("PTTL", KEYS[1]) < 0 then
+  return redis.error_reply("rate limit key is missing expiry")
+end
+if current + cost > limit then
+  return 0
+end
+local next = redis.call("INCRBY", KEYS[1], cost)
+if next == cost then
+  redis.call("PEXPIRE", KEYS[1], ARGV[3])
+end
+return 1
+`)
+
 func NewRedisStore(client *redis.Client) *RedisStore {
 	return &RedisStore{client: client, prefix: "arbion:", now: time.Now}
 }
@@ -84,4 +101,13 @@ func (s *RedisStore) Allow(ctx context.Context, key string, limit int, window ti
 		}
 	}
 	return n <= int64(limit), nil
+}
+
+func (s *RedisStore) AllowWeighted(ctx context.Context, key string, cost, limit int, window time.Duration) (bool, error) {
+	if cost <= 0 || limit <= 0 || window <= 0 {
+		return false, errors.New("invalid weighted rate limit")
+	}
+	k := s.prefix + "rate:" + tokenKey(key)
+	allowed, err := weightedRateLimitScript.Run(ctx, s.client, []string{k}, cost, limit, window.Milliseconds()).Int()
+	return allowed == 1, err
 }

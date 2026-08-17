@@ -6,7 +6,7 @@ The Neural Engine is Arbion's Python boundary for AI-assisted and quantitative c
 
 Ask Arbion is one input surface, not an AI-owned trading path. It interprets natural language into a structured Arbion Intent that joins the same Go domain commands used by the UI. Conversation state is not authoritative for mandates, strategies, approvals, orders, positions, or execution.
 
-Secure provider connection management, credential verification, model discovery, default provider/model preferences, and a bounded read-only Arbion Insight flow are implemented. General chat, streaming, model tools, financial-data retrieval, order proposals, and execution remain unimplemented.
+Secure provider connection management, credential verification, model discovery, default provider/model preferences, and a bounded read-only Arbion Insight flow with explicit cost-aware model profiles are implemented. General chat, automatic intent routing, streaming, model tools, financial-data retrieval, order proposals, and execution remain unimplemented.
 
 ## Implemented provider connectivity
 
@@ -22,15 +22,17 @@ Normalized failures are `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVA
 
 ## Implemented read-only insight
 
-`POST /api/neural/insight` is the first bounded analysis surface. Go authenticates the user, checks Neural Engine entitlement, requires an active owned connection and saved model preference, limits input to 2,000 bytes, and enforces 12 requests per user per hour through Redis. Rate-limiter failure denies the request. The stored AI credential is decrypted only for the call and cleared from the immediate byte buffer afterward.
+`POST /api/neural/insight` is the first bounded analysis surface. Go authenticates the user, checks Neural Engine entitlement, requires an active owned connection and saved model preference, limits input to 2,000 bytes, and enforces a 12-credit hourly budget through Redis. Fast requests consume one credit, Core consumes three, and Deep consumes six, so higher-cost profiles reduce the number of requests available in the same window. Credit consumption is atomic: an over-budget request is rejected without consuming the user's remaining credits. Rate-limiter failure denies the request. The stored AI credential is decrypted only for the call and cleared from the immediate byte buffer afterward.
 
-The internal service sends OpenAI a Responses API request containing only the user's text, the selected model, fixed Arbion instructions, and a one-way per-user safety identifier. `store` is false, reasoning effort and verbosity are low, output is capped, no tools are supplied, and a strict JSON schema requires a summary, key points, risk flags, limitations, and a current-data flag. Unsupported providers fail closed rather than silently switching providers. The browser receives only that normalized structure.
+The browser chooses one explicit analysis profile; it cannot submit a model ID. Go and Python independently bind each profile to one exact OpenAI route: Fast uses `gpt-5.6-luna` with low reasoning and a 700-token cap, Core uses `gpt-5.6-terra` with medium reasoning and a 900-token cap, and Deep uses `gpt-5.6-sol` with high reasoning and a 1,200-token cap. Fast is the backward-compatible default when the profile is omitted. Python rejects unknown profiles before contacting a provider, and Go rejects any response whose provider/model/profile metadata does not match the selected route.
 
-The implementation follows OpenAI's official [Responses API guidance](https://developers.openai.com/api/docs/guides/migrate-to-responses), [Structured Outputs guidance](https://developers.openai.com/api/docs/guides/structured-outputs), and [GPT-5.6 Luna model reference](https://developers.openai.com/api/docs/models/gpt-5.6-luna). These evolving provider details must be rechecked before changing the adapter.
+The internal service sends OpenAI a Responses API request containing only the user's text, the fixed route, fixed Arbion instructions, and a one-way per-user safety identifier. `store` is false, reasoning effort and verbosity are explicit, output is capped, no tools are supplied, and a strict JSON schema requires a summary, key points, risk flags, limitations, and a current-data flag. Unsupported providers fail closed rather than silently switching providers. The browser receives only that normalized structure.
 
-The feature deliberately has no access to accounts, positions, portfolio data, broker credentials, quotes, news, or current market data. It cannot preview, place, approve, or authorize a trade. Audit records include safe operational metadata—provider, model, input byte count, token usage, outcome, latency, and provider request ID—but exclude prompt text, model output, credentials, and private chain-of-thought.
+The implementation follows OpenAI's official [Responses API guidance](https://developers.openai.com/api/docs/guides/migrate-to-responses), [Structured Outputs guidance](https://developers.openai.com/api/docs/guides/structured-outputs), and [GPT-5.6 model guidance](https://developers.openai.com/api/docs/guides/latest-model). These evolving provider details must be rechecked before changing the adapter.
 
-The default Neural Engine preference is a durable user setting pointing to one active, owned AI connection and a model returned for that credential. It is only a default; future Automation Mandates may choose another connection/model. Logging out affects only the browser session and preserves both connections and this preference.
+The feature deliberately has no access to accounts, positions, portfolio data, broker credentials, quotes, news, or current market data. It cannot preview, place, approve, or authorize a trade. Audit records include safe operational metadata—provider, profile, model, charged credits, input byte count, token usage, outcome, latency, and provider request ID—but exclude prompt text, model output, credentials, and private chain-of-thought.
+
+The default Neural Engine preference is a durable user setting pointing to one active, owned AI connection and a model returned for that credential. Arbion Insight uses the selected connection while its request profile chooses the fixed GPT-5.6 route; it never mutates the saved preference. Future Automation Mandates may choose another connection/model under a separately approved policy. Logging out affects only the browser session and preserves both connections and this preference.
 
 ## Connection lifecycle
 
@@ -66,7 +68,7 @@ The common contract should describe capabilities rather than assume every vendor
 - model capability metadata, token/size limits, usage, and normalized errors; and
 - cancellation, deadlines, retry safety, and provider health.
 
-Callers should request a task or capability, not import a vendor SDK or depend on a vendor response type. Routing may later select different providers and models for different tasks based on user choice, capability, policy, availability, latency, privacy, and cost. Fallback must be explicit because changing providers can change data handling and output behavior.
+Callers should request a task or capability, not import a vendor SDK or depend on a vendor response type. Arbion Insight now supports explicit user-selected OpenAI profiles; automatic task classification, cross-provider routing, fallback, and escalation remain deferred. Any fallback must be explicit because changing providers can change data handling and output behavior.
 
 ## Credential boundary
 
@@ -137,4 +139,4 @@ Arbion may later expose an MCP-compatible server so external AI clients can use 
 
 ## Deferred decisions
 
-Later design must choose the common interface and event schemas, provider capability discovery, model catalog, routing/fallback policy, user credential lifecycle, prompt and response retention, tool registry ownership, sandboxing, cost and quota policy, evaluation strategy, and MCP exposure model.
+Later design must choose the common interface and event schemas, provider capability discovery, dynamic model catalog, automatic and cross-provider routing/fallback policy, user credential lifecycle, prompt and response retention, tool registry ownership, sandboxing, longer-term cost and quota policy, evaluation strategy, and MCP exposure model.

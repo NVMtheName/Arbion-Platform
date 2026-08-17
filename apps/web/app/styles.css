@@ -218,6 +218,49 @@ button:disabled {
 .insight-panel form {
   margin-top: 24px;
 }
+.insight-profiles {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.insight-profiles legend {
+  margin-bottom: 10px;
+  color: #cfe4da;
+  font-size: 0.9rem;
+}
+.insight-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.insight-profile-grid label {
+  display: flex;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid #315447;
+  border-radius: 12px;
+  background: #07110e;
+  cursor: pointer;
+}
+.insight-profile-grid label.selected {
+  border-color: #5ee0a0;
+  box-shadow: 0 0 0 1px #5ee0a0;
+}
+.insight-profile-grid input {
+  width: auto;
+  margin: 3px 0 0;
+  align-self: flex-start;
+}
+.insight-profile-grid span {
+  display: grid;
+  gap: 6px;
+}
+.insight-profile-grid small {
+  color: #8ba198;
+  line-height: 1.35;
+}
 .insight-panel .insight-disclaimer,
 .insight-panel .insight-meta,
 .insight-panel .character-count {
@@ -247,6 +290,11 @@ button:disabled {
   border-radius: 10px;
   color: #f3d79a;
   background: #2b2415;
+}
+@media (max-width: 760px) {
+  .insight-profile-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .admin-table {
   display: grid;

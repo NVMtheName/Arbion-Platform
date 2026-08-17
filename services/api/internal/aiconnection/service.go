@@ -27,7 +27,7 @@ var (
 const (
 	MaxCredentialBytes = 4096
 	MaxPromptBytes     = 2000
-	InsightLimit       = 12
+	InsightCreditLimit = 12
 	InsightWindow      = time.Hour
 )
 
@@ -61,7 +61,7 @@ type Auditor interface {
 	Record(context.Context, *string, string, map[string]any) error
 }
 type Limiter interface {
-	Allow(context.Context, string, int, time.Duration) (bool, error)
+	AllowWeighted(context.Context, string, int, int, time.Duration) (bool, error)
 }
 type Service struct {
 	store    Store
@@ -140,13 +140,17 @@ func (s *Service) Models(ctx context.Context, p authorization.Principal, id stri
 	defer clear(secret)
 	return s.neural.Models(ctx, c.Provider, secret)
 }
-func (s *Service) Analyze(ctx context.Context, p authorization.Principal, prompt string) (neural.Insight, error) {
+func (s *Service) Analyze(ctx context.Context, p authorization.Principal, prompt, profile string) (neural.Insight, error) {
 	prompt = strings.TrimSpace(prompt)
 	if !s.allowed(ctx, p, "neural_insight.rejected", "", "") {
 		return neural.Insight{}, ErrForbidden
 	}
 	if prompt == "" || len([]byte(prompt)) > MaxPromptBytes {
 		return neural.Insight{}, ErrInvalid
+	}
+	route, err := resolveInsightRoute(profile)
+	if err != nil {
+		return neural.Insight{}, err
 	}
 	pref, err := s.store.GetPreference(ctx, p.UserID)
 	if err != nil {
@@ -162,16 +166,20 @@ func (s *Service) Analyze(ctx context.Context, p authorization.Principal, prompt
 	if c.Status != "active" {
 		return neural.Insight{}, ErrInactive
 	}
+	if c.Provider != route.Provider {
+		s.record(ctx, p.UserID, "neural_insight.failed", c, routeAudit(route, "UNSUPPORTED"))
+		return neural.Insight{}, &neural.ProviderError{Code: neural.Unsupported}
+	}
 	if s.neural == nil || s.limiter == nil {
 		return neural.Insight{}, ErrProvider
 	}
-	allowed, err := s.limiter.Allow(ctx, "neural-insight:"+p.UserID, InsightLimit, InsightWindow)
+	allowed, err := s.limiter.AllowWeighted(ctx, "neural-insight:"+p.UserID, route.CreditUnits, InsightCreditLimit, InsightWindow)
 	if err != nil {
-		s.record(ctx, p.UserID, "neural_insight.failed", c, map[string]any{"model_id": pref.ModelID, "outcome": "RATE_LIMITER_UNAVAILABLE"})
+		s.record(ctx, p.UserID, "neural_insight.failed", c, routeAudit(route, "RATE_LIMITER_UNAVAILABLE"))
 		return neural.Insight{}, ErrProvider
 	}
 	if !allowed {
-		s.record(ctx, p.UserID, "neural_insight.rate_limited", c, map[string]any{"model_id": pref.ModelID, "outcome": "RATE_LIMITED"})
+		s.record(ctx, p.UserID, "neural_insight.rate_limited", c, routeAudit(route, "RATE_LIMITED"))
 		return neural.Insight{}, ErrRateLimit
 	}
 	secret, err := s.vault.Retrieve(ctx, credential.Locator{ConnectionID: c.ID, UserID: p.UserID, Class: credential.AI})
@@ -181,19 +189,25 @@ func (s *Service) Analyze(ctx context.Context, p authorization.Principal, prompt
 	defer clear(secret)
 	digest := sha256.Sum256([]byte("arbion-neural:" + p.UserID))
 	started := time.Now()
-	result, err := s.neural.Analyze(ctx, c.Provider, pref.ModelID, secret, prompt, hex.EncodeToString(digest[:]))
+	result, err := s.neural.Analyze(ctx, c.Provider, string(route.Profile), secret, prompt, hex.EncodeToString(digest[:]))
 	if err != nil {
 		code := neural.Code(err)
-		s.record(ctx, p.UserID, "neural_insight.failed", c, map[string]any{
-			"model_id": pref.ModelID, "input_bytes": len([]byte(prompt)), "outcome": code,
-			"latency_ms": time.Since(started).Milliseconds(),
-		})
+		failed := routeAudit(route, code)
+		failed["input_bytes"] = len([]byte(prompt))
+		failed["latency_ms"] = time.Since(started).Milliseconds()
+		s.record(ctx, p.UserID, "neural_insight.failed", c, failed)
 		return neural.Insight{}, &neural.ProviderError{Code: code}
 	}
-	extra := map[string]any{
-		"model_id": pref.ModelID, "input_bytes": len([]byte(prompt)), "outcome": "COMPLETED",
-		"latency_ms": time.Since(started).Milliseconds(),
+	if result.Metadata.Provider != route.Provider || result.Metadata.Model != route.ModelID || result.Metadata.Profile != string(route.Profile) {
+		failed := routeAudit(route, neural.InternalError)
+		failed["input_bytes"] = len([]byte(prompt))
+		failed["latency_ms"] = time.Since(started).Milliseconds()
+		s.record(ctx, p.UserID, "neural_insight.failed", c, failed)
+		return neural.Insight{}, &neural.ProviderError{Code: neural.InternalError}
 	}
+	extra := routeAudit(route, "COMPLETED")
+	extra["input_bytes"] = len([]byte(prompt))
+	extra["latency_ms"] = time.Since(started).Milliseconds()
 	if result.Metadata.InputUsage != nil {
 		extra["input_usage"] = *result.Metadata.InputUsage
 	}
@@ -205,6 +219,12 @@ func (s *Service) Analyze(ctx context.Context, p authorization.Principal, prompt
 	}
 	s.record(ctx, p.UserID, "neural_insight.completed", c, extra)
 	return result, nil
+}
+
+func routeAudit(route InsightRoute, outcome any) map[string]any {
+	return map[string]any{
+		"profile": route.Profile, "model_id": route.ModelID, "credit_units": route.CreditUnits, "outcome": outcome,
+	}
 }
 func (s *Service) Preference(ctx context.Context, p authorization.Principal) (*Preference, error) {
 	if !s.allowed(ctx, p, "neural_preference.read_rejected", "", "") {

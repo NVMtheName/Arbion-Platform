@@ -34,7 +34,7 @@ class ProviderRequest(BaseModel):
 
 
 class InsightRequest(ProviderRequest):
-    model: str = Field(min_length=1, max_length=255)
+    profile: Literal["fast", "core", "deep"] = "fast"
     prompt: str = Field(min_length=1, max_length=2000)
     safety_identifier: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
 
@@ -87,7 +87,7 @@ async def insight(
     try:
         result = await registry.get(request.provider).analyze(
             request.credential,
-            request.model,
+            request.profile,
             request.prompt,
             request.safety_identifier,
         )
@@ -101,6 +101,7 @@ async def insight(
                 "metadata": {
                     "provider": result.metadata.provider,
                     "model": result.metadata.model,
+                    "profile": result.metadata.profile,
                     "input_usage": result.metadata.input_usage,
                     "output_usage": result.metadata.output_usage,
                     "request_id": result.metadata.request_id,

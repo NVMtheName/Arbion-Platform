@@ -130,13 +130,14 @@ type fakeNeural struct {
 	seenCredential *string
 	seenSecret     *[]byte
 	seenSafetyID   *string
+	seenProfile    *string
 }
 
 func (f fakeNeural) Verify(context.Context, string, []byte) error { return f.err }
 func (f fakeNeural) Models(context.Context, string, []byte) ([]neural.Model, error) {
 	return []neural.Model{{ID: "model-1", Provider: "openai"}}, f.err
 }
-func (f fakeNeural) Analyze(_ context.Context, _, _ string, credential []byte, _ string, safetyID string) (neural.Insight, error) {
+func (f fakeNeural) Analyze(_ context.Context, _, profile string, credential []byte, _ string, safetyID string) (neural.Insight, error) {
 	if f.seenCredential != nil {
 		*f.seenCredential = string(credential)
 	}
@@ -146,15 +147,26 @@ func (f fakeNeural) Analyze(_ context.Context, _, _ string, credential []byte, _
 	if f.seenSafetyID != nil {
 		*f.seenSafetyID = safetyID
 	}
+	if f.seenProfile != nil {
+		*f.seenProfile = profile
+	}
 	return f.insight, f.err
 }
 
 type fakeLimiter struct {
 	allowed bool
 	err     error
+	calls   *int
+	cost    *int
 }
 
-func (f fakeLimiter) Allow(context.Context, string, int, time.Duration) (bool, error) {
+func (f fakeLimiter) AllowWeighted(_ context.Context, _ string, cost, _ int, _ time.Duration) (bool, error) {
+	if f.calls != nil {
+		(*f.calls)++
+	}
+	if f.cost != nil {
+		*f.cost = cost
+	}
 	return f.allowed, f.err
 }
 
@@ -293,26 +305,27 @@ func TestAnalyzeUsesActivePreferenceAndAuditsMetadataOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	inputUsage, outputUsage := 30, 45
-	seenCredential, seenSafetyID := "", ""
+	seenCredential, seenSafetyID, seenProfile := "", "", ""
 	var seenSecret []byte
 	s.neural = fakeNeural{
 		insight: neural.Insight{
 			Summary:  "Diversification reduces concentration risk.",
-			Metadata: neural.InsightMetadata{Provider: "openai", Model: "model-1", InputUsage: &inputUsage, OutputUsage: &outputUsage, RequestID: "resp-safe"},
+			Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-luna", Profile: "fast", InputUsage: &inputUsage, OutputUsage: &outputUsage, RequestID: "resp-safe"},
 		},
 		seenCredential: &seenCredential,
 		seenSecret:     &seenSecret,
 		seenSafetyID:   &seenSafetyID,
+		seenProfile:    &seenProfile,
 	}
 	s.limiter = fakeLimiter{allowed: true}
 	recorded := &recordedAudit{}
 	s.audit = recorded
 	prompt := "Explain diversification without live data."
-	result, err := s.Analyze(context.Background(), p, prompt)
+	result, err := s.Analyze(context.Background(), p, prompt, "fast")
 	if err != nil || result.Summary == "" {
 		t.Fatalf("analysis failed: %#v %v", result, err)
 	}
-	if seenCredential != "secret-value" || len(seenSafetyID) != 64 {
+	if seenCredential != "secret-value" || len(seenSafetyID) != 64 || seenProfile != "fast" {
 		t.Fatal("credential or privacy-preserving safety identifier was not passed correctly")
 	}
 	for _, value := range seenSecret {
@@ -342,7 +355,7 @@ func TestAnalyzeFailsClosedOnRateLimit(t *testing.T) {
 	ms.preference = &Preference{ConnectionID: "connection-1", ModelID: "model-1"}
 	s.neural = fakeNeural{}
 	s.limiter = fakeLimiter{allowed: false}
-	if _, err := s.Analyze(context.Background(), p, "question"); !errors.Is(err, ErrRateLimit) {
+	if _, err := s.Analyze(context.Background(), p, "question", "fast"); !errors.Is(err, ErrRateLimit) {
 		t.Fatalf("rate limit did not fail closed: %v", err)
 	}
 }
@@ -350,10 +363,85 @@ func TestAnalyzeFailsClosedOnRateLimit(t *testing.T) {
 func TestAnalyzeRejectsMissingPreferenceAndOversizedInput(t *testing.T) {
 	s, _, _ := setup(t)
 	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
-	if _, err := s.Analyze(context.Background(), p, "question"); !errors.Is(err, ErrInactive) {
+	if _, err := s.Analyze(context.Background(), p, "question", ""); !errors.Is(err, ErrInactive) {
 		t.Fatalf("missing preference accepted: %v", err)
 	}
-	if _, err := s.Analyze(context.Background(), p, strings.Repeat("x", MaxPromptBytes+1)); !errors.Is(err, ErrInvalid) {
+	if _, err := s.Analyze(context.Background(), p, strings.Repeat("x", MaxPromptBytes+1), "fast"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("oversized prompt accepted: %v", err)
+	}
+	if _, err := s.Analyze(context.Background(), p, "question", "unknown"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unknown profile accepted: %v", err)
+	}
+}
+
+func TestAnalyzeProfilesConsumeWeightedCredits(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		profile string
+		model   string
+		units   int
+	}{
+		{name: "default", profile: "", model: "gpt-5.6-luna", units: 1},
+		{name: "fast", profile: "fast", model: "gpt-5.6-luna", units: 1},
+		{name: "core", profile: "core", model: "gpt-5.6-terra", units: 3},
+		{name: "deep", profile: "deep", model: "gpt-5.6-sol", units: 6},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s, _, _ := setup(t)
+			p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+			s.neural = fakeNeural{}
+			connection, err := s.Create(context.Background(), p, "openai", "Mine", []byte("secret-value"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = s.Verify(context.Background(), p, connection.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = s.SetPreference(context.Background(), p, connection.ID, "model-1"); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			cost := 0
+			s.limiter = fakeLimiter{allowed: true, calls: &calls, cost: &cost}
+			resolvedProfile := test.profile
+			if resolvedProfile == "" {
+				resolvedProfile = "fast"
+			}
+			s.neural = fakeNeural{insight: neural.Insight{Summary: "ok", Metadata: neural.InsightMetadata{Provider: "openai", Model: test.model, Profile: resolvedProfile}}}
+
+			if _, err := s.Analyze(context.Background(), p, "question", test.profile); err != nil {
+				t.Fatal(err)
+			}
+			if calls != 1 || cost != test.units {
+				t.Fatalf("profile used %d limiter calls with cost %d, want one call with cost %d", calls, cost, test.units)
+			}
+		})
+	}
+}
+
+func TestAnalyzeRejectsMismatchedRouteMetadata(t *testing.T) {
+	s, _, _ := setup(t)
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	s.neural = fakeNeural{}
+	connection, err := s.Create(context.Background(), p, "openai", "Mine", []byte("secret-value"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Verify(context.Background(), p, connection.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.SetPreference(context.Background(), p, connection.ID, "model-1"); err != nil {
+		t.Fatal(err)
+	}
+	s.limiter = fakeLimiter{allowed: true}
+	s.neural = fakeNeural{insight: neural.Insight{Summary: "unsafe mismatch", Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "fast"}}}
+	recorded := &recordedAudit{}
+	s.audit = recorded
+
+	if _, err = s.Analyze(context.Background(), p, "question", "fast"); neural.Code(err) != neural.InternalError {
+		t.Fatalf("mismatched route metadata was accepted: %v", err)
+	}
+	if len(recorded.actions) != 1 || recorded.actions[0] != "neural_insight.failed" {
+		t.Fatalf("mismatched route was not audited safely: %#v", recorded.actions)
 	}
 }

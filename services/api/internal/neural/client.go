@@ -35,6 +35,7 @@ type Model struct {
 type InsightMetadata struct {
 	Provider    string `json:"provider"`
 	Model       string `json:"model"`
+	Profile     string `json:"profile"`
 	InputUsage  *int   `json:"input_usage,omitempty"`
 	OutputUsage *int   `json:"output_usage,omitempty"`
 	RequestID   string `json:"request_id,omitempty"`
@@ -82,12 +83,12 @@ func (c *HTTPClient) Models(ctx context.Context, provider string, credential []b
 	}
 	return out.Models, nil
 }
-func (c *HTTPClient) Analyze(ctx context.Context, provider, model string, credential []byte, prompt, safetyIdentifier string) (Insight, error) {
+func (c *HTTPClient) Analyze(ctx context.Context, provider, profile string, credential []byte, prompt, safetyIdentifier string) (Insight, error) {
 	var out struct {
 		Insight Insight `json:"insight"`
 	}
 	err := c.call(ctx, "/internal/neural/insight", map[string]string{
-		"provider": provider, "credential": string(credential), "model": model,
+		"provider": provider, "credential": string(credential), "profile": profile,
 		"prompt": prompt, "safety_identifier": safetyIdentifier,
 	}, &out)
 	return out.Insight, err

@@ -32,7 +32,7 @@ class NeuralProvider(ABC):
     async def analyze(
         self,
         credential: str,
-        model: str,
+        profile: str,
         prompt: str,
         safety_identifier: str,
     ) -> Insight:
