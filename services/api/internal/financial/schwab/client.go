@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strings"
@@ -171,15 +172,35 @@ func (c *Client) GetPositions(ctx context.Context, cr *financial.Credentials, id
 	}
 	out := make([]financial.Position, 0, len(r.SecuritiesAccount.Positions))
 	for _, p := range r.SecuritiesAccount.Positions {
-		q := p.LongQuantity
-		dir := "long"
-		if p.ShortQuantity != "" && p.ShortQuantity != "0" {
+		long, e := nonZero(p.LongQuantity)
+		if e != nil {
+			return nil, e
+		}
+		short, e := nonZero(p.ShortQuantity)
+		if e != nil || long && short {
+			return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		}
+		if !long && !short {
+			continue
+		}
+		q, dir := p.LongQuantity, "long"
+		if short {
 			q = p.ShortQuantity
 			dir = "short"
 		}
 		out = append(out, financial.Position{AccountID: id, InstrumentType: p.Instrument.AssetType, Symbol: p.Instrument.Symbol, Quantity: financial.Decimal(q.String()), Direction: dir, MarketValue: money(p.MarketValue), CostBasis: money(p.AveragePrice), ProviderInstrumentID: p.Instrument.CUSIP})
 	}
 	return out, nil
+}
+func nonZero(n decimal) (bool, error) {
+	if n == "" {
+		return false, nil
+	}
+	v, ok := new(big.Rat).SetString(n.String())
+	if !ok {
+		return false, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	return v.Sign() != 0, nil
 }
 func unknownCapabilities() financial.Capabilities {
 	return financial.Capabilities{"equities": financial.Unknown, "options": financial.Unknown, "margin": financial.Unknown, "short_selling": financial.Unknown, "fractional_trading": financial.Unknown, "extended_hours": financial.Unknown, "market_data": financial.Unknown}
