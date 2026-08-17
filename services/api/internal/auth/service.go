@@ -119,3 +119,48 @@ func (s *Service) Logout(ctx context.Context, token string, userID *string) erro
 	_ = s.audit.Record(ctx, userID, "auth.logout", map[string]any{"outcome": "success"})
 	return nil
 }
+
+func (s *Service) LogoutEverywhere(ctx context.Context, userID string) error {
+	if err := s.sessions.RevokeUser(ctx, userID); err != nil {
+		return err
+	}
+	_ = s.audit.Record(ctx, &userID, "auth.logout_all", map[string]any{"outcome": "success"})
+	return nil
+}
+
+func (s *Service) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+	ok, err := s.limiter.Allow(ctx, "password_change:"+userID, 5, time.Hour)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrRateLimited
+	}
+	u, err := s.users.ByID(ctx, userID)
+	if err != nil || u.Status != "active" || !s.hasher.Verify(currentPassword, u.PasswordHash) {
+		_ = s.audit.Record(ctx, &userID, "auth.password_change_failed", map[string]any{"outcome": "rejected"})
+		return ErrInvalidCurrentPassword
+	}
+	if s.hasher.Verify(newPassword, u.PasswordHash) {
+		return ErrPasswordUnchanged
+	}
+	nextHash, err := s.hasher.Hash(newPassword)
+	if err != nil {
+		return err
+	}
+	// Revoke first so a Redis failure cannot leave old sessions valid after the
+	// durable password has changed. A later database failure may require login
+	// again, but it cannot silently weaken session security.
+	if err = s.sessions.RevokeUser(ctx, userID); err != nil {
+		return err
+	}
+	updated, err := s.users.UpdatePassword(ctx, userID, u.PasswordHash, nextHash, s.now().UTC())
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return ErrInvalidCurrentPassword
+	}
+	_ = s.audit.Record(ctx, &userID, "auth.password_changed", map[string]any{"outcome": "success", "sessions_revoked": true})
+	return nil
+}

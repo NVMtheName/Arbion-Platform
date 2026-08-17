@@ -43,6 +43,10 @@ func (s *PostgresStore) RecordLogin(ctx context.Context, id string, at time.Time
 	_, err := s.db.Exec(ctx, `UPDATE users SET last_login_at=$2,updated_at=$2 WHERE id=$1`, id, at)
 	return err
 }
+func (s *PostgresStore) UpdatePassword(ctx context.Context, id, currentHash, nextHash string, at time.Time) (bool, error) {
+	tag, err := s.db.Exec(ctx, `UPDATE users SET password_hash=$3,updated_at=$4 WHERE id=$1 AND password_hash=$2`, id, currentHash, nextHash, at)
+	return tag.RowsAffected() == 1, err
+}
 func (s *PostgresStore) Record(ctx context.Context, userID *string, action string, metadata map[string]any) error {
 	raw, _ := json.Marshal(metadata)
 	_, err := s.db.Exec(ctx, `INSERT INTO audit_events(user_id,actor_type,actor_id,action,target_type,target_id,metadata) VALUES($1,'user',$2,$3,'authentication',$2,$4)`, userID, userID, action, raw)

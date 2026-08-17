@@ -57,6 +57,8 @@ func NewApplicationHandler(database ReadinessChecker, timeout config.Config, ser
 	mux.HandleFunc("POST /api/auth/register", h.register)
 	mux.HandleFunc("POST /api/auth/login", h.login)
 	mux.Handle("POST /api/auth/logout", h.require(stdhttp.HandlerFunc(h.logout)))
+	mux.Handle("POST /api/auth/logout-all", h.require(stdhttp.HandlerFunc(h.logoutAll)))
+	mux.Handle("PUT /api/auth/password", h.require(stdhttp.HandlerFunc(h.changePassword)))
 	mux.Handle("GET /api/auth/me", h.require(stdhttp.HandlerFunc(h.me)))
 	mux.Handle("GET /api/auth/protected-test", h.require(stdhttp.HandlerFunc(h.me)))
 	if h.admin != nil {
@@ -80,6 +82,8 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.HandleFunc("POST /api/auth/register", h.register)
 	mux.HandleFunc("POST /api/auth/login", h.login)
 	mux.Handle("POST /api/auth/logout", h.require(stdhttp.HandlerFunc(h.logout)))
+	mux.Handle("POST /api/auth/logout-all", h.require(stdhttp.HandlerFunc(h.logoutAll)))
+	mux.Handle("PUT /api/auth/password", h.require(stdhttp.HandlerFunc(h.changePassword)))
 	mux.Handle("GET /api/auth/me", h.require(stdhttp.HandlerFunc(h.me)))
 	mux.Handle("GET /api/admin/me", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.adminMe))))
 	mux.Handle("GET /api/admin/users", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.adminUsers))))
@@ -656,6 +660,10 @@ func (h *authHandler) authError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 409, "registration_unavailable", "Unable to create account with those details.")
 	case errors.Is(e, auth.ErrInvalidCredentials):
 		writeError(w, 401, "invalid_credentials", "Email or password is incorrect.")
+	case errors.Is(e, auth.ErrInvalidCurrentPassword):
+		writeError(w, 401, "invalid_current_password", "Current password is incorrect.")
+	case errors.Is(e, auth.ErrPasswordUnchanged):
+		writeError(w, 409, "password_unchanged", "New password must be different from the current password.")
 	case errors.Is(e, auth.ErrInvalidPassword):
 		writeError(w, 400, "weak_password", auth.ErrInvalidPassword.Error())
 	case errors.Is(e, auth.ErrRateLimited):
@@ -693,6 +701,41 @@ func (h *authHandler) logout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	u, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
 	if e := h.service.Logout(r.Context(), c.Value, &u.ID); e != nil {
 		writeError(w, 500, "internal_error", "The request could not be completed.")
+		return
+	}
+	h.clearCookie(w)
+	w.WriteHeader(204)
+}
+
+func (h *authHandler) logoutAll(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	u, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	if err := h.service.LogoutEverywhere(r.Context(), u.ID); err != nil {
+		writeError(w, 500, "internal_error", "The request could not be completed.")
+		return
+	}
+	h.clearCookie(w)
+	w.WriteHeader(204)
+}
+
+func (h *authHandler) changePassword(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	u, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	if err := h.service.ChangePassword(r.Context(), u.ID, input.CurrentPassword, input.NewPassword); err != nil {
+		h.authError(w, err)
 		return
 	}
 	h.clearCookie(w)

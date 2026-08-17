@@ -369,6 +369,28 @@ button:disabled {
   border-radius: 10px;
   color: #cfe4da;
 }
+.security-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 36px;
+}
+.security-card {
+  padding: 28px;
+  border: 1px solid #244237;
+  border-radius: 18px;
+  background: #0b1b15cc;
+}
+.security-card h2 {
+  margin: 8px 0 14px;
+}
+.security-card p {
+  color: #aabbb3;
+  line-height: 1.55;
+}
+.security-grid > .form-error {
+  grid-column: 1 / -1;
+}
 .financial-connections {
   min-height: auto;
   padding-top: 32px;
@@ -386,6 +408,9 @@ button:disabled {
     grid-template-columns: 1fr;
   }
   .capital-bucket-form {
+    grid-template-columns: 1fr;
+  }
+  .security-grid {
     grid-template-columns: 1fr;
   }
   .auth-card {

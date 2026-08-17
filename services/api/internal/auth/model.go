@@ -9,6 +9,8 @@ import (
 
 var ErrConflict = errors.New("account already exists")
 var ErrInvalidCredentials = errors.New("invalid credentials")
+var ErrInvalidCurrentPassword = errors.New("current password is incorrect")
+var ErrPasswordUnchanged = errors.New("new password must be different")
 var ErrUnauthenticated = errors.New("authentication required")
 var ErrRateLimited = errors.New("too many attempts")
 var ErrRegistrationUnavailable = errors.New("registration unavailable")
@@ -48,6 +50,7 @@ type UserStore interface {
 	ByNormalizedEmail(context.Context, string) (User, error)
 	ByID(context.Context, string) (User, error)
 	RecordLogin(context.Context, string, time.Time) error
+	UpdatePassword(context.Context, string, string, string, time.Time) (bool, error)
 }
 type Session struct {
 	UserID         string    `json:"user_id"`

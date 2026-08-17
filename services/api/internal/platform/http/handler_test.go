@@ -63,6 +63,13 @@ func (f *authUsers) Create(_ context.Context, email, n, hash, name string) (auth
 func (f *authUsers) ByNormalizedEmail(context.Context, string) (auth.User, error) { return f.user, nil }
 func (f *authUsers) ByID(context.Context, string) (auth.User, error)              { return f.user, nil }
 func (f *authUsers) RecordLogin(context.Context, string, time.Time) error         { return nil }
+func (f *authUsers) UpdatePassword(_ context.Context, id, currentHash, nextHash string, _ time.Time) (bool, error) {
+	if f.user.ID != id || f.user.PasswordHash != currentHash {
+		return false, nil
+	}
+	f.user.PasswordHash = nextHash
+	return true, nil
+}
 
 type auditSink struct{}
 
@@ -139,6 +146,88 @@ func TestRegistrationAllowlistUsesGenericRejection(t *testing.T) {
 	}
 	if len(recorder.Result().Cookies()) != 0 {
 		t.Fatal("rejected registration created a session cookie")
+	}
+}
+
+func TestAccountSecurityRoutesRequireCurrentPasswordAndRevokeSessions(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	sessions := auth.NewRedisStore(redisClient)
+	users := &authUsers{}
+	service := auth.NewService(users, sessions, sessions, auditSink{}, time.Hour)
+	cfg := config.Config{Database: config.Database{ReadinessTimeout: time.Second}, Auth: config.Auth{SessionCookie: "session", SessionTTL: time.Hour, AllowedOrigins: []string{"http://localhost:3000"}}}
+	handler := NewApplicationHandler(checker{}, cfg, service)
+
+	register := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{"email":"person@example.com","password":"correct horse battery staple"}`))
+	register.Header.Set("Origin", "http://localhost:3000")
+	registerRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(registerRecorder, register)
+	if registerRecorder.Code != http.StatusCreated {
+		t.Fatalf("registration failed: %d %s", registerRecorder.Code, registerRecorder.Body.String())
+	}
+	firstCookie := registerRecorder.Result().Cookies()[0]
+
+	login := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"email":"person@example.com","password":"correct horse battery staple"}`))
+	login.Header.Set("Origin", "http://localhost:3000")
+	loginRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(loginRecorder, login)
+	if loginRecorder.Code != http.StatusOK {
+		t.Fatalf("second login failed: %d %s", loginRecorder.Code, loginRecorder.Body.String())
+	}
+	secondCookie := loginRecorder.Result().Cookies()[0]
+
+	missingOrigin := httptest.NewRequest(http.MethodPut, "/api/auth/password", strings.NewReader(`{"current_password":"correct horse battery staple","new_password":"a different secure passphrase"}`))
+	missingOrigin.AddCookie(firstCookie)
+	missingOriginRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(missingOriginRecorder, missingOrigin)
+	if missingOriginRecorder.Code != http.StatusForbidden {
+		t.Fatalf("password change without trusted origin returned %d", missingOriginRecorder.Code)
+	}
+
+	wrongCurrent := httptest.NewRequest(http.MethodPut, "/api/auth/password", strings.NewReader(`{"current_password":"wrong current password","new_password":"a different secure passphrase"}`))
+	wrongCurrent.Header.Set("Origin", "http://localhost:3000")
+	wrongCurrent.AddCookie(firstCookie)
+	wrongRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(wrongRecorder, wrongCurrent)
+	if wrongRecorder.Code != http.StatusUnauthorized || !strings.Contains(wrongRecorder.Body.String(), `"code":"invalid_current_password"`) {
+		t.Fatalf("wrong current password returned %d %s", wrongRecorder.Code, wrongRecorder.Body.String())
+	}
+	if _, err := sessions.Get(context.Background(), secondCookie.Value); err != nil {
+		t.Fatal("rejected password change revoked sessions")
+	}
+
+	change := httptest.NewRequest(http.MethodPut, "/api/auth/password", strings.NewReader(`{"current_password":"correct horse battery staple","new_password":"a different secure passphrase"}`))
+	change.Header.Set("Origin", "http://localhost:3000")
+	change.AddCookie(firstCookie)
+	changeRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(changeRecorder, change)
+	if changeRecorder.Code != http.StatusNoContent {
+		t.Fatalf("password change failed: %d %s", changeRecorder.Code, changeRecorder.Body.String())
+	}
+	for _, cookie := range []*http.Cookie{firstCookie, secondCookie} {
+		if _, err := sessions.Get(context.Background(), cookie.Value); !errors.Is(err, auth.ErrUnauthenticated) {
+			t.Fatal("password change retained a session")
+		}
+	}
+
+	login = httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"email":"person@example.com","password":"a different secure passphrase"}`))
+	login.Header.Set("Origin", "http://localhost:3000")
+	loginRecorder = httptest.NewRecorder()
+	handler.ServeHTTP(loginRecorder, login)
+	if loginRecorder.Code != http.StatusOK {
+		t.Fatalf("new password login failed: %d %s", loginRecorder.Code, loginRecorder.Body.String())
+	}
+	newCookie := loginRecorder.Result().Cookies()[0]
+	logoutAll := httptest.NewRequest(http.MethodPost, "/api/auth/logout-all", nil)
+	logoutAll.Header.Set("Origin", "http://localhost:3000")
+	logoutAll.AddCookie(newCookie)
+	logoutRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(logoutRecorder, logoutAll)
+	if logoutRecorder.Code != http.StatusNoContent {
+		t.Fatalf("logout all failed: %d %s", logoutRecorder.Code, logoutRecorder.Body.String())
+	}
+	if _, err := sessions.Get(context.Background(), newCookie.Value); !errors.Is(err, auth.ErrUnauthenticated) {
+		t.Fatal("logout all retained the current session")
 	}
 }
 
