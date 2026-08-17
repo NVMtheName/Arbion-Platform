@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -377,6 +378,17 @@ func (c *Client) GetOptionChain(ctx context.Context, cr *financial.Credentials, 
 			}
 		}
 	}
+	sort.Slice(contracts, func(i, j int) bool {
+		if contracts[i].Expiration != contracts[j].Expiration {
+			return contracts[i].Expiration < contracts[j].Expiration
+		}
+		left, _ := new(big.Rat).SetString(string(contracts[i].Strike))
+		right, _ := new(big.Rat).SetString(string(contracts[j].Strike))
+		if comparison := left.Cmp(right); comparison != 0 {
+			return comparison < 0
+		}
+		return contracts[i].Symbol < contracts[j].Symbol
+	})
 	return financial.OptionChain{Symbol: request.Symbol, UnderlyingPrice: underlyingPrice, ProviderTimestamp: providerTimestamp, Contracts: contracts}, nil
 }
 
