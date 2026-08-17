@@ -4,7 +4,15 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
 
-from .models import Capability, CredentialType, ProviderModel, VerificationResult
+from .models import (
+    Capability,
+    CredentialType,
+    ErrorCode,
+    Insight,
+    NeuralProviderError,
+    ProviderModel,
+    VerificationResult,
+)
 
 
 class NeuralProvider(ABC):
@@ -20,6 +28,15 @@ class NeuralProvider(ABC):
 
     @abstractmethod
     async def list_models(self, credential: str) -> list[ProviderModel]: ...
+
+    async def analyze(
+        self,
+        credential: str,
+        model: str,
+        prompt: str,
+        safety_identifier: str,
+    ) -> Insight:
+        raise NeuralProviderError(ErrorCode.UNSUPPORTED)
 
     async def generate(self, credential: str, model: str, request: Any) -> Any:
         raise NotImplementedError

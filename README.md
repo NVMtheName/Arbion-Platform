@@ -1,12 +1,12 @@
 # Arbion Platform
 
-Production-oriented foundation for Arbion. The Schwab integration is read-only and strategy execution is limited to PAPER and SHADOW. No live broker-write adapter or background auto-trading worker exists.
+Production-oriented foundation for Arbion. The Schwab integration is read-only, Arbion Insight provides bounded educational analysis of user-supplied text, and strategy execution is limited to PAPER and SHADOW. No live broker-write adapter or background auto-trading worker exists.
 
 ## Repository layout
 
 - `apps/web` — Next.js/React TypeScript user interface
 - `services/api` — Go modular-monolith API
-- `services/ai` — Python FastAPI service for future AI capabilities
+- `services/ai` — Python FastAPI service for provider connectivity and bounded structured insight
 - `docs` — architectural decisions and boundaries
 
 See [the architecture guide](docs/ARCHITECTURE.md) for component responsibilities.

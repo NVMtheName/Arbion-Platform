@@ -2,6 +2,8 @@ package aiconnection
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -19,9 +21,15 @@ var (
 	ErrDisabled  = errors.New("connection is disabled")
 	ErrInactive  = errors.New("connection is not active")
 	ErrProvider  = errors.New("neural provider failure")
+	ErrRateLimit = errors.New("neural insight rate limit reached")
 )
 
-const MaxCredentialBytes = 4096
+const (
+	MaxCredentialBytes = 4096
+	MaxPromptBytes     = 2000
+	InsightLimit       = 12
+	InsightWindow      = time.Hour
+)
 
 type Connection struct {
 	ID             string     `json:"id"`
@@ -52,20 +60,20 @@ type Store interface {
 type Auditor interface {
 	Record(context.Context, *string, string, map[string]any) error
 }
+type Limiter interface {
+	Allow(context.Context, string, int, time.Duration) (bool, error)
+}
 type Service struct {
 	store    Store
 	vault    credential.Vault
 	audit    Auditor
 	registry Registry
 	neural   neural.Client
+	limiter  Limiter
 }
 
-func NewService(s Store, v credential.Vault, a Auditor, r Registry, clients ...neural.Client) *Service {
-	var client neural.Client
-	if len(clients) > 0 {
-		client = clients[0]
-	}
-	return &Service{store: s, vault: v, audit: a, registry: r, neural: client}
+func NewService(s Store, v credential.Vault, a Auditor, r Registry, client neural.Client, limiter Limiter) *Service {
+	return &Service{store: s, vault: v, audit: a, registry: r, neural: client, limiter: limiter}
 }
 
 type Preference struct {
@@ -131,6 +139,72 @@ func (s *Service) Models(ctx context.Context, p authorization.Principal, id stri
 	}
 	defer clear(secret)
 	return s.neural.Models(ctx, c.Provider, secret)
+}
+func (s *Service) Analyze(ctx context.Context, p authorization.Principal, prompt string) (neural.Insight, error) {
+	prompt = strings.TrimSpace(prompt)
+	if !s.allowed(ctx, p, "neural_insight.rejected", "", "") {
+		return neural.Insight{}, ErrForbidden
+	}
+	if prompt == "" || len([]byte(prompt)) > MaxPromptBytes {
+		return neural.Insight{}, ErrInvalid
+	}
+	pref, err := s.store.GetPreference(ctx, p.UserID)
+	if err != nil {
+		return neural.Insight{}, err
+	}
+	if pref == nil {
+		return neural.Insight{}, ErrInactive
+	}
+	c, err := s.store.Get(ctx, p.UserID, pref.ConnectionID)
+	if err != nil {
+		return neural.Insight{}, err
+	}
+	if c.Status != "active" {
+		return neural.Insight{}, ErrInactive
+	}
+	if s.neural == nil || s.limiter == nil {
+		return neural.Insight{}, ErrProvider
+	}
+	allowed, err := s.limiter.Allow(ctx, "neural-insight:"+p.UserID, InsightLimit, InsightWindow)
+	if err != nil {
+		s.record(ctx, p.UserID, "neural_insight.failed", c, map[string]any{"model_id": pref.ModelID, "outcome": "RATE_LIMITER_UNAVAILABLE"})
+		return neural.Insight{}, ErrProvider
+	}
+	if !allowed {
+		s.record(ctx, p.UserID, "neural_insight.rate_limited", c, map[string]any{"model_id": pref.ModelID, "outcome": "RATE_LIMITED"})
+		return neural.Insight{}, ErrRateLimit
+	}
+	secret, err := s.vault.Retrieve(ctx, credential.Locator{ConnectionID: c.ID, UserID: p.UserID, Class: credential.AI})
+	if err != nil {
+		return neural.Insight{}, err
+	}
+	defer clear(secret)
+	digest := sha256.Sum256([]byte("arbion-neural:" + p.UserID))
+	started := time.Now()
+	result, err := s.neural.Analyze(ctx, c.Provider, pref.ModelID, secret, prompt, hex.EncodeToString(digest[:]))
+	if err != nil {
+		code := neural.Code(err)
+		s.record(ctx, p.UserID, "neural_insight.failed", c, map[string]any{
+			"model_id": pref.ModelID, "input_bytes": len([]byte(prompt)), "outcome": code,
+			"latency_ms": time.Since(started).Milliseconds(),
+		})
+		return neural.Insight{}, &neural.ProviderError{Code: code}
+	}
+	extra := map[string]any{
+		"model_id": pref.ModelID, "input_bytes": len([]byte(prompt)), "outcome": "COMPLETED",
+		"latency_ms": time.Since(started).Milliseconds(),
+	}
+	if result.Metadata.InputUsage != nil {
+		extra["input_usage"] = *result.Metadata.InputUsage
+	}
+	if result.Metadata.OutputUsage != nil {
+		extra["output_usage"] = *result.Metadata.OutputUsage
+	}
+	if result.Metadata.RequestID != "" {
+		extra["provider_request_id"] = result.Metadata.RequestID
+	}
+	s.record(ctx, p.UserID, "neural_insight.completed", c, extra)
+	return result, nil
 }
 func (s *Service) Preference(ctx context.Context, p authorization.Principal) (*Preference, error) {
 	if !s.allowed(ctx, p, "neural_preference.read_rejected", "", "") {

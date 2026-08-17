@@ -63,3 +63,13 @@ class ResponseMetadata:
     request_id: str | None = None
     latency_ms: int | None = None
     usage_metadata: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class Insight:
+    summary: str
+    key_points: tuple[str, ...]
+    risk_flags: tuple[str, ...]
+    limitations: tuple[str, ...]
+    requires_current_data: bool
+    metadata: ResponseMetadata

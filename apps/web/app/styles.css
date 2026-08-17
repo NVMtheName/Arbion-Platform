@@ -47,6 +47,18 @@ input {
   border-radius: 10px;
   font: inherit;
 }
+textarea {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  padding: 14px 16px;
+  color: #edf7f1;
+  background: #07110e;
+  border: 1px solid #315447;
+  border-radius: 10px;
+  font: inherit;
+  line-height: 1.5;
+}
 select {
   width: 100%;
   padding: 14px 16px;
@@ -110,6 +122,10 @@ select {
   border-radius: 12px;
 }
 input:focus {
+  outline: 2px solid #5ee0a0;
+  outline-offset: 2px;
+}
+textarea:focus {
   outline: 2px solid #5ee0a0;
   outline-offset: 2px;
 }
@@ -187,6 +203,50 @@ button:disabled {
 .plan {
   text-transform: capitalize;
   color: #5ee0a0;
+}
+.insight-panel {
+  margin-top: 56px;
+  padding: 32px;
+  border: 1px solid #315447;
+  border-radius: 18px;
+  background: #091a14;
+}
+.insight-panel h2 {
+  margin: 8px 0 12px;
+  font-size: clamp(2rem, 5vw, 3.2rem);
+}
+.insight-panel form {
+  margin-top: 24px;
+}
+.insight-panel .insight-disclaimer,
+.insight-panel .insight-meta,
+.insight-panel .character-count {
+  color: #8ba198;
+}
+.character-count {
+  justify-self: end;
+  margin: -10px 0 0;
+  font-size: 0.8rem;
+}
+.insight-result {
+  margin-top: 30px;
+  padding-top: 24px;
+  border-top: 1px solid #315447;
+}
+.insight-result h3,
+.insight-result h4 {
+  margin-bottom: 8px;
+}
+.insight-result li {
+  margin: 8px 0;
+  line-height: 1.5;
+}
+.insight-warning {
+  padding: 14px;
+  border: 1px solid #7c6540;
+  border-radius: 10px;
+  color: #f3d79a;
+  background: #2b2415;
 }
 .admin-table {
   display: grid;

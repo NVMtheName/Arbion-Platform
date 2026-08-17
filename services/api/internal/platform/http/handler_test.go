@@ -141,3 +141,36 @@ func TestRegistrationAllowlistUsesGenericRejection(t *testing.T) {
 		t.Fatal("rejected registration created a session cookie")
 	}
 }
+
+func TestNeuralInsightRequiresAuthenticationAndTrustedOrigin(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	sessions := auth.NewRedisStore(redisClient)
+	service := auth.NewService(&authUsers{}, sessions, sessions, auditSink{}, time.Hour)
+	cfg := config.Config{Database: config.Database{ReadinessTimeout: time.Second}, Auth: config.Auth{SessionCookie: "session", SessionTTL: time.Hour, AllowedOrigins: []string{"http://localhost:3000"}}}
+	handler := NewFullApplicationHandler(checker{}, cfg, service, nil, nil)
+
+	anonymous := httptest.NewRequest(http.MethodPost, "/api/neural/insight", strings.NewReader(`{"prompt":"question"}`))
+	anonymous.Header.Set("Origin", "http://localhost:3000")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, anonymous)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous insight accepted: %d", recorder.Code)
+	}
+
+	register := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{"email":"Person@Example.com","password":"correct horse battery staple","display_name":"Person"}`))
+	register.Header.Set("Origin", "http://localhost:3000")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, register)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("registration failed: %d %s", recorder.Code, recorder.Body.String())
+	}
+
+	missingOrigin := httptest.NewRequest(http.MethodPost, "/api/neural/insight", strings.NewReader(`{"prompt":"question"}`))
+	missingOrigin.AddCookie(recorder.Result().Cookies()[0])
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, missingOrigin)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("insight without trusted origin accepted: %d", recorder.Code)
+	}
+}

@@ -6,7 +6,7 @@ The Neural Engine is Arbion's Python boundary for AI-assisted and quantitative c
 
 Ask Arbion is one input surface, not an AI-owned trading path. It interprets natural language into a structured Arbion Intent that joins the same Go domain commands used by the UI. Conversation state is not authoritative for mandates, strategies, approvals, orders, positions, or execution.
 
-Secure provider connection management, credential verification, model discovery, and default provider/model preferences are implemented. Generation, prompts, streaming, structured output, and tool invocation remain unimplemented.
+Secure provider connection management, credential verification, model discovery, default provider/model preferences, and a bounded read-only Arbion Insight flow are implemented. General chat, streaming, model tools, financial-data retrieval, order proposals, and execution remain unimplemented.
 
 ## Implemented provider connectivity
 
@@ -19,6 +19,16 @@ Verification uses the smallest safe officially documented model-list request: Op
 Implementation references the current official [OpenAI API specification](https://github.com/openai/openai-openapi), [Anthropic Models API](https://platform.claude.com/docs/en/api/models/list), [Anthropic API overview](https://platform.claude.com/docs/en/api/overview), [Gemini Models API](https://ai.google.dev/api/models), and [Gemini API-key guidance](https://ai.google.dev/gemini-api/docs/api-key). These references must be rechecked before changing an adapter because authentication and catalogs evolve.
 
 Normalized failures are `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `PROVIDER_UNAVAILABLE`, `TIMEOUT`, `INVALID_REQUEST`, `UNSUPPORTED`, and `INTERNAL_ERROR`. Provider bodies stay inside the adapter boundary and the browser receives a sanitized message. Normalized response metadata reserves optional provider, model, input/output usage, request ID, latency, and provider-supplied usage metadata fields; absent fields are never fabricated.
+
+## Implemented read-only insight
+
+`POST /api/neural/insight` is the first bounded analysis surface. Go authenticates the user, checks Neural Engine entitlement, requires an active owned connection and saved model preference, limits input to 2,000 bytes, and enforces 12 requests per user per hour through Redis. Rate-limiter failure denies the request. The stored AI credential is decrypted only for the call and cleared from the immediate byte buffer afterward.
+
+The internal service sends OpenAI a Responses API request containing only the user's text, the selected model, fixed Arbion instructions, and a one-way per-user safety identifier. `store` is false, reasoning effort and verbosity are low, output is capped, no tools are supplied, and a strict JSON schema requires a summary, key points, risk flags, limitations, and a current-data flag. Unsupported providers fail closed rather than silently switching providers. The browser receives only that normalized structure.
+
+The implementation follows OpenAI's official [Responses API guidance](https://developers.openai.com/api/docs/guides/migrate-to-responses), [Structured Outputs guidance](https://developers.openai.com/api/docs/guides/structured-outputs), and [GPT-5.6 Luna model reference](https://developers.openai.com/api/docs/models/gpt-5.6-luna). These evolving provider details must be rechecked before changing the adapter.
+
+The feature deliberately has no access to accounts, positions, portfolio data, broker credentials, quotes, news, or current market data. It cannot preview, place, approve, or authorize a trade. Audit records include safe operational metadata—provider, model, input byte count, token usage, outcome, latency, and provider request ID—but exclude prompt text, model output, credentials, and private chain-of-thought.
 
 The default Neural Engine preference is a durable user setting pointing to one active, owned AI connection and a model returned for that credential. It is only a default; future Automation Mandates may choose another connection/model. Logging out affects only the browser session and preserves both connections and this preference.
 

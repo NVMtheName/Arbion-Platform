@@ -18,6 +18,14 @@ const nextConfig: NextConfig = {
         destination: `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/connections/:path*`,
       },
       {
+        source: "/api/settings/:path*",
+        destination: `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/settings/:path*`,
+      },
+      {
+        source: "/api/neural/:path*",
+        destination: `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/neural/:path*`,
+      },
+      {
         source: "/api/accounts/:path*",
         destination: `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/accounts/:path*`,
       },

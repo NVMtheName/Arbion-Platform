@@ -2,7 +2,9 @@ package aiconnection
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +13,10 @@ import (
 	"github.com/arbion/platform/services/api/internal/neural"
 )
 
-type memoryStore struct{ items map[string]Connection }
+type memoryStore struct {
+	items      map[string]Connection
+	preference *Preference
+}
 
 func (ms *memoryStore) List(_ context.Context, user string) ([]Connection, error) {
 	out := []Connection{}
@@ -60,9 +65,13 @@ func (ms *memoryStore) SetVerification(_ context.Context, user, id, status strin
 	}
 	return c, e
 }
-func (ms *memoryStore) GetPreference(context.Context, string) (*Preference, error) { return nil, nil }
+func (ms *memoryStore) GetPreference(context.Context, string) (*Preference, error) {
+	return ms.preference, nil
+}
 func (ms *memoryStore) SetPreference(_ context.Context, user, id, model string) (Preference, error) {
-	return Preference{ConnectionID: id, ModelID: model, UpdatedAt: time.Now()}, nil
+	pref := Preference{ConnectionID: id, ModelID: model, UpdatedAt: time.Now()}
+	ms.preference = &pref
+	return pref, nil
 }
 func (ms *memoryStore) Delete(_ context.Context, user, id string) error {
 	if _, ok := ms.items[id]; !ok {
@@ -112,14 +121,52 @@ func setup(t *testing.T) (*Service, *memoryStore, *blobs) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	return NewService(ms, v, audit{}, DefaultRegistry()), ms, bs
+	return NewService(ms, v, audit{}, DefaultRegistry(), nil, nil), ms, bs
 }
 
-type fakeNeural struct{ err error }
+type fakeNeural struct {
+	err            error
+	insight        neural.Insight
+	seenCredential *string
+	seenSecret     *[]byte
+	seenSafetyID   *string
+}
 
 func (f fakeNeural) Verify(context.Context, string, []byte) error { return f.err }
 func (f fakeNeural) Models(context.Context, string, []byte) ([]neural.Model, error) {
 	return []neural.Model{{ID: "model-1", Provider: "openai"}}, f.err
+}
+func (f fakeNeural) Analyze(_ context.Context, _, _ string, credential []byte, _ string, safetyID string) (neural.Insight, error) {
+	if f.seenCredential != nil {
+		*f.seenCredential = string(credential)
+	}
+	if f.seenSecret != nil {
+		*f.seenSecret = credential
+	}
+	if f.seenSafetyID != nil {
+		*f.seenSafetyID = safetyID
+	}
+	return f.insight, f.err
+}
+
+type fakeLimiter struct {
+	allowed bool
+	err     error
+}
+
+func (f fakeLimiter) Allow(context.Context, string, int, time.Duration) (bool, error) {
+	return f.allowed, f.err
+}
+
+type recordedAudit struct {
+	actions  []string
+	metadata []map[string]any
+}
+
+func (a *recordedAudit) Record(_ context.Context, _ *string, action string, metadata map[string]any) error {
+	a.actions = append(a.actions, action)
+	a.metadata = append(a.metadata, metadata)
+	return nil
 }
 func TestVerificationTransitionsAndPreservesCredential(t *testing.T) {
 	s, ms, bs := setup(t)
@@ -228,5 +275,85 @@ func TestOwnershipUsesNotFound(t *testing.T) {
 	}
 	if e := s.Delete(context.Background(), p, "other"); !errors.Is(e, ErrNotFound) {
 		t.Fatal("foreign delete was not hidden")
+	}
+}
+
+func TestAnalyzeUsesActivePreferenceAndAuditsMetadataOnly(t *testing.T) {
+	s, ms, bs := setup(t)
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	s.neural = fakeNeural{}
+	c, err := s.Create(context.Background(), p, "openai", "Mine", []byte("secret-value"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Verify(context.Background(), p, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.SetPreference(context.Background(), p, c.ID, "model-1"); err != nil {
+		t.Fatal(err)
+	}
+	inputUsage, outputUsage := 30, 45
+	seenCredential, seenSafetyID := "", ""
+	var seenSecret []byte
+	s.neural = fakeNeural{
+		insight: neural.Insight{
+			Summary:  "Diversification reduces concentration risk.",
+			Metadata: neural.InsightMetadata{Provider: "openai", Model: "model-1", InputUsage: &inputUsage, OutputUsage: &outputUsage, RequestID: "resp-safe"},
+		},
+		seenCredential: &seenCredential,
+		seenSecret:     &seenSecret,
+		seenSafetyID:   &seenSafetyID,
+	}
+	s.limiter = fakeLimiter{allowed: true}
+	recorded := &recordedAudit{}
+	s.audit = recorded
+	prompt := "Explain diversification without live data."
+	result, err := s.Analyze(context.Background(), p, prompt)
+	if err != nil || result.Summary == "" {
+		t.Fatalf("analysis failed: %#v %v", result, err)
+	}
+	if seenCredential != "secret-value" || len(seenSafetyID) != 64 {
+		t.Fatal("credential or privacy-preserving safety identifier was not passed correctly")
+	}
+	for _, value := range seenSecret {
+		if value != 0 {
+			t.Fatal("retrieved plaintext credential was not cleared after use")
+		}
+	}
+	if strings.Contains(string(bs.data[c.ID]), "secret-value") {
+		t.Fatal("vault persisted plaintext credential")
+	}
+	if ms.preference == nil || ms.preference.ModelID != "model-1" {
+		t.Fatal("saved preference changed during analysis")
+	}
+	raw, err := json.Marshal(recorded.metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), prompt) || strings.Contains(string(raw), "secret-value") || !strings.Contains(string(raw), "resp-safe") {
+		t.Fatalf("audit metadata was unsafe or incomplete: %s", raw)
+	}
+}
+
+func TestAnalyzeFailsClosedOnRateLimit(t *testing.T) {
+	s, ms, _ := setup(t)
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	ms.items["connection-1"] = Connection{ID: "connection-1", Provider: "openai", Status: "active"}
+	ms.preference = &Preference{ConnectionID: "connection-1", ModelID: "model-1"}
+	s.neural = fakeNeural{}
+	s.limiter = fakeLimiter{allowed: false}
+	if _, err := s.Analyze(context.Background(), p, "question"); !errors.Is(err, ErrRateLimit) {
+		t.Fatalf("rate limit did not fail closed: %v", err)
+	}
+}
+
+func TestAnalyzeRejectsMissingPreferenceAndOversizedInput(t *testing.T) {
+	s, _, _ := setup(t)
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	if _, err := s.Analyze(context.Background(), p, "question"); !errors.Is(err, ErrInactive) {
+		t.Fatalf("missing preference accepted: %v", err)
+	}
+	if _, err := s.Analyze(context.Background(), p, strings.Repeat("x", MaxPromptBytes+1)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("oversized prompt accepted: %v", err)
 	}
 }
