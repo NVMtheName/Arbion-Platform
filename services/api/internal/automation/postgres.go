@@ -109,6 +109,9 @@ func args(u string, x MandateCommand, unverified bool) []any {
 func snapshot(m Mandate) ([]byte, error) {
 	return json.Marshal(map[string]any{"financial_account_id": m.FinancialAccountID, "automation_type": m.AutomationType, "strategy_identifier": m.StrategyIdentifier, "ai_provider_connection_id": m.AIProviderConnectionID, "ai_model_id": m.AIModelID, "capital_bucket_id": m.CapitalBucketID, "autonomy_level": m.AutonomyLevel, "execution_mode": m.ExecutionMode, "status": m.Status, "strategy_parameters": m.StrategyParameters, "risk_parameters": m.Risk, "allowed_universe": m.AllowedUniverse, "prohibited_universe": m.ProhibitedUniverse, "margin_allowed": m.MarginAllowed, "options_allowed": m.OptionsAllowed, "schedule_conditions": m.ScheduleConditions, "capability_unverified": m.CapabilityUnverified, "effective_from": m.EffectiveFrom, "effective_until": m.EffectiveUntil, "execution_capable": false})
 }
+func versionChangeSummary(previous int) ([]byte, error) {
+	return json.Marshal(map[string]int{"previous_version": previous})
+}
 func (s *PostgresStore) CreateMandate(c context.Context, u string, x MandateCommand, unverified bool) (Mandate, error) {
 	tx, e := s.db.Begin(c)
 	if e != nil {
@@ -171,8 +174,15 @@ func (s *PostgresStore) versionedUpdate(c context.Context, u, id string, expecte
 	if e != nil {
 		return m, e
 	}
-	snap, _ := snapshot(m)
-	_, e = tx.Exec(c, `INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) VALUES($1,$2,$3,$4,$5,jsonb_build_object('previous_version',$6))`, id, m.CurrentVersion, u, source, snap, expected)
+	snap, e := snapshot(m)
+	if e != nil {
+		return m, e
+	}
+	summary, e := versionChangeSummary(expected)
+	if e != nil {
+		return m, e
+	}
+	_, e = tx.Exec(c, `INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) VALUES($1,$2,$3,$4,$5,$6)`, id, m.CurrentVersion, u, source, snap, summary)
 	if e != nil {
 		return m, e
 	}
