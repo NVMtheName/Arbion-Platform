@@ -3,6 +3,10 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { MandateControls } from "../mandate-controls";
+import {
+  StrategyEvaluationControls,
+  type StrategyParameters,
+} from "../strategy-evaluation-controls";
 export default async function MandateReview({
   params,
 }: {
@@ -37,9 +41,12 @@ export default async function MandateReview({
         }
       ).strategy_instances ?? [])
     : [];
+  const currentVersion = Number(m.current_version ?? m.CurrentVersion ?? 0);
   const instance = instances.find(
     (item) =>
-      String(item.AutomationMandateID ?? item.automation_mandate_id) === id,
+      String(item.AutomationMandateID ?? item.automation_mandate_id) === id &&
+      Number(item.MandateVersion ?? item.mandate_version ?? 0) ===
+        currentVersion,
   );
   const instanceID = instance ? String(instance.ID ?? instance.id ?? "") : "";
   const [history, decisions, executions] = instanceID
@@ -96,13 +103,28 @@ export default async function MandateReview({
       </p>
       <MandateControls
         automationId={id}
-        currentVersion={Number(m.current_version ?? m.CurrentVersion ?? 0)}
+        currentVersion={currentVersion}
         status={read("status", "Status")}
         automationType={read("automation_type", "AutomationType")}
         executionMode={read("execution_mode", "ExecutionMode")}
         strategyIdentifier={read("strategy_identifier", "StrategyIdentifier")}
         instanceExists={Boolean(instance)}
       />
+      {read("automation_type", "AutomationType") === "STRATEGY" && (
+        <StrategyEvaluationControls
+          automationId={id}
+          currentVersion={currentVersion}
+          status={read("status", "Status")}
+          executionMode={read("execution_mode", "ExecutionMode")}
+          strategyIdentifier={read("strategy_identifier", "StrategyIdentifier")}
+          instanceId={instanceID}
+          strategyParameters={
+            (m.strategy_parameters ??
+              m.StrategyParameters ??
+              {}) as StrategyParameters
+          }
+        />
+      )}
       <section className="review-grid" aria-label="Non-live strategy">
         <div>
           <p className="eyebrow">STRATEGY INSTANCE</p>

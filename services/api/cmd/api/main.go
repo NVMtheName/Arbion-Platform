@@ -59,14 +59,16 @@ func main() {
 	neuralClient := neural.NewHTTPClient(cfg.AI.URL, cfg.AI.InternalToken, &http.Client{Timeout: cfg.AI.Timeout})
 	aiConnections := aiconnection.NewService(aiconnection.NewPostgresStore(pool, registry), vault, users, registry, neuralClient, sessions)
 	states := oauthstate.New(oauthstate.NewRedisStore(redisClient), 10*time.Minute)
-	schwabClient := schwab.New(schwab.Config{ClientID: cfg.Schwab.ClientID, ClientSecret: cfg.Schwab.ClientSecret, RedirectURI: cfg.Schwab.RedirectURI, AuthorizationURL: cfg.Schwab.AuthorizationURL, TokenURL: cfg.Schwab.TokenURL, TraderBaseURL: cfg.Schwab.TraderBaseURL}, &http.Client{Timeout: cfg.Schwab.Timeout})
+	schwabClient := schwab.New(schwab.Config{ClientID: cfg.Schwab.ClientID, ClientSecret: cfg.Schwab.ClientSecret, RedirectURI: cfg.Schwab.RedirectURI, AuthorizationURL: cfg.Schwab.AuthorizationURL, TokenURL: cfg.Schwab.TokenURL, TraderBaseURL: cfg.Schwab.TraderBaseURL, MarketDataBaseURL: cfg.Schwab.MarketDataBaseURL}, &http.Client{Timeout: cfg.Schwab.Timeout})
 	financialConnections := financialconnection.NewService(financialconnection.NewPostgresStore(pool), vault, states, schwabClient, users)
 	automations := automation.NewService(automation.NewPostgresStore(pool), users)
-	strategies := strategy.NewInstanceService(strategy.NewPostgresStore(pool), automations)
+	strategyStore := strategy.NewPostgresStore(pool)
+	strategies := strategy.NewInstanceService(strategyStore, automations)
+	evaluations := strategy.NewEvaluationService(strategyStore, automations, financialConnections)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           platformhttp.NewFullApplicationHandlerWithAutomation(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies),
+		Handler:           platformhttp.NewFullApplicationHandlerWithEvaluation(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies, evaluations),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      45 * time.Second,

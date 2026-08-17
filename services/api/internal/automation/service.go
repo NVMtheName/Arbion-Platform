@@ -1,9 +1,11 @@
 package automation
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math/big"
 	"regexp"
 	"strings"
@@ -63,6 +65,53 @@ func decimal(v string, positive bool) (*big.Rat, bool) {
 	}
 	r, ok := new(big.Rat).SetString(v)
 	return r, ok && (!positive || r.Sign() > 0)
+}
+
+var strategySymbol = regexp.MustCompile(`^[A-Z][A-Z0-9.-]{0,9}$`)
+
+func ValidateStrategyParameters(p StrategyParameters) error {
+	if len(p.Symbols) == 0 || len(p.Symbols) > 10 || p.MinimumDTE < 0 || p.MaximumDTE < p.MinimumDTE || p.MaximumDTE > 730 || p.MaximumContracts < 1 || p.MaximumContracts > 100 {
+		return ErrInvalid
+	}
+	lo, loOK := decimal(p.TargetDeltaMin, false)
+	hi, hiOK := decimal(p.TargetDeltaMax, false)
+	target, targetOK := decimal(p.TargetDelta, false)
+	if !loOK || !hiOK || !targetOK || lo.Sign() < 0 || hi.Cmp(big.NewRat(1, 1)) > 0 || hi.Cmp(lo) < 0 || target.Cmp(lo) < 0 || target.Cmp(hi) > 0 || p.AssignmentHandlingPolicy != "continue_wheel" {
+		return ErrInvalid
+	}
+	if p.MinimumPremium != nil {
+		minimum, ok := decimal(*p.MinimumPremium, false)
+		if !ok || minimum.Sign() < 0 {
+			return ErrInvalid
+		}
+	}
+	seen := map[string]bool{}
+	for _, symbol := range p.Symbols {
+		if !strategySymbol.MatchString(symbol) || seen[symbol] {
+			return ErrInvalid
+		}
+		seen[symbol] = true
+	}
+	return nil
+}
+
+func ParseStrategyParameters(raw json.RawMessage) (StrategyParameters, error) {
+	var parameters StrategyParameters
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parameters); err != nil {
+		return StrategyParameters{}, ErrInvalid
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return StrategyParameters{}, ErrInvalid
+	}
+	for index, symbol := range parameters.Symbols {
+		parameters.Symbols[index] = strings.ToUpper(strings.TrimSpace(symbol))
+	}
+	if err := ValidateStrategyParameters(parameters); err != nil {
+		return StrategyParameters{}, err
+	}
+	return parameters, nil
 }
 func (s *Service) CreateBucket(ctx context.Context, p authorization.Principal, c CreateBucketCommand) (CapitalBucket, error) {
 	if !allowed(p) {
@@ -203,6 +252,11 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 	if len(c.StrategyParameters) > 0 && !json.Valid(c.StrategyParameters) {
 		return false, ErrInvalid
 	}
+	if ready && strategy {
+		if _, e = ParseStrategyParameters(c.StrategyParameters); e != nil {
+			return false, e
+		}
+	}
 	if len(c.ScheduleConditions) > 0 && !json.Valid(c.ScheduleConditions) {
 		return false, ErrInvalid
 	}
@@ -264,6 +318,40 @@ func (s *Service) Update(c context.Context, p authorization.Principal, id string
 		return Mandate{}, e
 	}
 	return s.store.UpdateMandate(c, p.UserID, id, expected, cmd, u, "UI")
+}
+
+func (s *Service) UpdateStrategyParameters(c context.Context, p authorization.Principal, id string, expected int, parameters StrategyParameters) (Mandate, error) {
+	if !allowed(p) {
+		return Mandate{}, ErrForbidden
+	}
+	for index, symbol := range parameters.Symbols {
+		parameters.Symbols[index] = strings.ToUpper(strings.TrimSpace(symbol))
+	}
+	if err := ValidateStrategyParameters(parameters); err != nil {
+		return Mandate{}, err
+	}
+	old, err := s.store.GetMandate(c, p.UserID, id)
+	if err != nil {
+		return Mandate{}, ErrNotFound
+	}
+	if old.AutomationType != "STRATEGY" || old.StrategyIdentifier == nil {
+		return Mandate{}, ErrInvalid
+	}
+	raw, err := json.Marshal(parameters)
+	if err != nil {
+		return Mandate{}, err
+	}
+	cmd := commandFrom(old)
+	cmd.StrategyParameters = raw
+	unverified, err := s.validate(c, p, cmd, false)
+	if err != nil {
+		return Mandate{}, err
+	}
+	updated, err := s.store.UpdateMandate(c, p.UserID, id, expected, cmd, unverified, "UI")
+	if err == nil {
+		s.auditEvent(c, p, "automation_mandate.strategy_parameters_changed", map[string]any{"mandate_id": id, "version": updated.CurrentVersion, "source": "UI"})
+	}
+	return updated, err
 }
 func (s *Service) Transition(c context.Context, p authorization.Principal, id string, expected int, status string) (Mandate, error) {
 	if !allowed(p) {

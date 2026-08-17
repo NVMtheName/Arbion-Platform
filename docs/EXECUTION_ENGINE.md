@@ -52,17 +52,17 @@ The same strategy core uses Historical, Paper, Shadow, or future Live adapters a
 
 ## Deferred decisions
 
-No order tables, endpoints, adapters, SDKs, reconciliation jobs, or provider calls are added by this design. Canonical order/leg schemas, precision rules, preview expiry, provider mapping, webhook/poll strategy, cancellation/replacement semantics, correction handling, multi-leg guarantees, and live retry protocols require future provider-specific threat modeling and approval.
+No live order tables, broker-write endpoints/adapters, execution SDKs, or reconciliation jobs exist. Canonical live order/leg schemas, precision rules, preview expiry, provider mapping, webhook/poll strategy, cancellation/replacement semantics, correction handling, multi-leg guarantees, and live retry protocols require future provider-specific threat modeling and approval.
 
 ## Proposed-action boundary
 
-The implemented `ProposedAction` is not an Order Intent or broker payload. It terminates at a structured, non-executing risk evaluation. No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine.
+The implemented `ProposedAction` is not an Order Intent or broker payload. After structured risk evaluation it may reach only a PAPER simulation or SHADOW record; it cannot reach Schwab or another broker-write interface. No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine.
 
 ## Implemented non-live adapters
 
 The provider-independent non-live adapter boundary accepts the existing Risk Engine `ProposedAction`, a successful `RiskEvaluation`, supplied market facts, and an expected deterministic state. PAPER uses a conservative deterministic bid-based option-credit fixture and rejects missing/invalid price data. SHADOW records `WOULD_HAVE_SUBMITTED` and an expected transition but mutates neither paper nor real holdings.
 
-Non-live statuses are `PROPOSED`, `RISK_DENIED`, `SIMULATED_FILLED`, `SIMULATED_REJECTED`, `WOULD_HAVE_SUBMITTED`, `CANCELED`, and `ERROR`; they are not broker order states. Durable event identities and unique idempotency keys prevent duplicate simulated fills. Persistence implementations commit execution, paper accounting, journal evidence, and optimistic state transitions atomically.
+Non-live statuses are `PROPOSED`, `RISK_DENIED`, `SIMULATED_FILLED`, `SIMULATED_REJECTED`, `WOULD_HAVE_SUBMITTED`, `CANCELED`, and `ERROR`; they are not broker order states. Durable event identities and unique idempotency keys prevent duplicate simulated fills. The PostgreSQL implementation claims the evaluation event and commits risk evidence, execution evidence, paper accounting, journal evidence, and optimistic state transitions in one transaction, avoiding both duplicate effects and abandoned pre-claims.
 
 **Paper execution is simulation and never represents a broker fill.**
 

@@ -2,7 +2,6 @@ package risk
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
@@ -39,8 +38,13 @@ func (e *Engine) Evaluate(c EvaluationContext, a ProposedAction) RiskEvaluation 
 		panic("risk evaluation requires a trusted clock")
 	}
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	out := RiskEvaluation{ID: hex.EncodeToString(b), UserID: c.UserID, AccountID: a.FinancialAccountID, Timestamp: c.Now, Decision: Allow, Checks: []RiskCheck{}, ReasonCodes: []ReasonCode{}, Warnings: []ReasonCode{}, PlatformExecutionAvailable: false}
+	if _, err := rand.Read(b); err != nil {
+		panic("risk evaluation identifier unavailable")
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	id := fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+	out := RiskEvaluation{ID: id, UserID: c.UserID, AccountID: a.FinancialAccountID, Timestamp: c.Now, Decision: Allow, Checks: []RiskCheck{}, ReasonCodes: []ReasonCode{}, Warnings: []ReasonCode{}, PlatformExecutionAvailable: false}
 	if a.MandateID != nil {
 		out.MandateID = a.MandateID
 		out.MandateVersion = a.MandateVersion

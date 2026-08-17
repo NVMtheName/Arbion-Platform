@@ -264,3 +264,35 @@ func (s *Service) GetPositions(ctx context.Context, p authorization.Principal, i
 	}
 	return items, e
 }
+
+func (s *Service) GetQuote(ctx context.Context, p authorization.Principal, accountID, symbol string) (financial.Quote, error) {
+	a, e := s.GetAccount(ctx, p, accountID)
+	if e != nil {
+		return financial.Quote{}, e
+	}
+	_, cr, e := s.credentials(ctx, p.UserID, a.ProviderConnectionID)
+	if e != nil {
+		return financial.Quote{}, e
+	}
+	provider, ok := s.provider.(financial.MarketDataProvider)
+	if !ok {
+		return financial.Quote{}, &financial.ProviderError{Code: financial.ProviderUnavailable}
+	}
+	return provider.GetQuote(ctx, &cr, symbol)
+}
+
+func (s *Service) GetOptionChain(ctx context.Context, p authorization.Principal, accountID string, request financial.OptionChainRequest) (financial.OptionChain, error) {
+	a, e := s.GetAccount(ctx, p, accountID)
+	if e != nil {
+		return financial.OptionChain{}, e
+	}
+	_, cr, e := s.credentials(ctx, p.UserID, a.ProviderConnectionID)
+	if e != nil {
+		return financial.OptionChain{}, e
+	}
+	provider, ok := s.provider.(financial.MarketDataProvider)
+	if !ok {
+		return financial.OptionChain{}, &financial.ProviderError{Code: financial.ProviderUnavailable}
+	}
+	return provider.GetOptionChain(ctx, &cr, request)
+}

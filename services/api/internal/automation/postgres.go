@@ -151,7 +151,7 @@ func (s *PostgresStore) GetMandate(c context.Context, u, id string) (Mandate, er
 }
 func (s *PostgresStore) UpdateMandate(c context.Context, u, id string, expected int, x MandateCommand, unverified bool, source string) (Mandate, error) {
 	a := args(u, x, unverified)
-	q := `UPDATE automation_mandates SET financial_account_id=$3,automation_type=$4,strategy_identifier=$5,ai_provider_connection_id=$6,ai_model_id=$7,capital_bucket_id=$8,autonomy_level=$9,execution_mode=$10,strategy_parameters=$11,risk_parameters=$12,allowed_universe=$13,prohibited_universe=$14,margin_allowed=$15,options_allowed=$16,schedule_conditions=$17,capability_unverified=$18,effective_from=COALESCE($19,effective_from),effective_until=$20,current_version=current_version+1,updated_at=now() WHERE id=$1 AND user_id=$2 AND current_version=$21 RETURNING ` + mandateCols
+	q := `UPDATE automation_mandates SET financial_account_id=$3,automation_type=$4,strategy_identifier=$5,ai_provider_connection_id=$6,ai_model_id=$7,capital_bucket_id=$8,autonomy_level=$9,execution_mode=$10,strategy_parameters=$11,risk_parameters=$12,allowed_universe=$13,prohibited_universe=$14,margin_allowed=$15,options_allowed=$16,schedule_conditions=$17,capability_unverified=$18,effective_from=COALESCE($19,effective_from),effective_until=$20,status='DRAFT',current_version=current_version+1,updated_at=now() WHERE id=$1 AND user_id=$2 AND current_version=$21 RETURNING ` + mandateCols
 	return s.versionedUpdate(c, u, id, expected, source, q, append([]any{id, u}, append(a[1:], expected)...)...)
 }
 func (s *PostgresStore) Transition(c context.Context, u, id string, expected int, status, source string) (Mandate, error) {

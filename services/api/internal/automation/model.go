@@ -26,6 +26,18 @@ type RiskPolicy struct {
 	MinimumCashReserve          *string `json:"minimum_cash_reserve,omitempty"`
 }
 
+type StrategyParameters struct {
+	Symbols                  []string `json:"symbols"`
+	MinimumDTE               int      `json:"minimum_dte"`
+	MaximumDTE               int      `json:"maximum_dte"`
+	TargetDelta              string   `json:"target_delta"`
+	TargetDeltaMin           string   `json:"target_delta_min"`
+	TargetDeltaMax           string   `json:"target_delta_max"`
+	MinimumPremium           *string  `json:"minimum_premium,omitempty"`
+	MaximumContracts         int      `json:"maximum_contracts"`
+	AssignmentHandlingPolicy string   `json:"assignment_handling_policy"`
+}
+
 type Universe struct {
 	Symbols     []string `json:"symbols"`
 	UniverseIDs []string `json:"universe_ids,omitempty"`

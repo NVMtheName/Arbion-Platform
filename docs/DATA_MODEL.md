@@ -11,14 +11,14 @@ PostgreSQL is Arbion's durable system of record. Schema changes are explicit, ve
 
 AI rows always use `provider_category = 'ai'`. Their safe credential metadata may contain only the masked display hint; ciphertext remains in the vault-owned storage column and is excluded from application/API connection models. Status `pending` means stored but not externally verified, while `disabled` preserves the encrypted credential but prevents future selection. Durable references block explicit deletion rather than cascading silently.
 
-- `automation_configs` is the currently existing placeholder for future server-side configuration. It must not be treated as the permanent Automation Mandate model or used to infer that execution exists.
+- `automation_mandates`, `automation_mandate_versions`, and `capital_buckets` hold durable configuration and explicit allocation authority; their presence does not imply broker execution.
 - `audit_events` is append-oriented and records actors, actions, resources, correlation identifiers, timestamps, and non-secret JSON metadata.
 
 Browser sessions are separate and ephemeral. Provider connections, Neural Engine preferences, and automation state persist across logout, browser closure, Redis loss, and application restarts. Stored provider credentials are server-side only and never part of normal API models.
 
-## Target domain records (not implemented)
+## Target domain records
 
-The permanent architecture requires normalized durable concepts for Automation Mandates and immutable versions, capital buckets and reservations, strategy definitions/instances/state transitions, structured Arbion Intents, provider-independent Order Intents and execution events, approvals, account capabilities, reconciliation observations, circuit breakers, and the Decision Journal. This is a conceptual inventory, not a request to add tables.
+The permanent architecture requires normalized durable concepts for Automation Mandates and immutable versions, capital buckets and reservations, strategy definitions/instances/state transitions, structured Arbion Intents, provider-independent Order Intents and execution events, approvals, account capabilities, reconciliation observations, circuit breakers, and the Decision Journal. Mandates, buckets, non-live instances/transitions, circuit breakers, risk evaluations, non-live execution evidence, and Decision Journal entries are implemented; live orders, approvals, reconciliation, and reservations remain conceptual.
 
 References between a decision, order, strategy transition, and mandate must identify the exact immutable mandate version. Significant changes append a version rather than overwriting history. Execution history is append-oriented and preserves provider evidence: `SUBMITTED` never implies `FILLED`, and broker reconciliation supplies authoritative live status.
 
@@ -28,13 +28,13 @@ Decision records store structured rationale, input references, rule outcomes, ap
 
 ## Deliberately deferred
 
-Concrete schemas, tenancy, provider adapters and OAuth flows, automation workers, order or trading execution, audit retention/integrity controls, retention and partitioning, and the production managed-secret provider require later designs.
+Live-order/approval/reconciliation schemas, broader tenancy, automation workers, broker trading execution, audit retention/integrity controls, retention and partitioning, and the production managed-secret provider require later designs.
 
 ## Financial account inventory
 
 Migration `00005_financial_accounts.sql` adds the durable `financial_accounts` inventory. Each row is owned by a user, linked restrictively to a same-owner `provider_category='financial'` connection, and stores provider name, a server-only opaque provider account identifier, masked/display labels, account type, base currency, lifecycle status, tri-state capability JSON, discovery/sync times, and ordinary timestamps. `(provider_connection_id, provider_account_id)` is unique so synchronization upserts rather than duplicates and a connection can contain multiple accounts. The trigger guards against cross-user and wrong-category links.
 
-The normal API model omits `user_id`, opaque provider account identity, and provider instrument identifiers. It never stores or returns full account numbers. Financial values are provider-precision decimal strings, not binary floats. Balance observations and buying power are read-only provider facts; no allocation, mandate, order, strategy, or execution schema is introduced.
+The normal API model omits `user_id`, opaque provider account identity, and provider instrument identifiers. It never stores or returns full account numbers. Financial values are provider-precision decimal strings, not binary floats. Balance observations and buying power are read-only provider facts and remain separate from later-introduced allocation, mandate, and non-live strategy records.
 
 **Broker-reported buying power does not grant Arbion authority to deploy that capital.**
 
@@ -58,7 +58,7 @@ Migration `00006_automation_mandates.sql` replaces the early placeholder in plac
 
 ## Risk and control records
 
-Migration `00007_risk_control.sql` adds durable `risk_circuit_breakers` for global, user, account, and automation scopes and compact `risk_evaluations` for future Decision Journal references. Evaluation rows preserve references, exact mandate version, decision, approval requirement, stable reason codes, deterministic checks, and timestamp while omitting portfolio snapshots, credentials, broker payloads, and model reasoning. A constraint records `platform_execution_available=false` for this milestone.
+Migration `00007_risk_control.sql` adds durable `risk_circuit_breakers` for global, user, account, and automation scopes and compact `risk_evaluations` linked by current non-live Decision Journal entries. Evaluation rows preserve references, exact mandate version, decision, approval requirement, stable reason codes, deterministic checks, and timestamp while omitting portfolio snapshots, credentials, broker payloads, and model reasoning. A constraint records `platform_execution_available=false` for this milestone.
 
 ## Durable non-live strategy records
 
