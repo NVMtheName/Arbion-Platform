@@ -110,6 +110,13 @@ func (f *fakeUsers) ByID(_ context.Context, id string) (User, error) {
 	return f.user, nil
 }
 func (f *fakeUsers) RecordLogin(context.Context, string, time.Time) error { return nil }
+func (f *fakeUsers) UpdatePassword(_ context.Context, id, currentHash, nextHash string, _ time.Time) (bool, error) {
+	if f.user.ID != id || f.user.PasswordHash != currentHash {
+		return false, nil
+	}
+	f.user.PasswordHash = nextHash
+	return true, nil
+}
 
 type fakeAudit struct{ actions []string }
 
@@ -178,6 +185,83 @@ func TestRegistrationAllowlistDefaultsClosedWhenRestricted(t *testing.T) {
 	}
 	if len(audit.actions) < 2 || audit.actions[0] != "auth.registration_rejected" || audit.actions[1] != "auth.registration" {
 		t.Fatalf("unexpected registration audit actions: %#v", audit.actions)
+	}
+}
+
+func TestPasswordChangeVerifiesCurrentPasswordAndRevokesEverySession(t *testing.T) {
+	m := miniredis.RunT(t)
+	sessions := NewRedisStore(redis.NewClient(&redis.Options{Addr: m.Addr()}))
+	users := &fakeUsers{}
+	audit := &fakeAudit{}
+	svc := NewService(users, sessions, sessions, audit, time.Hour)
+
+	_, registeredToken, err := svc.Register(context.Background(), "person@example.com", "correct horse battery staple", "Person", "ip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, secondToken, err := svc.Login(context.Background(), "person@example.com", "correct horse battery staple", "ip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.ChangePassword(context.Background(), users.user.ID, "wrong current password", "a different secure passphrase"); !errors.Is(err, ErrInvalidCurrentPassword) {
+		t.Fatalf("wrong current password returned %v", err)
+	}
+	if _, err = sessions.Get(context.Background(), registeredToken); err != nil {
+		t.Fatal("failed password change revoked an existing session")
+	}
+	if err = svc.ChangePassword(context.Background(), users.user.ID, "correct horse battery staple", "correct horse battery staple"); !errors.Is(err, ErrPasswordUnchanged) {
+		t.Fatalf("unchanged password returned %v", err)
+	}
+	if err = svc.ChangePassword(context.Background(), users.user.ID, "correct horse battery staple", "a different secure passphrase"); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{registeredToken, secondToken} {
+		if _, err = sessions.Get(context.Background(), token); !errors.Is(err, ErrUnauthenticated) {
+			t.Fatal("password change retained an existing session")
+		}
+	}
+	if _, _, err = svc.Login(context.Background(), "person@example.com", "correct horse battery staple", "ip-2"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatal("old password remained valid")
+	}
+	if _, _, err = svc.Login(context.Background(), "person@example.com", "a different secure passphrase", "ip-2"); err != nil {
+		t.Fatalf("new password was not usable: %v", err)
+	}
+	for _, want := range []string{"auth.password_change_failed", "auth.password_changed"} {
+		found := false
+		for _, got := range audit.actions {
+			found = found || got == want
+		}
+		if !found {
+			t.Fatalf("missing audit %s", want)
+		}
+	}
+}
+
+func TestLogoutEverywhereRevokesEverySession(t *testing.T) {
+	m := miniredis.RunT(t)
+	sessions := NewRedisStore(redis.NewClient(&redis.Options{Addr: m.Addr()}))
+	users := &fakeUsers{}
+	audit := &fakeAudit{}
+	svc := NewService(users, sessions, sessions, audit, time.Hour)
+
+	_, first, err := svc.Register(context.Background(), "person@example.com", "correct horse battery staple", "Person", "ip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, second, err := svc.Login(context.Background(), "person@example.com", "correct horse battery staple", "ip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = svc.LogoutEverywhere(context.Background(), users.user.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{first, second} {
+		if _, err = sessions.Get(context.Background(), token); !errors.Is(err, ErrUnauthenticated) {
+			t.Fatal("logout everywhere retained a session")
+		}
+	}
+	if audit.actions[len(audit.actions)-1] != "auth.logout_all" {
+		t.Fatalf("logout everywhere was not audited: %#v", audit.actions)
 	}
 }
 func TestSafeSerializationOmitsSecrets(t *testing.T) {

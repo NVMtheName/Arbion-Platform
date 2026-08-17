@@ -48,6 +48,7 @@ export default async function Dashboard() {
         <p className="eyebrow">ARBION</p>
         <div className="account-actions">
           <Link href="/settings/risk">Risk</Link>
+          <Link href="/settings/security">Security</Link>
           {(user.role === "admin" || user.role === "superadmin") && (
             <Link href="/admin">Admin</Link>
           )}

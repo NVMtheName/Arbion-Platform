@@ -28,11 +28,13 @@ The Go modular monolith is the authentication authority and policy enforcement p
 
 Passwords are accepted only in bounded JSON requests, never logged or serialized, and hashed with encapsulated Argon2id parameters (64 MiB memory, three iterations, two lanes, 16-byte random salt, 32-byte output). Passwords must be 12–1024 bytes; passphrases are encouraged and no composition rule is imposed. Encoded hashes carry their parameters to allow rehash upgrades.
 
-The browser receives a random opaque 256-bit token in an `HttpOnly`, `Path=/`, `SameSite=Lax` cookie. Production also sets `Secure`; localhost development intentionally does not. Only SHA-256 token hashes are Redis keys. Sessions expire after an environment-defined TTL, are rotated at authentication, can be individually deleted, and are indexed for future all-session revocation.
+The browser receives a random opaque 256-bit token in an `HttpOnly`, `Path=/`, `SameSite=Lax` cookie. Production also sets `Secure`; localhost development intentionally does not. Only SHA-256 token hashes are Redis keys. Sessions expire after an environment-defined TTL, are rotated at authentication, can be individually deleted, and are indexed for immediate self-service all-session revocation.
 
 Cookie-authenticated state changes use an explicit trusted-origin check in addition to `SameSite=Lax`; requests without an allowed `Origin` are rejected. This is the selected CSRF strategy and does not rely on CORS. Login and registration are protected too. JSON decoding rejects unknown fields and trailing values, bodies are capped at 4 KiB, common security headers are applied, and API errors do not expose internals. Redis sliding-window counters currently throttle registration by IP and login by IP plus normalized account identifier without permanent account lockout.
 
-Audit events record registration, successful and failed login, and logout outcomes without passwords, hashes, tokens, or provider secrets.
+Authenticated users can change their password only after re-entering the current password. The replacement uses the same bounded Argon2id policy, must differ from the existing password, and is rate-limited. Arbion fails closed when the session store is unavailable: it revokes every current session before committing the new password with an optimistic hash check, then clears the current browser cookie. A durable database failure may therefore require the user to sign in again with the unchanged password, but cannot leave old sessions active after a successful password change. The separate **Sign Out All Sessions** control revokes all browser sessions without deleting financial or AI connections or changing automation state.
+
+Audit events record registration, successful and failed login, logout, all-session logout, and successful or rejected password-change outcomes without passwords, hashes, tokens, or provider secrets.
 
 ## Required authentication follow-up
 
