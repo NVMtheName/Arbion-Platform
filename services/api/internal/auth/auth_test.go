@@ -67,6 +67,24 @@ func TestRedisRateLimit(t *testing.T) {
 	}
 }
 
+func TestRedisWeightedRateLimitIsAtomic(t *testing.T) {
+	m := miniredis.RunT(t)
+	s := NewRedisStore(redis.NewClient(&redis.Options{Addr: m.Addr()}))
+
+	if ok, err := s.AllowWeighted(context.Background(), "weighted", 7, 12, time.Hour); err != nil || !ok {
+		t.Fatalf("initial weighted request failed: %v", err)
+	}
+	if ok, err := s.AllowWeighted(context.Background(), "weighted", 6, 12, time.Hour); err != nil || ok {
+		t.Fatalf("over-budget request was not rejected atomically: allowed=%v error=%v", ok, err)
+	}
+	if ok, err := s.AllowWeighted(context.Background(), "weighted", 5, 12, time.Hour); err != nil || !ok {
+		t.Fatalf("rejected request consumed partial credits: allowed=%v error=%v", ok, err)
+	}
+	if ok, err := s.AllowWeighted(context.Background(), "weighted", 1, 12, time.Hour); err != nil || ok {
+		t.Fatalf("credit limit was not enforced: allowed=%v error=%v", ok, err)
+	}
+}
+
 type fakeUsers struct {
 	user                                                  User
 	connectionExists, automationExists, automationEnabled bool

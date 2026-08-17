@@ -58,6 +58,7 @@ class VerificationResult:
 class ResponseMetadata:
     provider: str
     model: str | None = None
+    profile: str | None = None
     input_usage: int | None = None
     output_usage: int | None = None
     request_id: str | None = None

@@ -324,12 +324,13 @@ func (h *authHandler) neuralInsight(w stdhttp.ResponseWriter, r *stdhttp.Request
 		return
 	}
 	var in struct {
-		Prompt string `json:"prompt"`
+		Prompt  string `json:"prompt"`
+		Profile string `json:"profile"`
 	}
 	if !decode(w, r, &in) {
 		return
 	}
-	result, err := h.ai.Analyze(r.Context(), principal(r), in.Prompt)
+	result, err := h.ai.Analyze(r.Context(), principal(r), in.Prompt, in.Profile)
 	if err != nil {
 		h.aiError(w, err)
 		return

@@ -6,7 +6,7 @@ Arbion is a full trading platform with two equal control surfaces: traditional U
 
 Arbion combines that user experience with a provider-independent Neural Engine, deterministic financial controls, strategy and automation domains, and external financial-provider adapters. This document describes target boundaries; it does not claim that the conceptual capabilities are implemented.
 
-The current implementation remains a modular monolith plus one dedicated AI service. Email/password authentication, AI-provider connection verification/configuration, and bounded read-only Arbion Insight analysis are implemented. Live or automated trading, order execution, broker writes, tool-using AI, and legacy Flask migration remain out of scope until explicitly designed and approved.
+The current implementation remains a modular monolith plus one dedicated AI service. Email/password authentication, AI-provider connection verification/configuration, and bounded read-only Arbion Insight analysis with explicit Fast/Core/Deep model profiles are implemented. Live or automated trading, order execution, broker writes, tool-using AI, and legacy Flask migration remain out of scope until explicitly designed and approved.
 
 ## System model
 
@@ -65,7 +65,7 @@ The permanent domain design is split into focused specifications:
 
 `services/ai` is the Python/FastAPI boundary for AI and quantitative computation. It abstracts OpenAI, Anthropic/Claude, and Google Gemini behind a common provider interface for credential verification and model discovery. OpenAI also implements a narrow structured-analysis capability for Arbion Insight through the Responses API; other providers fail as unsupported. Go calls bounded, service-authenticated internal endpoints, and provider destinations are fixed by adapters rather than request input.
 
-Arbion Insight accepts only authenticated user-supplied text and the user's active provider/model preference. It sends no account, portfolio, broker, credential-class, or live market data and defines no tools. The request disables provider-side response storage, requests a strict bounded JSON schema, and uses low reasoning effort. Go enforces entitlement, ownership, active connection state, an hourly per-user limit, encrypted credential retrieval, and metadata-only auditing. The returned analysis remains untrusted educational output and has no route to preview, authorize, or execute an order.
+Arbion Insight accepts only authenticated user-supplied text, an explicit `fast`/`core`/`deep` profile, and the user's active OpenAI connection. The profile maps to a fixed Luna/Terra/Sol route with increasing reasoning, output cap, and weighted credit cost; the browser never selects an arbitrary model ID. It sends no account, portfolio, broker, credential-class, or live market data and defines no tools. The request disables provider-side response storage and requires a strict bounded JSON schema. Go enforces entitlement, ownership, active connection state, a weighted 12-credit hourly budget, encrypted credential retrieval, exact response-route validation, and metadata-only auditing. The returned analysis remains untrusted educational output and has no route to preview, authorize, or execute an order.
 
 The Neural Engine receives only the minimum data and tools authorized for a request. It neither receives financial-provider credentials nor directly invokes financial providers. Tool requests return to Arbion-controlled systems for permission checks and execution. See [Neural Engine](NEURAL_ENGINE.md).
 

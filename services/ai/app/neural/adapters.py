@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass
 
 import httpx
 
@@ -18,7 +19,7 @@ from .models import (
 from .provider import NeuralProvider
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
-TIMEOUT = httpx.Timeout(20.0, connect=5.0)
+TIMEOUT = httpx.Timeout(35.0, connect=5.0)
 INSIGHT_INSTRUCTIONS = """You are Arbion Insight, a read-only educational financial
 analysis assistant. Answer only from the user's supplied text. You have no access to their
 account, portfolio, broker, holdings, positions, market quotes, news, or real-time data.
@@ -44,6 +45,21 @@ INSIGHT_SCHEMA: dict[str, object] = {
         "requires_current_data",
     ],
     "additionalProperties": False,
+}
+
+
+@dataclass(frozen=True)
+class InsightRoute:
+    model: str
+    reasoning_effort: str
+    max_output_tokens: int
+    verbosity: str
+
+
+INSIGHT_ROUTES: dict[str, InsightRoute] = {
+    "fast": InsightRoute("gpt-5.6-luna", "low", 700, "low"),
+    "core": InsightRoute("gpt-5.6-terra", "medium", 900, "low"),
+    "deep": InsightRoute("gpt-5.6-sol", "high", 1200, "medium"),
 }
 
 
@@ -159,24 +175,27 @@ class OpenAIProvider(HTTPProvider):
     async def analyze(
         self,
         credential: str,
-        model: str,
+        profile: str,
         prompt: str,
         safety_identifier: str,
     ) -> Insight:
+        route = INSIGHT_ROUTES.get(profile)
+        if route is None:
+            raise NeuralProviderError(ErrorCode.INVALID_REQUEST)
         started = time.monotonic()
         payload = await self._post(
             "https://api.openai.com/v1/responses",
             {"Authorization": f"Bearer {credential}"},
             {
-                "model": model,
+                "model": route.model,
                 "instructions": INSIGHT_INSTRUCTIONS,
                 "input": prompt,
                 "store": False,
                 "safety_identifier": safety_identifier,
-                "reasoning": {"effort": "low"},
-                "max_output_tokens": 900,
+                "reasoning": {"effort": route.reasoning_effort},
+                "max_output_tokens": route.max_output_tokens,
                 "text": {
-                    "verbosity": "low",
+                    "verbosity": route.verbosity,
                     "format": {
                         "type": "json_schema",
                         "name": "arbion_insight",
@@ -186,10 +205,15 @@ class OpenAIProvider(HTTPProvider):
                 },
             },
         )
-        return self._normalize_insight(payload, model, int((time.monotonic() - started) * 1000))
+        return self._normalize_insight(
+            payload,
+            profile,
+            route.model,
+            int((time.monotonic() - started) * 1000),
+        )
 
     def _normalize_insight(
-        self, payload: dict[str, object], model: str, latency_ms: int
+        self, payload: dict[str, object], profile: str, model: str, latency_ms: int
     ) -> Insight:
         if payload.get("status") != "completed":
             raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
@@ -220,6 +244,7 @@ class OpenAIProvider(HTTPProvider):
             metadata=ResponseMetadata(
                 provider=self.id,
                 model=model,
+                profile=profile,
                 input_usage=input_tokens if isinstance(input_tokens, int) else None,
                 output_usage=output_tokens if isinstance(output_tokens, int) else None,
                 request_id=response_id if isinstance(response_id, str) else None,

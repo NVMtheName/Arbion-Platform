@@ -1,10 +1,19 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { InsightPanel } from "./insight-panel";
 
 describe("InsightPanel", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
 
   it("explains the boundary when no model is configured", () => {
     render(<InsightPanel configured={false} />);
@@ -26,12 +35,14 @@ describe("InsightPanel", () => {
           risk_flags: ["Loss remains possible."],
           limitations: ["No live data was supplied."],
           requires_current_data: false,
-          metadata: { model: "gpt-5.6-luna" },
+          metadata: { model: "gpt-5.6-terra", profile: "core" },
         },
       }),
     }));
     vi.stubGlobal("fetch", fetchMock);
     render(<InsightPanel configured model="gpt-5.6-luna" />);
+
+    fireEvent.click(screen.getByRole("radio", { name: /core/i }));
 
     fireEvent.change(
       screen.getByLabelText(/what would you like to understand/i),
@@ -46,9 +57,27 @@ describe("InsightPanel", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/neural/insight", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt: "Explain diversification" }),
+      body: JSON.stringify({
+        prompt: "Explain diversification",
+        profile: "core",
+      }),
     });
     expect(screen.getByText("Spread exposure.")).toBeInTheDocument();
     expect(screen.getByText("Loss remains possible.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/generated with gpt-5.6-terra · core profile/i),
+    ).toBeInTheDocument();
+  });
+
+  it("defaults to the cheapest bounded route", () => {
+    render(<InsightPanel configured model="gpt-5.6-luna" />);
+
+    expect(screen.getByRole("radio", { name: /fast/i })).toBeChecked();
+    expect(
+      screen.getByText(/gpt-5.6 luna · 1 of 12 hourly credits/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/gpt-5.6 sol · 6 of 12 hourly credits/i),
+    ).toBeInTheDocument();
   });
 });

@@ -11,10 +11,43 @@ type Insight = {
   requires_current_data: boolean;
   metadata: {
     model: string;
+    profile: InsightProfile;
     input_usage?: number;
     output_usage?: number;
   };
 };
+
+type InsightProfile = "fast" | "core" | "deep";
+
+const profiles: {
+  id: InsightProfile;
+  name: string;
+  model: string;
+  credits: number;
+  description: string;
+}[] = [
+  {
+    id: "fast",
+    name: "Fast",
+    model: "GPT-5.6 Luna",
+    credits: 1,
+    description: "Quick explanations and summaries at the lowest cost.",
+  },
+  {
+    id: "core",
+    name: "Core",
+    model: "GPT-5.6 Terra",
+    credits: 3,
+    description: "Balanced reasoning for comparisons and nuanced questions.",
+  },
+  {
+    id: "deep",
+    name: "Deep",
+    model: "GPT-5.6 Sol",
+    credits: 6,
+    description: "Deliberate analysis for the hardest educational questions.",
+  },
+];
 
 export function InsightPanel({
   configured,
@@ -27,6 +60,7 @@ export function InsightPanel({
   const [insight, setInsight] = useState<Insight | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [profile, setProfile] = useState<InsightProfile>("fast");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,7 +73,7 @@ export function InsightPanel({
       const response = await fetch("/api/neural/insight", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: question }),
+        body: JSON.stringify({ prompt: question, profile }),
       });
       const body = (await response.json()) as {
         insight?: Insight;
@@ -77,6 +111,32 @@ export function InsightPanel({
         </p>
       ) : (
         <form onSubmit={submit}>
+          <fieldset className="insight-profiles">
+            <legend>Analysis depth</legend>
+            <div className="insight-profile-grid">
+              {profiles.map((option) => (
+                <label
+                  className={profile === option.id ? "selected" : ""}
+                  key={option.id}
+                >
+                  <input
+                    checked={profile === option.id}
+                    name="insight-profile"
+                    onChange={() => setProfile(option.id)}
+                    type="radio"
+                    value={option.id}
+                  />
+                  <span>
+                    <strong>{option.name}</strong>
+                    <small>
+                      {option.model} · {option.credits} of 12 hourly credits
+                    </small>
+                    <small>{option.description}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <label htmlFor="insight-prompt">
             What would you like to understand?
           </label>
@@ -92,7 +152,12 @@ export function InsightPanel({
           <button disabled={loading || prompt.trim() === ""} type="submit">
             {loading ? "Analyzing…" : "Generate insight"}
           </button>
-          {model && <p className="insight-meta">Selected model: {model}</p>}
+          {model && (
+            <p className="insight-meta">
+              Connected model preference: {model}. The analysis depth above
+              selects the bounded GPT-5.6 route for this request.
+            </p>
+          )}
         </form>
       )}
       {error && (
@@ -114,7 +179,8 @@ export function InsightPanel({
           <InsightList title="Risks to consider" items={insight.risk_flags} />
           <InsightList title="Limitations" items={insight.limitations} />
           <p className="insight-meta">
-            Generated with {insight.metadata.model}
+            Generated with {insight.metadata.model} · {insight.metadata.profile}{" "}
+            profile
           </p>
         </article>
       )}

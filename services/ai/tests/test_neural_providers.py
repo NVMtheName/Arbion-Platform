@@ -73,14 +73,30 @@ def test_registry_contains_each_adapter():
     assert registry.get("gemini").id == "gemini"
 
 
+@pytest.mark.parametrize(
+    ("profile", "model", "effort", "max_output_tokens", "verbosity"),
+    [
+        ("fast", "gpt-5.6-luna", "low", 700, "low"),
+        ("core", "gpt-5.6-terra", "medium", 900, "low"),
+        ("deep", "gpt-5.6-sol", "high", 1200, "medium"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_openai_insight_uses_bounded_structured_response() -> None:
+async def test_openai_insight_uses_bounded_structured_response(
+    profile: str,
+    model: str,
+    effort: str,
+    max_output_tokens: int,
+    verbosity: str,
+) -> None:
     async def respond(request: httpx.Request) -> httpx.Response:
         assert request.url == "https://api.openai.com/v1/responses"
         body = json.loads(request.content)
-        assert body["model"] == "gpt-5.6-luna"
+        assert body["model"] == model
         assert body["store"] is False
-        assert body["reasoning"] == {"effort": "low"}
+        assert body["reasoning"] == {"effort": effort}
+        assert body["max_output_tokens"] == max_output_tokens
+        assert body["text"]["verbosity"] == verbosity
         assert body["text"]["format"]["type"] == "json_schema"
         assert body["text"]["format"]["strict"] is True
         assert "tools" not in body
@@ -117,12 +133,14 @@ async def test_openai_insight_uses_bounded_structured_response() -> None:
 
     async with client(httpx.MockTransport(respond)) as http:
         result = await OpenAIProvider(http).analyze(
-            "secret-value", "gpt-5.6-luna", "How should I think about diversification?", "a" * 64
+            "secret-value", profile, "How should I think about diversification?", "a" * 64
         )
     assert result.summary.startswith("Diversification")
     assert result.metadata.input_usage == 30
     assert result.metadata.output_usage == 45
     assert result.metadata.request_id == "resp-safe"
+    assert result.metadata.model == model
+    assert result.metadata.profile == profile
 
 
 @pytest.mark.asyncio
@@ -141,8 +159,24 @@ async def test_openai_insight_rejects_unstructured_provider_output() -> None:
     )
     async with client(transport) as http:
         with pytest.raises(NeuralProviderError) as caught:
-            await OpenAIProvider(http).analyze("secret-value", "gpt-5.6-luna", "question", "a" * 64)
+            await OpenAIProvider(http).analyze("secret-value", "fast", "question", "a" * 64)
     assert caught.value.code == ErrorCode.INTERNAL_ERROR
+
+
+@pytest.mark.asyncio
+async def test_openai_insight_rejects_unknown_profile_without_provider_call() -> None:
+    called = False
+
+    async def respond(_: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(500)
+
+    async with client(httpx.MockTransport(respond)) as http:
+        with pytest.raises(NeuralProviderError) as caught:
+            await OpenAIProvider(http).analyze("secret-value", "unknown", "question", "a" * 64)
+    assert caught.value.code == ErrorCode.INVALID_REQUEST
+    assert called is False
 
 
 @pytest.mark.asyncio
