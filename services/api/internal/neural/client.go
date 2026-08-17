@@ -65,13 +65,14 @@ func (c *HTTPClient) call(ctx context.Context, path, provider string, credential
 		return errors.New("encode neural request")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
-	clear(body)
 	if err != nil {
+		clear(body)
 		return errors.New("create neural request")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	res, err := c.client.Do(req)
+	clear(body)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return &ProviderError{Code: Timeout}
