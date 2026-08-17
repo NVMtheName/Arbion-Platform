@@ -14,7 +14,6 @@ type RiskEvaluator interface {
 	Evaluate(risk.EvaluationContext, risk.ProposedAction) risk.RiskEvaluation
 }
 type Repository interface {
-	BeginEvaluation(context.Context, string, string) (bool, error)
 	CommitEvaluation(context.Context, Instance, int, Decision, risk.RiskEvaluation, ExecutionResult, time.Time) error
 }
 type Orchestrator struct {
@@ -25,17 +24,10 @@ type Orchestrator struct {
 	Shadow ExecutionAdapter
 }
 
-func (o *Orchestrator) Evaluate(ctx context.Context, i Instance, in EvaluationInput, rc risk.EvaluationContext) (ExecutionResult, error) {
-	claimed, err := o.Store.BeginEvaluation(ctx, i.ID, in.EventID)
-	if err != nil {
-		return ExecutionResult{}, err
-	}
-	if !claimed {
-		return ExecutionResult{}, ErrDuplicate
-	}
+func (o *Orchestrator) Evaluate(ctx context.Context, i Instance, in EvaluationInput, rc risk.EvaluationContext) (EvaluationOutcome, error) {
 	d, err := o.Engine.Evaluate(i, in)
 	if err != nil {
-		return ExecutionResult{}, err
+		return EvaluationOutcome{}, err
 	}
 	re := o.Risk.Evaluate(rc, *d.ProposedAction)
 	var adapter ExecutionAdapter
@@ -45,16 +37,18 @@ func (o *Orchestrator) Evaluate(ctx context.Context, i Instance, in EvaluationIn
 	case Shadow:
 		adapter = o.Shadow
 	default:
-		return ExecutionResult{}, ErrInvalid
+		return EvaluationOutcome{}, ErrInvalid
 	}
 	result, err := adapter.Execute(*d.ProposedAction, re, in.Market, d.ProposedState)
 	if err != nil {
-		return result, err
+		return EvaluationOutcome{Execution: result}, err
 	}
-	// Repository implementations atomically persist risk evidence, execution, journal,
-	// paper mutations, and the optimistic state transition.
+	// The repository claims the event inside the same transaction that persists risk
+	// evidence, execution, journal, paper mutations, and any optimistic state change.
+	// Pure evaluation may therefore run more than once for a duplicate request, while
+	// durable effects are committed exactly once and no abandoned CLAIMED row is left.
 	if err = o.Store.CommitEvaluation(ctx, i, i.StateVersion, d, re, result, in.Timestamp); err != nil {
-		return result, err
+		return EvaluationOutcome{Execution: result}, err
 	}
-	return result, nil
+	return EvaluationOutcome{Execution: result, RiskDecision: re.Decision, RiskReasonCodes: re.ReasonCodes, RiskChecks: re.Checks, ApprovalRequired: re.ApprovalRequired, LiveExecutionAvailable: false}, nil
 }

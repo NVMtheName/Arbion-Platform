@@ -39,16 +39,16 @@ Shadow Mode must never submit an order. It records the intended order, expected 
 
 ## Evaluation and state advancement
 
-A future evaluation conceptually:
+The implemented explicit manual evaluation follows this path, with AI, live preview, and broker submission intentionally absent:
 
 1. loads the active immutable mandate version and reconciled strategy state;
 2. obtains mode-appropriate, provenance-bearing account and market inputs;
 3. determines legal candidate transitions;
-4. optionally requests bounded AI assistance for a Hybrid decision;
+4. rejects Hybrid/AI evaluation in this milestone;
 5. emits a structured proposal;
 6. submits it to the authoritative control/risk engine;
-7. previews and obtains approval as required by autonomy and mode;
-8. sends an authorized intent to the applicable execution adapter; and
+7. records any approval requirement without creating a broker preview;
+8. sends an allowed proposal only to the PAPER or SHADOW non-live adapter; and
 9. advances durable state only from mode-appropriate authoritative facts, recording the journal entry.
 
 For live execution, submission is not a fill. Strategy state that depends on execution advances only from reconciled broker events. Partial fills, external/manual trades, assignment, exercise, corrections, and unknown outcomes require explicit deterministic handling.
@@ -65,11 +65,11 @@ See [Automation Engine](AUTOMATION_ENGINE.md), [Risk and Control Engine](RISK_CO
 
 ## Deferred decisions
 
-The strategy-definition format, transition/event taxonomy, pricing and fill simulation, corporate actions, assignment/exercise semantics, multi-leg atomicity, calendars, deterministic replay requirements, state migration, and mode-switch policy remain for later design. No engine or backtester is implemented here.
+The remaining strategy-definition format, complete transition/event taxonomy, production-grade fill simulation, corporate actions, assignment/exercise ingestion, multi-leg atomicity, trading calendars, deterministic replay requirements, state migration, mode-switch policy, scheduler, and backtester remain for later design. The current implementation is deliberately limited to explicit manual PAPER/SHADOW evaluation.
 
 ## Implemented configuration registry
 
-The Go automation domain exposes metadata for `wheel`, `covered_call`, `cash_secured_put`, and `collar`, including future capability and parameter-schema hints. The registry validates mandate configuration only. It contains no states, transitions, evaluator, scheduler, market data, order preview, or execution adapter. Definitively unsupported required options capability rejects configuration; `UNKNOWN` is saved only with `capability_unverified=true`.
+The Go automation domain exposes metadata for `wheel`, `covered_call`, `cash_secured_put`, and `collar`, including capability and parameter-schema hints. The registry itself remains configuration metadata; implemented strategy definitions, evaluation, and non-live adapters live in `internal/strategy`. No scheduler, order preview, or live adapter exists. Definitively unsupported required options capability rejects configuration; `UNKNOWN` is saved only with `capability_unverified=true` and fails closed during action evaluation.
 
 ## Implemented deterministic non-live foundation
 
@@ -77,6 +77,8 @@ The existing automation registry is now the `StrategyDefinition` catalog: implem
 
 Cash-Secured Put and Covered Call use explicit legal states and provider-independent normalized inputs. Wheel composes their shared option lifecycle transitions. Candidate selection filters symbol, option type, DTE, delta, and premium, then deterministically ranks by distance to target delta, earliest expiration, and lowest strike. Required missing data fails closed. Covered calls conservatively require 100 normalized equity shares per standard contract.
 
-`StrategyEvaluationInput`, `MarketSnapshot`, and `OptionCandidate` use exact decimal strings and caller-supplied timestamps. The engine has no Schwab, broker, market-vendor, or AI dependency. Explicit `EXPIRE_WORTHLESS`, `ASSIGNED`, and `CALLED_AWAY` events drive lifecycle state; no probability is invented.
+`StrategyEvaluationInput`, `MarketSnapshot`, and `OptionCandidate` use exact decimal strings and provider-derived timestamps. The engine has no Schwab, broker, market-vendor, or AI dependency. The surrounding service obtains read-only inputs through normalized financial interfaces and rejects missing or stale market timestamps. Explicit `EXPIRE_WORTHLESS`, `ASSIGNED`, and `CALLED_AWAY` events drive lifecycle state; no probability is invented.
+
+Strategy parameters are validated and normalized server-side. Saving parameter changes creates a new immutable mandate version and returns the mandate to DRAFT; the user must review and mark that version READY before initializing or manually evaluating its exact matching strategy instance. A client-supplied event ID supplies bounded idempotency, while the database atomically claims that event with risk evidence, non-live execution evidence, the Decision Journal entry, and any PAPER-only state/accounting mutation.
 
 **The same deterministic strategy definition is intended to serve paper, shadow, and future live execution.** Future live execution remains unavailable and requires separate approval.

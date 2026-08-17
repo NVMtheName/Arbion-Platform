@@ -55,6 +55,7 @@ func (f *fakeStore) GetMandate(context.Context, string, string) (Mandate, error)
 }
 func (f *fakeStore) UpdateMandate(context.Context, string, string, int, MandateCommand, bool, string) (Mandate, error) {
 	f.created.CurrentVersion++
+	f.created.Status = "DRAFT"
 	return f.created, nil
 }
 func (f *fakeStore) Transition(_ context.Context, _, _ string, _ int, status, source string) (Mandate, error) {
@@ -192,7 +193,7 @@ func TestReadyPaperWheelAllowsUnknownOptionsCapability(t *testing.T) {
 		ExecutionMode:        "PAPER",
 		Status:               "DRAFT",
 		CurrentVersion:       1,
-		StrategyParameters:   []byte(`{}`),
+		StrategyParameters:   []byte(`{"symbols":["AAPL"],"minimum_dte":20,"maximum_dte":60,"target_delta":"0.30","target_delta_min":"0.20","target_delta_max":"0.40","maximum_contracts":1,"assignment_handling_policy":"continue_wheel"}`),
 		ScheduleConditions:   []byte(`{}`),
 		OptionsAllowed:       true,
 		CapabilityUnverified: true,
@@ -207,5 +208,14 @@ func TestReadyPaperWheelAllowsUnknownOptionsCapability(t *testing.T) {
 	}
 	if f.transitionStatus != "READY" || f.transitionSource != "UI" {
 		t.Fatalf("unexpected transition metadata: status=%q source=%q", f.transitionStatus, f.transitionSource)
+	}
+}
+
+func TestReadyStrategyRequiresCompleteParameters(t *testing.T) {
+	f := baseStore()
+	wheel := "wheel"
+	f.created = Mandate{ID: "m", UserID: founder.UserID, FinancialAccountID: "a", AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: "b", AutonomyLevel: "RESEARCH_ONLY", ExecutionMode: "PAPER", Status: "DRAFT", CurrentVersion: 1, StrategyParameters: []byte(`{}`), OptionsAllowed: true}
+	if _, err := NewService(f, nil).Transition(context.Background(), founder, f.created.ID, 1, "READY"); err != ErrInvalid {
+		t.Fatalf("incomplete strategy parameters reached READY: %v", err)
 	}
 }

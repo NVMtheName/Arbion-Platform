@@ -3,8 +3,14 @@ package strategy
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math/big"
+	"sort"
+	"strings"
+	"time"
 
 	"github.com/arbion/platform/services/api/internal/automation"
+	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -110,3 +116,209 @@ func (s *PostgresStore) Executions(c context.Context, u, id string) ([]Execution
 }
 
 var _ Persistence = (*PostgresStore)(nil)
+var _ Repository = (*PostgresStore)(nil)
+
+func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, expectedVersion int, decision Decision, evaluation risk.RiskEvaluation, result ExecutionResult, evaluatedAt time.Time) error {
+	if decision.ProposedAction == nil || decision.ProposedAction.ID == "" || decision.ProposedAction.CorrelationID == "" || evaluation.ID == "" || evaluatedAt.IsZero() || expectedVersion < 1 {
+		return ErrInvalid
+	}
+	action := *decision.ProposedAction
+	if action.FinancialAccountID != instance.FinancialAccountID || evaluation.UserID != instance.UserID || evaluation.AccountID != instance.FinancialAccountID || action.MandateID == nil || *action.MandateID != instance.AutomationMandateID || action.MandateVersion == nil || *action.MandateVersion != instance.MandateVersion {
+		return ErrInvalid
+	}
+	if !json.Valid(decision.Rationale) || len(decision.Rationale) == 0 || decision.Rationale[0] != '{' {
+		return ErrInvalid
+	}
+	reasonCodes, err := json.Marshal(evaluation.ReasonCodes)
+	if err != nil {
+		return err
+	}
+	checks, err := json.Marshal(evaluation.Checks)
+	if err != nil {
+		return err
+	}
+	executionMetadata, err := json.Marshal(map[string]any{
+		"candidate_count":          decision.CandidateCount,
+		"expected_state":           result.ExpectedState,
+		"live_execution_available": false,
+		"proposed_notional":        action.Notional,
+		"reason":                   result.Reason,
+	})
+	if err != nil {
+		return err
+	}
+
+	tx, err := s.db.Begin(c)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(c)
+
+	claimed, err := tx.Exec(c, `INSERT INTO strategy_evaluation_events(strategy_instance_id,event_id,status,created_at,completed_at) VALUES($1,$2,'COMMITTED',$3,$3) ON CONFLICT DO NOTHING`, instance.ID, action.CorrelationID, evaluatedAt)
+	if err != nil {
+		return err
+	}
+	if claimed.RowsAffected() != 1 {
+		return ErrDuplicate
+	}
+	_, err = tx.Exec(c, `INSERT INTO risk_evaluations(id,user_id,financial_account_id,proposed_action_id,correlation_id,mandate_id,mandate_version,decision,approval_required,execution_mode,platform_execution_available,reason_codes,checks,evaluated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,$11,$12,$13)`, evaluation.ID, evaluation.UserID, evaluation.AccountID, action.ID, action.CorrelationID, action.MandateID, action.MandateVersion, evaluation.Decision, evaluation.ApprovalRequired, instance.ExecutionMode, reasonCodes, checks, evaluatedAt)
+	if err != nil {
+		return err
+	}
+
+	price := result.Price
+	if price == nil {
+		price = action.EstimatedPrice
+	}
+	notional := result.Notional
+	if notional == nil {
+		notional = &action.Notional
+	}
+	var executionID string
+	err = tx.QueryRow(c, `INSERT INTO nonlive_execution_records(idempotency_key,user_id,strategy_instance_id,mandate_id,mandate_version,proposed_action_id,risk_evaluation_id,mode,status,symbol,instrument,side,quantity,price,notional,metadata,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'OPTION',$11,$12,$13,$14,$15,$16,$16) RETURNING id::text`, action.ID, instance.UserID, instance.ID, instance.AutomationMandateID, instance.MandateVersion, action.ID, evaluation.ID, instance.ExecutionMode, result.Status, action.Instrument, action.Side, action.Quantity, price, notional, executionMetadata, evaluatedAt).Scan(&executionID)
+	if err != nil {
+		return err
+	}
+
+	resultingState := instance.CurrentState
+	stateChanged := instance.ExecutionMode == Paper && result.Status == SimulatedFilled
+	if stateChanged {
+		if evaluation.Decision != risk.Allow || (result.ExpectedState != ShortPutOpen && result.ExpectedState != ShortCallOpen) || action.Option == nil || result.Price == nil || result.Notional == nil {
+			return ErrInvalid
+		}
+		premium, ok := new(big.Rat).SetString(*result.Notional)
+		quantity, quantityOK := new(big.Rat).SetString(action.Quantity)
+		if !ok || premium.Sign() < 0 || !quantityOK || quantity.Sign() <= 0 {
+			return ErrInvalid
+		}
+		var portfolioID string
+		err = tx.QueryRow(c, `UPDATE paper_portfolios SET cash=cash+$3,version=version+1,updated_at=$4 WHERE strategy_instance_id=$1 AND user_id=$2 RETURNING id::text`, instance.ID, instance.UserID, *result.Notional, evaluatedAt).Scan(&portfolioID)
+		if err != nil {
+			return err
+		}
+		positionMetadata, marshalErr := json.Marshal(map[string]any{"proposed_action_id": action.ID, "risk_evaluation_id": evaluation.ID, "simulation": true})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		negativeQuantity := new(big.Rat).Neg(quantity).FloatString(10)
+		_, err = tx.Exec(c, `INSERT INTO paper_positions(paper_portfolio_id,symbol,instrument,option_type,strike,expiration,quantity,average_price,metadata,updated_at) VALUES($1,$2,'OPTION',$3,$4,$5,$6,$7,$8,$9)`, portfolioID, action.Option.Underlying, action.Option.PutCall, action.Option.Strike, action.Option.Expiration, negativeQuantity, *result.Price, positionMetadata, evaluatedAt)
+		if err != nil {
+			return err
+		}
+		resultingState = result.ExpectedState
+	}
+
+	decisionType := fmt.Sprintf("%s_%s", evaluation.Decision, result.Status)
+	_, err = tx.Exec(c, `INSERT INTO decision_journal_entries(user_id,financial_account_id,mandate_id,mandate_version,strategy_instance_id,strategy_state,source,decision_type,structured_rationale,proposed_action_id,risk_evaluation_id,execution_record_id,resulting_state,created_at) VALUES($1,$2,$3,$4,$5,$6,'STRATEGY',$7,$8,$9,$10,$11,$12,$13)`, instance.UserID, instance.FinancialAccountID, instance.AutomationMandateID, instance.MandateVersion, instance.ID, instance.CurrentState, decisionType, decision.Rationale, action.ID, evaluation.ID, executionID, resultingState, evaluatedAt)
+	if err != nil {
+		return err
+	}
+
+	if stateChanged {
+		var nextVersion int
+		err = tx.QueryRow(c, `UPDATE strategy_instances SET current_state=$5,state_version=state_version+1,last_evaluated_at=$6,updated_at=$6 WHERE id=$1 AND user_id=$2 AND state_version=$3 AND current_state=$4 AND status='ACTIVE' RETURNING state_version`, instance.ID, instance.UserID, expectedVersion, instance.CurrentState, resultingState, evaluatedAt).Scan(&nextVersion)
+		if err == pgx.ErrNoRows {
+			return ErrConflict
+		}
+		if err != nil {
+			return err
+		}
+		transitionMetadata, marshalErr := json.Marshal(map[string]any{"event_id": action.CorrelationID, "mode": instance.ExecutionMode, "risk_decision": evaluation.Decision, "simulation": true})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		_, err = tx.Exec(c, `INSERT INTO strategy_state_transitions(strategy_instance_id,previous_state,new_state,state_version,trigger,proposed_action_id,risk_evaluation_id,execution_record_id,metadata,occurred_at) VALUES($1,$2,$3,$4,'PAPER_SIMULATED_FILL',$5,$6,$7,$8,$9)`, instance.ID, instance.CurrentState, resultingState, nextVersion, action.ID, evaluation.ID, executionID, transitionMetadata, evaluatedAt)
+	} else {
+		var id string
+		err = tx.QueryRow(c, `UPDATE strategy_instances SET last_evaluated_at=$5,updated_at=$5 WHERE id=$1 AND user_id=$2 AND state_version=$3 AND current_state=$4 AND status='ACTIVE' RETURNING id::text`, instance.ID, instance.UserID, expectedVersion, instance.CurrentState, evaluatedAt).Scan(&id)
+		if err == pgx.ErrNoRows {
+			return ErrConflict
+		}
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit(c)
+}
+
+func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, evaluatedAt time.Time) (EvaluationFacts, error) {
+	facts := EvaluationFacts{Breakers: []risk.CircuitBreaker{}}
+	rows, err := s.db.Query(c, `SELECT id::text,scope,scope_id::text,state,reason,source,engaged_at FROM risk_circuit_breakers WHERE state='OPEN' AND (scope='GLOBAL' OR (scope='USER' AND scope_id=$1) OR (scope='ACCOUNT' AND scope_id=$2) OR (scope='AUTOMATION' AND scope_id=$3)) ORDER BY engaged_at`, instance.UserID, instance.FinancialAccountID, instance.AutomationMandateID)
+	if err != nil {
+		return EvaluationFacts{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var breaker risk.CircuitBreaker
+		if err = rows.Scan(&breaker.ID, &breaker.Scope, &breaker.ScopeID, &breaker.State, &breaker.Reason, &breaker.Source, &breaker.EngagedAt); err != nil {
+			return EvaluationFacts{}, err
+		}
+		facts.Breakers = append(facts.Breakers, breaker)
+	}
+	if err = rows.Err(); err != nil {
+		return EvaluationFacts{}, err
+	}
+	dayStart := time.Date(evaluatedAt.UTC().Year(), evaluatedAt.UTC().Month(), evaluatedAt.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	if err = s.db.QueryRow(c, `SELECT count(*) FROM nonlive_execution_records WHERE user_id=$1 AND created_at >= $2 AND created_at < $3`, instance.UserID, dayStart, dayStart.Add(24*time.Hour)).Scan(&facts.ActionsToday); err != nil {
+		return EvaluationFacts{}, err
+	}
+	if instance.ExecutionMode != Paper {
+		return facts, nil
+	}
+
+	var portfolioID, cash string
+	if err = s.db.QueryRow(c, `SELECT id::text,cash::text FROM paper_portfolios WHERE strategy_instance_id=$1 AND user_id=$2`, instance.ID, instance.UserID).Scan(&portfolioID, &cash); err != nil {
+		return EvaluationFacts{}, err
+	}
+	positionRows, err := s.db.Query(c, `SELECT symbol,instrument,COALESCE(option_type,''),COALESCE(strike::text,''),quantity::text,average_price::text FROM paper_positions WHERE paper_portfolio_id=$1 ORDER BY symbol,instrument,expiration,strike`, portfolioID)
+	if err != nil {
+		return EvaluationFacts{}, err
+	}
+	defer positionRows.Close()
+	positions := []Position{}
+	exposureBySymbol := map[string]*big.Rat{}
+	totalExposure := new(big.Rat)
+	for positionRows.Next() {
+		var symbol, instrument, optionType, strikeText, quantityText, averagePriceText string
+		if err = positionRows.Scan(&symbol, &instrument, &optionType, &strikeText, &quantityText, &averagePriceText); err != nil {
+			return EvaluationFacts{}, err
+		}
+		quantity, quantityOK := new(big.Rat).SetString(quantityText)
+		if !quantityOK {
+			return EvaluationFacts{}, ErrInvalid
+		}
+		quantity.Abs(quantity)
+		priceText := averagePriceText
+		multiplier := big.NewRat(1, 1)
+		if instrument == "OPTION" {
+			priceText = strikeText
+			multiplier = big.NewRat(100, 1)
+		}
+		price, priceOK := new(big.Rat).SetString(priceText)
+		if !priceOK || price.Sign() < 0 {
+			return EvaluationFacts{}, ErrInvalid
+		}
+		exposure := new(big.Rat).Mul(quantity, new(big.Rat).Mul(price, multiplier))
+		symbol = strings.ToUpper(symbol)
+		if exposureBySymbol[symbol] == nil {
+			exposureBySymbol[symbol] = new(big.Rat)
+		}
+		exposureBySymbol[symbol].Add(exposureBySymbol[symbol], exposure)
+		totalExposure.Add(totalExposure, exposure)
+		positions = append(positions, Position{Symbol: symbol, Instrument: instrument, Quantity: quantityText})
+	}
+	if err = positionRows.Err(); err != nil {
+		return EvaluationFacts{}, err
+	}
+	symbols := make([]string, 0, len(exposureBySymbol))
+	for symbol := range exposureBySymbol {
+		symbols = append(symbols, symbol)
+	}
+	sort.Strings(symbols)
+	riskPositions := make([]risk.Position, 0, len(symbols))
+	for _, symbol := range symbols {
+		riskPositions = append(riskPositions, risk.Position{Instrument: symbol, Exposure: exposureBySymbol[symbol].FloatString(10)})
+	}
+	facts.Paper = &PaperEvaluationFacts{Cash: cash, CurrentExposure: totalExposure.FloatString(10), Positions: positions, RiskPositions: riskPositions}
+	return facts, nil
+}

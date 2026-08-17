@@ -2,6 +2,7 @@ package schwab
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -104,5 +105,56 @@ func TestRefreshPreservesRotatedPrecisionAndSecretsStayInHeaders(t *testing.T) {
 	}
 	if cr.AccessToken != "new-access" || cr.RefreshToken != "new-refresh" {
 		t.Fatalf("refresh not rotated: %#v", cr)
+	}
+}
+
+func TestReadOnlyQuoteAndStandardOptionChainNormalization(t *testing.T) {
+	quoteTime := int64(1767268800000)
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer market-access" || r.Method != http.MethodGet {
+			t.Fatal("market data request was not a bearer-authenticated GET")
+		}
+		switch r.URL.Path {
+		case "/AAPL/quotes":
+			if r.URL.Query().Get("fields") != "quote,reference" {
+				t.Fatalf("unexpected quote fields: %s", r.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(`{"AAPL":{"assetMainType":"EQUITY","symbol":"AAPL","quote":{"bidPrice":"199.90000001","askPrice":200.10,"mark":"200.000000005","lastPrice":199.99,"quoteTime":1767268800000}}}`))
+		case "/chains":
+			q := r.URL.Query()
+			if q.Get("symbol") != "AAPL" || q.Get("contractType") != "PUT" || q.Get("strikeCount") != "50" || q.Get("includeUnderlyingQuote") != "true" || q.Get("strategy") != "SINGLE" || q.Get("fromDate") != "2026-01-21" || q.Get("toDate") != "2026-03-02" {
+				t.Fatalf("unexpected chain query: %s", r.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(`{"symbol":"AAPL","status":"SUCCESS","underlyingPrice":"200.000000005","underlying":{"quoteTime":1767268800000},"putExpDateMap":{"2026-01-31:30":{"190.0":[{"putCall":"PUT","symbol":"AAPL  260131P00190000","bidPrice":"1.2500000001","askPrice":1.35,"markPrice":1.30,"volatility":"21.123456789","delta":"-0.300000001","quoteTimeInLong":1767268800000,"openInterest":123,"totalVolume":7,"strikePrice":"190.0000000000","expirationDate":"2026-01-31","multiplier":100,"isMini":false,"isNonStandard":false},{"putCall":"PUT","symbol":"NONSTANDARD","bidPrice":9,"delta":-0.3,"strikePrice":190,"expirationDate":"2026-01-31","multiplier":10,"isNonStandard":true}],"195.0":{"putCall":"PUT","symbol":"AAPL  260131P00195000","bidPrice":2.5,"askPrice":2.7,"delta":-0.4,"strikePrice":195,"expirationDate":"2026-01-31","multiplier":100}}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := New(Config{MarketDataBaseURL: srv.URL}, srv.Client())
+	credentials := &financial.Credentials{AccessToken: "market-access"}
+	quote, err := c.GetQuote(context.Background(), credentials, "aapl")
+	if err != nil || quote.Symbol != "AAPL" || quote.Bid == nil || *quote.Bid != "199.90000001" || quote.Mark == nil || *quote.Mark != "200.000000005" || !quote.ProviderTimestamp.Equal(time.UnixMilli(quoteTime).UTC()) {
+		t.Fatalf("quote normalization failed: %#v %v", quote, err)
+	}
+	chain, err := c.GetOptionChain(context.Background(), credentials, financial.OptionChainRequest{Symbol: "aapl", ContractType: "put", StrikeCount: 50, FromDate: time.Date(2026, 1, 21, 12, 0, 0, 0, time.UTC), ToDate: time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC)})
+	if err != nil || len(chain.Contracts) != 2 || chain.UnderlyingPrice == nil || *chain.UnderlyingPrice != "200.000000005" {
+		t.Fatalf("chain normalization failed: %#v %v (%v)", chain, err, errors.Unwrap(err))
+	}
+	if chain.Contracts[0].Bid == nil || *chain.Contracts[0].Bid != "1.2500000001" || chain.Contracts[0].Delta == nil || *chain.Contracts[0].Delta != "-0.300000001" || chain.Contracts[0].OpenInterest == nil || *chain.Contracts[0].OpenInterest != 123 {
+		t.Fatalf("contract precision changed: %#v", chain.Contracts[0])
+	}
+}
+
+func TestMarketDataMalformedDecimalFailsClosed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"AAPL":{"assetMainType":"EQUITY","symbol":"AAPL","quote":{"bidPrice":"not-a-decimal"}}}`))
+	}))
+	defer srv.Close()
+	_, err := New(Config{MarketDataBaseURL: srv.URL}, srv.Client()).GetQuote(context.Background(), &financial.Credentials{AccessToken: "access"}, "AAPL")
+	var providerError *financial.ProviderError
+	if !errors.As(err, &providerError) || providerError.Code != financial.InvalidProviderResponse {
+		t.Fatalf("malformed market data did not fail closed: %v", err)
 	}
 }

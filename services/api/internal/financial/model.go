@@ -48,7 +48,7 @@ type Registry map[string]ProviderDefinition
 
 func DefaultRegistry() Registry {
 	return Registry{
-		"schwab":   {ID: "schwab", Label: "Charles Schwab", AuthType: OAuth2AuthorizationCode, Availability: Implemented, Capabilities: ProviderCapabilities{AccountDiscovery: true, Balances: true, Positions: true, TokenRefresh: true}},
+		"schwab":   {ID: "schwab", Label: "Charles Schwab", AuthType: OAuth2AuthorizationCode, Availability: Implemented, Capabilities: ProviderCapabilities{AccountDiscovery: true, Balances: true, Positions: true, MarketData: true, TokenRefresh: true}},
 		"etrade":   {ID: "etrade", Label: "E*TRADE", AuthType: OAuth1, Availability: Planned},
 		"coinbase": {ID: "coinbase", Label: "Coinbase", AuthType: OAuth2AuthorizationCode, Availability: Planned},
 	}
@@ -108,6 +108,29 @@ type Position struct {
 	CostBasis            *Money  `json:"cost_basis,omitempty"`
 	ProviderInstrumentID string  `json:"-"`
 }
+type Quote struct {
+	Symbol, AssetType    string
+	Bid, Ask, Mark, Last *Decimal
+	ProviderTimestamp    time.Time
+}
+type OptionContract struct {
+	Symbol, Underlying, PutCall, Expiration  string
+	Strike                                   Decimal
+	Bid, Ask, Mark, Delta, ImpliedVolatility *Decimal
+	OpenInterest, Volume                     *int
+	ProviderTimestamp                        time.Time
+}
+type OptionChainRequest struct {
+	Symbol, ContractType string
+	StrikeCount          int
+	FromDate, ToDate     time.Time
+}
+type OptionChain struct {
+	Symbol            string
+	UnderlyingPrice   *Decimal
+	ProviderTimestamp time.Time
+	Contracts         []OptionContract
+}
 type Credentials struct {
 	AccessToken      string     `json:"access_token"`
 	RefreshToken     string     `json:"refresh_token"`
@@ -151,4 +174,12 @@ type BrokerProvider interface {
 	GetPositions(context.Context, *Credentials, string) ([]Position, error)
 	GetCapabilities(context.Context, *Credentials, string) (Capabilities, error)
 	Disconnect(context.Context, *Credentials) error
+}
+
+// MarketDataProvider is intentionally read-only and separate from BrokerProvider.
+// Implementations cannot preview, place, replace, or cancel orders through this
+// boundary.
+type MarketDataProvider interface {
+	GetQuote(context.Context, *Credentials, string) (Quote, error)
+	GetOptionChain(context.Context, *Credentials, OptionChainRequest) (OptionChain, error)
 }

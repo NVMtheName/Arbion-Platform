@@ -144,7 +144,8 @@ Manual Schwab test (never place an order):
 4. Confirm return to `https://www.arbion.ai/api/connections/financial/schwab/callback` and a successful connection display.
 5. Confirm discovered accounts, balances, and positions.
 6. Run **Sync** and confirm there is no duplicate account inventory.
-7. Confirm UI distinctions among PAPER, SHADOW, and real read-only Schwab data.
+7. During an open market session, configure a bounded PAPER or SHADOW strategy and manually evaluate it; confirm quote/standard option-chain reads succeed, the response says no broker order was sent, and no Schwab order appears.
+8. Confirm stale/closed-market data fails closed and the UI distinctions among PAPER, SHADOW, and real read-only Schwab data remain clear.
 
 ## Exact first-host checklist
 

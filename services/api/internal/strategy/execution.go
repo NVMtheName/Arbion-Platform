@@ -29,7 +29,16 @@ func (PaperExecutionAdapter) Execute(a risk.ProposedAction, r risk.RiskEvaluatio
 	notional := new(big.Rat).Mul(price, new(big.Rat).Mul(q, big.NewRat(100, 1)))
 	p := price.FloatString(10)
 	n := notional.FloatString(10)
-	return ExecutionResult{Status: SimulatedFilled, Price: &p, Notional: &n, ExpectedState: next}, nil
+	openState := State("")
+	switch next {
+	case PutProposed:
+		openState = ShortPutOpen
+	case CallProposed:
+		openState = ShortCallOpen
+	default:
+		return ExecutionResult{Status: SimulatedRejected, Reason: "invalid_expected_state"}, nil
+	}
+	return ExecutionResult{Status: SimulatedFilled, Price: &p, Notional: &n, ExpectedState: openState}, nil
 }
 
 type ShadowExecutionAdapter struct{}

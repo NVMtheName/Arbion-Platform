@@ -2,7 +2,7 @@
 
 ## Status and product principle
 
-This document defines a target architecture, not an implemented system. **Arbion is UI-first and conversationally enhanced.** Traditional controls and Ask Arbion are equal control surfaces over the same domain. Neither is privileged, and neither may bypass authorization, mandates, risk, approval, audit, or execution policy.
+This document defines the target architecture and identifies the bounded portions already implemented. **Arbion is UI-first and conversationally enhanced.** Traditional controls and Ask Arbion are equal control surfaces over the same domain. Neither is privileged, and neither may bypass authorization, mandates, risk, approval, audit, or execution policy.
 
 A UI automation builder and the sentence "Run the wheel on my Schwab account with $20,000 using Claude, conservative risk, and don't use margin" must produce the same validated command and the same Automation Mandate. Conversation history is context, not truth; durable structured Arbion objects are truth.
 
@@ -91,11 +91,11 @@ Arbion must not store private model chain-of-thought. It stores user-appropriate
 
 ## Deferred implementation decisions
 
-Schemas, APIs, workers, schedules, leases, concurrency rules, notification transports, allocation arithmetic, mandate-diff significance, approval UX, and live enablement are intentionally deferred. This document authorizes no trading implementation.
+Workers, schedules, leases, notification transports, reservation accounting, broader mandate-diff significance, consequential approval UX, and live enablement remain deferred. Implemented schemas and APIs are limited to durable mandate/non-live state, manual PAPER/SHADOW evaluation, and read-only observations. This document authorizes no broker trading implementation.
 
 ## Relationship to read-only financial connections
 
-The implemented financial connector milestone supplies durable account inventory and read-only balance, position, and tri-state capability observations. It creates no Automation Mandate, capital bucket, worker, paper account, strategy, or execution authority. A disabled financial connection is ineligible for future server-side use; logout does not disable it. Future mandate design must explicitly allocate capital and treat unknown capabilities as unavailable until resolved.
+The financial connector supplies durable account inventory plus read-only balance, position, capability, quote, and option-chain observations. It grants no automation or execution authority; the separate automation domain owns mandates and buckets, while the strategy domain owns isolated PAPER/SHADOW records. A disabled financial connection is ineligible for evaluation; logout does not disable it. Unknown safety-critical capabilities remain unavailable until resolved.
 
 **Broker-reported buying power does not grant Arbion authority to deploy that capital.**
 
@@ -103,9 +103,9 @@ The implemented financial connector milestone supplies durable account inventory
 
 Migration `00006_automation_mandates.sql` evolves (renames) the original `automation_configs` table in place into `automation_mandates`; it does not create a competing active automation concept. It resolves each legacy connection-scoped row to one discovered, same-owner financial account, fails the migration when that cannot be done safely, creates a minimal migration bucket, converts its mode, and records the migrated configuration as immutable version 1 with source `SYSTEM`.
 
-The Go `internal/automation` domain now owns typed Automation Mandates, Capital Buckets, the configuration-only strategy registry, lifecycle commands, structural/capability checks, entitlement checks, immutable snapshots, and expected-version concurrency. UI and future conversation must call this same service. Mandates use `DRAFT`, `READY`, `PAUSED`, `DISABLED`, and `ARCHIVED`; none means executable. `BACKTEST`, `PAPER`, `SHADOW`, and `LIVE` are persisted configuration only, and every API projection declares execution incapable/disabled.
+The Go `internal/automation` domain now owns typed Automation Mandates, Capital Buckets, the strategy metadata registry, lifecycle commands, structural/capability checks, entitlement checks, immutable snapshots, and expected-version concurrency. UI and future conversation must call this same service. Mandates use `DRAFT`, `READY`, `PAUSED`, `DISABLED`, and `ARCHIVED`; READY permits only separately invoked bounded evaluation and is never broker authority. PAPER and SHADOW have non-live adapters; BACKTEST and LIVE remain non-initializable configuration, and every mandate projection declares live execution incapable/disabled.
 
-Capital buckets are account- and user-bound exact-decimal allocations. Fixed allocations can carry an explicit configured allocation limit, against which active fixed buckets are summed to detect deterministic overlap. Percentage allocations must be greater than zero and at most 100%, and may carry an absolute cap. Reserve buckets cannot be attached to a mandate. This is configured-allocation validation only; a future Risk/Control Engine must validate fresh broker facts immediately before action.
+Capital buckets are account- and user-bound exact-decimal allocations. Fixed allocations can carry an explicit configured allocation limit, against which active fixed buckets are summed to detect deterministic overlap. Percentage allocations must be greater than zero and at most 100%, and may carry an absolute cap. Reserve buckets cannot be attached to a mandate. The implemented Risk/Control Engine revalidates the applicable allocation against mode-appropriate fresh facts immediately before a non-live action.
 
 **A configured or READY Automation Mandate does not itself execute trades.**
 
@@ -113,12 +113,12 @@ Capital buckets are account- and user-bound exact-decimal allocations. Fixed all
 
 ## Risk-gate integration
 
-All future automation proposals bind to an exact immutable mandate version and enter the deterministic risk registry. `PAUSED`, `DISABLED`, and `ARCHIVED` deny new authorization; autonomy only changes approval semantics. A successful risk evaluation does not execute a trade.
+Every implemented manual strategy proposal binds to the exact current immutable mandate version and enters the deterministic risk registry. `DRAFT`, `PAUSED`, `DISABLED`, and `ARCHIVED` cannot be evaluated; autonomy only changes approval semantics. A successful risk evaluation permits only the selected PAPER/SHADOW adapter and does not execute a broker trade.
 
 ## Non-live instance and journal implementation
 
-A manual request can initialize an implemented deterministic strategy from a READY `STRATEGY` mandate in PAPER or SHADOW mode. Initialization copies the exact mandate version into the instance; HYBRID evaluation is explicitly unsupported in this milestone and does not imply AI participation. There is no scheduler or background worker.
+A manual request can initialize and explicitly evaluate an implemented deterministic strategy from a READY `STRATEGY` mandate in PAPER or SHADOW mode. Initialization copies the exact mandate version into the instance; evaluation reloads and requires that version to remain current. HYBRID evaluation is explicitly unsupported in this milestone and does not imply AI participation. There is no scheduler or background worker.
 
-The standard UI now supports the same bounded setup lifecycle: an entitled user can create an account-scoped capital bucket, save a mandate draft, mark it READY with expected-version concurrency, pause or disable it, and initialize an eligible PAPER or SHADOW strategy. Reserve buckets, inactive accounts, and buckets belonging to another selected account are excluded from draft selection. PAPER initialization requires explicit simulated starting cash; SHADOW initialization creates no simulated cash and never sends a broker order. LIVE configurations remain non-initializable.
+The standard UI now supports the same bounded setup lifecycle: an entitled user can create an account-scoped capital bucket, save a mandate draft, set validated strategy parameters, mark it READY with expected-version concurrency, pause or disable it, initialize an eligible PAPER or SHADOW strategy, and invoke one evaluation. Parameter edits create a new immutable version and return the mandate to DRAFT. Reserve buckets, inactive accounts, and buckets belonging to another selected account are excluded from draft selection. PAPER initialization requires explicit simulated starting cash; SHADOW initialization creates no simulated cash and never sends a broker order. LIVE configurations remain non-initializable.
 
 Decision Journal entries are append-only structured decision evidence: selected facts, rule outcomes, references, and resulting state. Audit events are reserved for security- or lifecycle-significant commands such as initialization, reset, pause, and exceptional lifecycle handling; routine evaluations belong in the journal rather than flooding the security audit. Neither record stores private chain-of-thought.

@@ -31,6 +31,7 @@ type authHandler struct {
 	financial          *financialconnection.Service
 	automation         *automation.Service
 	strategies         *strategy.InstanceService
+	evaluations        *strategy.EvaluationService
 	cfg                config.Auth
 }
 type credentials struct {
@@ -116,10 +117,24 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 }
 
 func NewFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies ...*strategy.InstanceService) stdhttp.Handler {
-	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", financial: finances, automation: automations}
-	if len(strategies) > 0 {
-		h.strategies = strategies[0]
+	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, firstStrategy(strategies), nil)
+}
+
+func NewFullApplicationHandlerWithEvaluation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService) stdhttp.Handler {
+	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, strategies, evaluations)
+}
+
+func firstStrategy(strategies []*strategy.InstanceService) *strategy.InstanceService {
+	if len(strategies) == 0 {
+		return nil
 	}
+	return strategies[0]
+}
+
+func newFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService) stdhttp.Handler {
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", financial: finances, automation: automations}
+	h.strategies = strategies
+	h.evaluations = evaluations
 	mux := stdhttp.NewServeMux()
 	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("GET /readyz", readiness(database, cfg.Database.ReadinessTimeout))

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/automation"
 	"github.com/arbion/platform/services/api/internal/risk"
 )
 
@@ -46,14 +47,7 @@ type Instance struct {
 	PausedAt, CompletedAt, LastEvaluatedAt                                  *time.Time
 }
 
-type Parameters struct {
-	Symbols                                     []string `json:"symbols"`
-	MinimumDTE, MaximumDTE                      int
-	TargetDelta, TargetDeltaMin, TargetDeltaMax string
-	MinimumPremium                              *string
-	MaximumContracts                            int
-	AssignmentHandlingPolicy                    string
-}
+type Parameters = automation.StrategyParameters
 type OptionCandidate struct {
 	Underlying, OptionType, Strike, Expiration string
 	Bid, Ask, Mark, Delta, ImpliedVolatility   *string
@@ -135,8 +129,17 @@ type ExecutionRecord struct {
 	CreatedAt                                                                                     time.Time
 }
 type ExecutionResult struct {
-	Status          ExecutionStatus
-	Price, Notional *string
-	ExpectedState   State
-	Reason          string
+	Status        ExecutionStatus `json:"status"`
+	Price         *string         `json:"price,omitempty"`
+	Notional      *string         `json:"notional,omitempty"`
+	ExpectedState State           `json:"expected_state,omitempty"`
+	Reason        string          `json:"reason,omitempty"`
+}
+type EvaluationOutcome struct {
+	Execution              ExecutionResult   `json:"execution"`
+	RiskDecision           risk.Decision     `json:"risk_decision"`
+	RiskReasonCodes        []risk.ReasonCode `json:"risk_reason_codes"`
+	RiskChecks             []risk.RiskCheck  `json:"risk_checks"`
+	ApprovalRequired       bool              `json:"approval_required"`
+	LiveExecutionAvailable bool              `json:"live_execution_available"`
 }

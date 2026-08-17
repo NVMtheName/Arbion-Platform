@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/automation"
 	"github.com/arbion/platform/services/api/internal/risk"
 )
 
@@ -26,21 +27,18 @@ func abs(r *big.Rat) *big.Rat {
 }
 
 func ValidateParameters(p Parameters) error {
-	if len(p.Symbols) == 0 || p.MinimumDTE < 0 || p.MaximumDTE < p.MinimumDTE || p.MaximumContracts < 1 {
+	if err := automation.ValidateStrategyParameters(p); err != nil {
 		return ErrInvalid
-	}
-	lo, lok := number(p.TargetDeltaMin)
-	hi, hok := number(p.TargetDeltaMax)
-	target, tok := number(p.TargetDelta)
-	if !lok || !hok || !tok || lo.Sign() < 0 || hi.Cmp(lo) < 0 || target.Cmp(lo) < 0 || target.Cmp(hi) > 0 {
-		return ErrInvalid
-	}
-	if p.MinimumPremium != nil {
-		if x, ok := number(*p.MinimumPremium); !ok || x.Sign() < 0 {
-			return ErrInvalid
-		}
 	}
 	return nil
+}
+
+func ParseParameters(raw json.RawMessage) (Parameters, error) {
+	p, err := automation.ParseStrategyParameters(raw)
+	if err != nil {
+		return Parameters{}, ErrInvalid
+	}
+	return p, nil
 }
 
 // SelectCandidate filters required fields, then ranks by distance to target delta,
@@ -78,7 +76,8 @@ func SelectCandidate(now time.Time, p Parameters, kind string, candidates []Opti
 		if !bok || bid.Sign() < 0 || !sok || parseErr != nil || d.Cmp(lo) < 0 || d.Cmp(hi) > 0 {
 			continue
 		}
-		days := int(expiry.Sub(now).Hours() / 24)
+		today := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
+		days := int(expiry.Sub(today).Hours() / 24)
 		if days < p.MinimumDTE || days > p.MaximumDTE || (p.MinimumPremium != nil && func() bool { x, _ := number(*p.MinimumPremium); return bid.Cmp(x) < 0 }()) {
 			continue
 		}

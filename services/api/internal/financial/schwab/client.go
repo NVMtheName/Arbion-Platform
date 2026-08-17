@@ -10,13 +10,16 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/financial"
 )
 
-type Config struct{ ClientID, ClientSecret, RedirectURI, AuthorizationURL, TokenURL, TraderBaseURL string }
+type Config struct {
+	ClientID, ClientSecret, RedirectURI, AuthorizationURL, TokenURL, TraderBaseURL, MarketDataBaseURL string
+}
 type Client struct {
 	cfg  Config
 	http *http.Client
@@ -217,6 +220,277 @@ func (c *Client) GetCapabilities(ctx context.Context, cr *financial.Credentials,
 	return a.Capabilities, e
 }
 func (c *Client) Disconnect(context.Context, *financial.Credentials) error { return nil } // Schwab's portal does not document a safe API revocation endpoint; Arbion-side deletion is authoritative.
+
+type quoteEnvelope struct {
+	AssetMainType string `json:"assetMainType"`
+	Symbol        string `json:"symbol"`
+	Quote         struct {
+		BidPrice, AskPrice, Mark, LastPrice decimal
+		QuoteTime, TradeTime                int64
+	} `json:"quote"`
+}
+
+func (c *Client) GetQuote(ctx context.Context, cr *financial.Credentials, symbol string) (financial.Quote, error) {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if symbol == "" {
+		return financial.Quote{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	var raw map[string]quoteEnvelope
+	path := "/" + url.PathEscape(symbol) + "/quotes?fields=" + url.QueryEscape("quote,reference")
+	if err := c.marketGet(ctx, cr, path, &raw); err != nil {
+		return financial.Quote{}, err
+	}
+	value, ok := raw[symbol]
+	if !ok {
+		for key, candidate := range raw {
+			if strings.EqualFold(key, symbol) {
+				value, ok = candidate, true
+				break
+			}
+		}
+	}
+	if !ok || !strings.EqualFold(value.Symbol, symbol) {
+		return financial.Quote{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	bid, err := providerDecimal(value.Quote.BidPrice)
+	if err != nil {
+		return financial.Quote{}, err
+	}
+	ask, err := providerDecimal(value.Quote.AskPrice)
+	if err != nil {
+		return financial.Quote{}, err
+	}
+	mark, err := providerDecimal(value.Quote.Mark)
+	if err != nil {
+		return financial.Quote{}, err
+	}
+	last, err := providerDecimal(value.Quote.LastPrice)
+	if err != nil {
+		return financial.Quote{}, err
+	}
+	if bid == nil && ask == nil && mark == nil && last == nil {
+		return financial.Quote{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	quoteTime := value.Quote.QuoteTime
+	if quoteTime == 0 {
+		quoteTime = value.Quote.TradeTime
+	}
+	return financial.Quote{Symbol: symbol, AssetType: value.AssetMainType, Bid: bid, Ask: ask, Mark: mark, Last: last, ProviderTimestamp: providerTime(quoteTime)}, nil
+}
+
+type rawOptionContract struct {
+	PutCall         string  `json:"putCall"`
+	Symbol          string  `json:"symbol"`
+	BidPrice        decimal `json:"bidPrice"`
+	AskPrice        decimal `json:"askPrice"`
+	MarkPrice       decimal `json:"markPrice"`
+	Volatility      decimal `json:"volatility"`
+	Delta           decimal `json:"delta"`
+	StrikePrice     decimal `json:"strikePrice"`
+	ExpirationDate  string  `json:"expirationDate"`
+	QuoteTimeInLong int64   `json:"quoteTimeInLong"`
+	TradeTimeInLong int64   `json:"tradeTimeInLong"`
+	OpenInterest    decimal `json:"openInterest"`
+	TotalVolume     decimal `json:"totalVolume"`
+	Multiplier      decimal `json:"multiplier"`
+	IsMini          bool    `json:"isMini"`
+	IsNonStandard   bool    `json:"isNonStandard"`
+}
+
+type rawOptionContracts []rawOptionContract
+
+func (contracts *rawOptionContracts) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		*contracts = nil
+		return nil
+	}
+	if data[0] == '[' {
+		return json.Unmarshal(data, (*[]rawOptionContract)(contracts))
+	}
+	if data[0] == '{' {
+		var contract rawOptionContract
+		if err := json.Unmarshal(data, &contract); err != nil {
+			return err
+		}
+		*contracts = []rawOptionContract{contract}
+		return nil
+	}
+	return errors.New("invalid option contract collection")
+}
+
+type rawOptionChain struct {
+	Symbol          string  `json:"symbol"`
+	Status          string  `json:"status"`
+	UnderlyingPrice decimal `json:"underlyingPrice"`
+	Underlying      struct {
+		QuoteTime int64 `json:"quoteTime"`
+		TradeTime int64 `json:"tradeTime"`
+	} `json:"underlying"`
+	CallExpDateMap map[string]map[string]rawOptionContracts `json:"callExpDateMap"`
+	PutExpDateMap  map[string]map[string]rawOptionContracts `json:"putExpDateMap"`
+}
+
+func (c *Client) GetOptionChain(ctx context.Context, cr *financial.Credentials, request financial.OptionChainRequest) (financial.OptionChain, error) {
+	request.Symbol = strings.ToUpper(strings.TrimSpace(request.Symbol))
+	request.ContractType = strings.ToUpper(request.ContractType)
+	if request.Symbol == "" || (request.ContractType != "PUT" && request.ContractType != "CALL") || request.StrikeCount < 1 || request.StrikeCount > 100 || request.FromDate.IsZero() || request.ToDate.Before(request.FromDate) || request.ToDate.Sub(request.FromDate) > 730*24*time.Hour {
+		return financial.OptionChain{}, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("invalid option chain request")}
+	}
+	query := url.Values{}
+	query.Set("symbol", request.Symbol)
+	query.Set("contractType", request.ContractType)
+	query.Set("strikeCount", fmt.Sprintf("%d", request.StrikeCount))
+	query.Set("includeUnderlyingQuote", "true")
+	query.Set("strategy", "SINGLE")
+	query.Set("fromDate", request.FromDate.Format("2006-01-02"))
+	query.Set("toDate", request.ToDate.Format("2006-01-02"))
+	var raw rawOptionChain
+	if err := c.marketGet(ctx, cr, "/chains?"+query.Encode(), &raw); err != nil {
+		return financial.OptionChain{}, err
+	}
+	if !strings.EqualFold(raw.Symbol, request.Symbol) || (raw.Status != "" && !strings.EqualFold(raw.Status, "SUCCESS")) {
+		return financial.OptionChain{}, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("option chain response identity or status mismatch")}
+	}
+	underlyingPrice, err := providerDecimal(raw.UnderlyingPrice)
+	if err != nil {
+		return financial.OptionChain{}, err
+	}
+	providerTimestamp := providerTime(raw.Underlying.QuoteTime)
+	if providerTimestamp.IsZero() {
+		providerTimestamp = providerTime(raw.Underlying.TradeTime)
+	}
+	selectedMap := raw.PutExpDateMap
+	if request.ContractType == "CALL" {
+		selectedMap = raw.CallExpDateMap
+	}
+	contracts := []financial.OptionContract{}
+	for _, strikes := range selectedMap {
+		for _, candidates := range strikes {
+			for _, candidate := range candidates {
+				normalized, ok, normalizeErr := normalizeOptionContract(request.Symbol, request.ContractType, candidate, providerTimestamp)
+				if normalizeErr != nil {
+					return financial.OptionChain{}, normalizeErr
+				}
+				if ok {
+					contracts = append(contracts, normalized)
+				}
+			}
+		}
+	}
+	sort.Slice(contracts, func(i, j int) bool {
+		if contracts[i].Expiration != contracts[j].Expiration {
+			return contracts[i].Expiration < contracts[j].Expiration
+		}
+		left, _ := new(big.Rat).SetString(string(contracts[i].Strike))
+		right, _ := new(big.Rat).SetString(string(contracts[j].Strike))
+		if comparison := left.Cmp(right); comparison != 0 {
+			return comparison < 0
+		}
+		return contracts[i].Symbol < contracts[j].Symbol
+	})
+	return financial.OptionChain{Symbol: request.Symbol, UnderlyingPrice: underlyingPrice, ProviderTimestamp: providerTimestamp, Contracts: contracts}, nil
+}
+
+func normalizeOptionContract(underlying, contractType string, raw rawOptionContract, fallbackTime time.Time) (financial.OptionContract, bool, error) {
+	multiplier, err := providerInt(raw.Multiplier)
+	if err != nil {
+		return financial.OptionContract{}, false, err
+	}
+	if raw.IsMini || raw.IsNonStandard || multiplier == nil || *multiplier != 100 || !strings.EqualFold(raw.PutCall, contractType) {
+		return financial.OptionContract{}, false, nil
+	}
+	strike, err := providerDecimal(raw.StrikePrice)
+	if err != nil || strike == nil {
+		if err != nil {
+			return financial.OptionContract{}, false, err
+		}
+		return financial.OptionContract{}, false, nil
+	}
+	strikeValue, strikeOK := new(big.Rat).SetString(string(*strike))
+	if !strikeOK || strikeValue.Sign() <= 0 {
+		return financial.OptionContract{}, false, nil
+	}
+	if _, err = time.Parse("2006-01-02", raw.ExpirationDate); err != nil {
+		return financial.OptionContract{}, false, nil
+	}
+	bid, err := providerDecimal(raw.BidPrice)
+	if err != nil {
+		return financial.OptionContract{}, false, err
+	}
+	ask, err := providerDecimal(raw.AskPrice)
+	if err != nil {
+		return financial.OptionContract{}, false, err
+	}
+	mark, err := providerDecimal(raw.MarkPrice)
+	if err != nil {
+		return financial.OptionContract{}, false, err
+	}
+	delta, err := providerDecimal(raw.Delta)
+	if err != nil {
+		return financial.OptionContract{}, false, err
+	}
+	volatility, err := providerDecimal(raw.Volatility)
+	if err != nil {
+		return financial.OptionContract{}, false, err
+	}
+	openInterest, err := providerInt(raw.OpenInterest)
+	if err != nil {
+		return financial.OptionContract{}, false, err
+	}
+	volume, err := providerInt(raw.TotalVolume)
+	if err != nil {
+		return financial.OptionContract{}, false, err
+	}
+	timestamp := providerTime(raw.QuoteTimeInLong)
+	if timestamp.IsZero() {
+		timestamp = providerTime(raw.TradeTimeInLong)
+	}
+	if timestamp.IsZero() {
+		timestamp = fallbackTime
+	}
+	return financial.OptionContract{Symbol: raw.Symbol, Underlying: underlying, PutCall: contractType, Expiration: raw.ExpirationDate, Strike: *strike, Bid: bid, Ask: ask, Mark: mark, Delta: delta, ImpliedVolatility: volatility, OpenInterest: openInterest, Volume: volume, ProviderTimestamp: timestamp}, true, nil
+}
+
+func providerDecimal(value decimal) (*financial.Decimal, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if _, ok := new(big.Rat).SetString(value.String()); !ok {
+		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("provider decimal is malformed")}
+	}
+	result := financial.Decimal(value.String())
+	return &result, nil
+}
+
+func providerInt(value decimal) (*int, error) {
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := value.Int64()
+	if err != nil || parsed < 0 || int64(int(parsed)) != parsed {
+		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("provider integer is malformed")}
+	}
+	result := int(parsed)
+	return &result, nil
+}
+
+func providerTime(milliseconds int64) time.Time {
+	if milliseconds <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(milliseconds).UTC()
+}
+
+func (c *Client) marketGet(ctx context.Context, cr *financial.Credentials, path string, out any) error {
+	req, e := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.cfg.MarketDataBaseURL, "/")+path, nil)
+	if e != nil {
+		return e
+	}
+	req.Header.Set("Authorization", "Bearer "+cr.AccessToken)
+	return c.do(req, out)
+}
+
 func (c *Client) get(ctx context.Context, cr *financial.Credentials, path string, out any) error {
 	req, e := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.cfg.TraderBaseURL, "/")+path, nil)
 	if e != nil {
@@ -225,6 +499,9 @@ func (c *Client) get(ctx context.Context, cr *financial.Credentials, path string
 	req.Header.Set("Authorization", "Bearer "+cr.AccessToken)
 	return c.do(req, out)
 }
+
+var _ financial.MarketDataProvider = (*Client)(nil)
+
 func (c *Client) do(req *http.Request, out any) error {
 	resp, e := c.http.Do(req)
 	if e != nil {
@@ -255,7 +532,7 @@ func (c *Client) do(req *http.Request, out any) error {
 	d := json.NewDecoder(bytes.NewReader(body))
 	d.UseNumber()
 	if e = d.Decode(out); e != nil {
-		return &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		return &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: fmt.Errorf("decode provider response: %w", e)}
 	}
 	return nil
 }

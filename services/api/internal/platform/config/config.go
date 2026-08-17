@@ -42,8 +42,8 @@ type Database struct {
 
 type Redis struct{ URL string }
 type Schwab struct {
-	ClientID, ClientSecret, RedirectURI, AuthorizationURL, TokenURL, TraderBaseURL string
-	Timeout                                                                        time.Duration
+	ClientID, ClientSecret, RedirectURI, AuthorizationURL, TokenURL, TraderBaseURL, MarketDataBaseURL string
+	Timeout                                                                                           time.Duration
 }
 type AIService struct {
 	URL           string
@@ -136,7 +136,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 	if environment == Production && (internalToken == "local-internal-development-token" || len(internalToken) < 32) {
 		return Config{}, errors.New("production AI_INTERNAL_SERVICE_TOKEN must be a strong non-development secret")
 	}
-	schwab := Schwab{ClientID: get("SCHWAB_CLIENT_ID", ""), ClientSecret: get("SCHWAB_CLIENT_SECRET", ""), RedirectURI: get("SCHWAB_REDIRECT_URI", "http://localhost:8080/api/connections/financial/schwab/callback"), AuthorizationURL: get("SCHWAB_AUTHORIZATION_URL", "https://api.schwabapi.com/v1/oauth/authorize"), TokenURL: get("SCHWAB_TOKEN_URL", "https://api.schwabapi.com/v1/oauth/token"), TraderBaseURL: get("SCHWAB_TRADER_BASE_URL", "https://api.schwabapi.com/trader/v1"), Timeout: 10 * time.Second}
+	schwab := Schwab{ClientID: get("SCHWAB_CLIENT_ID", ""), ClientSecret: get("SCHWAB_CLIENT_SECRET", ""), RedirectURI: get("SCHWAB_REDIRECT_URI", "http://localhost:8080/api/connections/financial/schwab/callback"), AuthorizationURL: get("SCHWAB_AUTHORIZATION_URL", "https://api.schwabapi.com/v1/oauth/authorize"), TokenURL: get("SCHWAB_TOKEN_URL", "https://api.schwabapi.com/v1/oauth/token"), TraderBaseURL: get("SCHWAB_TRADER_BASE_URL", "https://api.schwabapi.com/trader/v1"), MarketDataBaseURL: get("SCHWAB_MARKET_DATA_BASE_URL", "https://api.schwabapi.com/marketdata/v1"), Timeout: 10 * time.Second}
 	if environment == Production {
 		enabled := schwab.ClientID != "" || schwab.ClientSecret != ""
 		if enabled && (schwab.ClientID == "" || schwab.ClientSecret == "" || schwab.RedirectURI != "https://www.arbion.ai/api/connections/financial/schwab/callback") {

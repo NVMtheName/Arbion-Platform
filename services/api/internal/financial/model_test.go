@@ -14,6 +14,9 @@ func TestRegistryIsConservative(t *testing.T) {
 	if r["schwab"].Capabilities.Orders || r["schwab"].Capabilities.Options {
 		t.Fatal("read-only registry must not claim execution")
 	}
+	if !r["schwab"].Capabilities.MarketData {
+		t.Fatal("implemented read-only market data was not advertised")
+	}
 }
 func TestFinancialModelsHideOpaqueIdentifiers(t *testing.T) {
 	b, _ := json.Marshal(FinancialAccount{ProviderAccountID: "secret-account"})

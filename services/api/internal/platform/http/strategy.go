@@ -4,6 +4,7 @@ import (
 	"errors"
 	stdhttp "net/http"
 
+	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/strategy"
 )
 
@@ -17,6 +18,9 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/strategy-instances/{id}/history", h.require(stdhttp.HandlerFunc(h.strategyHistory)))
 	m.Handle("GET /api/strategy-instances/{id}/decisions", h.require(stdhttp.HandlerFunc(h.strategyDecisions)))
 	m.Handle("GET /api/strategy-instances/{id}/executions", h.require(stdhttp.HandlerFunc(h.strategyExecutions)))
+	if h.evaluations != nil {
+		m.Handle("POST /api/strategy-instances/{id}/evaluate", h.require(stdhttp.HandlerFunc(h.evaluateStrategy)))
+	}
 }
 func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 	switch {
@@ -26,7 +30,14 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 422, "INVALID_STRATEGY", "The deterministic strategy request is invalid or unsupported.")
 	case errors.Is(e, strategy.ErrConflict):
 		writeError(w, 409, "STRATEGY_CONFLICT", "A strategy instance already exists for this mandate version.")
+	case errors.Is(e, strategy.ErrDuplicate):
+		writeError(w, 409, "EVALUATION_DUPLICATE", "This manual evaluation was already recorded.")
 	default:
+		var providerError *financial.ProviderError
+		if errors.As(e, &providerError) {
+			h.financialError(w, e)
+			return
+		}
 		writeError(w, 404, "NOT_FOUND", "The requested strategy resource was not found.")
 	}
 }
@@ -87,4 +98,23 @@ func (h *authHandler) strategyExecutions(w stdhttp.ResponseWriter, r *stdhttp.Re
 		return
 	}
 	writeJSON(w, 200, map[string]any{"executions": v})
+}
+
+func (h *authHandler) evaluateStrategy(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		EventID string `json:"event_id"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	outcome, err := h.evaluations.Evaluate(r.Context(), principal(r), r.PathValue("id"), input.EventID)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"evaluation": outcome})
 }

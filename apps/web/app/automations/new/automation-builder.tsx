@@ -235,8 +235,9 @@ export default function AutomationBuilder() {
         <input type="checkbox" name="options" /> Options allowed
       </label>
       <p className="security-note">
-        Live is a stored preference only. READY does not execute anything, and
-        the platform has no execution path.
+        Live is a stored preference only. READY does not run by itself; only
+        explicit PAPER or SHADOW evaluation is available, and no broker order
+        can be sent.
       </p>
       <button type="submit" disabled={!ready}>
         Save Draft

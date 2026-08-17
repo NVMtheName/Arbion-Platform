@@ -71,7 +71,7 @@ The Neural Engine receives only the minimum data and tools authorized for a requ
 
 ### Financial connector layer
 
-Financial connectors live behind provider-independent Go interfaces and adapters. Candidate providers include Schwab, E\*TRADE, Coinbase, Alpaca, Interactive Brokers, and future providers. Possible capabilities include accounts, balances, positions, orders, quotes, transactions, order preview, placement, and cancellation, but none are implemented by this architecture task.
+Financial connectors live behind narrow provider-independent Go interfaces and adapters. Schwab currently implements delegated authorization plus read-only accounts, balances, positions, quotes, and option chains. Candidate future providers include E\*TRADE, Coinbase, Alpaca, and Interactive Brokers. No connector exposes order preview, placement, cancellation, or another broker-write operation.
 
 The connector layer is subordinate to the control plane: it translates approved operations but does not decide whether they are allowed. See [Connectors](CONNECTORS.md).
 
@@ -133,7 +133,7 @@ The following require later design and approval:
 - supported connector sequence, normalized financial data and order semantics, OAuth lifecycle, webhook validation, and reconciliation;
 - secret-management technology, key ownership, encryption, rotation, revocation, and incident response;
 - risk-policy language, approval thresholds, audit retention, idempotency, and failure recovery;
-- the concrete schemas and APIs for mandates, capital buckets, strategy instances, decision journals, orders, and reconciliation;
+- the remaining live order, approval, reservation, and reconciliation schemas and APIs;
 - strategy definition format, simulation semantics, worker topology, scheduling, concurrency, and notification transport;
 - market-data licensing, freshness, provenance, and caching rules;
 - the safety case and explicit design approval for any future live or automated execution; and
@@ -143,17 +143,17 @@ The following require later design and approval:
 
 The Go modular monolith now contains a provider-independent, read-only financial connector foundation and a Schwab Trader API adapter. The trust path is strictly `Next.js -> authenticated Go control plane -> financial Vault class -> selected Go broker adapter -> Schwab`. Financial traffic and secrets never transit the Python service. Redis may hold single-use pending OAuth state; PostgreSQL and the Vault hold durable connections and discovered account inventory, so Redis or browser-session loss cannot disconnect an existing account.
 
-The provider registry is centralized and auth-polymorphic. Schwab is implemented for delegated authorization and reads; E*TRADE and Coinbase are visible planned entries with no external calls. This changes the earlier connector boundary from wholly conceptual to read-only connectivity only. Order, execution, strategy, mandate, allocation, paper, shadow, live, and automated trading remain unimplemented.
+The provider registry is centralized and auth-polymorphic. Schwab is implemented for delegated authorization and read-only account and market-data operations; E*TRADE and Coinbase are visible planned entries with no external calls. Orders and live or automated broker execution remain unimplemented. Mandates, allocations, deterministic strategies, and the PAPER/SHADOW persistence paths are separate internal domains and do not add Schwab write capability.
 
 **Financial-provider credentials never enter the Neural Engine.**
 
-The financial foundation is now wired as a functional lifecycle: thin authenticated HTTP handlers delegate to `internal/financialconnection`, provider-specific requests remain in the existing Schwab adapter, Redis stores only pending single-use OAuth state, PostgreSQL stores lifecycle/account inventory and supplies cross-instance refresh locking, and the existing Vault stores encrypted token material. Account list/detail, current balance, and current position screens are read-only. Dashboard summaries report inventory only and do not fabricate unavailable or cross-currency values.
+The financial foundation is now wired as a functional lifecycle: thin authenticated HTTP handlers delegate to `internal/financialconnection`, provider-specific requests remain in the Schwab adapter, Redis stores only pending single-use OAuth state, PostgreSQL stores lifecycle/account inventory and supplies cross-instance refresh locking, and the existing Vault stores encrypted token material. Account list/detail, current balance, current position, quote, and standard option-chain reads are permissioned and read-only. Dashboard summaries report inventory only and do not fabricate unavailable or cross-currency values.
 
 ## Implemented Automation Builder boundary
 
 The modular Go control plane now contains `internal/automation`; authenticated HTTP handlers and the ordinary `/automations` UI both submit typed commands to that service. PostgreSQL stores account-bound mandates, immutable versions, and capital buckets independently of Redis/browser sessions, so logout cannot remove or pause them. Future Ask Arbion mutation must call this same domain command boundary and may not write mandate tables directly.
 
-The automation implementation is deliberately configuration-only: there is no execution endpoint, worker, broker write/preview call, AI automation inference call, or financial-data transfer to Python. The separate read-only Arbion Insight endpoint receives only text typed for that request and cannot access automation or financial domains. `LIVE` and `READY` are inert persisted values while the platform-level execution capability is false.
+The automation domain owns configuration and lifecycle commands. A separate explicit manual endpoint may evaluate a current READY PAPER or SHADOW strategy through read-only account/market facts, the deterministic strategy engine, and the Risk/Control Engine. There is no scheduler, worker, broker write/preview call, AI automation inference call, or financial-data transfer to Python. The separate read-only Arbion Insight endpoint receives only text typed for that request and cannot access automation or financial domains. `LIVE` remains inert configuration and platform-level live execution capability is false.
 
 **A configured or READY Automation Mandate does not itself execute trades.** **Broker-reported buying power is not Arbion trading authority.**
 
@@ -163,7 +163,7 @@ The risk foundation lives in `services/api/internal/risk`. It consumes normalize
 
 ## Deterministic non-live automation implementation
 
-The Go modular monolith now contains `internal/strategy`, a pure deterministic definition/evaluation layer plus PAPER and SHADOW adapters and a persistence boundary. The flow is mandate/version → instance → normalized evaluation → existing ProposedAction → authoritative risk gate → non-live adapter → atomic state/history/journal persistence. HTTP handlers expose initialization and ownership-scoped non-live read APIs; evaluation remains an explicit invocation and no worker was introduced.
+The Go modular monolith now contains `internal/strategy`, a pure deterministic definition/evaluation layer plus PAPER and SHADOW adapters and a persistence boundary. The flow is mandate/version → instance → normalized evaluation → existing ProposedAction → authoritative risk gate → non-live adapter → atomic state/history/journal persistence. Authenticated HTTP handlers expose initialization, ownership-scoped reads, and an explicit manual evaluation command. The command requires the exact current immutable mandate version and fresh provider timestamps; no scheduler or worker was introduced.
 
 PAPER portfolios are a distinct persistence domain. SHADOW can consume normalized account facts supplied through the Go financial read boundary, but the strategy engine cannot call Schwab. Neither adapter has connector credentials or a broker-write method. There is no live adapter.
 
