@@ -95,6 +95,7 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.Handle("GET /api/connections/ai/{id}/models", h.require(stdhttp.HandlerFunc(h.modelsAI)))
 	mux.Handle("GET /api/settings/neural-engine", h.require(stdhttp.HandlerFunc(h.getNeuralPreference)))
 	mux.Handle("PUT /api/settings/neural-engine", h.require(stdhttp.HandlerFunc(h.setNeuralPreference)))
+	mux.Handle("POST /api/neural/insight", h.require(stdhttp.HandlerFunc(h.neuralInsight)))
 	mux.Handle("DELETE /api/connections/ai/{id}", h.require(stdhttp.HandlerFunc(h.deleteAI)))
 	mux.Handle("GET /api/connections/financial/providers", h.require(stdhttp.HandlerFunc(h.listFinancialProviders)))
 	if h.financial != nil {
@@ -317,6 +318,25 @@ func (h *authHandler) setNeuralPreference(w stdhttp.ResponseWriter, r *stdhttp.R
 	writeJSON(w, 200, map[string]any{"preference": p})
 }
 
+func (h *authHandler) neuralInsight(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var in struct {
+		Prompt string `json:"prompt"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	result, err := h.ai.Analyze(r.Context(), principal(r), in.Prompt)
+	if err != nil {
+		h.aiError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"insight": result})
+}
+
 func (h *authHandler) listAI(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	items, e := h.ai.List(r.Context(), principal(r))
 	if e != nil {
@@ -420,13 +440,17 @@ func (h *authHandler) aiError(w stdhttp.ResponseWriter, e error) {
 	case errors.Is(e, aiconnection.ErrNotFound):
 		writeError(w, 404, "connection_not_found", "Connection not found.")
 	case errors.Is(e, aiconnection.ErrInvalid):
-		writeError(w, 400, "invalid_request", "Connection details are invalid.")
+		writeError(w, 400, "invalid_request", "Request details are invalid.")
 	case errors.Is(e, aiconnection.ErrConflict):
 		writeError(w, 409, "connection_in_use", "Resolve dependent configuration before removing this connection.")
 	case errors.Is(e, aiconnection.ErrDisabled):
 		writeError(w, 409, "connection_disabled", "Enable the connection before verifying it.")
 	case errors.Is(e, aiconnection.ErrInactive):
-		writeError(w, 409, "connection_not_active", "Verify the connection before selecting it.")
+		writeError(w, 409, "connection_not_active", "Verify and select an AI connection before using it.")
+	case errors.Is(e, aiconnection.ErrRateLimit):
+		writeError(w, 429, "insight_rate_limited", "The hourly insight limit was reached. Please try again later.")
+	case errors.Is(e, aiconnection.ErrProvider):
+		writeError(w, 503, "provider_unavailable", "AI analysis is temporarily unavailable.")
 	case neural.Code(e) == neural.AuthenticationFailed:
 		writeError(w, 401, "provider_authentication_failed", "Authentication was rejected by the AI provider. Your saved credential was not removed.")
 	case neural.Code(e) == neural.RateLimited:

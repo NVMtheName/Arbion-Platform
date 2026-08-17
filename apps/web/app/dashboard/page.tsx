@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LogoutButton } from "./logout-button";
+import { InsightPanel } from "./insight-panel";
 import Link from "next/link";
 type User = {
   email: string;
@@ -8,6 +9,7 @@ type User = {
   entitlement: string;
   role: string;
 };
+type Preference = { connection_id: string; model_id: string };
 export default async function Dashboard() {
   const cookieStore = await cookies();
   const response = await fetch(
@@ -32,6 +34,14 @@ export default async function Dashboard() {
     ? ((await accountsResponse.json()) as { accounts: unknown[] }).accounts
         .length
     : 0;
+  const preferenceResponse = await fetch(
+    `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/settings/neural-engine`,
+    { headers: { cookie: cookieStore.toString() }, cache: "no-store" },
+  );
+  const preference = preferenceResponse.ok
+    ? ((await preferenceResponse.json()) as { preference: Preference | null })
+        .preference
+    : null;
   return (
     <main className="dashboard">
       <header>
@@ -75,6 +85,10 @@ export default async function Dashboard() {
           <Link href="/automations">Build automations</Link>
         </article>
       </section>
+      <InsightPanel
+        configured={preference !== null}
+        model={preference?.model_id}
+      />
     </main>
   );
 }

@@ -79,7 +79,9 @@ func (s *RedisStore) Allow(ctx context.Context, key string, limit int, window ti
 		return false, err
 	}
 	if n == 1 {
-		s.client.Expire(ctx, k, window)
+		if err := s.client.Expire(ctx, k, window).Err(); err != nil {
+			return false, err
+		}
 	}
 	return n <= int64(limit), nil
 }

@@ -33,6 +33,12 @@ class ProviderRequest(BaseModel):
     credential: str = Field(min_length=8, max_length=4096)
 
 
+class InsightRequest(ProviderRequest):
+    model: str = Field(min_length=1, max_length=255)
+    prompt: str = Field(min_length=1, max_length=2000)
+    safety_identifier: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+
+
 def authorize(value: str | None) -> None:
     expected = os.environ.get("INTERNAL_SERVICE_TOKEN", "")
     if not expected or value != f"Bearer {expected}":
@@ -68,6 +74,39 @@ async def models(
                 }
                 for value in values
             ]
+        }
+    except NeuralProviderError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code.value}) from None
+
+
+@app.post("/internal/neural/insight")
+async def insight(
+    request: InsightRequest, authorization: str | None = Header(None)
+) -> dict[str, object]:
+    authorize(authorization)
+    try:
+        result = await registry.get(request.provider).analyze(
+            request.credential,
+            request.model,
+            request.prompt,
+            request.safety_identifier,
+        )
+        return {
+            "insight": {
+                "summary": result.summary,
+                "key_points": list(result.key_points),
+                "risk_flags": list(result.risk_flags),
+                "limitations": list(result.limitations),
+                "requires_current_data": result.requires_current_data,
+                "metadata": {
+                    "provider": result.metadata.provider,
+                    "model": result.metadata.model,
+                    "input_usage": result.metadata.input_usage,
+                    "output_usage": result.metadata.output_usage,
+                    "request_id": result.metadata.request_id,
+                    "latency_ms": result.metadata.latency_ms,
+                },
+            }
         }
     except NeuralProviderError as exc:
         raise HTTPException(status_code=400, detail={"code": exc.code.value}) from None

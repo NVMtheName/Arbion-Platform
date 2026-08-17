@@ -6,7 +6,7 @@ Arbion is a full trading platform with two equal control surfaces: traditional U
 
 Arbion combines that user experience with a provider-independent Neural Engine, deterministic financial controls, strategy and automation domains, and external financial-provider adapters. This document describes target boundaries; it does not claim that the conceptual capabilities are implemented.
 
-The current implementation remains a modular monolith plus one dedicated AI service. Email/password authentication and AI-provider connection verification/configuration are implemented. Live or automated trading, order execution, broker connections, inference, and legacy Flask migration remain out of scope until explicitly designed and approved.
+The current implementation remains a modular monolith plus one dedicated AI service. Email/password authentication, AI-provider connection verification/configuration, and bounded read-only Arbion Insight analysis are implemented. Live or automated trading, order execution, broker writes, tool-using AI, and legacy Flask migration remain out of scope until explicitly designed and approved.
 
 ## System model
 
@@ -32,7 +32,7 @@ The current implementation remains a modular monolith plus one dedicated AI serv
 └───────────────┬────────────────┘
                 │ user-supplied AI provider credentials
         ┌───────▼───────────────┐
-        │ AI providers (future) │
+        │ AI providers          │
         └───────────────────────┘
 ```
 
@@ -63,7 +63,9 @@ The permanent domain design is split into focused specifications:
 
 ### Neural Engine
 
-`services/ai` is the Python/FastAPI boundary for AI and quantitative computation. It now abstracts OpenAI, Anthropic/Claude, and Google Gemini behind a common provider interface for credential verification and model discovery, with capability contracts reserving future generation, reasoning, structured analysis, streaming, and tool calling. Go calls bounded, service-authenticated internal endpoints; provider destinations are fixed by adapters rather than request input.
+`services/ai` is the Python/FastAPI boundary for AI and quantitative computation. It abstracts OpenAI, Anthropic/Claude, and Google Gemini behind a common provider interface for credential verification and model discovery. OpenAI also implements a narrow structured-analysis capability for Arbion Insight through the Responses API; other providers fail as unsupported. Go calls bounded, service-authenticated internal endpoints, and provider destinations are fixed by adapters rather than request input.
+
+Arbion Insight accepts only authenticated user-supplied text and the user's active provider/model preference. It sends no account, portfolio, broker, credential-class, or live market data and defines no tools. The request disables provider-side response storage, requests a strict bounded JSON schema, and uses low reasoning effort. Go enforces entitlement, ownership, active connection state, an hourly per-user limit, encrypted credential retrieval, and metadata-only auditing. The returned analysis remains untrusted educational output and has no route to preview, authorize, or execute an order.
 
 The Neural Engine receives only the minimum data and tools authorized for a request. It neither receives financial-provider credentials nor directly invokes financial providers. Tool requests return to Arbion-controlled systems for permission checks and execution. See [Neural Engine](NEURAL_ENGINE.md).
 
@@ -151,7 +153,7 @@ The financial foundation is now wired as a functional lifecycle: thin authentica
 
 The modular Go control plane now contains `internal/automation`; authenticated HTTP handlers and the ordinary `/automations` UI both submit typed commands to that service. PostgreSQL stores account-bound mandates, immutable versions, and capital buckets independently of Redis/browser sessions, so logout cannot remove or pause them. Future Ask Arbion mutation must call this same domain command boundary and may not write mandate tables directly.
 
-The implementation is deliberately configuration-only: there is no execution endpoint, worker, strategy state machine, broker write/preview call, AI inference call, or financial-data transfer to Python. `LIVE` and `READY` are inert persisted values while the platform-level execution capability is false.
+The automation implementation is deliberately configuration-only: there is no execution endpoint, worker, broker write/preview call, AI automation inference call, or financial-data transfer to Python. The separate read-only Arbion Insight endpoint receives only text typed for that request and cannot access automation or financial domains. `LIVE` and `READY` are inert persisted values while the platform-level execution capability is false.
 
 **A configured or READY Automation Mandate does not itself execute trades.** **Broker-reported buying power is not Arbion trading authority.**
 

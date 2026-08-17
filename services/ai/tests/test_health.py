@@ -36,3 +36,16 @@ def test_internal_routes_require_service_authentication() -> None:
     )
     assert response.status_code == 401
     assert "secret-value" not in response.text
+
+    insight_response = client.post(
+        "/internal/neural/insight",
+        json={
+            "provider": "openai",
+            "credential": "secret-value",
+            "model": "gpt-5.6-luna",
+            "prompt": "question",
+            "safety_identifier": "a" * 64,
+        },
+    )
+    assert insight_response.status_code == 401
+    assert "secret-value" not in insight_response.text
