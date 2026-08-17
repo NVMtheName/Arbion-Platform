@@ -286,7 +286,25 @@ func (s *Service) Transition(c context.Context, p authorization.Principal, id st
 	return m, e
 }
 func commandFrom(m Mandate) MandateCommand {
-	return MandateCommand{m.FinancialAccountID, m.AutomationType, m.CapitalBucketID, m.AutonomyLevel, m.ExecutionMode, m.StrategyIdentifier, m.AIProviderConnectionID, m.AIModelID, m.StrategyParameters, m.Risk, m.AllowedUniverse, m.ProhibitedUniverse, m.MarginAllowed, m.OptionsAllowed, m.ScheduleConditions, &m.EffectiveFrom, m.EffectiveUntil}
+	return MandateCommand{
+		FinancialAccountID:     m.FinancialAccountID,
+		AutomationType:         m.AutomationType,
+		CapitalBucketID:        m.CapitalBucketID,
+		AutonomyLevel:          m.AutonomyLevel,
+		ExecutionMode:          m.ExecutionMode,
+		StrategyIdentifier:     m.StrategyIdentifier,
+		AIProviderConnectionID: m.AIProviderConnectionID,
+		AIModelID:              m.AIModelID,
+		StrategyParameters:     m.StrategyParameters,
+		Risk:                   m.Risk,
+		AllowedUniverse:        m.AllowedUniverse,
+		ProhibitedUniverse:     m.ProhibitedUniverse,
+		MarginAllowed:          m.MarginAllowed,
+		OptionsAllowed:         m.OptionsAllowed,
+		ScheduleConditions:     m.ScheduleConditions,
+		EffectiveFrom:          &m.EffectiveFrom,
+		EffectiveUntil:         m.EffectiveUntil,
+	}
 }
 func (s *Service) Versions(c context.Context, p authorization.Principal, id string) ([]Version, error) {
 	if !allowed(p) {

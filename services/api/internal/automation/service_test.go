@@ -9,11 +9,13 @@ import (
 )
 
 type fakeStore struct {
-	account AccountFacts
-	ai      AIFacts
-	bucket  CapitalBucket
-	fixed   *big.Rat
-	created Mandate
+	account          AccountFacts
+	ai               AIFacts
+	bucket           CapitalBucket
+	fixed            *big.Rat
+	created          Mandate
+	transitionStatus string
+	transitionSource string
 }
 
 func (f *fakeStore) AccountFacts(context.Context, string, string) (AccountFacts, error) {
@@ -55,7 +57,10 @@ func (f *fakeStore) UpdateMandate(context.Context, string, string, int, MandateC
 	f.created.CurrentVersion++
 	return f.created, nil
 }
-func (f *fakeStore) Transition(context.Context, string, string, int, string, string) (Mandate, error) {
+func (f *fakeStore) Transition(_ context.Context, _, _ string, _ int, status, source string) (Mandate, error) {
+	f.transitionStatus = status
+	f.transitionSource = source
+	f.created.Status = status
 	f.created.CurrentVersion++
 	return f.created, nil
 }
@@ -169,5 +174,38 @@ func TestOwnershipEntitlementReserveAndDurability(t *testing.T) {
 	versions, _ := s.Versions(context.Background(), founder, m.ID)
 	if len(versions) != 2 {
 		t.Fatal("durable history missing")
+	}
+}
+
+func TestReadyPaperWheelAllowsUnknownOptionsCapability(t *testing.T) {
+	f := baseStore()
+	f.account.Options = "UNKNOWN"
+	wheel := "wheel"
+	f.created = Mandate{
+		ID:                   "m",
+		UserID:               founder.UserID,
+		FinancialAccountID:   "a",
+		AutomationType:       "STRATEGY",
+		StrategyIdentifier:   &wheel,
+		CapitalBucketID:      "b",
+		AutonomyLevel:        "RESEARCH_ONLY",
+		ExecutionMode:        "PAPER",
+		Status:               "DRAFT",
+		CurrentVersion:       1,
+		StrategyParameters:   []byte(`{}`),
+		ScheduleConditions:   []byte(`{}`),
+		OptionsAllowed:       true,
+		CapabilityUnverified: true,
+	}
+
+	ready, err := NewService(f, nil).Transition(context.Background(), founder, f.created.ID, 1, "READY")
+	if err != nil {
+		t.Fatalf("safe PAPER wheel readiness was rejected: %v", err)
+	}
+	if ready.Status != "READY" || ready.CurrentVersion != 2 {
+		t.Fatalf("unexpected READY transition: %#v", ready)
+	}
+	if f.transitionStatus != "READY" || f.transitionSource != "UI" {
+		t.Fatalf("unexpected transition metadata: status=%q source=%q", f.transitionStatus, f.transitionSource)
 	}
 }
