@@ -3,15 +3,21 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { asList } from "./response";
+import {
+  CapitalBucketForm,
+  type CapitalAccountOption,
+} from "./capital-bucket-form";
 
 export default async function Automations() {
   const jar = await cookies();
   const headers = { cookie: jar.toString() };
   const base = process.env.API_BASE_URL ?? "http://localhost:8080";
-  const [mandatesResponse, bucketsResponse] = await Promise.all([
-    fetch(`${base}/api/automations`, { headers, cache: "no-store" }),
-    fetch(`${base}/api/capital-buckets`, { headers, cache: "no-store" }),
-  ]);
+  const [mandatesResponse, bucketsResponse, accountsResponse] =
+    await Promise.all([
+      fetch(`${base}/api/automations`, { headers, cache: "no-store" }),
+      fetch(`${base}/api/capital-buckets`, { headers, cache: "no-store" }),
+      fetch(`${base}/api/accounts`, { headers, cache: "no-store" }),
+    ]);
   if (mandatesResponse.status === 401) redirect("/login");
   const mandates = asList(
     mandatesResponse.ok
@@ -30,6 +36,23 @@ export default async function Automations() {
           }
         ).capital_buckets
       : [],
+  );
+  const accounts = asList(
+    accountsResponse.ok
+      ? (
+          (await accountsResponse.json()) as {
+            accounts?: Record<string, unknown>[] | null;
+          }
+        ).accounts
+      : [],
+  ).map(
+    (account): CapitalAccountOption => ({
+      id: String(account.id ?? account.ID ?? ""),
+      display_name: String(
+        account.display_name ?? account.DisplayName ?? "Financial account",
+      ),
+      status: String(account.status ?? account.Status ?? ""),
+    }),
   );
   return (
     <main className="connections-page automation-page">
@@ -72,6 +95,7 @@ export default async function Automations() {
           Broker buying power is informational. It is not Arbion trading
           authority and is never allocated automatically.
         </p>
+        <CapitalBucketForm accounts={accounts} />
         {buckets.length === 0 && (
           <p>
             No capital buckets yet. Connect an account before allocating
