@@ -42,6 +42,9 @@ func (f *journalPersistenceFake) Journal(_ context.Context, userID string, limit
 	}
 	return f.entries[:limit], nil
 }
+func (*journalPersistenceFake) Schedule(context.Context, string, string) (ScheduleStatus, error) {
+	return ScheduleStatus{}, nil
+}
 
 func TestJournalIsOwnerScopedAndBuildsStableNextCursor(t *testing.T) {
 	now := time.Date(2026, 8, 18, 18, 0, 0, 0, time.UTC)

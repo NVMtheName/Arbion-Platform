@@ -69,3 +69,5 @@ Migration `00008_nonlive_strategy.sql` adds strategy instances bound by a compos
 History update/delete triggers make state transitions and journal evidence immutable. Execution idempotency and per-instance event identities are database-enforced. Browser logout changes only Redis session state and cannot remove instances, paper portfolios, executions, decisions, or state history.
 
 Migration `00011_decision_journal_feed.sql` adds the `(user_id,created_at DESC,id DESC)` index used by the owner-wide Decision Journal projection. Cursor pagination uses both timestamp and UUID so equal timestamps do not skip or duplicate entries, while ownership remains the leading database predicate.
+
+Migration `00012_nonlive_strategy_scheduler.sql` adds one optional operational schedule per strategy instance. Each row is bound to the owner and exact immutable mandate version, constrains cadence to 30–1440 minutes and the U.S. regular-session policy, and records next-run, lease, stable result code, and consecutive-failure status. Leases are paired and time-bounded; they grant no live capability and do not replace the immutable mandate or evaluation-event idempotency record.

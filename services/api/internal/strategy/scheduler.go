@@ -1,0 +1,157 @@
+package strategy
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"time"
+	_ "time/tzdata"
+
+	"github.com/arbion/platform/services/api/internal/authorization"
+	"github.com/arbion/platform/services/api/internal/financial"
+)
+
+const (
+	scheduleLeaseDuration = 2 * time.Minute
+	schedulePollInterval  = 30 * time.Second
+	maxClaimsPerPoll      = 10
+)
+
+type ScheduleStore interface {
+	ClaimDueSchedule(context.Context, time.Time, time.Duration) (*ScheduledRun, error)
+	CompleteSchedule(context.Context, ScheduledRun, ScheduleCompletion) error
+}
+
+type ScheduledEvaluator interface {
+	Evaluate(context.Context, authorization.Principal, string, string) (EvaluationOutcome, error)
+}
+
+type Scheduler struct {
+	store     ScheduleStore
+	evaluator ScheduledEvaluator
+	now       func() time.Time
+	logger    *slog.Logger
+}
+
+func NewScheduler(store ScheduleStore, evaluator ScheduledEvaluator) *Scheduler {
+	return &Scheduler{store: store, evaluator: evaluator, now: func() time.Time { return time.Now().UTC() }, logger: slog.Default()}
+}
+
+func (s *Scheduler) Run(ctx context.Context) {
+	s.runBatch(ctx)
+	ticker := time.NewTicker(schedulePollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.runBatch(ctx)
+		}
+	}
+}
+
+func (s *Scheduler) runBatch(ctx context.Context) {
+	for count := 0; count < maxClaimsPerPoll; count++ {
+		claimed, err := s.RunOnce(ctx)
+		if err != nil {
+			s.logger.Error("non-live schedule run failed", "error_code", classifyScheduleError(err))
+			return
+		}
+		if !claimed {
+			return
+		}
+	}
+}
+
+// RunOnce is deliberately small and deterministic so lease, session, and
+// duplicate-recovery behavior can be tested without a ticker.
+func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
+	now := s.now().UTC()
+	run, err := s.store.ClaimDueSchedule(ctx, now, scheduleLeaseDuration)
+	if err != nil || run == nil {
+		return false, err
+	}
+	completion := ScheduleCompletion{CompletedAt: now, NextRunAt: now.Add(time.Duration(run.IntervalMinutes) * time.Minute)}
+	if run.ExecutionMode != Paper && run.ExecutionMode != Shadow {
+		completion.Status, completion.ErrorCode = "FAILED", "UNSUPPORTED_MODE"
+	} else if !inRegularSession(now) {
+		completion.Status, completion.ErrorCode = "SKIPPED", "OUTSIDE_SESSION"
+		completion.NextRunAt = nextRegularSession(now)
+	} else if !actionableState(run.CurrentState) {
+		completion.Status, completion.ErrorCode = "SKIPPED", "WAITING_FOR_LIFECYCLE"
+	} else {
+		principal := authorization.Principal{UserID: run.UserID, Entitlement: authorization.EntitlementFounder}
+		eventID := fmt.Sprintf("scheduled:%d", run.ScheduledFor.UTC().Unix())
+		_, err = s.evaluator.Evaluate(ctx, principal, run.StrategyInstanceID, eventID)
+		if err == nil || errors.Is(err, ErrDuplicate) {
+			completion.Status = "SUCCEEDED"
+		} else {
+			completion.Status, completion.ErrorCode = "FAILED", classifyScheduleError(err)
+		}
+	}
+	if err := s.store.CompleteSchedule(ctx, *run, completion); err != nil {
+		return true, err
+	}
+	s.logger.Info("non-live schedule completed", "strategy_instance_id", run.StrategyInstanceID, "status", completion.Status, "error_code", completion.ErrorCode)
+	return true, nil
+}
+
+func actionableState(state State) bool {
+	return state == ReadyForPut || state == Cash || state == ReadyForCall || state == LongShares
+}
+
+func classifyScheduleError(err error) string {
+	if err == nil {
+		return ""
+	}
+	switch {
+	case errors.Is(err, ErrForbidden):
+		return "FORBIDDEN"
+	case errors.Is(err, ErrNotFound):
+		return "NOT_FOUND"
+	case errors.Is(err, ErrInvalid):
+		return "INVALID"
+	case errors.Is(err, ErrConflict):
+		return "CONFLICT"
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return "CANCELED"
+	}
+	var providerError *financial.ProviderError
+	if errors.As(err, &providerError) {
+		return "PROVIDER"
+	}
+	return "INTERNAL"
+}
+
+var easternLocation = func() *time.Location {
+	location, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		panic("embedded America/New_York timezone unavailable")
+	}
+	return location
+}()
+
+func inRegularSession(at time.Time) bool {
+	local := at.In(easternLocation)
+	if local.Weekday() == time.Saturday || local.Weekday() == time.Sunday {
+		return false
+	}
+	minutes := local.Hour()*60 + local.Minute()
+	return minutes >= 9*60+35 && minutes < 15*60+55
+}
+
+func nextRegularSession(after time.Time) time.Time {
+	local := after.In(easternLocation)
+	for dayOffset := 0; ; dayOffset++ {
+		day := local.AddDate(0, 0, dayOffset)
+		if day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
+			continue
+		}
+		candidate := time.Date(day.Year(), day.Month(), day.Day(), 9, 35, 0, 0, easternLocation)
+		if candidate.After(local) {
+			return candidate.UTC()
+		}
+	}
+}

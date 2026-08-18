@@ -41,11 +41,11 @@ See [Execution Engine](EXECUTION_ENGINE.md) for lifecycle and reconciliation and
 
 ## Deferred decisions
 
-The broader policy language, production numerical defaults, jurisdictional rules, realized-loss calculation, cross-account aggregation, reservation accounting, breaker reset workflows, administrative dual control, audit integrity, and formal live-trading safety case remain deferred. The implemented deterministic gate authorizes only current manual PAPER/SHADOW evaluation; it has no broker trading capability.
+The broader policy language, production numerical defaults, jurisdictional rules, realized-loss calculation, cross-account aggregation, reservation accounting, breaker reset workflows, administrative dual control, audit integrity, and formal live-trading safety case remain deferred. The implemented deterministic gate authorizes only current manual or guarded scheduled PAPER/SHADOW evaluation; it has no broker trading capability.
 
 ## Implemented mandate risk-policy foundation
 
-Automation Mandate versions now preserve validated exact-decimal configuration for maximum deployed capital, single-position amount and percentage, daily loss, minimum cash reserve, maximum trades per day, margin policy, options policy, structured allowed/prohibited universes, and conditions. The deterministic risk evaluator consumes these fields during manual PAPER/SHADOW evaluation. Missing facts required by a configured rule deny the action, and configured allocation checks do not claim real-time broker sufficiency.
+Automation Mandate versions now preserve validated exact-decimal configuration for maximum deployed capital, single-position amount and percentage, daily loss, minimum cash reserve, maximum trades per day, margin policy, options policy, structured allowed/prohibited universes, and conditions. The deterministic risk evaluator consumes these fields during manual or guarded scheduled PAPER/SHADOW evaluation. Missing facts required by a configured rule deny the action, and configured allocation checks do not claim real-time broker sufficiency.
 
 **A configured or READY Automation Mandate does not itself execute trades.** **Broker-reported buying power is not Arbion trading authority.**
 
@@ -59,7 +59,7 @@ The Go `internal/risk` package defines provider-independent `ProposedAction`, no
 
 **No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine.**
 
-The package imports no connector or Neural Engine code and exposes no broker-write operation. The authenticated manual evaluation service builds normalized snapshots, loads applicable durable breakers, invokes the gate, and atomically persists its evidence with the non-live result. Breaker mutation/reset APIs, realized daily P/L ingestion, and broader scheduled evaluation remain deferred.
+The package imports no connector or Neural Engine code and exposes no broker-write operation. The authenticated evaluation service builds normalized snapshots, loads applicable durable breakers, invokes the gate, and atomically persists its evidence with the non-live result. Both manual and guarded scheduled evaluation call this same service. Breaker mutation/reset APIs, realized daily P/L ingestion, exchange-holiday calendars, and broader orchestration remain deferred.
 
 ## Non-live strategy integration
 

@@ -25,6 +25,7 @@ type Persistence interface {
 	Decisions(context.Context, string, string) ([]DecisionJournalEntry, error)
 	Executions(context.Context, string, string) ([]ExecutionRecord, error)
 	Journal(context.Context, string, int, *JournalCursor) ([]JournalActivity, error)
+	Schedule(context.Context, string, string) (ScheduleStatus, error)
 }
 type Mandates interface {
 	Get(context.Context, authorization.Principal, string) (automation.Mandate, error)
@@ -121,4 +122,15 @@ func (s *InstanceService) Journal(c context.Context, p authorization.Principal, 
 		page.NextCursor = &JournalCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 	}
 	return page, nil
+}
+
+func (s *InstanceService) Schedule(c context.Context, p authorization.Principal, id string) (ScheduleStatus, error) {
+	if !entitled(p) {
+		return ScheduleStatus{}, ErrForbidden
+	}
+	status, err := s.store.Schedule(c, p.UserID, id)
+	if err != nil {
+		return ScheduleStatus{}, ErrNotFound
+	}
+	return status, nil
 }

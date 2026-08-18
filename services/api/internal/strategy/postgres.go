@@ -26,6 +26,10 @@ func scanInstance(r pgx.Row) (i Instance, e error) {
 	return
 }
 func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Mandate, cash string, state State) (Instance, error) {
+	schedule, e := automation.ParseScheduleConditions(m.ScheduleConditions)
+	if e != nil {
+		return Instance{}, e
+	}
 	tx, e := s.db.Begin(c)
 	if e != nil {
 		return Instance{}, e
@@ -44,6 +48,12 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 	_, e = tx.Exec(c, `INSERT INTO strategy_state_transitions(strategy_instance_id,previous_state,new_state,state_version,trigger,metadata) VALUES($1,$2,$2,1,'INITIALIZED',$3)`, i.ID, state, meta)
 	if e != nil {
 		return i, e
+	}
+	if schedule.Enabled {
+		_, e = tx.Exec(c, `INSERT INTO nonlive_strategy_schedules(strategy_instance_id,user_id,mandate_id,mandate_version,interval_minutes,session,next_run_at) VALUES($1,$2,$3,$4,$5,$6,now())`, i.ID, u, m.ID, m.CurrentVersion, schedule.IntervalMinutes, schedule.Session)
+		if e != nil {
+			return i, e
+		}
 	}
 	return i, tx.Commit(c)
 }
@@ -65,6 +75,20 @@ func (s *PostgresStore) List(c context.Context, u string) ([]Instance, error) {
 }
 func (s *PostgresStore) Get(c context.Context, u, id string) (Instance, error) {
 	return scanInstance(s.db.QueryRow(c, `SELECT `+instanceColumns+` FROM strategy_instances WHERE id=$1 AND user_id=$2`, id, u))
+}
+
+func (s *PostgresStore) Schedule(c context.Context, u, id string) (ScheduleStatus, error) {
+	var status ScheduleStatus
+	status.StrategyInstanceID = id
+	err := s.db.QueryRow(c, `SELECT s.strategy_instance_id IS NOT NULL,
+		COALESCE(s.mandate_id::text,''),COALESCE(s.mandate_version,0),COALESCE(s.interval_minutes,0),COALESCE(s.session,''),
+		s.next_run_at,s.last_started_at,s.last_completed_at,s.last_status,s.last_error_code,COALESCE(s.consecutive_failures,0)
+		FROM strategy_instances i LEFT JOIN nonlive_strategy_schedules s ON s.strategy_instance_id=i.id
+		WHERE i.id=$1 AND i.user_id=$2`, id, u).Scan(
+		&status.Enabled, &status.MandateID, &status.MandateVersion, &status.IntervalMinutes, &status.Session,
+		&status.NextRunAt, &status.LastStartedAt, &status.LastCompletedAt, &status.LastStatus, &status.LastErrorCode, &status.ConsecutiveFailures,
+	)
+	return status, err
 }
 func (s *PostgresStore) History(c context.Context, u, id string) ([]Transition, error) {
 	rows, e := s.db.Query(c, `SELECT t.id::text,t.strategy_instance_id::text,t.previous_state,t.new_state,t.state_version,t.trigger,t.proposed_action_id,t.risk_evaluation_id::text,t.execution_record_id::text,t.metadata,t.occurred_at FROM strategy_state_transitions t JOIN strategy_instances i ON i.id=t.strategy_instance_id WHERE i.id=$1 AND i.user_id=$2 ORDER BY t.state_version`, id, u)

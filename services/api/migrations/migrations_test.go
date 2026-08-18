@@ -90,3 +90,20 @@ func TestDecisionJournalFeedIndexIsOwnerScopedAndStable(t *testing.T) {
 		}
 	}
 }
+
+func TestNonLiveSchedulerMigrationUsesDurableLeasesAndExactMandateVersions(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00012_nonlive_strategy_scheduler.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"nonlive_strategy_schedules", "lease_token", "lease_expires_at", "mandate_id,mandate_version", "US_EQUITIES_REGULAR", "BETWEEN 30 AND 1440"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("non-live scheduler migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"LIVE", "broker_orders"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("non-live scheduler migration unexpectedly contains %q", prohibited)
+		}
+	}
+}

@@ -104,8 +104,8 @@ export function JournalList({ entries }: { entries: JournalEntry[] }) {
           <p className="eyebrow">NO DECISIONS YET</p>
           <h2>Your journal is ready.</h2>
           <p>
-            Manually evaluate a READY PAPER or SHADOW automation and its
-            decision evidence will appear here.
+            Manually evaluate a READY PAPER or SHADOW automation, or enable its
+            guarded non-live schedule, and decision evidence will appear here.
           </p>
           <Link href="/automations">View automations</Link>
         </section>

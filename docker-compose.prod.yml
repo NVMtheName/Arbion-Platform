@@ -86,6 +86,7 @@ services:
     environment:
       <<: *api-environment
       PORT: "8080"
+      NONLIVE_SCHEDULER_ENABLED: ${NONLIVE_SCHEDULER_ENABLED:-false}
       AUTH_SESSION_COOKIE: ${AUTH_SESSION_COOKIE:-arbion_session}
       AUTH_SESSION_TTL: ${AUTH_SESSION_TTL:-12h}
       EMAIL_DELIVERY_MODE: ${EMAIL_DELIVERY_MODE:-disabled}

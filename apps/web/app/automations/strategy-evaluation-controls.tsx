@@ -133,7 +133,8 @@ export function StrategyEvaluationControls(props: Props) {
       <p>
         Quotes and option chains are read from Schwab. Every proposal passes the
         deterministic Risk/Control Engine and can create only PAPER or SHADOW
-        records. There is no scheduler or broker-write route.
+        records. An optional guarded schedule uses this same evaluation path;
+        there is no broker-write route.
       </p>
       <form onSubmit={saveParameters}>
         <label>

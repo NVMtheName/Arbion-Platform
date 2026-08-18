@@ -31,6 +31,7 @@ type Config struct {
 	Email       Email
 	AI          AIService
 	Schwab      Schwab
+	Scheduler   Scheduler
 }
 
 type Database struct {
@@ -51,6 +52,8 @@ type AIService struct {
 	InternalToken string
 	Timeout       time.Duration
 }
+
+type Scheduler struct{ Enabled bool }
 
 type CredentialEncryption struct{ Key []byte }
 type Auth struct {
@@ -143,6 +146,10 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, err
 	}
 	registrationRestricted := environment == Production || (registrationConfigured && strings.TrimSpace(registrationValue) != "")
+	schedulerEnabled, err := strconv.ParseBool(get("NONLIVE_SCHEDULER_ENABLED", "false"))
+	if err != nil {
+		return Config{}, errors.New("NONLIVE_SCHEDULER_ENABLED must be true or false")
+	}
 	email, err := emailConfiguration(get, environment)
 	if err != nil {
 		return Config{}, err
@@ -162,7 +169,7 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, errors.New("production Schwab configuration requires client ID, client secret, and the approved callback URI")
 		}
 	}
-	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins, RegistrationRestricted: registrationRestricted, RegistrationAllowlist: registrationAllowlist}, Email: email, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 40 * time.Second}, Schwab: schwab}, nil
+	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins, RegistrationRestricted: registrationRestricted, RegistrationAllowlist: registrationAllowlist}, Email: email, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 40 * time.Second}, Schwab: schwab, Scheduler: Scheduler{Enabled: schedulerEnabled}}, nil
 }
 
 func emailConfiguration(get func(string, string) string, environment Environment) (Email, error) {

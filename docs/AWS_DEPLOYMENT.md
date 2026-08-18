@@ -78,7 +78,7 @@ For a private repository whose GitHub plan does not support required environment
 3. Push initial immutable images, run migrations, verify ECS health/logs and the ALB using a controlled test hostname/host mapping.
 4. Validate backups, alarms, RDS TLS, Redis TLS/auth, private service discovery, and API-to-AI token authentication.
 5. Validate ACM, then explicitly approve apex/`www` DNS cutover. Confirm apex redirects and canonical site/API health.
-6. Only after the canonical callback is reachable, manually test Schwab: Connect, Schwab login/authorization, callback, accounts, balances, positions, quotes, option chains, and duplicate-safe sync. Exercise only the explicit PAPER/SHADOW evaluation path during fresh market data and verify no broker order appears. Never place an order.
+6. Only after the canonical callback is reachable, manually test Schwab: Connect, Schwab login/authorization, callback, accounts, balances, positions, quotes, option chains, and duplicate-safe sync. Exercise only the explicit or guarded scheduled PAPER/SHADOW evaluation path during fresh market data and verify no broker order appears. The ECS scheduler remains off unless `NONLIVE_SCHEDULER_ENABLED=true` is explicitly supplied to the API task. Never place an order.
 
 The callback remains exactly `https://www.arbion.ai/api/connections/financial/schwab/callback`.
 

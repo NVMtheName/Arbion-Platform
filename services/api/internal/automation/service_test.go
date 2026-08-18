@@ -16,6 +16,7 @@ type fakeStore struct {
 	created          Mandate
 	transitionStatus string
 	transitionSource string
+	updatedCommand   MandateCommand
 }
 
 func (f *fakeStore) AccountFacts(context.Context, string, string) (AccountFacts, error) {
@@ -53,7 +54,8 @@ func (f *fakeStore) ListMandates(context.Context, string) ([]Mandate, error) {
 func (f *fakeStore) GetMandate(context.Context, string, string) (Mandate, error) {
 	return f.created, nil
 }
-func (f *fakeStore) UpdateMandate(context.Context, string, string, int, MandateCommand, bool, string) (Mandate, error) {
+func (f *fakeStore) UpdateMandate(_ context.Context, _, _ string, _ int, command MandateCommand, _ bool, _ string) (Mandate, error) {
+	f.updatedCommand = command
 	f.created.CurrentVersion++
 	f.created.Status = "DRAFT"
 	return f.created, nil
@@ -217,5 +219,43 @@ func TestReadyStrategyRequiresCompleteParameters(t *testing.T) {
 	f.created = Mandate{ID: "m", UserID: founder.UserID, FinancialAccountID: "a", AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: "b", AutonomyLevel: "RESEARCH_ONLY", ExecutionMode: "PAPER", Status: "DRAFT", CurrentVersion: 1, StrategyParameters: []byte(`{}`), OptionsAllowed: true}
 	if _, err := NewService(f, nil).Transition(context.Background(), founder, f.created.ID, 1, "READY"); err != ErrInvalid {
 		t.Fatalf("incomplete strategy parameters reached READY: %v", err)
+	}
+}
+
+func TestScheduleConditionsAreStrictAndNonLiveOnly(t *testing.T) {
+	for name, raw := range map[string][]byte{
+		"too frequent":  []byte(`{"enabled":true,"interval_minutes":15,"session":"US_EQUITIES_REGULAR"}`),
+		"wrong session": []byte(`{"enabled":true,"interval_minutes":60,"session":"ALWAYS"}`),
+		"unknown field": []byte(`{"enabled":false,"live":true}`),
+		"disabled data": []byte(`{"enabled":false,"interval_minutes":60}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseScheduleConditions(raw); err != ErrInvalid {
+				t.Fatalf("unsafe schedule accepted: %v", err)
+			}
+		})
+	}
+	valid, err := ParseScheduleConditions([]byte(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR"}`))
+	if err != nil || !valid.Enabled || valid.IntervalMinutes != 60 {
+		t.Fatalf("valid schedule rejected: %#v %v", valid, err)
+	}
+}
+
+func TestScheduleUpdateCreatesDraftAndPreservesNonLiveBoundary(t *testing.T) {
+	f := baseStore()
+	wheel := "wheel"
+	f.created = Mandate{ID: "m", UserID: founder.UserID, FinancialAccountID: "a", AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: "b", AutonomyLevel: "STRATEGY_AUTONOMOUS", ExecutionMode: "PAPER", Status: "READY", CurrentVersion: 4, StrategyParameters: []byte(`{}`), ScheduleConditions: []byte(`{}`)}
+	service := NewService(f, nil)
+	updated, err := service.UpdateSchedule(context.Background(), founder, "m", 4, ScheduleConditions{Enabled: true, IntervalMinutes: 60, Session: "US_EQUITIES_REGULAR"})
+	if err != nil || updated.Status != "DRAFT" || updated.CurrentVersion != 5 {
+		t.Fatalf("schedule did not create a draft version: %#v %v", updated, err)
+	}
+	parsed, err := ParseScheduleConditions(f.updatedCommand.ScheduleConditions)
+	if err != nil || !parsed.Enabled {
+		t.Fatalf("schedule was not stored in the immutable command: %#v %v", parsed, err)
+	}
+	f.created.ExecutionMode = "LIVE"
+	if _, err = service.UpdateSchedule(context.Background(), founder, "m", 5, parsed); err != ErrInvalid {
+		t.Fatalf("live schedule was accepted: %v", err)
 	}
 }

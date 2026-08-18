@@ -7,6 +7,11 @@ import {
   StrategyEvaluationControls,
   type StrategyParameters,
 } from "../strategy-evaluation-controls";
+import {
+  StrategyScheduleControls,
+  type StrategyScheduleConditions,
+  type StrategyScheduleStatus,
+} from "../strategy-schedule-controls";
 export default async function MandateReview({
   params,
 }: {
@@ -49,19 +54,21 @@ export default async function MandateReview({
         currentVersion,
   );
   const instanceID = instance ? String(instance.ID ?? instance.id ?? "") : "";
-  const [history, decisions, executions] = instanceID
+  const [history, decisions, executions, scheduleResponse] = instanceID
     ? await Promise.all(
-        ["history", "decisions", "executions"].map(async (suffix) => {
-          const response = await fetch(
-            `${api}/api/strategy-instances/${instanceID}/${suffix}`,
-            { headers: { cookie: jar.toString() }, cache: "no-store" },
-          );
-          return response.ok
-            ? ((await response.json()) as Record<string, unknown[]>)
-            : {};
-        }),
+        ["history", "decisions", "executions", "schedule"].map(
+          async (suffix) => {
+            const response = await fetch(
+              `${api}/api/strategy-instances/${instanceID}/${suffix}`,
+              { headers: { cookie: jar.toString() }, cache: "no-store" },
+            );
+            return response.ok
+              ? ((await response.json()) as Record<string, unknown[]>)
+              : {};
+          },
+        ),
       )
-    : [{}, {}, {}];
+    : [{}, {}, {}, {}];
   const read = (key: string, legacy: string) =>
     String(m[key] ?? m[legacy] ?? "—");
   return (
@@ -111,19 +118,43 @@ export default async function MandateReview({
         instanceExists={Boolean(instance)}
       />
       {read("automation_type", "AutomationType") === "STRATEGY" && (
-        <StrategyEvaluationControls
-          automationId={id}
-          currentVersion={currentVersion}
-          status={read("status", "Status")}
-          executionMode={read("execution_mode", "ExecutionMode")}
-          strategyIdentifier={read("strategy_identifier", "StrategyIdentifier")}
-          instanceId={instanceID}
-          strategyParameters={
-            (m.strategy_parameters ??
-              m.StrategyParameters ??
-              {}) as StrategyParameters
-          }
-        />
+        <>
+          <StrategyEvaluationControls
+            automationId={id}
+            currentVersion={currentVersion}
+            status={read("status", "Status")}
+            executionMode={read("execution_mode", "ExecutionMode")}
+            strategyIdentifier={read(
+              "strategy_identifier",
+              "StrategyIdentifier",
+            )}
+            instanceId={instanceID}
+            strategyParameters={
+              (m.strategy_parameters ??
+                m.StrategyParameters ??
+                {}) as StrategyParameters
+            }
+          />
+          <StrategyScheduleControls
+            automationId={id}
+            currentVersion={currentVersion}
+            automationType={read("automation_type", "AutomationType")}
+            autonomyLevel={read("autonomy_level", "AutonomyLevel")}
+            executionMode={read("execution_mode", "ExecutionMode")}
+            instanceId={instanceID}
+            schedulerEnabled={Boolean(scheduleResponse.scheduler_enabled)}
+            conditions={
+              (m.schedule_conditions ??
+                m.ScheduleConditions ??
+                {}) as StrategyScheduleConditions
+            }
+            runtime={
+              scheduleResponse.schedule as unknown as
+                | StrategyScheduleStatus
+                | undefined
+            }
+          />
+        </>
       )}
       <section className="review-grid" aria-label="Non-live strategy">
         <div>
@@ -169,7 +200,8 @@ export default async function MandateReview({
             {(executions.executions ?? []).length} execution record(s)
           </p>
           <p>
-            Evaluation is manual-only. No background strategy worker is running.
+            Evaluations are manual unless this exact mandate version has an
+            enabled guarded schedule.
           </p>
         </section>
       )}

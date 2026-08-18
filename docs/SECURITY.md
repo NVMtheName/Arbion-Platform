@@ -152,7 +152,7 @@ The Schwab callback is intentionally independent of a surviving browser session:
 
 Automation mutations require centralized `CanUseAutomation` and financial-account entitlement checks; AI-bearing mandates additionally require `CanUseNeuralEngine`. Administrative roles do not grant these product capabilities. Stores scope account, bucket, mandate, version, and AI references to the user; active AI/model preference checks occur without invoking AI or revealing credentials. Version snapshots and audit metadata contain identifiers and safe configuration only.
 
-The API exposes configuration and lifecycle routes plus one authenticated, CSRF-protected manual PAPER/SHADOW strategy-evaluation route. That route accepts only an instance ID and bounded idempotency event ID, reloads ownership and the exact current immutable mandate version, uses fresh read-only inputs, and passes every proposal through the Risk/Control Engine. There are no order, broker preview/write, live execution, worker, or AI-portfolio routes. `execution_capable=false` remains the permanent live-execution safeguard returned with mandate configuration.
+The API exposes configuration and lifecycle routes plus one authenticated, CSRF-protected manual PAPER/SHADOW strategy-evaluation route. That route accepts only an instance ID and bounded idempotency event ID. An opt-in internal scheduler invokes the same service with a stable due-time event ID after a PostgreSQL claim rechecks active founder entitlement, owner status, effective dates, exact current immutable mandate version, PAPER/SHADOW mode, and typed schedule fields. Both paths use fresh read-only inputs and pass every proposal through the Risk/Control Engine. There are no order, broker preview/write, live execution, or AI-portfolio routes. `execution_capable=false` remains the permanent live-execution safeguard returned with mandate configuration.
 
 **A configured or READY Automation Mandate does not itself execute trades.** **Broker-reported buying power is not Arbion trading authority.**
 
@@ -162,7 +162,7 @@ No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine
 
 ## Non-live strategy security boundary
 
-Strategy state, transitions, market fixtures, paper records, and Decision Journal rationale contain only normalized safe data. They exclude financial/AI credentials, full account numbers, raw provider payloads, and private chain-of-thought. Ownership and `CanUseAutomation`/financial entitlement are checked server-side for instance APIs.
+Strategy state, transitions, market fixtures, paper records, schedule status, and Decision Journal rationale contain only normalized safe data. They exclude financial/AI credentials, full account numbers, raw provider payloads, raw provider errors, and private chain-of-thought. Ownership and `CanUseAutomation`/financial entitlement are checked server-side for instance APIs; scheduled claims independently require a current active founder entitlement.
 
 The aggregate `GET /api/decision-journal` route applies the same product entitlements and filters every joined record by the authenticated user. It exposes a bounded, no-store, read-only projection with opaque stable pagination. The website labels PAPER as simulation and SHADOW as would-have-submitted evidence, and the API continues to declare `live_execution_available=false`.
 

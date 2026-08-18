@@ -32,6 +32,7 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/strategy-instances/{id}/history", h.require(stdhttp.HandlerFunc(h.strategyHistory)))
 	m.Handle("GET /api/strategy-instances/{id}/decisions", h.require(stdhttp.HandlerFunc(h.strategyDecisions)))
 	m.Handle("GET /api/strategy-instances/{id}/executions", h.require(stdhttp.HandlerFunc(h.strategyExecutions)))
+	m.Handle("GET /api/strategy-instances/{id}/schedule", h.require(stdhttp.HandlerFunc(h.strategySchedule)))
 	m.Handle("GET /api/decision-journal", h.require(stdhttp.HandlerFunc(h.decisionJournal)))
 	if h.evaluations != nil {
 		m.Handle("POST /api/strategy-instances/{id}/evaluate", h.require(stdhttp.HandlerFunc(h.evaluateStrategy)))
@@ -167,6 +168,16 @@ func (h *authHandler) strategyExecutions(w stdhttp.ResponseWriter, r *stdhttp.Re
 		return
 	}
 	writeJSON(w, 200, map[string]any{"executions": v})
+}
+
+func (h *authHandler) strategySchedule(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	v, e := h.strategies.Schedule(r.Context(), principal(r), r.PathValue("id"))
+	if e != nil {
+		h.strategyError(w, e)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"schedule": v, "scheduler_enabled": h.schedulerEnabled, "live_execution_available": false})
 }
 
 func (h *authHandler) evaluateStrategy(w stdhttp.ResponseWriter, r *stdhttp.Request) {
