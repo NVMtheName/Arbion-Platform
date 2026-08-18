@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { AppPageHeader } from "../../app-page-header";
 import { SecurityControls } from "./security-controls";
 
 type User = {
@@ -33,7 +33,7 @@ export default async function SecurityPage() {
 
   return (
     <main className="connections-page security-page">
-      <Link href="/dashboard">← Dashboard</Link>
+      <AppPageHeader />
       <p className="eyebrow">ACCOUNT SECURITY</p>
       <h1>Protect your access.</h1>
       <p className="security-note">

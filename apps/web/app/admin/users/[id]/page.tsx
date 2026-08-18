@@ -1,6 +1,7 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+
+import { AppPageHeader } from "../../../app-page-header";
 export default async function UserDetail({
   params,
 }: {
@@ -23,7 +24,7 @@ export default async function UserDetail({
   };
   return (
     <main className="dashboard">
-      <Link href="/admin">← Admin</Link>
+      <AppPageHeader backHref="/admin" backLabel="Admin" />
       <p className="eyebrow">ARBION ADMIN</p>
       <h1>User detail</h1>
       <dl>

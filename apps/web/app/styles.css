@@ -46,6 +46,24 @@ body {
 .dashboard-brand {
   width: min(154px, 36vw);
 }
+.app-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 42px;
+}
+.section-brand {
+  width: min(154px, 38vw);
+}
+.app-back-link {
+  color: var(--brand-cyan);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.app-back-link:hover {
+  text-decoration: underline;
+}
 form {
   display: grid;
   gap: 18px;

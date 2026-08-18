@@ -13,6 +13,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { AuthForm } from "./auth-form";
+import { AppPageHeader } from "./app-page-header";
 
 describe("Authentication experience", () => {
   afterEach(() => {
@@ -46,6 +47,19 @@ describe("Authentication experience", () => {
     expect(
       screen.getByText(/registration is limited to invited email addresses/i),
     ).toBeInTheDocument();
+  });
+
+  it("renders the branded application header with clear navigation", () => {
+    render(<AppPageHeader backHref="/accounts" backLabel="Accounts" />);
+    expect(screen.getByRole("img", { name: "Arbion" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Arbion home" })).toHaveAttribute(
+      "href",
+      "/dashboard",
+    );
+    expect(screen.getByRole("link", { name: /accounts/i })).toHaveAttribute(
+      "href",
+      "/accounts",
+    );
   });
 
   it("completes a password then authenticator sign-in without creating an early session", async () => {
