@@ -392,8 +392,47 @@ button:disabled {
   color: #aabbb3;
   line-height: 1.55;
 }
-.security-grid > .form-error {
+.security-grid > .form-error,
+.security-grid > .form-success {
   grid-column: 1 / -1;
+}
+.mfa-setup-key {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  overflow-wrap: anywhere;
+  border: 1px solid #315447;
+  border-radius: 10px;
+  background: #07110e;
+}
+.mfa-setup-key span {
+  color: #8ba198;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.mfa-setup-key code,
+.recovery-code-list code {
+  color: #edf7f1;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+}
+.recovery-code-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 20px;
+  padding: 18px 18px 18px 38px;
+  border: 1px solid #7c6540;
+  border-radius: 10px;
+  background: #2b2415;
+}
+.security-subsection {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid #315447;
+}
+.security-subsection h3 {
+  margin-bottom: 8px;
 }
 .financial-connections {
   min-height: auto;

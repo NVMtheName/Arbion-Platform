@@ -61,3 +61,20 @@ func TestAuthEmailTokenMigrationStoresOnlyHashedSingleUseTokens(t *testing.T) {
 		t.Fatal("email token migration appears to store raw tokens")
 	}
 }
+
+func TestTOTPMFAMigrationEncryptsSecretsAndHashesRecoveryCodes(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00010_totp_mfa.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"auth_totp_factors", "secret_ciphertext bytea", "pending_expires_at", "last_used_step", "auth_mfa_recovery_codes", "code_hash bytea", "used_at"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("MFA migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{" secret text", " code text"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Fatalf("MFA migration appears to store a raw secret: %q", prohibited)
+		}
+	}
+}

@@ -16,6 +16,13 @@ var ErrRateLimited = errors.New("too many attempts")
 var ErrRegistrationUnavailable = errors.New("registration unavailable")
 var ErrEmailVerificationRequired = errors.New("email verification required")
 var ErrInvalidEmailToken = errors.New("email link is invalid or expired")
+var ErrMFARequired = errors.New("multi-factor authentication required")
+var ErrMFAUnavailable = errors.New("multi-factor authentication unavailable")
+var ErrMFAAlreadyEnabled = errors.New("multi-factor authentication already enabled")
+var ErrMFANotEnabled = errors.New("multi-factor authentication is not enabled")
+var ErrInvalidMFACode = errors.New("multi-factor authentication code is invalid")
+var ErrInvalidMFAChallenge = errors.New("multi-factor authentication challenge is invalid or expired")
+var ErrMFAEnrollmentExpired = errors.New("multi-factor authentication enrollment is invalid or expired")
 
 type User struct {
 	ID              string
@@ -68,6 +75,41 @@ type EmailTokenStore interface {
 	ConsumeVerificationToken(context.Context, []byte, time.Time) (string, error)
 	ConsumePasswordResetToken(context.Context, []byte, string, time.Time) (string, error)
 }
+
+type MFAStatus struct {
+	Enabled                bool `json:"enabled"`
+	RecoveryCodesRemaining int  `json:"recovery_codes_remaining"`
+}
+
+type TOTPFactor struct {
+	SecretCiphertext []byte
+	PendingExpiresAt *time.Time
+	EnabledAt        *time.Time
+}
+
+type MFAStore interface {
+	MFAStatus(context.Context, string) (MFAStatus, error)
+	SetPendingTOTP(context.Context, string, []byte, time.Time, time.Time) error
+	TOTPFactor(context.Context, string) (TOTPFactor, error)
+	ActivateTOTP(context.Context, string, [][]byte, int64, time.Time) error
+	AdvanceTOTPStep(context.Context, string, int64, time.Time) (bool, error)
+	ConsumeRecoveryCode(context.Context, string, []byte, time.Time) (bool, error)
+	ReplaceRecoveryCodes(context.Context, string, [][]byte, time.Time) error
+	DisableTOTP(context.Context, string) (bool, error)
+}
+
+type MFAChallenge struct {
+	UserID    string    `json:"user_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type MFAChallengeStore interface {
+	CreateMFAChallenge(context.Context, string, time.Duration) (string, error)
+	GetMFAChallenge(context.Context, string) (MFAChallenge, error)
+	ConsumeMFAChallenge(context.Context, string) (MFAChallenge, error)
+	DeleteMFAChallenge(context.Context, string) error
+}
+
 type Session struct {
 	UserID         string    `json:"user_id"`
 	CreatedAt      time.Time `json:"created_at"`

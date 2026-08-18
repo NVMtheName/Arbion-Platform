@@ -28,6 +28,9 @@ type Service struct {
 	emailTokens            EmailTokenStore
 	emailSender            mailer.Sender
 	emailPolicy            EmailPolicy
+	mfaStore               MFAStore
+	mfaChallenges          MFAChallengeStore
+	mfaProtector           *MFASecretProtector
 }
 
 type RegistrationPolicy struct {
@@ -112,36 +115,64 @@ func (s *Service) Register(ctx context.Context, email, password, name, rateKey s
 	return u.Safe(), token, nil
 }
 func (s *Service) Login(ctx context.Context, email, password, rateKey string) (SafeUser, string, error) {
-	n := NormalizeEmail(email)
-	ok, err := s.limiter.Allow(ctx, "login:"+rateKey+":"+n, 10, 15*time.Minute)
+	result, err := s.BeginLogin(ctx, email, password, rateKey)
 	if err != nil {
 		return SafeUser{}, "", err
 	}
+	if result.MFARequired {
+		return result.User, "", ErrMFARequired
+	}
+	return result.User, result.SessionToken, nil
+}
+
+func (s *Service) BeginLogin(ctx context.Context, email, password, rateKey string) (LoginResult, error) {
+	n := NormalizeEmail(email)
+	ok, err := s.limiter.Allow(ctx, "login:"+rateKey+":"+n, 10, 15*time.Minute)
+	if err != nil {
+		return LoginResult{}, err
+	}
 	if !ok {
-		return SafeUser{}, "", ErrRateLimited
+		return LoginResult{}, ErrRateLimited
 	}
 	u, err := s.users.ByNormalizedEmail(ctx, n)
 	if err != nil || !s.hasher.Verify(password, u.PasswordHash) {
 		_ = s.audit.Record(ctx, nil, "auth.login_failed", map[string]any{"outcome": "rejected"})
-		return SafeUser{}, "", ErrInvalidCredentials
+		return LoginResult{}, ErrInvalidCredentials
 	}
 	if u.Status == "pending_verification" {
-		return SafeUser{}, "", ErrEmailVerificationRequired
+		return LoginResult{}, ErrEmailVerificationRequired
 	}
 	if u.Status != "active" {
-		return SafeUser{}, "", ErrInvalidCredentials
+		return LoginResult{}, ErrInvalidCredentials
+	}
+	if s.mfaStore != nil {
+		status, statusErr := s.mfaStore.MFAStatus(ctx, u.ID)
+		if statusErr != nil {
+			return LoginResult{}, statusErr
+		}
+		if status.Enabled {
+			if s.mfaChallenges == nil {
+				return LoginResult{}, ErrMFAUnavailable
+			}
+			challenge, challengeErr := s.mfaChallenges.CreateMFAChallenge(ctx, u.ID, mfaChallengeTTL)
+			if challengeErr != nil {
+				return LoginResult{}, challengeErr
+			}
+			_ = s.audit.Record(ctx, &u.ID, "auth.login_mfa_required", map[string]any{"outcome": "challenge_issued"})
+			return LoginResult{User: u.Safe(), MFARequired: true, ChallengeToken: challenge}, nil
+		}
 	}
 	now := s.now().UTC()
 	if err = s.users.RecordLogin(ctx, u.ID, now); err != nil {
-		return SafeUser{}, "", err
+		return LoginResult{}, err
 	}
 	token, _, err := s.sessions.Create(ctx, u.ID, s.ttl)
 	if err != nil {
-		return SafeUser{}, "", err
+		return LoginResult{}, err
 	}
 	id := u.ID
 	_ = s.audit.Record(ctx, &id, "auth.login", map[string]any{"outcome": "success"})
-	return u.Safe(), token, nil
+	return LoginResult{User: u.Safe(), SessionToken: token}, nil
 }
 
 func (s *Service) RequestEmailVerification(ctx context.Context, email, rateKey string) error {
