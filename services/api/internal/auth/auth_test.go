@@ -47,6 +47,7 @@ func TestRedisSessionsExpiryAndRevocation(t *testing.T) {
 	}
 	a, _, _ := s.Create(context.Background(), "u", time.Hour)
 	b, _, _ := s.Create(context.Background(), "u", time.Hour)
+	challenge, _ := s.CreateMFAChallenge(context.Background(), "u", 5*time.Minute)
 	if err = s.RevokeUser(context.Background(), "u"); err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +55,9 @@ func TestRedisSessionsExpiryAndRevocation(t *testing.T) {
 		if _, err = s.Get(context.Background(), v); !errors.Is(err, ErrUnauthenticated) {
 			t.Fatal("session not revoked")
 		}
+	}
+	if _, err = s.GetMFAChallenge(context.Background(), challenge); !errors.Is(err, ErrInvalidMFAChallenge) {
+		t.Fatal("session revocation retained an MFA login challenge")
 	}
 }
 func TestRedisRateLimit(t *testing.T) {

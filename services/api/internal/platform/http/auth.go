@@ -60,9 +60,15 @@ func NewApplicationHandler(database ReadinessChecker, timeout config.Config, ser
 	mux.HandleFunc("POST /api/auth/verification/confirm", h.confirmVerification)
 	mux.HandleFunc("POST /api/auth/password-reset/request", h.requestPasswordReset)
 	mux.HandleFunc("POST /api/auth/password-reset/confirm", h.confirmPasswordReset)
+	mux.HandleFunc("POST /api/auth/mfa/login", h.completeMFALogin)
 	mux.Handle("POST /api/auth/logout", h.require(stdhttp.HandlerFunc(h.logout)))
 	mux.Handle("POST /api/auth/logout-all", h.require(stdhttp.HandlerFunc(h.logoutAll)))
 	mux.Handle("PUT /api/auth/password", h.require(stdhttp.HandlerFunc(h.changePassword)))
+	mux.Handle("GET /api/auth/mfa", h.require(stdhttp.HandlerFunc(h.mfaStatus)))
+	mux.Handle("POST /api/auth/mfa/totp/enroll", h.require(stdhttp.HandlerFunc(h.beginTOTPEnrollment)))
+	mux.Handle("POST /api/auth/mfa/totp/confirm", h.require(stdhttp.HandlerFunc(h.confirmTOTPEnrollment)))
+	mux.Handle("POST /api/auth/mfa/recovery-codes", h.require(stdhttp.HandlerFunc(h.regenerateRecoveryCodes)))
+	mux.Handle("DELETE /api/auth/mfa/totp", h.require(stdhttp.HandlerFunc(h.disableTOTP)))
 	mux.Handle("GET /api/auth/me", h.require(stdhttp.HandlerFunc(h.me)))
 	mux.Handle("GET /api/auth/protected-test", h.require(stdhttp.HandlerFunc(h.me)))
 	if h.admin != nil {
@@ -89,9 +95,15 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.HandleFunc("POST /api/auth/verification/confirm", h.confirmVerification)
 	mux.HandleFunc("POST /api/auth/password-reset/request", h.requestPasswordReset)
 	mux.HandleFunc("POST /api/auth/password-reset/confirm", h.confirmPasswordReset)
+	mux.HandleFunc("POST /api/auth/mfa/login", h.completeMFALogin)
 	mux.Handle("POST /api/auth/logout", h.require(stdhttp.HandlerFunc(h.logout)))
 	mux.Handle("POST /api/auth/logout-all", h.require(stdhttp.HandlerFunc(h.logoutAll)))
 	mux.Handle("PUT /api/auth/password", h.require(stdhttp.HandlerFunc(h.changePassword)))
+	mux.Handle("GET /api/auth/mfa", h.require(stdhttp.HandlerFunc(h.mfaStatus)))
+	mux.Handle("POST /api/auth/mfa/totp/enroll", h.require(stdhttp.HandlerFunc(h.beginTOTPEnrollment)))
+	mux.Handle("POST /api/auth/mfa/totp/confirm", h.require(stdhttp.HandlerFunc(h.confirmTOTPEnrollment)))
+	mux.Handle("POST /api/auth/mfa/recovery-codes", h.require(stdhttp.HandlerFunc(h.regenerateRecoveryCodes)))
+	mux.Handle("DELETE /api/auth/mfa/totp", h.require(stdhttp.HandlerFunc(h.disableTOTP)))
 	mux.Handle("GET /api/auth/me", h.require(stdhttp.HandlerFunc(h.me)))
 	mux.Handle("GET /api/admin/me", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.adminMe))))
 	mux.Handle("GET /api/admin/users", h.require(h.requireAdmin(stdhttp.HandlerFunc(h.adminUsers))))
@@ -658,13 +670,40 @@ func (h *authHandler) login(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	u, t, e := h.service.Login(r.Context(), in.Email, in.Password, rateKey(r))
+	result, e := h.service.BeginLogin(r.Context(), in.Email, in.Password, rateKey(r))
 	if e != nil {
 		h.authError(w, e)
 		return
 	}
-	h.setCookie(w, t)
-	writeJSON(w, 200, map[string]any{"user": u})
+	if result.MFARequired {
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, stdhttp.StatusAccepted, map[string]any{"mfa_required": true, "challenge_token": result.ChallengeToken})
+		return
+	}
+	h.setCookie(w, result.SessionToken)
+	writeJSON(w, 200, map[string]any{"user": result.User, "mfa_required": false})
+}
+
+func (h *authHandler) completeMFALogin(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		ChallengeToken string `json:"challenge_token"`
+		Code           string `json:"code"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	user, token, err := h.service.CompleteMFALogin(r.Context(), input.ChallengeToken, input.Code, rateKey(r))
+	if err != nil {
+		h.authError(w, err)
+		return
+	}
+	h.setCookie(w, token)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"user": user})
 }
 func (h *authHandler) authError(w stdhttp.ResponseWriter, e error) {
 	switch {
@@ -676,6 +715,18 @@ func (h *authHandler) authError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 403, "email_verification_required", "Verify your email before signing in.")
 	case errors.Is(e, auth.ErrInvalidEmailToken):
 		writeError(w, 400, "invalid_email_link", "This secure link is invalid or has expired.")
+	case errors.Is(e, auth.ErrInvalidMFAChallenge):
+		writeError(w, 401, "invalid_mfa_challenge", "This sign-in challenge has expired. Enter your email and password again.")
+	case errors.Is(e, auth.ErrInvalidMFACode):
+		writeError(w, 401, "invalid_mfa_code", "The authenticator or recovery code is invalid.")
+	case errors.Is(e, auth.ErrMFAAlreadyEnabled):
+		writeError(w, 409, "mfa_already_enabled", "Authenticator MFA is already enabled.")
+	case errors.Is(e, auth.ErrMFANotEnabled):
+		writeError(w, 409, "mfa_not_enabled", "Authenticator MFA is not enabled.")
+	case errors.Is(e, auth.ErrMFAEnrollmentExpired):
+		writeError(w, 409, "mfa_enrollment_expired", "Start authenticator setup again.")
+	case errors.Is(e, auth.ErrMFAUnavailable):
+		writeError(w, 503, "mfa_unavailable", "Multi-factor authentication is temporarily unavailable.")
 	case errors.Is(e, auth.ErrInvalidCurrentPassword):
 		writeError(w, 401, "invalid_current_password", "Current password is incorrect.")
 	case errors.Is(e, auth.ErrPasswordUnchanged):
@@ -687,6 +738,102 @@ func (h *authHandler) authError(w stdhttp.ResponseWriter, e error) {
 	default:
 		writeError(w, 500, "internal_error", "The request could not be completed.")
 	}
+}
+
+func (h *authHandler) mfaStatus(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	user, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	status, err := h.service.MFAStatus(r.Context(), user.ID)
+	if err != nil {
+		h.authError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"mfa": status})
+}
+
+func (h *authHandler) beginTOTPEnrollment(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		CurrentPassword string `json:"current_password"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	user, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	enrollment, err := h.service.BeginTOTPEnrollment(r.Context(), user.ID, input.CurrentPassword)
+	if err != nil {
+		h.authError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, stdhttp.StatusCreated, map[string]any{"enrollment": enrollment})
+}
+
+func (h *authHandler) confirmTOTPEnrollment(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		Code string `json:"code"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	user, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	codes, err := h.service.ConfirmTOTPEnrollment(r.Context(), user.ID, input.Code)
+	if err != nil {
+		h.authError(w, err)
+		return
+	}
+	h.clearCookie(w)
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"recovery_codes": codes})
+}
+
+func (h *authHandler) disableTOTP(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		CurrentPassword string `json:"current_password"`
+		Code            string `json:"code"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	user, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	if err := h.service.DisableTOTP(r.Context(), user.ID, input.CurrentPassword, input.Code); err != nil {
+		h.authError(w, err)
+		return
+	}
+	h.clearCookie(w)
+	w.WriteHeader(stdhttp.StatusNoContent)
+}
+
+func (h *authHandler) regenerateRecoveryCodes(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		CurrentPassword string `json:"current_password"`
+		Code            string `json:"code"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	user, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	codes, err := h.service.RegenerateRecoveryCodes(r.Context(), user.ID, input.CurrentPassword, input.Code)
+	if err != nil {
+		h.authError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{"recovery_codes": codes})
 }
 
 func (h *authHandler) requestVerification(w stdhttp.ResponseWriter, r *stdhttp.Request) {

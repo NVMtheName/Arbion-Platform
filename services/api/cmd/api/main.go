@@ -50,6 +50,12 @@ func main() {
 	users := auth.NewPostgresStore(pool)
 	sessions := auth.NewRedisStore(redisClient)
 	authService := auth.NewService(users, sessions, sessions, users, cfg.Auth.SessionTTL, auth.RegistrationPolicy{Restricted: cfg.Auth.RegistrationRestricted, AllowedEmails: cfg.Auth.RegistrationAllowlist})
+	mfaProtector, err := auth.NewMFASecretProtector(cfg.Credential.Key)
+	if err != nil {
+		slog.Error("MFA secret protection unavailable", "error", err)
+		os.Exit(1)
+	}
+	authService.ConfigureMFA(users, sessions, mfaProtector)
 	var emailSender mailer.Sender = mailer.DisabledSender{}
 	if cfg.Email.DeliveryMode == "smtp" {
 		emailSender = mailer.NewSMTPSender(mailer.SMTPConfig{Host: cfg.Email.SMTPHost, Port: cfg.Email.SMTPPort, Username: cfg.Email.SMTPUsername, Password: cfg.Email.SMTPPassword, FromAddress: cfg.Email.FromAddress, FromName: cfg.Email.FromName, Timeout: 10 * time.Second})

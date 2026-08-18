@@ -81,14 +81,86 @@ func (s *RedisStore) Delete(ctx context.Context, token string) error {
 	return s.client.Del(ctx, s.prefix+"session:"+tokenKey(token)).Err()
 }
 func (s *RedisStore) RevokeUser(ctx context.Context, userID string) error {
-	set := s.prefix + "user_sessions:" + userID
-	keys, err := s.client.SMembers(ctx, set).Result()
-	if err != nil && !errors.Is(err, redis.Nil) {
-		return err
+	sessionSet := s.prefix + "user_sessions:" + userID
+	challengeSet := s.prefix + "user_mfa_challenges:" + userID
+	keys := []string{sessionSet, challengeSet}
+	for _, set := range []string{sessionSet, challengeSet} {
+		members, err := s.client.SMembers(ctx, set).Result()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			return err
+		}
+		keys = append(keys, members...)
 	}
-	keys = append(keys, set)
 	return s.client.Del(ctx, keys...).Err()
 }
+
+func (s *RedisStore) CreateMFAChallenge(ctx context.Context, userID string, ttl time.Duration) (string, error) {
+	if userID == "" || ttl <= 0 {
+		return "", ErrMFAUnavailable
+	}
+	rawToken := make([]byte, 32)
+	if _, err := rand.Read(rawToken); err != nil {
+		return "", err
+	}
+	token := base64.RawURLEncoding.EncodeToString(rawToken)
+	challenge := MFAChallenge{UserID: userID, ExpiresAt: s.now().UTC().Add(ttl)}
+	rawChallenge, err := json.Marshal(challenge)
+	if err != nil {
+		return "", err
+	}
+	key := s.prefix + "mfa_challenge:" + tokenKey(token)
+	set := s.prefix + "user_mfa_challenges:" + userID
+	pipe := s.client.TxPipeline()
+	pipe.Set(ctx, key, rawChallenge, ttl)
+	pipe.SAdd(ctx, set, key)
+	pipe.Expire(ctx, set, ttl)
+	_, err = pipe.Exec(ctx)
+	return token, err
+}
+
+func (s *RedisStore) GetMFAChallenge(ctx context.Context, token string) (MFAChallenge, error) {
+	return s.readMFAChallenge(ctx, token, false)
+}
+
+func (s *RedisStore) ConsumeMFAChallenge(ctx context.Context, token string) (MFAChallenge, error) {
+	return s.readMFAChallenge(ctx, token, true)
+}
+
+func (s *RedisStore) readMFAChallenge(ctx context.Context, token string, consume bool) (MFAChallenge, error) {
+	if token == "" {
+		return MFAChallenge{}, ErrInvalidMFAChallenge
+	}
+	key := s.prefix + "mfa_challenge:" + tokenKey(token)
+	var raw []byte
+	var err error
+	if consume {
+		raw, err = s.client.GetDel(ctx, key).Bytes()
+	} else {
+		raw, err = s.client.Get(ctx, key).Bytes()
+	}
+	if err != nil {
+		return MFAChallenge{}, ErrInvalidMFAChallenge
+	}
+	var challenge MFAChallenge
+	if json.Unmarshal(raw, &challenge) != nil || challenge.UserID == "" || !s.now().Before(challenge.ExpiresAt) {
+		return MFAChallenge{}, ErrInvalidMFAChallenge
+	}
+	if consume {
+		_ = s.client.SRem(ctx, s.prefix+"user_mfa_challenges:"+challenge.UserID, key).Err()
+	}
+	return challenge, nil
+}
+
+func (s *RedisStore) DeleteMFAChallenge(ctx context.Context, token string) error {
+	if token == "" {
+		return nil
+	}
+	if _, err := s.readMFAChallenge(ctx, token, true); err != nil {
+		return s.client.Del(ctx, s.prefix+"mfa_challenge:"+tokenKey(token)).Err()
+	}
+	return nil
+}
+
 func (s *RedisStore) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
 	k := s.prefix + "rate:" + tokenKey(key)
 	n, err := s.client.Incr(ctx, k).Result()

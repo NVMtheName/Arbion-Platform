@@ -9,15 +9,27 @@ type User = {
   email_verified: boolean;
 };
 
+type MFAStatus = {
+  enabled: boolean;
+  recovery_codes_remaining: number;
+};
+
 export default async function SecurityPage() {
   const jar = await cookies();
-  const response = await fetch(
-    `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/auth/me`,
-    { headers: { cookie: jar.toString() }, cache: "no-store" },
-  );
-  if (response.status === 401) redirect("/login");
-  if (!response.ok) throw new Error("Unable to load account security");
+  const base = process.env.API_BASE_URL ?? "http://localhost:8080";
+  const options = {
+    headers: { cookie: jar.toString() },
+    cache: "no-store" as const,
+  };
+  const [response, mfaResponse] = await Promise.all([
+    fetch(`${base}/api/auth/me`, options),
+    fetch(`${base}/api/auth/mfa`, options),
+  ]);
+  if (response.status === 401 || mfaResponse.status === 401) redirect("/login");
+  if (!response.ok || !mfaResponse.ok)
+    throw new Error("Unable to load account security");
   const { user } = (await response.json()) as { user: User };
+  const { mfa } = (await mfaResponse.json()) as { mfa: MFAStatus };
 
   return (
     <main className="connections-page security-page">
@@ -31,7 +43,7 @@ export default async function SecurityPage() {
           : "not yet enabled for private testing"}
         .
       </p>
-      <SecurityControls />
+      <SecurityControls initialMFAStatus={mfa} />
     </main>
   );
 }

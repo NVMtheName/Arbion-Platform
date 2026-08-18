@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -95,6 +96,40 @@ type emailSink struct{ count int }
 
 func (e *emailSink) Send(context.Context, mailer.Message) error { e.count++; return nil }
 
+type transportMFAStore struct {
+	factor   auth.TOTPFactor
+	consumed bool
+}
+
+func (s *transportMFAStore) MFAStatus(context.Context, string) (auth.MFAStatus, error) {
+	return auth.MFAStatus{Enabled: s.factor.EnabledAt != nil, RecoveryCodesRemaining: 1}, nil
+}
+func (*transportMFAStore) SetPendingTOTP(context.Context, string, []byte, time.Time, time.Time) error {
+	return nil
+}
+func (s *transportMFAStore) TOTPFactor(context.Context, string) (auth.TOTPFactor, error) {
+	return s.factor, nil
+}
+func (*transportMFAStore) ActivateTOTP(context.Context, string, [][]byte, int64, time.Time) error {
+	return nil
+}
+func (*transportMFAStore) AdvanceTOTPStep(context.Context, string, int64, time.Time) (bool, error) {
+	return false, nil
+}
+func (s *transportMFAStore) ConsumeRecoveryCode(context.Context, string, []byte, time.Time) (bool, error) {
+	if s.consumed {
+		return false, nil
+	}
+	s.consumed = true
+	return true, nil
+}
+func (*transportMFAStore) ReplaceRecoveryCodes(context.Context, string, [][]byte, time.Time) error {
+	return nil
+}
+func (*transportMFAStore) DisableTOTP(context.Context, string) (bool, error) {
+	return true, nil
+}
+
 func TestAuthenticationRoutesCSRFAndProtection(t *testing.T) {
 	mini := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
@@ -146,6 +181,65 @@ func TestAuthenticationRoutesCSRFAndProtection(t *testing.T) {
 	}
 	if _, err := sessions.Get(context.Background(), cookie.Value); !errors.Is(err, auth.ErrUnauthenticated) {
 		t.Fatal("session retained after logout")
+	}
+}
+
+func TestMFALoginCreatesNoSessionUntilSecondFactorSucceeds(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	sessions := auth.NewRedisStore(redisClient)
+	users := &authUsers{}
+	service := auth.NewService(users, sessions, sessions, auditSink{}, time.Hour)
+	_, _, err := service.Register(context.Background(), "person@example.com", "correct horse battery staple", "Person", "ip-register")
+	if err != nil {
+		t.Fatal(err)
+	}
+	protector, err := auth.NewMFASecretProtector(make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, err := protector.Seal(users.user.ID, []byte("twenty-byte-secret!!"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	mfaStore := &transportMFAStore{factor: auth.TOTPFactor{SecretCiphertext: ciphertext, EnabledAt: &now}}
+	service.ConfigureMFA(mfaStore, sessions, protector)
+	cfg := config.Config{Database: config.Database{ReadinessTimeout: time.Second}, Auth: config.Auth{SessionCookie: "session", SessionTTL: time.Hour, AllowedOrigins: []string{"http://localhost:3000"}}}
+	handler := NewApplicationHandler(checker{}, cfg, service)
+
+	login := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"email":"person@example.com","password":"correct horse battery staple"}`))
+	login.Header.Set("Origin", "http://localhost:3000")
+	loginRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(loginRecorder, login)
+	if loginRecorder.Code != http.StatusAccepted || len(loginRecorder.Result().Cookies()) != 0 {
+		t.Fatalf("password phase returned %d with %d cookies: %s", loginRecorder.Code, len(loginRecorder.Result().Cookies()), loginRecorder.Body.String())
+	}
+	if loginRecorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal("MFA challenge response was cacheable")
+	}
+	var challenge struct {
+		MFARequired    bool   `json:"mfa_required"`
+		ChallengeToken string `json:"challenge_token"`
+	}
+	if err = json.Unmarshal(loginRecorder.Body.Bytes(), &challenge); err != nil || !challenge.MFARequired || challenge.ChallengeToken == "" {
+		t.Fatalf("invalid MFA challenge response: %#v %v", challenge, err)
+	}
+
+	complete := httptest.NewRequest(http.MethodPost, "/api/auth/mfa/login", strings.NewReader(`{"challenge_token":"`+challenge.ChallengeToken+`","code":"ABCD-EFGH-JKLM-NPQR"}`))
+	complete.Header.Set("Origin", "http://localhost:3000")
+	completeRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(completeRecorder, complete)
+	if completeRecorder.Code != http.StatusOK || len(completeRecorder.Result().Cookies()) != 1 || !completeRecorder.Result().Cookies()[0].HttpOnly {
+		t.Fatalf("MFA completion returned %d with %d cookies: %s", completeRecorder.Code, len(completeRecorder.Result().Cookies()), completeRecorder.Body.String())
+	}
+
+	replay := httptest.NewRequest(http.MethodPost, "/api/auth/mfa/login", strings.NewReader(`{"challenge_token":"`+challenge.ChallengeToken+`","code":"ABCD-EFGH-JKLM-NPQR"}`))
+	replay.Header.Set("Origin", "http://localhost:3000")
+	replayRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(replayRecorder, replay)
+	if replayRecorder.Code != http.StatusUnauthorized || !strings.Contains(replayRecorder.Body.String(), `"code":"invalid_mfa_challenge"`) {
+		t.Fatalf("MFA challenge replay returned %d %s", replayRecorder.Code, replayRecorder.Body.String())
 	}
 }
 
