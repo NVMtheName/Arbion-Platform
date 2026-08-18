@@ -67,3 +67,5 @@ Migration `00007_risk_control.sql` adds durable `risk_circuit_breakers` for glob
 Migration `00008_nonlive_strategy.sql` adds strategy instances bound by a composite foreign key to an immutable mandate version; append-only state transitions with unique `(instance,state_version)` optimistic concurrency; durable evaluation event identities; separate exact-decimal paper portfolios and positions; generic non-live execution records; and structured Decision Journal entries. Paper data never enters `financial_accounts` or provider position records.
 
 History update/delete triggers make state transitions and journal evidence immutable. Execution idempotency and per-instance event identities are database-enforced. Browser logout changes only Redis session state and cannot remove instances, paper portfolios, executions, decisions, or state history.
+
+Migration `00011_decision_journal_feed.sql` adds the `(user_id,created_at DESC,id DESC)` index used by the owner-wide Decision Journal projection. Cursor pagination uses both timestamp and UUID so equal timestamps do not skip or duplicate entries, while ownership remains the leading database predicate.

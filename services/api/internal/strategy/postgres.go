@@ -83,7 +83,7 @@ func (s *PostgresStore) History(c context.Context, u, id string) ([]Transition, 
 	return out, rows.Err()
 }
 func (s *PostgresStore) Decisions(c context.Context, u, id string) ([]DecisionJournalEntry, error) {
-	rows, e := s.db.Query(c, `SELECT d.id::text,d.strategy_instance_id::text,d.strategy_state,d.source,d.decision_type,d.structured_rationale,d.proposed_action_id,d.risk_evaluation_id::text,d.execution_record_id::text,d.resulting_state FROM decision_journal_entries d JOIN strategy_instances i ON i.id=d.strategy_instance_id WHERE i.id=$1 AND i.user_id=$2 ORDER BY d.created_at DESC`, id, u)
+	rows, e := s.db.Query(c, `SELECT d.id::text,d.strategy_instance_id::text,d.strategy_state,d.source,d.decision_type,d.structured_rationale,d.proposed_action_id,d.risk_evaluation_id::text,d.execution_record_id::text,d.resulting_state,d.created_at FROM decision_journal_entries d JOIN strategy_instances i ON i.id=d.strategy_instance_id WHERE i.id=$1 AND i.user_id=$2 ORDER BY d.created_at DESC,d.id DESC`, id, u)
 	if e != nil {
 		return nil, e
 	}
@@ -91,12 +91,54 @@ func (s *PostgresStore) Decisions(c context.Context, u, id string) ([]DecisionJo
 	out := []DecisionJournalEntry{}
 	for rows.Next() {
 		var x DecisionJournalEntry
-		if e = rows.Scan(&x.ID, &x.StrategyInstanceID, &x.StrategyState, &x.Source, &x.DecisionType, &x.StructuredRationale, &x.ProposedActionID, &x.RiskEvaluationID, &x.ExecutionRecordID, &x.ResultingState); e != nil {
+		if e = rows.Scan(&x.ID, &x.StrategyInstanceID, &x.StrategyState, &x.Source, &x.DecisionType, &x.StructuredRationale, &x.ProposedActionID, &x.RiskEvaluationID, &x.ExecutionRecordID, &x.ResultingState, &x.CreatedAt); e != nil {
 			return nil, e
 		}
 		out = append(out, x)
 	}
 	return out, rows.Err()
+}
+
+const journalColumns = `d.id::text,d.created_at,d.strategy_instance_id::text,d.financial_account_id::text,a.display_name,d.mandate_id::text,d.mandate_version,i.strategy_identifier,i.execution_mode,d.strategy_state,d.resulting_state,d.source,d.decision_type,d.structured_rationale,r.decision,r.approval_required,r.reason_codes,r.checks,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.price::text,x.notional::text`
+
+func scanJournalActivity(rows pgx.Rows) (JournalActivity, error) {
+	var activity JournalActivity
+	err := rows.Scan(
+		&activity.ID, &activity.CreatedAt, &activity.StrategyInstanceID,
+		&activity.FinancialAccountID, &activity.AccountDisplayName,
+		&activity.MandateID, &activity.MandateVersion, &activity.StrategyIdentifier,
+		&activity.ExecutionMode, &activity.StrategyState, &activity.ResultingState,
+		&activity.Source, &activity.DecisionType, &activity.StructuredRationale,
+		&activity.RiskDecision, &activity.ApprovalRequired, &activity.RiskReasonCodes,
+		&activity.RiskChecks, &activity.ExecutionStatus, &activity.Symbol,
+		&activity.Instrument, &activity.Side, &activity.Quantity, &activity.Price,
+		&activity.Notional,
+	)
+	return activity, err
+}
+
+func (s *PostgresStore) Journal(c context.Context, userID string, limit int, cursor *JournalCursor) ([]JournalActivity, error) {
+	const joins = ` FROM decision_journal_entries d JOIN strategy_instances i ON i.id=d.strategy_instance_id AND i.user_id=d.user_id JOIN financial_accounts a ON a.id=d.financial_account_id AND a.user_id=d.user_id LEFT JOIN risk_evaluations r ON r.id=d.risk_evaluation_id AND r.user_id=d.user_id LEFT JOIN nonlive_execution_records x ON x.id=d.execution_record_id AND x.user_id=d.user_id`
+	query := `SELECT ` + journalColumns + joins + ` WHERE d.user_id=$1 ORDER BY d.created_at DESC,d.id DESC LIMIT $2`
+	args := []any{userID, limit}
+	if cursor != nil {
+		query = `SELECT ` + journalColumns + joins + ` WHERE d.user_id=$1 AND (d.created_at,d.id) < ($2,$3::uuid) ORDER BY d.created_at DESC,d.id DESC LIMIT $4`
+		args = []any{userID, cursor.CreatedAt, cursor.ID, limit}
+	}
+	rows, err := s.db.Query(c, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	activities := []JournalActivity{}
+	for rows.Next() {
+		activity, scanErr := scanJournalActivity(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		activities = append(activities, activity)
+	}
+	return activities, rows.Err()
 }
 func (s *PostgresStore) Executions(c context.Context, u, id string) ([]ExecutionRecord, error) {
 	rows, e := s.db.Query(c, `SELECT x.id::text,x.idempotency_key,x.user_id::text,x.strategy_instance_id::text,x.mandate_id::text,x.mandate_version,x.proposed_action_id,x.risk_evaluation_id::text,x.mode,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.price::text,x.notional::text,x.metadata,x.created_at FROM nonlive_execution_records x WHERE x.strategy_instance_id=$1 AND x.user_id=$2 ORDER BY x.created_at DESC`, id, u)

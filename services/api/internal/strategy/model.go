@@ -135,6 +135,48 @@ type ExecutionResult struct {
 	ExpectedState State           `json:"expected_state,omitempty"`
 	Reason        string          `json:"reason,omitempty"`
 }
+
+// JournalCursor identifies a stable point in the reverse-chronological
+// decision feed. IDs disambiguate entries that share the same timestamp.
+type JournalCursor struct {
+	CreatedAt time.Time
+	ID        string
+}
+
+// JournalActivity is the credential-free, owner-facing projection of one
+// durable strategy decision and its linked risk/execution evidence.
+type JournalActivity struct {
+	ID                  string          `json:"id"`
+	CreatedAt           time.Time       `json:"created_at"`
+	StrategyInstanceID  string          `json:"strategy_instance_id"`
+	FinancialAccountID  string          `json:"financial_account_id"`
+	AccountDisplayName  string          `json:"account_display_name"`
+	MandateID           string          `json:"mandate_id"`
+	MandateVersion      int             `json:"mandate_version"`
+	StrategyIdentifier  string          `json:"strategy_identifier"`
+	ExecutionMode       ExecutionMode   `json:"execution_mode"`
+	StrategyState       string          `json:"strategy_state"`
+	ResultingState      *string         `json:"resulting_state,omitempty"`
+	Source              string          `json:"source"`
+	DecisionType        string          `json:"decision_type"`
+	StructuredRationale json.RawMessage `json:"structured_rationale"`
+	RiskDecision        *string         `json:"risk_decision,omitempty"`
+	ApprovalRequired    *bool           `json:"approval_required,omitempty"`
+	RiskReasonCodes     json.RawMessage `json:"risk_reason_codes,omitempty"`
+	RiskChecks          json.RawMessage `json:"risk_checks,omitempty"`
+	ExecutionStatus     *string         `json:"execution_status,omitempty"`
+	Symbol              *string         `json:"symbol,omitempty"`
+	Instrument          *string         `json:"instrument,omitempty"`
+	Side                *string         `json:"side,omitempty"`
+	Quantity            *string         `json:"quantity,omitempty"`
+	Price               *string         `json:"price,omitempty"`
+	Notional            *string         `json:"notional,omitempty"`
+}
+
+type JournalPage struct {
+	Entries    []JournalActivity
+	NextCursor *JournalCursor
+}
 type EvaluationOutcome struct {
 	Execution              ExecutionResult   `json:"execution"`
 	RiskDecision           risk.Decision     `json:"risk_decision"`
