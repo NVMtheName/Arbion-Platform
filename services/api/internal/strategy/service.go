@@ -24,6 +24,7 @@ type Persistence interface {
 	History(context.Context, string, string) ([]Transition, error)
 	Decisions(context.Context, string, string) ([]DecisionJournalEntry, error)
 	Executions(context.Context, string, string) ([]ExecutionRecord, error)
+	PaperPortfolio(context.Context, string, string) (PaperPortfolio, error)
 	Journal(context.Context, string, int, *JournalCursor) ([]JournalActivity, error)
 	Schedule(context.Context, string, string) (ScheduleStatus, error)
 	RecordLifecycle(context.Context, string, string, LifecycleCommand, time.Time) (LifecycleResult, error)
@@ -106,6 +107,24 @@ func (s *InstanceService) Executions(c context.Context, p authorization.Principa
 		return nil, ErrForbidden
 	}
 	return s.store.Executions(c, p.UserID, id)
+}
+
+func (s *InstanceService) PaperPortfolio(c context.Context, p authorization.Principal, id string) (PaperPortfolio, error) {
+	if !entitled(p) {
+		return PaperPortfolio{}, ErrForbidden
+	}
+	instance, err := s.store.Get(c, p.UserID, id)
+	if err != nil {
+		return PaperPortfolio{}, ErrNotFound
+	}
+	if instance.ExecutionMode != Paper {
+		return PaperPortfolio{}, ErrInvalid
+	}
+	portfolio, err := s.store.PaperPortfolio(c, p.UserID, id)
+	if err != nil {
+		return PaperPortfolio{}, ErrNotFound
+	}
+	return portfolio, nil
 }
 
 func (s *InstanceService) Journal(c context.Context, p authorization.Principal, limit int, cursor *JournalCursor) (JournalPage, error) {

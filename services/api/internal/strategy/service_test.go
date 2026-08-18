@@ -20,14 +20,22 @@ type journalPersistenceFake struct {
 	lifecycleAt     time.Time
 	lifecycleResult LifecycleResult
 	lifecycleError  error
+	instance        Instance
+	getError        error
+	portfolio       PaperPortfolio
+	portfolioError  error
+	portfolioCalls  int
+	requestedID     string
 }
 
 func (*journalPersistenceFake) Initialize(context.Context, string, automation.Mandate, string, State) (Instance, error) {
 	return Instance{}, nil
 }
 func (*journalPersistenceFake) List(context.Context, string) ([]Instance, error) { return nil, nil }
-func (*journalPersistenceFake) Get(context.Context, string, string) (Instance, error) {
-	return Instance{}, nil
+func (f *journalPersistenceFake) Get(_ context.Context, userID, instanceID string) (Instance, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	return f.instance, f.getError
 }
 func (*journalPersistenceFake) History(context.Context, string, string) ([]Transition, error) {
 	return nil, nil
@@ -37,6 +45,12 @@ func (*journalPersistenceFake) Decisions(context.Context, string, string) ([]Dec
 }
 func (*journalPersistenceFake) Executions(context.Context, string, string) ([]ExecutionRecord, error) {
 	return nil, nil
+}
+func (f *journalPersistenceFake) PaperPortfolio(_ context.Context, userID, instanceID string) (PaperPortfolio, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	f.portfolioCalls++
+	return f.portfolio, f.portfolioError
 }
 func (f *journalPersistenceFake) Journal(_ context.Context, userID string, limit int, after *JournalCursor) ([]JournalActivity, error) {
 	f.requestedUser = userID
@@ -84,6 +98,33 @@ func TestJournalRequiresAutomationEntitlement(t *testing.T) {
 	_, err := service.Journal(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, 25, nil)
 	if !errors.Is(err, ErrForbidden) || store.requestedUser != "" {
 		t.Fatalf("unentitled journal request was not rejected: %v", err)
+	}
+}
+
+func TestPaperPortfolioIsOwnerScopedAndPaperOnly(t *testing.T) {
+	store := &journalPersistenceFake{
+		instance:  Instance{ID: "instance-1", ExecutionMode: Paper},
+		portfolio: PaperPortfolio{StrategyInstanceID: "instance-1", Currency: "USD", Cash: "20125.0000000000", Positions: []PaperPosition{}},
+	}
+	service := NewInstanceService(store, nil)
+	portfolio, err := service.PaperPortfolio(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if portfolio.StrategyInstanceID != "instance-1" || store.requestedUser != "owner" || store.requestedID != "instance-1" || store.portfolioCalls != 1 {
+		t.Fatalf("paper portfolio boundary changed: portfolio=%#v store=%#v", portfolio, store)
+	}
+
+	store.instance.ExecutionMode = Shadow
+	if _, err = service.PaperPortfolio(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("shadow portfolio was not rejected: %v", err)
+	}
+	if store.portfolioCalls != 1 {
+		t.Fatal("shadow portfolio request reached the PAPER ledger")
+	}
+
+	if _, err = service.PaperPortfolio(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, "instance-1"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("unentitled portfolio request was accepted: %v", err)
 	}
 }
 

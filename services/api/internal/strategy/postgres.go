@@ -181,6 +181,50 @@ func (s *PostgresStore) Executions(c context.Context, u, id string) ([]Execution
 	return out, rows.Err()
 }
 
+func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID string) (PaperPortfolio, error) {
+	tx, err := s.db.BeginTx(c, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return PaperPortfolio{}, err
+	}
+	defer tx.Rollback(c)
+
+	var portfolioID string
+	portfolio := PaperPortfolio{StrategyInstanceID: instanceID, Positions: []PaperPosition{}}
+	err = tx.QueryRow(c, `SELECT f.id::text,f.currency,f.starting_cash::text,f.cash::text,f.version,f.updated_at
+		FROM paper_portfolios f JOIN strategy_instances i ON i.id=f.strategy_instance_id AND i.user_id=f.user_id
+		WHERE f.strategy_instance_id=$1 AND f.user_id=$2 AND i.execution_mode='PAPER'`, instanceID, userID).Scan(
+		&portfolioID, &portfolio.Currency, &portfolio.StartingCash, &portfolio.Cash, &portfolio.Version, &portfolio.UpdatedAt,
+	)
+	if err != nil {
+		return PaperPortfolio{}, err
+	}
+
+	rows, err := tx.Query(c, `SELECT p.symbol,p.instrument,COALESCE(p.option_type,''),COALESCE(p.strike::text,''),COALESCE(p.expiration::text,''),p.quantity::text,p.average_price::text,p.quantity<>0,p.updated_at
+		FROM paper_positions p
+		JOIN paper_portfolios f ON f.id=p.paper_portfolio_id
+		JOIN strategy_instances i ON i.id=f.strategy_instance_id AND i.user_id=f.user_id
+		WHERE p.paper_portfolio_id=$1 AND f.strategy_instance_id=$2 AND f.user_id=$3 AND i.user_id=$3 AND i.execution_mode='PAPER'
+		ORDER BY CASE WHEN p.quantity<>0 THEN 0 ELSE 1 END,p.instrument,p.symbol,p.expiration NULLS LAST,p.strike NULLS LAST,p.id`, portfolioID, instanceID, userID)
+	if err != nil {
+		return PaperPortfolio{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var position PaperPosition
+		if err = rows.Scan(&position.Symbol, &position.Instrument, &position.OptionType, &position.Strike, &position.Expiration, &position.Quantity, &position.AveragePrice, &position.IsOpen, &position.UpdatedAt); err != nil {
+			return PaperPortfolio{}, err
+		}
+		portfolio.Positions = append(portfolio.Positions, position)
+	}
+	if err = rows.Err(); err != nil {
+		return PaperPortfolio{}, err
+	}
+	if err = tx.Commit(c); err != nil {
+		return PaperPortfolio{}, err
+	}
+	return portfolio, nil
+}
+
 var _ Persistence = (*PostgresStore)(nil)
 var _ Repository = (*PostgresStore)(nil)
 

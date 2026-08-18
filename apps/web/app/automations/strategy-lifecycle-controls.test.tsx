@@ -21,6 +21,17 @@ const base = {
   status: "ACTIVE",
   executionMode: "PAPER",
   strategyIdentifier: "wheel",
+  openPosition: {
+    symbol: "AAPL",
+    instrument: "OPTION" as const,
+    option_type: "PUT" as const,
+    strike: "190.0000000000",
+    expiration: "2026-01-31",
+    quantity: "-1.0000000000",
+    average_price: "1.2500000000",
+    is_open: true,
+    updated_at: "2026-01-01T12:00:00Z",
+  },
 };
 
 describe("StrategyLifecycleControls", () => {
@@ -39,6 +50,8 @@ describe("StrategyLifecycleControls", () => {
       name: /record paper event/i,
     });
     expect(submit).toBeDisabled();
+    expect(screen.getByText("AAPL PUT")).toBeInTheDocument();
+    expect(screen.getByText("2026-01-31")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/outcome/i), {
       target: { value: "ASSIGNED" },
     });
@@ -70,5 +83,15 @@ describe("StrategyLifecycleControls", () => {
       />,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("fails closed when the matching PAPER contract is unavailable", () => {
+    render(<StrategyLifecycleControls {...base} openPosition={undefined} />);
+    expect(
+      screen.getByText(/event recording is disabled/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /record paper event/i }),
+    ).not.toBeInTheDocument();
   });
 });
