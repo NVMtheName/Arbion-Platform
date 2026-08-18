@@ -177,6 +177,41 @@ type JournalPage struct {
 	Entries    []JournalActivity
 	NextCursor *JournalCursor
 }
+
+type ScheduleStatus struct {
+	Enabled             bool       `json:"enabled"`
+	StrategyInstanceID  string     `json:"strategy_instance_id"`
+	MandateID           string     `json:"mandate_id,omitempty"`
+	MandateVersion      int        `json:"mandate_version,omitempty"`
+	IntervalMinutes     int        `json:"interval_minutes,omitempty"`
+	Session             string     `json:"session,omitempty"`
+	NextRunAt           *time.Time `json:"next_run_at,omitempty"`
+	LastStartedAt       *time.Time `json:"last_started_at,omitempty"`
+	LastCompletedAt     *time.Time `json:"last_completed_at,omitempty"`
+	LastStatus          *string    `json:"last_status,omitempty"`
+	LastErrorCode       *string    `json:"last_error_code,omitempty"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
+}
+
+type ScheduledRun struct {
+	StrategyInstanceID string
+	UserID             string
+	MandateID          string
+	MandateVersion     int
+	ExecutionMode      ExecutionMode
+	CurrentState       State
+	IntervalMinutes    int
+	Session            string
+	ScheduledFor       time.Time
+	LeaseToken         string
+}
+
+type ScheduleCompletion struct {
+	Status      string
+	ErrorCode   string
+	CompletedAt time.Time
+	NextRunAt   time.Time
+}
 type EvaluationOutcome struct {
 	Execution              ExecutionResult   `json:"execution"`
 	RiskDecision           risk.Decision     `json:"risk_decision"`

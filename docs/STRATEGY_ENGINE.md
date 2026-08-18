@@ -39,7 +39,7 @@ Shadow Mode must never submit an order. It records the intended order, expected 
 
 ## Evaluation and state advancement
 
-The implemented explicit manual evaluation follows this path, with AI, live preview, and broker submission intentionally absent:
+The implemented manual or guarded scheduled evaluation follows this path, with AI, live preview, and broker submission intentionally absent:
 
 1. loads the active immutable mandate version and reconciled strategy state;
 2. obtains mode-appropriate, provenance-bearing account and market inputs;
@@ -65,11 +65,11 @@ See [Automation Engine](AUTOMATION_ENGINE.md), [Risk and Control Engine](RISK_CO
 
 ## Deferred decisions
 
-The remaining strategy-definition format, complete transition/event taxonomy, production-grade fill simulation, corporate actions, assignment/exercise ingestion, multi-leg atomicity, trading calendars, deterministic replay requirements, state migration, mode-switch policy, scheduler, and backtester remain for later design. The current implementation is deliberately limited to explicit manual PAPER/SHADOW evaluation.
+The remaining strategy-definition format, complete transition/event taxonomy, production-grade fill simulation, corporate actions, assignment/exercise ingestion, multi-leg atomicity, exchange-holiday calendars, deterministic replay requirements, state migration, mode-switch policy, broader orchestration, and backtester remain for later design. The current implementation is deliberately limited to explicit manual or opt-in scheduled PAPER/SHADOW evaluation.
 
 ## Implemented configuration registry
 
-The Go automation domain exposes metadata for `wheel`, `covered_call`, `cash_secured_put`, and `collar`, including capability and parameter-schema hints. The registry itself remains configuration metadata; implemented strategy definitions, evaluation, and non-live adapters live in `internal/strategy`. No scheduler, order preview, or live adapter exists. Definitively unsupported required options capability rejects configuration; `UNKNOWN` is saved only with `capability_unverified=true` and fails closed during action evaluation.
+The Go automation domain exposes metadata for `wheel`, `covered_call`, `cash_secured_put`, and `collar`, including capability and parameter-schema hints. The registry itself remains configuration metadata; implemented strategy definitions, evaluation, the guarded scheduler, and non-live adapters live in `internal/strategy`. No order preview or live adapter exists. Definitively unsupported required options capability rejects configuration; `UNKNOWN` is saved only with `capability_unverified=true` and fails closed during action evaluation.
 
 ## Implemented deterministic non-live foundation
 
@@ -79,6 +79,6 @@ Cash-Secured Put and Covered Call use explicit legal states and provider-indepen
 
 `StrategyEvaluationInput`, `MarketSnapshot`, and `OptionCandidate` use exact decimal strings and provider-derived timestamps. The engine has no Schwab, broker, market-vendor, or AI dependency. The surrounding service obtains read-only inputs through normalized financial interfaces and rejects missing or stale market timestamps. Explicit `EXPIRE_WORTHLESS`, `ASSIGNED`, and `CALLED_AWAY` events drive lifecycle state; no probability is invented.
 
-Strategy parameters are validated and normalized server-side. Saving parameter changes creates a new immutable mandate version and returns the mandate to DRAFT; the user must review and mark that version READY before initializing or manually evaluating its exact matching strategy instance. A client-supplied event ID supplies bounded idempotency, while the database atomically claims that event with risk evidence, non-live execution evidence, the Decision Journal entry, and any PAPER-only state/accounting mutation.
+Strategy parameters and schedule conditions are validated and normalized server-side. Saving either creates a new immutable mandate version and returns the mandate to DRAFT; the user must review and mark that version READY before initializing or evaluating its exact matching strategy instance. Manual requests supply an event ID; scheduled runs derive one from the durable due time. The database atomically claims that identity with risk evidence, non-live execution evidence, the Decision Journal entry, and any PAPER-only state/accounting mutation.
 
 **The same deterministic strategy definition is intended to serve paper, shadow, and future live execution.** Future live execution remains unavailable and requires separate approval.

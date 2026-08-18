@@ -77,6 +77,11 @@ func main() {
 	strategyStore := strategy.NewPostgresStore(pool)
 	strategies := strategy.NewInstanceService(strategyStore, automations)
 	evaluations := strategy.NewEvaluationService(strategyStore, automations, financialConnections)
+	if cfg.Scheduler.Enabled {
+		scheduler := strategy.NewScheduler(strategyStore, evaluations)
+		go scheduler.Run(context.Background())
+		slog.Info("non-live strategy scheduler enabled")
+	}
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

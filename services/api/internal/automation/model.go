@@ -38,6 +38,15 @@ type StrategyParameters struct {
 	AssignmentHandlingPolicy string   `json:"assignment_handling_policy"`
 }
 
+// ScheduleConditions is intentionally narrow. A schedule only requests a
+// non-live evaluation cadence; it never grants authority beyond the immutable
+// mandate version that contains it.
+type ScheduleConditions struct {
+	Enabled         bool   `json:"enabled"`
+	IntervalMinutes int    `json:"interval_minutes,omitempty"`
+	Session         string `json:"session,omitempty"`
+}
+
 type Universe struct {
 	Symbols     []string `json:"symbols"`
 	UniverseIDs []string `json:"universe_ids,omitempty"`
@@ -113,4 +122,9 @@ type MandateCommand struct {
 	ScheduleConditions     json.RawMessage `json:"schedule_conditions"`
 	EffectiveFrom          *time.Time      `json:"effective_from,omitempty"`
 	EffectiveUntil         *time.Time      `json:"effective_until,omitempty"`
+}
+
+type ScheduleCommand struct {
+	ExpectedVersion    int                `json:"expected_version"`
+	ScheduleConditions ScheduleConditions `json:"schedule_conditions"`
 }

@@ -79,7 +79,7 @@ Future manual trading is equally UI-complete: account, instrument, side, quantit
 
 ## Server-side operation and administration
 
-Authorized automation operates server-side; browser presence and login-session lifetime are irrelevant. Future workers may evaluate strategies, monitor markets, request AI analysis, run schedules, execute approved work, monitor orders, reconcile, refresh tokens, and send notifications. Those workers and queues are deliberately not designed or implemented here.
+Authorized automation operates server-side; browser presence and login-session lifetime are irrelevant. The implemented opt-in scheduler evaluates only current READY, `STRATEGY_AUTONOMOUS` PAPER/SHADOW strategy versions. It uses database leases and stable event IDs, and it cannot preview or submit an order. Broader workers that request AI analysis, execute live work, monitor orders, reconcile, or send notifications remain unimplemented.
 
 Future superadmin operations may show automation, worker, execution, provider, and reconciliation health. They must not reveal plaintext user credentials. Automation-, account-, user-, and global-level emergency controls are audited domain actions; administrative authority does not bypass user boundaries or safety policy.
 
@@ -91,7 +91,7 @@ Arbion must not store private model chain-of-thought. It stores user-appropriate
 
 ## Deferred implementation decisions
 
-Workers, schedules, leases, notification transports, reservation accounting, broader mandate-diff significance, consequential approval UX, and live enablement remain deferred. Implemented schemas and APIs are limited to durable mandate/non-live state, manual PAPER/SHADOW evaluation, and read-only observations. This document authorizes no broker trading implementation.
+Notification transports, reservation accounting, broader mandate-diff significance, consequential approval UX, exchange-holiday calendars, lifecycle-event ingestion, and live enablement remain deferred. Implemented schemas and APIs are limited to durable mandate/non-live state, manual or guarded scheduled PAPER/SHADOW evaluation, and read-only observations. This document authorizes no broker trading implementation.
 
 ## Relationship to read-only financial connections
 
@@ -113,13 +113,15 @@ Capital buckets are account- and user-bound exact-decimal allocations. Fixed all
 
 ## Risk-gate integration
 
-Every implemented manual strategy proposal binds to the exact current immutable mandate version and enters the deterministic risk registry. `DRAFT`, `PAUSED`, `DISABLED`, and `ARCHIVED` cannot be evaluated; autonomy only changes approval semantics. A successful risk evaluation permits only the selected PAPER/SHADOW adapter and does not execute a broker trade.
+Every implemented manual or scheduled strategy proposal binds to the exact current immutable mandate version and enters the deterministic risk registry. `DRAFT`, `PAUSED`, `DISABLED`, and `ARCHIVED` cannot be evaluated; autonomy only changes approval semantics. A successful risk evaluation permits only the selected PAPER/SHADOW adapter and does not execute a broker trade.
 
 ## Non-live instance and journal implementation
 
-A manual request can initialize and explicitly evaluate an implemented deterministic strategy from a READY `STRATEGY` mandate in PAPER or SHADOW mode. Initialization copies the exact mandate version into the instance; evaluation reloads and requires that version to remain current. HYBRID evaluation is explicitly unsupported in this milestone and does not imply AI participation. There is no scheduler or background worker.
+A request can initialize and explicitly evaluate an implemented deterministic strategy from a READY `STRATEGY` mandate in PAPER or SHADOW mode. A strictly typed schedule can be enabled only for a `STRATEGY_AUTONOMOUS` PAPER/SHADOW mandate; changing it creates a new immutable DRAFT version. Initialization copies the exact mandate version into the instance and creates its operational schedule only when that version opted in. Every evaluation reloads and requires that version to remain current. HYBRID evaluation is unsupported and does not imply AI participation.
 
-The standard UI now supports the same bounded setup lifecycle: an entitled user can create an account-scoped capital bucket, save a mandate draft, set validated strategy parameters, mark it READY with expected-version concurrency, pause or disable it, initialize an eligible PAPER or SHADOW strategy, and invoke one evaluation. Parameter edits create a new immutable version and return the mandate to DRAFT. Reserve buckets, inactive accounts, and buckets belonging to another selected account are excluded from draft selection. PAPER initialization requires explicit simulated starting cash; SHADOW initialization creates no simulated cash and never sends a broker order. LIVE configurations remain non-initializable.
+The scheduler is disabled by default through `NONLIVE_SCHEDULER_ENABLED=false`. When enabled, it claims due work with a two-minute PostgreSQL lease, rechecks active founder entitlement, user status, effective dates, instance state, mode, mandate version, and schedule fields in the claim query, and uses an event ID derived from the durable due time. A crash retry therefore reaches the same database idempotency key. Work runs only on weekdays from 9:35 a.m. through 3:55 p.m. America/New_York; exchange holidays are not modeled, so stale/unavailable provider data fails closed. PAPER states with an open option leg are recorded as `WAITING_FOR_LIFECYCLE` without contacting Schwab. The worker stores only stable error codes, never provider text or credentials.
+
+The standard UI now supports the same bounded setup lifecycle: an entitled user can create an account-scoped capital bucket, save a mandate draft, set validated strategy parameters, configure an optional 30–1440 minute regular-session cadence, mark it READY with expected-version concurrency, pause or disable it, initialize an eligible PAPER or SHADOW strategy, and invoke a manual evaluation. Parameter or schedule edits create a new immutable version and return the mandate to DRAFT. Reserve buckets, inactive accounts, and buckets belonging to another selected account are excluded from draft selection. PAPER initialization requires explicit simulated starting cash; SHADOW initialization creates no simulated cash and never sends a broker order. LIVE configurations remain non-initializable.
 
 Decision Journal entries are append-only structured decision evidence: selected facts, rule outcomes, references, and resulting state. Audit events are reserved for security- or lifecycle-significant commands such as initialization, reset, pause, and exceptional lifecycle handling; routine evaluations belong in the journal rather than flooding the security audit. Neither record stores private chain-of-thought.
 

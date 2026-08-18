@@ -20,6 +20,22 @@ func TestLoadValidConfiguration(t *testing.T) {
 	if cfg.Database.MaxConnections != 10 {
 		t.Fatalf("unexpected pool size: %d", cfg.Database.MaxConnections)
 	}
+	if cfg.Scheduler.Enabled {
+		t.Fatal("non-live scheduler must be opt-in")
+	}
+}
+
+func TestNonLiveSchedulerConfigurationIsStrict(t *testing.T) {
+	values := validEnvironment()
+	values["NONLIVE_SCHEDULER_ENABLED"] = "true"
+	cfg, err := load(values)
+	if err != nil || !cfg.Scheduler.Enabled {
+		t.Fatalf("valid scheduler opt-in was rejected: %#v %v", cfg.Scheduler, err)
+	}
+	values["NONLIVE_SCHEDULER_ENABLED"] = "sometimes"
+	if _, err = load(values); err == nil || !strings.Contains(err.Error(), "NONLIVE_SCHEDULER_ENABLED") {
+		t.Fatalf("invalid scheduler value was accepted: %v", err)
+	}
 }
 func TestLoadRejectsProductionWithoutTLS(t *testing.T) {
 	values := validEnvironment()

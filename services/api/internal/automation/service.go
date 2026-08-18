@@ -113,6 +113,38 @@ func ParseStrategyParameters(raw json.RawMessage) (StrategyParameters, error) {
 	}
 	return parameters, nil
 }
+
+func ValidateScheduleConditions(schedule ScheduleConditions) error {
+	if !schedule.Enabled {
+		if schedule.IntervalMinutes != 0 || schedule.Session != "" {
+			return ErrInvalid
+		}
+		return nil
+	}
+	if schedule.IntervalMinutes < 30 || schedule.IntervalMinutes > 1440 || schedule.Session != "US_EQUITIES_REGULAR" {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func ParseScheduleConditions(raw json.RawMessage) (ScheduleConditions, error) {
+	if len(raw) == 0 {
+		raw = json.RawMessage(`{}`)
+	}
+	var schedule ScheduleConditions
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&schedule); err != nil {
+		return ScheduleConditions{}, ErrInvalid
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return ScheduleConditions{}, ErrInvalid
+	}
+	if err := ValidateScheduleConditions(schedule); err != nil {
+		return ScheduleConditions{}, err
+	}
+	return schedule, nil
+}
 func (s *Service) CreateBucket(ctx context.Context, p authorization.Principal, c CreateBucketCommand) (CapitalBucket, error) {
 	if !allowed(p) {
 		return CapitalBucket{}, ErrForbidden
@@ -257,7 +289,11 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 			return false, e
 		}
 	}
-	if len(c.ScheduleConditions) > 0 && !json.Valid(c.ScheduleConditions) {
+	schedule, err := ParseScheduleConditions(c.ScheduleConditions)
+	if err != nil {
+		return false, err
+	}
+	if schedule.Enabled && (c.AutomationType != "STRATEGY" || c.AutonomyLevel != "STRATEGY_AUTONOMOUS" || (c.ExecutionMode != "PAPER" && c.ExecutionMode != "SHADOW")) {
 		return false, ErrInvalid
 	}
 	for _, v := range []*string{c.Risk.MaxCapitalDeployed, c.Risk.MaxSinglePositionAmount, c.Risk.MaxSinglePositionPercentage, c.Risk.MaxDailyLoss, c.Risk.MinimumCashReserve} {
@@ -350,6 +386,37 @@ func (s *Service) UpdateStrategyParameters(c context.Context, p authorization.Pr
 	updated, err := s.store.UpdateMandate(c, p.UserID, id, expected, cmd, unverified, "UI")
 	if err == nil {
 		s.auditEvent(c, p, "automation_mandate.strategy_parameters_changed", map[string]any{"mandate_id": id, "version": updated.CurrentVersion, "source": "UI"})
+	}
+	return updated, err
+}
+
+func (s *Service) UpdateSchedule(c context.Context, p authorization.Principal, id string, expected int, schedule ScheduleConditions) (Mandate, error) {
+	if !allowed(p) {
+		return Mandate{}, ErrForbidden
+	}
+	if err := ValidateScheduleConditions(schedule); err != nil {
+		return Mandate{}, err
+	}
+	old, err := s.store.GetMandate(c, p.UserID, id)
+	if err != nil {
+		return Mandate{}, ErrNotFound
+	}
+	if old.AutomationType != "STRATEGY" || old.StrategyIdentifier == nil {
+		return Mandate{}, ErrInvalid
+	}
+	raw, err := json.Marshal(schedule)
+	if err != nil {
+		return Mandate{}, err
+	}
+	cmd := commandFrom(old)
+	cmd.ScheduleConditions = raw
+	unverified, err := s.validate(c, p, cmd, false)
+	if err != nil {
+		return Mandate{}, err
+	}
+	updated, err := s.store.UpdateMandate(c, p.UserID, id, expected, cmd, unverified, "UI")
+	if err == nil {
+		s.auditEvent(c, p, "automation_mandate.schedule_changed", map[string]any{"mandate_id": id, "version": updated.CurrentVersion, "enabled": schedule.Enabled, "source": "UI"})
 	}
 	return updated, err
 }

@@ -1,6 +1,6 @@
 # Arbion Platform
 
-Production-oriented foundation for Arbion. The Schwab integration is read-only, Arbion Insight provides bounded educational analysis of user-supplied text through explicit Fast/Core/Deep model profiles, and strategy execution is limited to PAPER and SHADOW. No live broker-write adapter or background auto-trading worker exists.
+Production-oriented foundation for Arbion. The Schwab integration is read-only, Arbion Insight provides bounded educational analysis of user-supplied text through explicit Fast/Core/Deep model profiles, and strategy execution is limited to PAPER and SHADOW. An opt-in server-side scheduler can invoke that same non-live evaluation path; no live broker-write adapter or live-trading worker exists.
 
 ## Repository layout
 

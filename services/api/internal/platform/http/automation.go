@@ -22,6 +22,7 @@ func registerAutomationRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/automations/{id}", h.require(stdhttp.HandlerFunc(h.getAutomation)))
 	m.Handle("PATCH /api/automations/{id}", h.require(stdhttp.HandlerFunc(h.updateAutomation)))
 	m.Handle("PATCH /api/automations/{id}/strategy-parameters", h.require(stdhttp.HandlerFunc(h.updateStrategyParameters)))
+	m.Handle("PATCH /api/automations/{id}/schedule", h.require(stdhttp.HandlerFunc(h.updateSchedule)))
 	for _, x := range []string{"ready", "pause", "disable", "archive"} {
 		m.Handle("POST /api/automations/{id}/"+x, h.require(stdhttp.HandlerFunc(h.transitionAutomation)))
 	}
@@ -166,6 +167,20 @@ func (h *authHandler) updateStrategyParameters(w stdhttp.ResponseWriter, r *stdh
 		updated, err := h.automation.UpdateStrategyParameters(r.Context(), principal(r), r.PathValue("id"), input.ExpectedVersion, input.StrategyParameters)
 		if err == nil {
 			writeJSON(w, 200, map[string]any{"automation": updated, "execution_enabled": false})
+		}
+		return err
+	})
+}
+
+func (h *authHandler) updateSchedule(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.autoMutation(w, r, func() error {
+		var input automation.ScheduleCommand
+		if !decode(w, r, &input) {
+			return nil
+		}
+		updated, err := h.automation.UpdateSchedule(r.Context(), principal(r), r.PathValue("id"), input.ExpectedVersion, input.ScheduleConditions)
+		if err == nil {
+			writeJSON(w, 200, map[string]any{"automation": updated, "live_execution_available": false})
 		}
 		return err
 	})

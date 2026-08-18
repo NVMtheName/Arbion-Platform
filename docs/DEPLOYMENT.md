@@ -2,7 +2,7 @@
 
 ## Status, topology, and safety boundary
 
-This repository is prepared for operation; it does **not** claim Arbion is deployed. Existing PAPER simulation, SHADOW intent recording, and read-only real Schwab data may be served. There is no scheduler, broker-write interface, order-submission adapter, live-trading implementation, or live feature flag.
+This repository is prepared for operation; it does **not** claim Arbion is deployed. Existing PAPER simulation, SHADOW intent recording, read-only real Schwab data, and an opt-in guarded non-live scheduler may be served. There is no broker-write interface, order-submission adapter, live-trading implementation, or live feature flag.
 
 ```text
 Internet :80/:443 -> Caddy (only published service)
@@ -22,6 +22,7 @@ Use a patched Linux host with Docker Engine, Compose v2, `curl`, `jq`, `openssl`
 Copy `.env.production.example` to ignored `.env.production` and populate it only on the host:
 
 - `ARBION_ENV=production`;
+- `NONLIVE_SCHEDULER_ENABLED=false` for the initial migration and smoke test. Change it to `true` only after schema 12 is confirmed and the guarded scheduler validation below passes;
 - PostgreSQL database/user and a strong `POSTGRES_PASSWORD`;
 - `DATABASE_URL` with matching non-development credentials. Bundled private PostgreSQL may use `postgres://...@postgres:5432/arbion?sslmode=disable` only inside this host; external databases must use TLS;
 - `REDIS_URL=redis://redis:6379/0`;
@@ -152,6 +153,15 @@ Manual Schwab test (never place an order):
 7. During an open market session, configure a bounded PAPER or SHADOW strategy and manually evaluate it; confirm quote/standard option-chain reads succeed, the response says no broker order was sent, and no Schwab order appears.
 8. Confirm stale/closed-market data fails closed and the UI distinctions among PAPER, SHADOW, and real read-only Schwab data remain clear.
 
+Guarded scheduler activation (never place an order):
+
+1. Confirm migration `00012_nonlive_strategy_scheduler.sql` completed and keep every existing mandate schedule disabled.
+2. Set `NONLIVE_SCHEDULER_ENABLED=true` in the owner-only production environment and redeploy the API. With no opted-in mandate version, the scheduler remains idle.
+3. In the UI, enable a 30-minute or longer schedule on a `STRATEGY_AUTONOMOUS` PAPER or SHADOW mandate. Confirm this creates a new DRAFT version; review it, mark that exact version READY, and initialize it.
+4. During the regular session, confirm one due run creates only PAPER/SHADOW decision evidence and no Schwab order. Confirm the schedule status advances and contains only a stable result code.
+5. For PAPER, confirm an open option leg changes the schedule result to `WAITING_FOR_LIFECYCLE` without another provider read. Outside the weekday 9:35 a.m.–3:55 p.m. America/New_York window, confirm it records `OUTSIDE_SESSION` and moves to the next session.
+6. To stop all scheduled claims without altering mandate history, set `NONLIVE_SCHEDULER_ENABLED=false` and restart the API. To stop one strategy, disable its schedule or pause/disable its mandate.
+
 ## Exact first-host checklist
 
 1. Provision/patch Linux; install Docker/Compose; permit public 80/443 only (plus restricted administration).
@@ -161,8 +171,8 @@ Manual Schwab test (never place an order):
 5. Validate Compose, then run `scripts/deploy-production.sh`.
 6. Run `scripts/smoke-production.sh`; inspect Compose health and sanitized logs.
 7. Register the founder, run the explicit idempotent bootstrap, and confirm its audit event.
-8. Perform the read-only manual Schwab test if configured.
-9. Reconfirm no broker-write routes/adapters, workers, or live toggle exist before announcing availability.
+8. Perform the read-only Schwab and guarded scheduler tests if configured.
+9. Reconfirm no broker-write routes/adapters, live-trading worker, or live toggle exists before announcing availability.
 
 ## Scalable AWS production option
 
