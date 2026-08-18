@@ -186,6 +186,61 @@ select {
   border: 1px solid #244237;
   border-radius: 12px;
 }
+.paper-portfolio-card {
+  margin: 34px 0;
+  padding: 24px;
+  border: 1px solid #315447;
+  border-radius: 16px;
+  background: #07110e;
+}
+.paper-portfolio-summary,
+.paper-contract-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+.paper-portfolio-summary p,
+.paper-contract-facts p {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #244237;
+  border-radius: 10px;
+}
+.paper-contract-facts {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.paper-position-table-wrap {
+  overflow-x: auto;
+}
+.paper-position-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.paper-position-table th,
+.paper-position-table td {
+  padding: 12px 10px;
+  border-top: 1px solid #244237;
+  white-space: nowrap;
+}
+.paper-position-status {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+.paper-position-status.is-open {
+  background: #174d38;
+  color: #8ff2bd;
+}
+.paper-position-status.is-closed {
+  background: #27332f;
+  color: #b8c7c0;
+}
 input:focus {
   outline: 2px solid var(--brand-cyan);
   outline-offset: 2px;
@@ -658,7 +713,9 @@ button:disabled {
   }
   .journal-summary,
   .journal-facts,
-  .journal-rationale {
+  .journal-rationale,
+  .paper-portfolio-summary,
+  .paper-contract-facts {
     grid-template-columns: 1fr;
   }
   .journal-entry > header,

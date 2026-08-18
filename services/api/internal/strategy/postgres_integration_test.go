@@ -111,6 +111,17 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT quantity::text FROM paper_positions`).Scan(&quantity); err != nil || quantity != "-1.0000000000" {
 		t.Fatalf("paper option position missing: %s %v", quantity, err)
 	}
+	portfolio, err := store.PaperPortfolio(ctx, userID, instance.ID)
+	if err != nil || portfolio.StartingCash != "20000.0000000000" || portfolio.Cash != "20125.0000000000" || portfolio.Currency != "USD" || portfolio.Version != 2 || len(portfolio.Positions) != 1 {
+		t.Fatalf("paper portfolio projection is incomplete: %#v %v", portfolio, err)
+	}
+	position := portfolio.Positions[0]
+	if !position.IsOpen || position.Symbol != "AAPL" || position.Instrument != "OPTION" || position.OptionType != "PUT" || position.Strike != "190.0000000000" || position.Expiration != "2026-01-31" || position.Quantity != "-1.0000000000" || position.AveragePrice != "1.2500000000" {
+		t.Fatalf("paper position projection is incomplete: %#v", position)
+	}
+	if _, err = store.PaperPortfolio(ctx, "99999999-9999-4999-8999-999999999999", instance.ID); err == nil {
+		t.Fatal("paper portfolio crossed its owner boundary")
+	}
 	firstPage, err := store.Journal(ctx, userID, 1, nil)
 	if err != nil || len(firstPage) != 1 {
 		t.Fatalf("decision journal first page unavailable: %#v %v", firstPage, err)
@@ -157,6 +168,10 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	}
 	if err = pool.QueryRow(ctx, `SELECT quantity::text FROM paper_positions WHERE instrument='OPTION'`).Scan(&quantity); err != nil || quantity != "0.0000000000" {
 		t.Fatalf("expired paper option remained open: %s %v", quantity, err)
+	}
+	portfolio, err = store.PaperPortfolio(ctx, userID, instance.ID)
+	if err != nil || len(portfolio.Positions) != 1 || portfolio.Positions[0].IsOpen {
+		t.Fatalf("closed paper position was not projected: %#v %v", portfolio, err)
 	}
 	if err = pool.QueryRow(ctx, `SELECT cash::text FROM paper_portfolios WHERE strategy_instance_id=$1`, instance.ID).Scan(&cash); err != nil || cash != "20125.0000000000" {
 		t.Fatalf("worthless expiration changed paper cash: %s %v", cash, err)

@@ -156,6 +156,31 @@ type ExecutionResult struct {
 	Reason        string          `json:"reason,omitempty"`
 }
 
+// PaperPortfolio is the owner-facing, provider-independent projection of one
+// simulated ledger. It deliberately excludes provider and account identifiers.
+type PaperPortfolio struct {
+	StrategyInstanceID string          `json:"strategy_instance_id"`
+	Currency           string          `json:"currency"`
+	StartingCash       string          `json:"starting_cash"`
+	Cash               string          `json:"cash"`
+	Version            int64           `json:"version"`
+	Positions          []PaperPosition `json:"positions"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+}
+
+// PaperPosition contains only normalized simulated position facts.
+type PaperPosition struct {
+	Symbol       string    `json:"symbol"`
+	Instrument   string    `json:"instrument"`
+	OptionType   string    `json:"option_type,omitempty"`
+	Strike       string    `json:"strike,omitempty"`
+	Expiration   string    `json:"expiration,omitempty"`
+	Quantity     string    `json:"quantity"`
+	AveragePrice string    `json:"average_price"`
+	IsOpen       bool      `json:"is_open"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 // JournalCursor identifies a stable point in the reverse-chronological
 // decision feed. IDs disambiguate entries that share the same timestamp.
 type JournalCursor struct {

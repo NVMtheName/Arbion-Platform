@@ -13,6 +13,10 @@ import {
   type StrategyScheduleStatus,
 } from "../strategy-schedule-controls";
 import { StrategyLifecycleControls } from "../strategy-lifecycle-controls";
+import {
+  PaperPortfolioSummary,
+  type PaperPortfolio,
+} from "../paper-portfolio-summary";
 export default async function MandateReview({
   params,
 }: {
@@ -55,23 +59,37 @@ export default async function MandateReview({
         currentVersion,
   );
   const instanceID = instance ? String(instance.ID ?? instance.id ?? "") : "";
-  const [history, decisions, executions, scheduleResponse] = instanceID
-    ? await Promise.all(
-        ["history", "decisions", "executions", "schedule"].map(
-          async (suffix) => {
+  const [history, decisions, executions, scheduleResponse, portfolioResponse] =
+    instanceID
+      ? await Promise.all(
+          [
+            "history",
+            "decisions",
+            "executions",
+            "schedule",
+            "paper-portfolio",
+          ].map(async (suffix) => {
             const response = await fetch(
               `${api}/api/strategy-instances/${instanceID}/${suffix}`,
               { headers: { cookie: jar.toString() }, cache: "no-store" },
             );
             return response.ok
-              ? ((await response.json()) as Record<string, unknown[]>)
+              ? ((await response.json()) as Record<string, unknown>)
               : {};
-          },
-        ),
-      )
-    : [{}, {}, {}, {}];
+          }),
+        )
+      : [{}, {}, {}, {}, {}];
+  const paperPortfolio = portfolioResponse.paper_portfolio as
+    | PaperPortfolio
+    | undefined;
+  const openPaperOptions = (paperPortfolio?.positions ?? []).filter(
+    (position) => position.is_open && position.instrument === "OPTION",
+  );
+  const openPaperOption =
+    openPaperOptions.length === 1 ? openPaperOptions[0] : undefined;
   const read = (key: string, legacy: string) =>
     String(m[key] ?? m[legacy] ?? "—");
+  const count = (value: unknown) => (Array.isArray(value) ? value.length : 0);
   return (
     <main className="connections-page automation-page">
       <AppPageHeader backHref="/automations" backLabel="Automations" />
@@ -170,6 +188,7 @@ export default async function MandateReview({
                 "strategy_identifier",
                 "StrategyIdentifier",
               )}
+              openPosition={openPaperOption}
             />
           )}
         </>
@@ -195,13 +214,13 @@ export default async function MandateReview({
               : "—"}
           </p>
         </div>
-        <div>
-          <p className="eyebrow">PAPER PORTFOLIO</p>
-          <h2>SIMULATED</h2>
-          <p>Paper balances and positions are kept separate from Schwab.</p>
-          <p>Paper execution is simulation, not a broker fill.</p>
-        </div>
       </section>
+      {instance && (
+        <PaperPortfolioSummary
+          portfolio={paperPortfolio}
+          executionMode={read("execution_mode", "ExecutionMode")}
+        />
+      )}
       {read("execution_mode", "ExecutionMode") === "SHADOW" && (
         <p className="security-note">
           <strong>SHADOW — NO REAL ORDER WAS SENT.</strong> Decisions record
@@ -213,9 +232,9 @@ export default async function MandateReview({
           <p className="eyebrow">STRATEGY HISTORY</p>
           <h2>Durable non-live activity</h2>
           <p>
-            {(history.transitions ?? []).length} state transition(s) ·{" "}
-            {(decisions.decisions ?? []).length} decision(s) ·{" "}
-            {(executions.executions ?? []).length} execution record(s)
+            {count(history.transitions)} state transition(s) ·{" "}
+            {count(decisions.decisions)} decision(s) ·{" "}
+            {count(executions.executions)} execution record(s)
           </p>
           <p>
             Evaluations are manual unless this exact mandate version has an
