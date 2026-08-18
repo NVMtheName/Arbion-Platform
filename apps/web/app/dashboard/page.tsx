@@ -86,6 +86,12 @@ export default async function Dashboard() {
           <p>Configuration only · execution disabled</p>
           <Link href="/automations">Build automations</Link>
         </article>
+        <article>
+          <span className="icon">⌁</span>
+          <h2>Decision Journal</h2>
+          <p>Read-only PAPER and SHADOW decision evidence</p>
+          <Link href="/activity">Review activity</Link>
+        </article>
       </section>
       <InsightPanel
         configured={preference !== null}

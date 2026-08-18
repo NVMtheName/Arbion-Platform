@@ -12,6 +12,9 @@ curl --fail --silent --show-error --max-time 10 "$base/register" >/dev/null
 curl --fail --silent --show-error --max-time 10 "$base/brand/arbion-wordmark.svg" >/dev/null
 curl --fail --silent --show-error --max-time 10 "$base/icon.svg" >/dev/null
 
+journal_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 10 "$base/api/decision-journal")"
+[[ "$journal_status" == "401" ]] || { echo "Decision Journal endpoint is not protected" >&2; exit 1; }
+
 headers="$(curl --fail --silent --show-error --head --max-time 10 "$base/login" | tr -d '\r')"
 require_header() {
   local name="$1" expected="$2" actual

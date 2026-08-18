@@ -78,3 +78,15 @@ func TestTOTPMFAMigrationEncryptsSecretsAndHashesRecoveryCodes(t *testing.T) {
 		}
 	}
 }
+
+func TestDecisionJournalFeedIndexIsOwnerScopedAndStable(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00011_decision_journal_feed.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"decision_journal_owner_feed_idx", "user_id,created_at DESC,id DESC"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("decision journal feed migration missing %q", required)
+		}
+	}
+}

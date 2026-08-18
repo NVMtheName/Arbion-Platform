@@ -164,6 +164,8 @@ No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine
 
 Strategy state, transitions, market fixtures, paper records, and Decision Journal rationale contain only normalized safe data. They exclude financial/AI credentials, full account numbers, raw provider payloads, and private chain-of-thought. Ownership and `CanUseAutomation`/financial entitlement are checked server-side for instance APIs.
 
+The aggregate `GET /api/decision-journal` route applies the same product entitlements and filters every joined record by the authenticated user. It exposes a bounded, no-store, read-only projection with opaque stable pagination. The website labels PAPER as simulation and SHADOW as would-have-submitted evidence, and the API continues to declare `live_execution_available=false`.
+
 PAPER and SHADOW traverse the same Risk/Control Engine. PAPER mutates only separate simulated tables; SHADOW mutates no holdings and explicitly records that no order was sent. The strategy package imports neither Schwab nor Neural Engine code; a credential-aware financial service supplies only normalized read models. Missing, stale, or future-dated market timestamps fail closed. No live or broker execution adapter exists.
 
 ## AWS production trust boundaries

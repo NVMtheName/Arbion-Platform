@@ -111,6 +111,26 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT quantity::text FROM paper_positions`).Scan(&quantity); err != nil || quantity != "-1.0000000000" {
 		t.Fatalf("paper option position missing: %s %v", quantity, err)
 	}
+	firstPage, err := store.Journal(ctx, userID, 1, nil)
+	if err != nil || len(firstPage) != 1 {
+		t.Fatalf("decision journal first page unavailable: %#v %v", firstPage, err)
+	}
+	first := firstPage[0]
+	if !first.CreatedAt.Equal(fillTime) || first.AccountDisplayName != "Schwab Test" || first.RiskDecision == nil || *first.RiskDecision != string(risk.Allow) || first.ExecutionStatus == nil || *first.ExecutionStatus != string(SimulatedFilled) {
+		t.Fatalf("decision journal projection is incomplete: %#v", first)
+	}
+	secondPage, err := store.Journal(ctx, userID, 1, &JournalCursor{CreatedAt: first.CreatedAt, ID: first.ID})
+	if err != nil || len(secondPage) != 1 || !secondPage[0].CreatedAt.Equal(now) {
+		t.Fatalf("decision journal cursor is unstable: %#v %v", secondPage, err)
+	}
+	foreignPage, err := store.Journal(ctx, "99999999-9999-4999-8999-999999999999", 10, nil)
+	if err != nil || len(foreignPage) != 0 {
+		t.Fatalf("decision journal crossed its owner boundary: %#v %v", foreignPage, err)
+	}
+	decisions, err := store.Decisions(ctx, userID, instance.ID)
+	if err != nil || len(decisions) != 2 || decisions[0].CreatedAt.IsZero() {
+		t.Fatalf("per-instance journal timestamps are missing: %#v %v", decisions, err)
+	}
 	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 2)
 	facts, err := store.EvaluationFacts(ctx, Instance{ID: instance.ID, UserID: userID, FinancialAccountID: accountID, AutomationMandateID: mandateID, ExecutionMode: Paper}, fillTime)
 	if err != nil || facts.Paper == nil || facts.Paper.CurrentExposure != "19000.0000000000" || facts.ActionsToday != 2 {

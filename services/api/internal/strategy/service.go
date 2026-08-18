@@ -2,8 +2,10 @@ package strategy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math/big"
+	"time"
 
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/automation"
@@ -22,14 +24,16 @@ type Persistence interface {
 	History(context.Context, string, string) ([]Transition, error)
 	Decisions(context.Context, string, string) ([]DecisionJournalEntry, error)
 	Executions(context.Context, string, string) ([]ExecutionRecord, error)
+	Journal(context.Context, string, int, *JournalCursor) ([]JournalActivity, error)
 }
 type Mandates interface {
 	Get(context.Context, authorization.Principal, string) (automation.Mandate, error)
 }
 type DecisionJournalEntry struct {
 	ID, StrategyInstanceID, StrategyState, Source, DecisionType           string
-	StructuredRationale                                                   []byte
+	StructuredRationale                                                   json.RawMessage
 	ProposedActionID, RiskEvaluationID, ExecutionRecordID, ResultingState *string
+	CreatedAt                                                             time.Time
 }
 type InstanceService struct {
 	store    Persistence
@@ -97,4 +101,24 @@ func (s *InstanceService) Executions(c context.Context, p authorization.Principa
 		return nil, ErrForbidden
 	}
 	return s.store.Executions(c, p.UserID, id)
+}
+
+func (s *InstanceService) Journal(c context.Context, p authorization.Principal, limit int, cursor *JournalCursor) (JournalPage, error) {
+	if !entitled(p) {
+		return JournalPage{}, ErrForbidden
+	}
+	if limit < 1 || limit > 100 || (cursor != nil && (cursor.CreatedAt.IsZero() || cursor.ID == "")) {
+		return JournalPage{}, ErrInvalid
+	}
+	entries, err := s.store.Journal(c, p.UserID, limit+1, cursor)
+	if err != nil {
+		return JournalPage{}, err
+	}
+	page := JournalPage{Entries: entries}
+	if len(entries) > limit {
+		page.Entries = entries[:limit]
+		last := page.Entries[len(page.Entries)-1]
+		page.NextCursor = &JournalCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	return page, nil
 }

@@ -1,12 +1,26 @@
 package http
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	stdhttp "net/http"
+	"regexp"
+	"strconv"
+	"time"
 
 	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/strategy"
 )
+
+const defaultJournalPageSize = 25
+
+var journalUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
+
+type journalCursorPayload struct {
+	CreatedAt time.Time `json:"created_at"`
+	ID        string    `json:"id"`
+}
 
 func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	if h.strategies == nil {
@@ -18,9 +32,64 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/strategy-instances/{id}/history", h.require(stdhttp.HandlerFunc(h.strategyHistory)))
 	m.Handle("GET /api/strategy-instances/{id}/decisions", h.require(stdhttp.HandlerFunc(h.strategyDecisions)))
 	m.Handle("GET /api/strategy-instances/{id}/executions", h.require(stdhttp.HandlerFunc(h.strategyExecutions)))
+	m.Handle("GET /api/decision-journal", h.require(stdhttp.HandlerFunc(h.decisionJournal)))
 	if h.evaluations != nil {
 		m.Handle("POST /api/strategy-instances/{id}/evaluate", h.require(stdhttp.HandlerFunc(h.evaluateStrategy)))
 	}
+}
+
+func encodeJournalCursor(cursor *strategy.JournalCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	payload, _ := json.Marshal(journalCursorPayload{CreatedAt: cursor.CreatedAt, ID: cursor.ID})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeJournalCursor(encoded string) (*strategy.JournalCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	if len(encoded) > 512 {
+		return nil, strategy.ErrInvalid
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, strategy.ErrInvalid
+	}
+	var decoded journalCursorPayload
+	if err = json.Unmarshal(payload, &decoded); err != nil || decoded.CreatedAt.IsZero() || !journalUUID.MatchString(decoded.ID) {
+		return nil, strategy.ErrInvalid
+	}
+	return &strategy.JournalCursor{CreatedAt: decoded.CreatedAt, ID: decoded.ID}, nil
+}
+
+func (h *authHandler) decisionJournal(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	limit := defaultJournalPageSize
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 100 {
+			writeError(w, 400, "INVALID_PAGINATION", "Limit must be between 1 and 100.")
+			return
+		}
+		limit = parsed
+	}
+	cursor, err := decodeJournalCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeError(w, 400, "INVALID_PAGINATION", "The journal cursor is invalid.")
+		return
+	}
+	page, err := h.strategies.Journal(r.Context(), principal(r), limit, cursor)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"entries":                  page.Entries,
+		"next_cursor":              encodeJournalCursor(page.NextCursor),
+		"live_execution_available": false,
+	})
 }
 func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 	switch {
