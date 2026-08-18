@@ -14,6 +14,8 @@ var ErrPasswordUnchanged = errors.New("new password must be different")
 var ErrUnauthenticated = errors.New("authentication required")
 var ErrRateLimited = errors.New("too many attempts")
 var ErrRegistrationUnavailable = errors.New("registration unavailable")
+var ErrEmailVerificationRequired = errors.New("email verification required")
+var ErrInvalidEmailToken = errors.New("email link is invalid or expired")
 
 type User struct {
 	ID              string
@@ -46,11 +48,25 @@ func (u User) Safe() SafeUser {
 func NormalizeEmail(email string) string { return strings.ToLower(strings.TrimSpace(email)) }
 
 type UserStore interface {
-	Create(context.Context, string, string, string, string) (User, error)
+	Create(context.Context, string, string, string, string, string) (User, error)
 	ByNormalizedEmail(context.Context, string) (User, error)
 	ByID(context.Context, string) (User, error)
 	RecordLogin(context.Context, string, time.Time) error
 	UpdatePassword(context.Context, string, string, string, time.Time) (bool, error)
+}
+
+type EmailTokenPurpose string
+
+const (
+	VerifyEmailToken   EmailTokenPurpose = "verify_email"
+	ResetPasswordToken EmailTokenPurpose = "reset_password"
+)
+
+type EmailTokenStore interface {
+	ReplaceEmailToken(context.Context, string, EmailTokenPurpose, []byte, time.Time, time.Time) error
+	ActiveEmailTokenUser(context.Context, EmailTokenPurpose, []byte, time.Time) (string, error)
+	ConsumeVerificationToken(context.Context, []byte, time.Time) (string, error)
+	ConsumePasswordResetToken(context.Context, []byte, string, time.Time) (string, error)
 }
 type Session struct {
 	UserID         string    `json:"user_id"`

@@ -19,6 +19,15 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       body: JSON.stringify(values),
     });
     if (response.ok) {
+      if (mode === "register") {
+        const body = (await response.json().catch(() => null)) as {
+          verification_required?: boolean;
+        } | null;
+        if (body?.verification_required) {
+          router.push("/verify-email?sent=1");
+          return;
+        }
+      }
       router.push("/dashboard");
       router.refresh();
       return;
@@ -86,6 +95,15 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
             {mode === "login" ? "Create your account" : "Log in"}
           </Link>
         </p>
+        {mode === "login" && (
+          <p className="switch">
+            <Link href="/forgot-password">Forgot your password?</Link>
+            {" · "}
+            <Link href="/verify-email?request=1">
+              Resend verification email
+            </Link>
+          </p>
+        )}
       </section>
     </main>
   );

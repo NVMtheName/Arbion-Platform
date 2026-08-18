@@ -25,13 +25,59 @@ func scanUser(row pgx.Row) (User, error) {
 	err := row.Scan(&u.ID, &u.Email, &u.NormalizedEmail, &u.PasswordHash, &u.DisplayName, &u.Status, &u.EmailVerifiedAt, &u.LastLoginAt, &u.CreatedAt, &u.Role, &u.Entitlement, &u.BillingRequired)
 	return u, err
 }
-func (s *PostgresStore) Create(ctx context.Context, email, normalized, hash, name string) (User, error) {
-	u, err := scanUser(s.db.QueryRow(ctx, `INSERT INTO users(email,normalized_email,password_hash,display_name) VALUES($1,$2,$3,NULLIF($4,'')) RETURNING `+userColumns, email, normalized, hash, name))
+func (s *PostgresStore) Create(ctx context.Context, email, normalized, hash, name, status string) (User, error) {
+	u, err := scanUser(s.db.QueryRow(ctx, `INSERT INTO users(email,normalized_email,password_hash,display_name,status) VALUES($1,$2,$3,NULLIF($4,''),$5) RETURNING `+userColumns, email, normalized, hash, name, status))
 	var pe *pgconn.PgError
 	if errors.As(err, &pe) && pe.Code == "23505" {
 		return User{}, ErrConflict
 	}
 	return u, err
+}
+
+func (s *PostgresStore) ReplaceEmailToken(ctx context.Context, userID string, purpose EmailTokenPurpose, tokenHash []byte, expiresAt, now time.Time) error {
+	_, err := s.db.Exec(ctx, `WITH replaced AS (
+  UPDATE auth_email_tokens SET consumed_at=$5 WHERE user_id=$1 AND purpose=$2 AND consumed_at IS NULL
+)
+INSERT INTO auth_email_tokens(user_id,purpose,token_hash,expires_at,created_at) VALUES($1,$2,$3,$4,$5)`, userID, purpose, tokenHash, expiresAt, now)
+	return err
+}
+
+func (s *PostgresStore) ActiveEmailTokenUser(ctx context.Context, purpose EmailTokenPurpose, tokenHash []byte, now time.Time) (string, error) {
+	var userID string
+	err := s.db.QueryRow(ctx, `SELECT t.user_id::text FROM auth_email_tokens t JOIN users u ON u.id=t.user_id WHERE t.purpose=$1 AND t.token_hash=$2 AND t.consumed_at IS NULL AND t.expires_at>$3 AND u.status='active'`, purpose, tokenHash, now).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrInvalidEmailToken
+	}
+	return userID, err
+}
+
+func (s *PostgresStore) ConsumeVerificationToken(ctx context.Context, tokenHash []byte, now time.Time) (string, error) {
+	var userID string
+	err := s.db.QueryRow(ctx, `WITH consumed AS (
+  UPDATE auth_email_tokens SET consumed_at=$2
+  WHERE purpose='verify_email' AND token_hash=$1 AND consumed_at IS NULL AND expires_at>$2
+  RETURNING user_id
+)
+UPDATE users SET email_verified_at=COALESCE(email_verified_at,$2),status=CASE WHEN status='pending_verification' THEN 'active' ELSE status END,updated_at=$2
+FROM consumed WHERE users.id=consumed.user_id RETURNING users.id::text`, tokenHash, now).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrInvalidEmailToken
+	}
+	return userID, err
+}
+
+func (s *PostgresStore) ConsumePasswordResetToken(ctx context.Context, tokenHash []byte, passwordHash string, now time.Time) (string, error) {
+	var userID string
+	err := s.db.QueryRow(ctx, `WITH consumed AS (
+  UPDATE auth_email_tokens SET consumed_at=$3
+  WHERE purpose='reset_password' AND token_hash=$1 AND consumed_at IS NULL AND expires_at>$3
+  RETURNING user_id
+)
+UPDATE users SET password_hash=$2,updated_at=$3 FROM consumed WHERE users.id=consumed.user_id AND users.status='active' RETURNING users.id::text`, tokenHash, passwordHash, now).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrInvalidEmailToken
+	}
+	return userID, err
 }
 func (s *PostgresStore) ByNormalizedEmail(ctx context.Context, email string) (User, error) {
 	return scanUser(s.db.QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE normalized_email=$1`, email))

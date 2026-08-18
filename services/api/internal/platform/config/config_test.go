@@ -145,3 +145,47 @@ func TestLoadBuildsEscapedDatabaseURLFromProductionFields(t *testing.T) {
 		t.Fatalf("database URL was not safely constructed")
 	}
 }
+
+func TestEmailDeliveryDefaultsDisabledWithBoundedTokenLifetimes(t *testing.T) {
+	cfg, err := load(validEnvironment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Email.DeliveryMode != "disabled" || cfg.Email.VerificationRequired || cfg.Email.VerificationTTL.String() != "24h0m0s" || cfg.Email.PasswordResetTTL.String() != "30m0s" {
+		t.Fatalf("unexpected email defaults: %#v", cfg.Email)
+	}
+}
+
+func TestEmailVerificationRequiresCompleteSecureSMTPConfiguration(t *testing.T) {
+	values := validProduction()
+	values["EMAIL_VERIFICATION_REQUIRED"] = "true"
+	if _, err := load(values); err == nil || !strings.Contains(err.Error(), "EMAIL_DELIVERY_MODE=smtp") {
+		t.Fatalf("expected disabled delivery rejection, got %v", err)
+	}
+	values["EMAIL_DELIVERY_MODE"] = "smtp"
+	values["EMAIL_PUBLIC_BASE_URL"] = "https://www.arbion.ai"
+	values["EMAIL_FROM_ADDRESS"] = "support@arbion.ai"
+	values["SMTP_HOST"] = "email-smtp.us-east-1.amazonaws.com"
+	values["SMTP_USERNAME"] = "smtp-user"
+	values["SMTP_PASSWORD"] = "smtp-password"
+	if _, err := load(values); err != nil {
+		t.Fatal(err)
+	}
+	values["EMAIL_PUBLIC_BASE_URL"] = "http://www.arbion.ai"
+	if _, err := load(values); err == nil || !strings.Contains(err.Error(), "EMAIL_PUBLIC_BASE_URL") {
+		t.Fatalf("expected insecure public URL rejection, got %v", err)
+	}
+}
+
+func TestEmailTokenLifetimesAreBounded(t *testing.T) {
+	values := validEnvironment()
+	values["PASSWORD_RESET_TTL"] = "2m"
+	if _, err := load(values); err == nil || !strings.Contains(err.Error(), "PASSWORD_RESET_TTL") {
+		t.Fatalf("expected reset lifetime rejection, got %v", err)
+	}
+	values = validEnvironment()
+	values["EMAIL_VERIFICATION_TTL"] = "30d"
+	if _, err := load(values); err == nil || !strings.Contains(err.Error(), "EMAIL_VERIFICATION_TTL") {
+		t.Fatalf("expected verification lifetime rejection, got %v", err)
+	}
+}

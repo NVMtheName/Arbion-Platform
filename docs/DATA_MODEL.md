@@ -5,6 +5,7 @@ PostgreSQL is Arbion's durable system of record. Schema changes are explicit, ve
 ## Tables
 
 - `users` supplies a stable UUID and authentication fields: original and normalized email, an Argon2id password hash, display name, account status, email verification time, last login time, and timestamps. A partial unique index on normalized email provides case-insensitive uniqueness while preserving compatibility with pre-authentication rows.
+- `auth_email_tokens` stores only unique 32-byte SHA-256 token hashes with a user, purpose, expiry, creation time, and optional consumption time. A partial unique index permits one active verification and one active reset token per user; replacement invalidates the older link and consumption is atomic with verification or password replacement.
 - `users.role` is durable administrative authority (`user`, `admin`, or `superadmin`). `user_entitlements` independently records effective product access, its source, lifecycle, and whether billing is required. Founder rows are constrained to be non-expiring and non-billing.
 - `provider_connections` records AI or financial provider identity, status, scopes, safe credential metadata, token expiry, verification time, and either authenticated ciphertext or a managed-secret reference. Provider protocols remain adapter concerns.
 - `neural_engine_preferences` stores one user's default active AI provider connection and discovered model ID. It is an ordinary durable preference, not authority for future automations; its restrictive connection foreign key prevents silent deletion.

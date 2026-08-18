@@ -15,6 +15,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/financial/oauthstate"
 	"github.com/arbion/platform/services/api/internal/financial/schwab"
 	"github.com/arbion/platform/services/api/internal/financialconnection"
+	"github.com/arbion/platform/services/api/internal/mailer"
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/platform/database"
@@ -49,6 +50,11 @@ func main() {
 	users := auth.NewPostgresStore(pool)
 	sessions := auth.NewRedisStore(redisClient)
 	authService := auth.NewService(users, sessions, sessions, users, cfg.Auth.SessionTTL, auth.RegistrationPolicy{Restricted: cfg.Auth.RegistrationRestricted, AllowedEmails: cfg.Auth.RegistrationAllowlist})
+	var emailSender mailer.Sender = mailer.DisabledSender{}
+	if cfg.Email.DeliveryMode == "smtp" {
+		emailSender = mailer.NewSMTPSender(mailer.SMTPConfig{Host: cfg.Email.SMTPHost, Port: cfg.Email.SMTPPort, Username: cfg.Email.SMTPUsername, Password: cfg.Email.SMTPPassword, FromAddress: cfg.Email.FromAddress, FromName: cfg.Email.FromName, Timeout: 10 * time.Second})
+	}
+	authService.ConfigureEmail(users, emailSender, auth.EmailPolicy{VerificationRequired: cfg.Email.VerificationRequired, PublicBaseURL: cfg.Email.PublicBaseURL, VerificationTTL: cfg.Email.VerificationTTL, PasswordResetTTL: cfg.Email.PasswordResetTTL})
 	authorizationService := authorization.NewService(authorization.NewPostgresStore(pool), users)
 	registry := aiconnection.DefaultRegistry()
 	vault, err := credential.NewEncryptedVault(cfg.Credential.Key, credential.NewPostgresStore(pool))

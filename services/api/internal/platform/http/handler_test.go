@@ -10,6 +10,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/arbion/platform/services/api/internal/auth"
+	"github.com/arbion/platform/services/api/internal/mailer"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/redis/go-redis/v9"
 	"time"
@@ -56,8 +57,8 @@ func TestReadiness(t *testing.T) {
 
 type authUsers struct{ user auth.User }
 
-func (f *authUsers) Create(_ context.Context, email, n, hash, name string) (auth.User, error) {
-	f.user = auth.User{ID: "user-1", Email: email, NormalizedEmail: n, PasswordHash: hash, DisplayName: name, Status: "active"}
+func (f *authUsers) Create(_ context.Context, email, n, hash, name, status string) (auth.User, error) {
+	f.user = auth.User{ID: "user-1", Email: email, NormalizedEmail: n, PasswordHash: hash, DisplayName: name, Status: status}
 	return f.user, nil
 }
 func (f *authUsers) ByNormalizedEmail(context.Context, string) (auth.User, error) { return f.user, nil }
@@ -74,6 +75,26 @@ func (f *authUsers) UpdatePassword(_ context.Context, id, currentHash, nextHash 
 type auditSink struct{}
 
 func (auditSink) Record(context.Context, *string, string, map[string]any) error { return nil }
+
+type authEmailTokens struct{}
+
+func (authEmailTokens) ReplaceEmailToken(context.Context, string, auth.EmailTokenPurpose, []byte, time.Time, time.Time) error {
+	return nil
+}
+func (authEmailTokens) ActiveEmailTokenUser(context.Context, auth.EmailTokenPurpose, []byte, time.Time) (string, error) {
+	return "", auth.ErrInvalidEmailToken
+}
+func (authEmailTokens) ConsumeVerificationToken(context.Context, []byte, time.Time) (string, error) {
+	return "", auth.ErrInvalidEmailToken
+}
+func (authEmailTokens) ConsumePasswordResetToken(context.Context, []byte, string, time.Time) (string, error) {
+	return "", auth.ErrInvalidEmailToken
+}
+
+type emailSink struct{ count int }
+
+func (e *emailSink) Send(context.Context, mailer.Message) error { e.count++; return nil }
+
 func TestAuthenticationRoutesCSRFAndProtection(t *testing.T) {
 	mini := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
@@ -125,6 +146,37 @@ func TestAuthenticationRoutesCSRFAndProtection(t *testing.T) {
 	}
 	if _, err := sessions.Get(context.Background(), cookie.Value); !errors.Is(err, auth.ErrUnauthenticated) {
 		t.Fatal("session retained after logout")
+	}
+}
+
+func TestRequiredVerificationRegistrationReturnsPendingWithoutCookie(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	sessions := auth.NewRedisStore(redisClient)
+	users := &authUsers{}
+	sender := &emailSink{}
+	service := auth.NewService(users, sessions, sessions, auditSink{}, time.Hour)
+	service.ConfigureEmail(authEmailTokens{}, sender, auth.EmailPolicy{VerificationRequired: true, PublicBaseURL: "https://www.arbion.ai", VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute})
+	cfg := config.Config{Database: config.Database{ReadinessTimeout: time.Second}, Auth: config.Auth{SessionCookie: "session", SessionTTL: time.Hour, AllowedOrigins: []string{"http://localhost:3000"}}}
+	handler := NewApplicationHandler(checker{}, cfg, service)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{"email":"person@example.com","password":"correct horse battery staple"}`))
+	request.Header.Set("Origin", "http://localhost:3000")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusAccepted || !strings.Contains(recorder.Body.String(), `"verification_required":true`) || sender.count != 1 {
+		t.Fatalf("pending registration returned %d %s with %d messages", recorder.Code, recorder.Body.String(), sender.count)
+	}
+	if len(recorder.Result().Cookies()) != 0 {
+		t.Fatal("pending registration created an authenticated cookie")
+	}
+
+	login := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"email":"person@example.com","password":"correct horse battery staple"}`))
+	login.Header.Set("Origin", "http://localhost:3000")
+	loginRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(loginRecorder, login)
+	if loginRecorder.Code != http.StatusForbidden || !strings.Contains(loginRecorder.Body.String(), `"code":"email_verification_required"`) {
+		t.Fatalf("pending login returned %d %s", loginRecorder.Code, loginRecorder.Body.String())
 	}
 }
 
@@ -228,6 +280,38 @@ func TestAccountSecurityRoutesRequireCurrentPasswordAndRevokeSessions(t *testing
 	}
 	if _, err := sessions.Get(context.Background(), newCookie.Value); !errors.Is(err, auth.ErrUnauthenticated) {
 		t.Fatal("logout all retained the current session")
+	}
+}
+
+func TestRecoveryRequestIsGenericAndConfirmationRejectsMalformedLinks(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	sessions := auth.NewRedisStore(redisClient)
+	service := auth.NewService(&authUsers{}, sessions, sessions, auditSink{}, time.Hour)
+	cfg := config.Config{Database: config.Database{ReadinessTimeout: time.Second}, Auth: config.Auth{SessionCookie: "session", SessionTTL: time.Hour, AllowedOrigins: []string{"http://localhost:3000"}}}
+	handler := NewApplicationHandler(checker{}, cfg, service)
+
+	var bodies []string
+	for _, email := range []string{"person@example.com", "missing@example.com"} {
+		request := httptest.NewRequest(http.MethodPost, "/api/auth/password-reset/request", strings.NewReader(`{"email":"`+email+`"}`))
+		request.Header.Set("Origin", "http://localhost:3000")
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusAccepted {
+			t.Fatalf("generic reset request returned %d: %s", recorder.Code, recorder.Body.String())
+		}
+		bodies = append(bodies, recorder.Body.String())
+	}
+	if bodies[0] != bodies[1] || strings.Contains(bodies[0], "person@example.com") {
+		t.Fatalf("recovery response exposed account state: %#v", bodies)
+	}
+
+	confirm := httptest.NewRequest(http.MethodPost, "/api/auth/password-reset/confirm", strings.NewReader(`{"token":"invalid","new_password":"a sufficiently long password"}`))
+	confirm.Header.Set("Origin", "http://localhost:3000")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, confirm)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), `"code":"invalid_email_link"`) {
+		t.Fatalf("malformed reset link returned %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 

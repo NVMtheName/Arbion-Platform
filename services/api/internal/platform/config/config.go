@@ -28,6 +28,7 @@ type Config struct {
 	Redis       Redis
 	Credential  CredentialEncryption
 	Auth        Auth
+	Email       Email
 	AI          AIService
 	Schwab      Schwab
 }
@@ -59,6 +60,20 @@ type Auth struct {
 	AllowedOrigins         []string
 	RegistrationRestricted bool
 	RegistrationAllowlist  []string
+}
+
+type Email struct {
+	DeliveryMode         string
+	FromAddress          string
+	FromName             string
+	PublicBaseURL        string
+	SMTPHost             string
+	SMTPPort             int
+	SMTPUsername         string
+	SMTPPassword         string
+	VerificationRequired bool
+	VerificationTTL      time.Duration
+	PasswordResetTTL     time.Duration
 }
 
 func Load() (Config, error) { return LoadFrom(os.LookupEnv) }
@@ -128,6 +143,10 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, err
 	}
 	registrationRestricted := environment == Production || (registrationConfigured && strings.TrimSpace(registrationValue) != "")
+	email, err := emailConfiguration(get, environment)
+	if err != nil {
+		return Config{}, err
+	}
 	aiURL := strings.TrimRight(get("AI_SERVICE_URL", "http://localhost:8000"), "/")
 	internalToken := get("AI_INTERNAL_SERVICE_TOKEN", "")
 	if internalToken == "" {
@@ -143,7 +162,57 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, errors.New("production Schwab configuration requires client ID, client secret, and the approved callback URI")
 		}
 	}
-	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins, RegistrationRestricted: registrationRestricted, RegistrationAllowlist: registrationAllowlist}, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 40 * time.Second}, Schwab: schwab}, nil
+	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins, RegistrationRestricted: registrationRestricted, RegistrationAllowlist: registrationAllowlist}, Email: email, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 40 * time.Second}, Schwab: schwab}, nil
+}
+
+func emailConfiguration(get func(string, string) string, environment Environment) (Email, error) {
+	mode := strings.ToLower(get("EMAIL_DELIVERY_MODE", "disabled"))
+	if mode != "disabled" && mode != "smtp" {
+		return Email{}, errors.New("EMAIL_DELIVERY_MODE must be disabled or smtp")
+	}
+	required, err := strconv.ParseBool(get("EMAIL_VERIFICATION_REQUIRED", "false"))
+	if err != nil {
+		return Email{}, errors.New("EMAIL_VERIFICATION_REQUIRED must be true or false")
+	}
+	verificationTTL, err := time.ParseDuration(get("EMAIL_VERIFICATION_TTL", "24h"))
+	if err != nil || verificationTTL < 15*time.Minute || verificationTTL > 7*24*time.Hour {
+		return Email{}, errors.New("EMAIL_VERIFICATION_TTL must be between 15 minutes and 7 days")
+	}
+	resetTTL, err := time.ParseDuration(get("PASSWORD_RESET_TTL", "30m"))
+	if err != nil || resetTTL < 5*time.Minute || resetTTL > 24*time.Hour {
+		return Email{}, errors.New("PASSWORD_RESET_TTL must be between 5 minutes and 24 hours")
+	}
+	baseFallback := "http://localhost:3000"
+	if environment == Production {
+		baseFallback = "https://www.arbion.ai"
+	}
+	publicBaseURL := strings.TrimRight(get("EMAIL_PUBLIC_BASE_URL", baseFallback), "/")
+	parsedBase, err := url.Parse(publicBaseURL)
+	if err != nil || (parsedBase.Scheme != "http" && parsedBase.Scheme != "https") || parsedBase.Host == "" || parsedBase.Path != "" || parsedBase.RawQuery != "" || parsedBase.Fragment != "" {
+		return Email{}, errors.New("EMAIL_PUBLIC_BASE_URL must be an origin without a path")
+	}
+	if environment == Production && publicBaseURL != "https://www.arbion.ai" {
+		return Email{}, errors.New("production EMAIL_PUBLIC_BASE_URL must be https://www.arbion.ai")
+	}
+	port, err := positiveInt(get("SMTP_PORT", "587"))
+	if err != nil || port > 65535 {
+		return Email{}, errors.New("SMTP_PORT must be between 1 and 65535")
+	}
+	result := Email{
+		DeliveryMode: mode, FromAddress: get("EMAIL_FROM_ADDRESS", ""), FromName: get("EMAIL_FROM_NAME", "Arbion"), PublicBaseURL: publicBaseURL,
+		SMTPHost: get("SMTP_HOST", ""), SMTPPort: port, SMTPUsername: get("SMTP_USERNAME", ""), SMTPPassword: get("SMTP_PASSWORD", ""),
+		VerificationRequired: required, VerificationTTL: verificationTTL, PasswordResetTTL: resetTTL,
+	}
+	if required && mode != "smtp" {
+		return Email{}, errors.New("EMAIL_VERIFICATION_REQUIRED requires EMAIL_DELIVERY_MODE=smtp")
+	}
+	if mode == "smtp" {
+		address, parseErr := mail.ParseAddress(result.FromAddress)
+		if parseErr != nil || address.Address != result.FromAddress || result.SMTPHost == "" || result.SMTPUsername == "" || result.SMTPPassword == "" || strings.ContainsAny(result.FromName, "\r\n") {
+			return Email{}, errors.New("smtp email delivery requires a valid sender, host, username, password, and safe sender name")
+		}
+	}
+	return result, nil
 }
 
 func allowedRegistrationEmails(value string) ([]string, error) {

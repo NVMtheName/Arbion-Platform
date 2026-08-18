@@ -56,6 +56,10 @@ func NewApplicationHandler(database ReadinessChecker, timeout config.Config, ser
 	}
 	mux.HandleFunc("POST /api/auth/register", h.register)
 	mux.HandleFunc("POST /api/auth/login", h.login)
+	mux.HandleFunc("POST /api/auth/verification/request", h.requestVerification)
+	mux.HandleFunc("POST /api/auth/verification/confirm", h.confirmVerification)
+	mux.HandleFunc("POST /api/auth/password-reset/request", h.requestPasswordReset)
+	mux.HandleFunc("POST /api/auth/password-reset/confirm", h.confirmPasswordReset)
 	mux.Handle("POST /api/auth/logout", h.require(stdhttp.HandlerFunc(h.logout)))
 	mux.Handle("POST /api/auth/logout-all", h.require(stdhttp.HandlerFunc(h.logoutAll)))
 	mux.Handle("PUT /api/auth/password", h.require(stdhttp.HandlerFunc(h.changePassword)))
@@ -81,6 +85,10 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.HandleFunc("GET /readyz", readiness(database, cfg.Database.ReadinessTimeout))
 	mux.HandleFunc("POST /api/auth/register", h.register)
 	mux.HandleFunc("POST /api/auth/login", h.login)
+	mux.HandleFunc("POST /api/auth/verification/request", h.requestVerification)
+	mux.HandleFunc("POST /api/auth/verification/confirm", h.confirmVerification)
+	mux.HandleFunc("POST /api/auth/password-reset/request", h.requestPasswordReset)
+	mux.HandleFunc("POST /api/auth/password-reset/confirm", h.confirmPasswordReset)
 	mux.Handle("POST /api/auth/logout", h.require(stdhttp.HandlerFunc(h.logout)))
 	mux.Handle("POST /api/auth/logout-all", h.require(stdhttp.HandlerFunc(h.logoutAll)))
 	mux.Handle("PUT /api/auth/password", h.require(stdhttp.HandlerFunc(h.changePassword)))
@@ -634,8 +642,12 @@ func (h *authHandler) register(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		h.authError(w, e)
 		return
 	}
+	if h.service.RequiresEmailVerification() {
+		writeJSON(w, stdhttp.StatusAccepted, map[string]any{"user": u, "verification_required": true})
+		return
+	}
 	h.setCookie(w, t)
-	writeJSON(w, 201, map[string]any{"user": u})
+	writeJSON(w, 201, map[string]any{"user": u, "verification_required": false})
 }
 func (h *authHandler) login(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	if !h.originAllowed(r) {
@@ -660,6 +672,10 @@ func (h *authHandler) authError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 409, "registration_unavailable", "Unable to create account with those details.")
 	case errors.Is(e, auth.ErrInvalidCredentials):
 		writeError(w, 401, "invalid_credentials", "Email or password is incorrect.")
+	case errors.Is(e, auth.ErrEmailVerificationRequired):
+		writeError(w, 403, "email_verification_required", "Verify your email before signing in.")
+	case errors.Is(e, auth.ErrInvalidEmailToken):
+		writeError(w, 400, "invalid_email_link", "This secure link is invalid or has expired.")
 	case errors.Is(e, auth.ErrInvalidCurrentPassword):
 		writeError(w, 401, "invalid_current_password", "Current password is incorrect.")
 	case errors.Is(e, auth.ErrPasswordUnchanged):
@@ -671,6 +687,80 @@ func (h *authHandler) authError(w stdhttp.ResponseWriter, e error) {
 	default:
 		writeError(w, 500, "internal_error", "The request could not be completed.")
 	}
+}
+
+func (h *authHandler) requestVerification(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		Email string `json:"email"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if err := h.service.RequestEmailVerification(r.Context(), input.Email, rateKey(r)); err != nil {
+		h.authError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusAccepted, map[string]any{"message": "If the account can be verified, a secure link will be sent."})
+}
+
+func (h *authHandler) requestPasswordReset(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		Email string `json:"email"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if err := h.service.RequestPasswordReset(r.Context(), input.Email, rateKey(r)); err != nil {
+		h.authError(w, err)
+		return
+	}
+	writeJSON(w, stdhttp.StatusAccepted, map[string]any{"message": "If the account is eligible, a secure password reset link will be sent."})
+}
+
+func (h *authHandler) confirmVerification(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		Token string `json:"token"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if err := h.service.VerifyEmail(r.Context(), input.Token, rateKey(r)); err != nil {
+		h.authError(w, err)
+		return
+	}
+	w.WriteHeader(stdhttp.StatusNoContent)
+}
+
+func (h *authHandler) confirmPasswordReset(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		Token       string `json:"token"`
+		NewPassword string `json:"new_password"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if err := h.service.ResetPassword(r.Context(), input.Token, input.NewPassword, rateKey(r)); err != nil {
+		h.authError(w, err)
+		return
+	}
+	h.clearCookie(w)
+	w.WriteHeader(stdhttp.StatusNoContent)
 }
 func (h *authHandler) require(next stdhttp.Handler) stdhttp.Handler {
 	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {

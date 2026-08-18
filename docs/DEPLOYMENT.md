@@ -29,6 +29,7 @@ Copy `.env.production.example` to ignored `.env.production` and populate it only
 - `AI_INTERNAL_SERVICE_TOKEN`, generated with `openssl rand -base64 48`;
 - `AUTH_ALLOWED_ORIGINS=https://www.arbion.ai`;
 - `REGISTRATION_ALLOWLIST`, containing the comma-separated normalized email addresses permitted to register. Production is default-deny when this value is blank;
+- keep `EMAIL_DELIVERY_MODE=disabled` and `EMAIL_VERIFICATION_REQUIRED=false` until the sender identity and SMTP credentials have been verified. Then configure the canonical public origin, sender, regional SMTP endpoint/port, and credentials before enabling both values;
 - explicit `FOUNDER_EMAIL` only for bootstrap; and
 - when Schwab is enabled, both client values and `SCHWAB_REDIRECT_URI=https://www.arbion.ai/api/connections/financial/schwab/callback`.
 
@@ -101,6 +102,10 @@ The existing command fails if the account is absent, is idempotent, promotes onl
 ## Registration access
 
 Production registration is always restricted by `REGISTRATION_ALLOWLIST`. Matching is case-insensitive after trimming and normalization. A missing or blank list denies every new registration; existing accounts can still sign in. Rejected attempts are rate-limited, audited without the submitted address, and return the same generic response used for an unavailable registration. Add a tester's exact email to the host-only list and restart the API before inviting them; remove it after registration if no further account creation is expected.
+
+Email verification and password recovery share the configured SMTP delivery boundary. Enable them only after verifying `EMAIL_FROM_ADDRESS` with the provider and successfully exercising delivery. Production requires `EMAIL_PUBLIC_BASE_URL=https://www.arbion.ai`; verification links expire after 24 hours and reset links after 30 minutes by default. The database stores only SHA-256 token hashes, each link is single-use, and browser-facing links carry the token in the URL fragment so it does not reach access logs. Reset completion revokes every existing session. Request endpoints always use generic responses. Never print SMTP credentials or emailed links during operational checks.
+
+For an SES SMTP endpoint, production access and the sender identity must both be verified in `us-east-1`. Store the generated SMTP username and password only in the encrypted production parameter and the owner-only host environment. Do not reuse AWS access keys as SMTP credentials. Activate in this order: configure the verified sender and SMTP values with delivery still disabled; restart and validate configuration; enable delivery; send a test to the owner; then enable required verification for new registrations. Existing active accounts remain usable when required verification is enabled.
 
 ## PostgreSQL backup, restore, and Redis loss
 
