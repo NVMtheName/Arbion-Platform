@@ -1,12 +1,16 @@
 package auth
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/arbion/platform/services/api/internal/mailer"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -90,11 +94,11 @@ type fakeUsers struct {
 	connectionExists, automationExists, automationEnabled bool
 }
 
-func (f *fakeUsers) Create(_ context.Context, email, n, h, name string) (User, error) {
+func (f *fakeUsers) Create(_ context.Context, email, n, h, name, status string) (User, error) {
 	if f.user.ID != "" {
 		return User{}, ErrConflict
 	}
-	f.user = User{ID: "u1", Email: email, NormalizedEmail: n, PasswordHash: h, DisplayName: name, Status: "active"}
+	f.user = User{ID: "u1", Email: email, NormalizedEmail: n, PasswordHash: h, DisplayName: name, Status: status}
 	return f.user, nil
 }
 func (f *fakeUsers) ByNormalizedEmail(_ context.Context, n string) (User, error) {
@@ -123,6 +127,66 @@ type fakeAudit struct{ actions []string }
 func (a *fakeAudit) Record(_ context.Context, _ *string, action string, _ map[string]any) error {
 	a.actions = append(a.actions, action)
 	return nil
+}
+
+type fakeEmailTokens struct {
+	users    *fakeUsers
+	userID   string
+	purpose  EmailTokenPurpose
+	hash     []byte
+	expires  time.Time
+	consumed bool
+}
+
+func (f *fakeEmailTokens) ReplaceEmailToken(_ context.Context, userID string, purpose EmailTokenPurpose, hash []byte, expires, _ time.Time) error {
+	f.userID, f.purpose, f.hash, f.expires, f.consumed = userID, purpose, append([]byte(nil), hash...), expires, false
+	return nil
+}
+func (f *fakeEmailTokens) ActiveEmailTokenUser(_ context.Context, purpose EmailTokenPurpose, hash []byte, now time.Time) (string, error) {
+	if f.consumed || f.purpose != purpose || !bytes.Equal(f.hash, hash) || !f.expires.After(now) {
+		return "", ErrInvalidEmailToken
+	}
+	return f.userID, nil
+}
+func (f *fakeEmailTokens) ConsumeVerificationToken(ctx context.Context, hash []byte, now time.Time) (string, error) {
+	userID, err := f.ActiveEmailTokenUser(ctx, VerifyEmailToken, hash, now)
+	if err != nil {
+		return "", err
+	}
+	f.consumed = true
+	f.users.user.Status = "active"
+	f.users.user.EmailVerifiedAt = &now
+	return userID, nil
+}
+func (f *fakeEmailTokens) ConsumePasswordResetToken(ctx context.Context, hash []byte, passwordHash string, now time.Time) (string, error) {
+	userID, err := f.ActiveEmailTokenUser(ctx, ResetPasswordToken, hash, now)
+	if err != nil {
+		return "", err
+	}
+	f.consumed = true
+	f.users.user.PasswordHash = passwordHash
+	return userID, nil
+}
+
+type fakeSender struct{ messages []mailer.Message }
+
+func (f *fakeSender) Send(_ context.Context, message mailer.Message) error {
+	f.messages = append(f.messages, message)
+	return nil
+}
+
+func tokenFromMessage(t *testing.T, message mailer.Message) string {
+	t.Helper()
+	const marker = "#token="
+	index := strings.Index(message.Text, marker)
+	if index < 0 {
+		t.Fatalf("message did not use a URL fragment: %q", message.Text)
+	}
+	token := strings.Fields(message.Text[index+len(marker):])[0]
+	if len(token) != 43 {
+		t.Fatalf("unexpected token length %d", len(token))
+	}
+	return token
 }
 func TestRegistrationLoginLogoutPreservesDurableResources(t *testing.T) {
 	m := miniredis.RunT(t)
@@ -268,5 +332,78 @@ func TestSafeSerializationOmitsSecrets(t *testing.T) {
 	u := User{ID: "1", Email: "a@b.co", PasswordHash: "secret", NormalizedEmail: "a@b.co", Status: "active"}.Safe()
 	if u.Email != "a@b.co" {
 		t.Fatal("unsafe conversion")
+	}
+}
+
+func TestRequiredEmailVerificationCreatesNoSessionAndUsesHashedSingleUseToken(t *testing.T) {
+	m := miniredis.RunT(t)
+	sessions := NewRedisStore(redis.NewClient(&redis.Options{Addr: m.Addr()}))
+	users := &fakeUsers{}
+	tokens := &fakeEmailTokens{users: users}
+	sender := &fakeSender{}
+	service := NewService(users, sessions, sessions, &fakeAudit{}, time.Hour)
+	service.ConfigureEmail(tokens, sender, EmailPolicy{VerificationRequired: true, PublicBaseURL: "https://www.arbion.ai", VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute})
+
+	user, sessionToken, err := service.Register(context.Background(), "Person@Example.com", "correct horse battery staple", "Person", "ip")
+	if err != nil || sessionToken != "" || user.Status != "pending_verification" || len(sender.messages) != 1 {
+		t.Fatalf("pending registration failed: user=%#v token=%q messages=%d error=%v", user, sessionToken, len(sender.messages), err)
+	}
+	rawToken := tokenFromMessage(t, sender.messages[0])
+	if bytes.Contains(tokens.hash, []byte(rawToken)) || len(tokens.hash) != sha256.Size {
+		t.Fatal("token store retained a raw or malformed email token")
+	}
+	if _, _, err = service.Login(context.Background(), "person@example.com", "correct horse battery staple", "ip"); !errors.Is(err, ErrEmailVerificationRequired) {
+		t.Fatalf("pending login returned %v", err)
+	}
+	if err = service.VerifyEmail(context.Background(), rawToken, "ip"); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.VerifyEmail(context.Background(), rawToken, "ip"); !errors.Is(err, ErrInvalidEmailToken) {
+		t.Fatalf("verification token reuse returned %v", err)
+	}
+	if _, loginToken, err := service.Login(context.Background(), "person@example.com", "correct horse battery staple", "ip"); err != nil || loginToken == "" {
+		t.Fatalf("verified user could not log in: %v", err)
+	}
+}
+
+func TestPasswordResetIsGenericSingleUseAndRevokesSessions(t *testing.T) {
+	m := miniredis.RunT(t)
+	sessions := NewRedisStore(redis.NewClient(&redis.Options{Addr: m.Addr()}))
+	users := &fakeUsers{}
+	tokens := &fakeEmailTokens{users: users}
+	sender := &fakeSender{}
+	service := NewService(users, sessions, sessions, &fakeAudit{}, time.Hour)
+	service.ConfigureEmail(tokens, sender, EmailPolicy{PublicBaseURL: "https://www.arbion.ai", VerificationTTL: 24 * time.Hour, PasswordResetTTL: 30 * time.Minute})
+	_, firstSession, err := service.Register(context.Background(), "person@example.com", "correct horse battery staple", "Person", "ip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, secondSession, err := service.Login(context.Background(), "person@example.com", "correct horse battery staple", "ip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.RequestPasswordReset(context.Background(), "missing@example.com", "ip-missing"); err != nil || len(sender.messages) != 0 {
+		t.Fatalf("unknown-account request was distinguishable: messages=%d error=%v", len(sender.messages), err)
+	}
+	if err = service.RequestPasswordReset(context.Background(), "PERSON@example.com", "ip-user"); err != nil || len(sender.messages) != 1 {
+		t.Fatalf("password reset request failed: messages=%d error=%v", len(sender.messages), err)
+	}
+	rawToken := tokenFromMessage(t, sender.messages[0])
+	if err = service.ResetPassword(context.Background(), rawToken, "a different secure passphrase", "ip"); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{firstSession, secondSession} {
+		if _, err = sessions.Get(context.Background(), token); !errors.Is(err, ErrUnauthenticated) {
+			t.Fatal("password reset retained an existing session")
+		}
+	}
+	if err = service.ResetPassword(context.Background(), rawToken, "yet another secure passphrase", "ip"); !errors.Is(err, ErrInvalidEmailToken) {
+		t.Fatalf("password reset token reuse returned %v", err)
+	}
+	if _, _, err = service.Login(context.Background(), "person@example.com", "correct horse battery staple", "ip-2"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatal("old password remained valid")
+	}
+	if _, _, err = service.Login(context.Background(), "person@example.com", "a different secure passphrase", "ip-2"); err != nil {
+		t.Fatalf("new password was not usable: %v", err)
 	}
 }

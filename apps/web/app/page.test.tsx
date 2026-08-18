@@ -18,6 +18,9 @@ describe("Authentication experience", () => {
       "minLength",
       "12",
     );
+    expect(
+      screen.getByRole("link", { name: /forgot your password/i }),
+    ).toHaveAttribute("href", "/forgot-password");
   });
 
   it("describes registration as invite-only", () => {

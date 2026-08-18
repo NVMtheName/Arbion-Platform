@@ -46,3 +46,18 @@ func TestNonLiveStrategyMigrationSeparatesSimulationAndHistory(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthEmailTokenMigrationStoresOnlyHashedSingleUseTokens(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00009_auth_email_tokens.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"auth_email_tokens", "token_hash bytea", "octet_length(token_hash) = 32", "consumed_at", "auth_email_tokens_one_active_idx", "verify_email", "reset_password"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("email token migration missing %q", required)
+		}
+	}
+	if strings.Contains(string(body), " token text") {
+		t.Fatal("email token migration appears to store raw tokens")
+	}
+}

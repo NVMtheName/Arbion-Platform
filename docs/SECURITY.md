@@ -36,9 +36,11 @@ Authenticated users can change their password only after re-entering the current
 
 Audit events record registration, successful and failed login, logout, all-session logout, and successful or rejected password-change outcomes without passwords, hashes, tokens, or provider secrets.
 
+Email verification and password recovery use a provider-independent sender boundary. Raw 256-bit tokens exist only in the outbound message and browser URL fragment; PostgreSQL stores a unique SHA-256 hash, purpose, expiry, and consumption time. Creating a new link invalidates the prior active link for that user and purpose. Confirmation is atomic and single-use. Password reset revokes all sessions before committing the new Argon2id password hash. Email request responses are generic for existing, missing, ineligible, and already-verified accounts, and request/confirmation paths are rate-limited. SMTP delivery requires STARTTLS with TLS 1.2 or newer and is disabled by default.
+
 ## Required authentication follow-up
 
-Before a broad public launch, Arbion must integrate an email delivery provider and require email verification. The schema already records verification time, but development registration is not blocked. Production uses a normalized email allowlist and defaults to denying all new registrations when the list is empty; this is suitable for owner-operated testing but is not a substitute for verified email. Password recovery is intentionally absent until that trusted delivery channel exists; no temporary or insecure reset path is provided. MFA, passkeys, external OAuth identities, enterprise SSO, recovery codes, administrative session revocation UI, adaptive throttling, and step-up authentication remain future security work.
+The application boundary for verified email and password recovery is implemented, but production delivery must remain disabled until SES production access, a verified sender identity, encrypted SMTP credentials, and an end-to-end owner test are complete. Required verification applies only to newly registered accounts after activation; it does not retroactively lock existing active accounts. MFA, passkeys, external OAuth identities, enterprise SSO, recovery codes, administrative session revocation UI, adaptive throttling, and step-up authentication remain future security work.
 
 ### Python Neural Engine and external AI providers
 
