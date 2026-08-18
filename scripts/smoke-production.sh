@@ -9,6 +9,8 @@ curl --fail --silent --show-error --max-time 10 "$base/healthz" >/dev/null
 curl --fail --silent --show-error --max-time 10 "$base/readyz" >/dev/null
 curl --fail --silent --show-error --max-time 10 "$base/login" >/dev/null
 curl --fail --silent --show-error --max-time 10 "$base/register" >/dev/null
+curl --fail --silent --show-error --max-time 10 "$base/brand/arbion-wordmark.svg" >/dev/null
+curl --fail --silent --show-error --max-time 10 "$base/icon.svg" >/dev/null
 
 headers="$(curl --fail --silent --show-error --head --max-time 10 "$base/login" | tr -d '\r')"
 require_header() {
