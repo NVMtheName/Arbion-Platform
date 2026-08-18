@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { AppPageHeader } from "../../app-page-header";
 import { MandateControls } from "../mandate-controls";
 import {
   StrategyEvaluationControls,
@@ -23,7 +23,7 @@ export default async function MandateReview({
   if (!r.ok)
     return (
       <main>
-        <Link href="/automations">← Automations</Link>
+        <AppPageHeader backHref="/automations" backLabel="Automations" />
         <h1>Mandate unavailable</h1>
       </main>
     );
@@ -66,7 +66,7 @@ export default async function MandateReview({
     String(m[key] ?? m[legacy] ?? "—");
   return (
     <main className="connections-page automation-page">
-      <Link href="/automations">← Automations</Link>
+      <AppPageHeader backHref="/automations" backLabel="Automations" />
       <p className="eyebrow">AUTOMATION MANDATE REVIEW</p>
       <h1>{read("automation_type", "AutomationType")}</h1>
       <section className="review-grid">

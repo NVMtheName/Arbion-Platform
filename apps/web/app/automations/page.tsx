@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { AppPageHeader } from "../app-page-header";
 import { asList } from "./response";
 import {
   CapitalBucketForm,
@@ -56,7 +57,7 @@ export default async function Automations() {
   );
   return (
     <main className="connections-page automation-page">
-      <Link href="/dashboard">← Dashboard</Link>
+      <AppPageHeader />
       <p className="eyebrow">AUTHORIZATION, NOT EXECUTION</p>
       <h1>Automations</h1>
       <p className="security-note">

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { AppPageHeader } from "../app-page-header";
 import type { FinancialAccount } from "../settings/connections/page";
 export default async function Accounts() {
   const jar = await cookies();
@@ -14,7 +15,7 @@ export default async function Accounts() {
     : { accounts: [] };
   return (
     <main className="connections-page">
-      <Link href="/dashboard">← Dashboard</Link>
+      <AppPageHeader />
       <p className="eyebrow">READ-ONLY</p>
       <h1>Financial Accounts</h1>
       {data.accounts.length === 0 ? (

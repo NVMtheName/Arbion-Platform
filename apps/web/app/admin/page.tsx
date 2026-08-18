@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+
+import { AppPageHeader } from "../app-page-header";
 type User = { id: string; email: string; role: string; entitlement: string };
 export default async function Admin() {
   const c = await cookies();
@@ -21,7 +23,7 @@ export default async function Admin() {
   const { users } = (await response.json()) as { users: User[] };
   return (
     <main className="dashboard">
-      <Link href="/dashboard">← Dashboard</Link>
+      <AppPageHeader />
       <p className="eyebrow">ARBION ADMIN</p>
       <h1>Arbion Admin</h1>
       <p>System role: {user.role}</p>

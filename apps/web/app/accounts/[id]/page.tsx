@@ -1,6 +1,7 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+
+import { AppPageHeader } from "../../app-page-header";
 type Money = { amount: string; currency: string };
 type Account = {
   id: string;
@@ -61,7 +62,7 @@ export default async function AccountPage({
     : [];
   return (
     <main className="connections-page">
-      <Link href="/accounts">← Accounts</Link>
+      <AppPageHeader backHref="/accounts" backLabel="Accounts" />
       <p className="eyebrow">SCHWAB · READ-ONLY</p>
       <h1>{account.display_name}</h1>
       <section className="dashboard-grid">

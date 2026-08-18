@@ -1,6 +1,7 @@
 "use client";
-import Link from "next/link";
 import { FormEvent, useState } from "react";
+
+import { AppPageHeader } from "../../app-page-header";
 import type { Connection, Provider } from "./page";
 
 export function ConnectionsManager({
@@ -107,7 +108,7 @@ export function ConnectionsManager({
   }
   return (
     <main className="connections-page">
-      <Link href="/dashboard">← Dashboard</Link>
+      <AppPageHeader />
       <p className="eyebrow">SETTINGS</p>
       <h1>Neural Engine Providers</h1>
       <p className="security-note">
