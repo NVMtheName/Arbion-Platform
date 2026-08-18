@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
+import { ArbionBrand } from "./brand";
+
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
   const [error, setError] = useState("");
@@ -65,7 +67,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <p className="eyebrow">ARBION</p>
+        <ArbionBrand className="auth-brand" priority />
         <h1>
           {challengeToken
             ? "Confirm it’s you."
