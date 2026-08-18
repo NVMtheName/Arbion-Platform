@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { ArbionBrand } from "../brand";
 import { LogoutButton } from "./logout-button";
 import { InsightPanel } from "./insight-panel";
 import Link from "next/link";
@@ -45,7 +46,7 @@ export default async function Dashboard() {
   return (
     <main className="dashboard">
       <header>
-        <p className="eyebrow">ARBION</p>
+        <ArbionBrand className="dashboard-brand" href="/dashboard" priority />
         <div className="account-actions">
           <Link href="/settings/risk">Risk</Link>
           <Link href="/settings/security">Security</Link>

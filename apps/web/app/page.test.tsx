@@ -24,6 +24,7 @@ describe("Authentication experience", () => {
 
   it("renders accessible login fields", () => {
     render(<AuthForm mode="login" />);
+    expect(screen.getByRole("img", { name: "Arbion" })).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: /welcome back/i }),
     ).toBeInTheDocument();

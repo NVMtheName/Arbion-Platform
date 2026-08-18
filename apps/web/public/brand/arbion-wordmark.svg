@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1402" height="380" viewBox="0 0 1402 380" role="img" aria-labelledby="title desc">
+  <title id="title">Arbion wordmark</title>
+  <desc id="desc">Teal Arbion logo with a stylized A, rising bars, and an upward arrow.</desc>
+  <defs>
+    <linearGradient id="arbion-cyan" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#19c9d6"/>
+      <stop offset="1" stop-color="#03afbc"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#arbion-cyan)" transform="translate(-70 -285)">
+    <path d="M70 665 268 307c10-19 18-15 22-15s13-2 24 18l69 127-34 36-59-110-171 302Z"/>
+    <path d="m424 507 85 158h-54l-66-123Z"/>
+    <path d="M180 665v-12c0-11 8-20 18-24l30-4v40Z"/><path d="M253 665v-52l46-19v71Z"/><path d="M325 665v-86l44-21v107Z"/>
+    <path d="M111 640c137-50 268-114 348-294l-29-14 99-47-19 106-20-22C408 517 290 596 131 644c-9 4-16 11-22 21H70c11-13 25-21 41-25Z"/>
+    <path fill-rule="evenodd" d="M638 447c47 0 78 25 78 67v102h-42v-18c-15 14-34 21-57 21-37 0-59-20-59-51 0-34 25-52 70-52h46v-5c0-20-14-30-39-30-18 0-27 6-30 19h-38c4-34 30-53 71-53Zm-8 98c-21 0-30 7-30 21 0 13 11 21 28 21 27 0 46-13 46-34v-8Z"/>
+    <path d="M744 452h43v24c12-20 29-29 56-29v47h-12c-29 0-44 16-44 47v75h-43Z"/>
+    <path fill-rule="evenodd" d="M862 388h43v83c14-16 33-24 57-24 47 0 78 35 78 85 0 51-32 87-80 87-24 0-43-8-56-24v21h-42Zm88 97c-27 0-46 20-46 48s19 49 46 49 47-20 47-49c0-28-19-48-47-48Z"/>
+    <path d="M1060 452h43v164h-43Z"/><circle cx="1081.5" cy="406" r="26"/>
+    <path fill-rule="evenodd" d="M1210 447c52 0 89 35 89 86 0 50-37 86-89 86s-88-36-88-86c0-51 36-86 88-86Zm0 38c-27 0-45 20-45 48s18 49 45 49 46-21 46-49-19-48-46-48Z"/>
+    <path d="M1317 452h42v22c13-18 31-27 55-27 37 0 58 24 58 65v104h-43v-96c0-24-11-35-31-35-24 0-38 16-38 43v88h-43Z"/>
+  </g>
+</svg>

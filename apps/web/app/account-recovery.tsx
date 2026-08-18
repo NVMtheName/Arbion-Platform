@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
+import { ArbionBrand } from "./brand";
+
 type RequestKind = "verification" | "password-reset";
 
 async function apiError(response: Response) {
@@ -60,7 +62,7 @@ export function EmailRequestForm({
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <p className="eyebrow">ARBION</p>
+        <ArbionBrand className="auth-brand" priority />
         <h1>{verification ? "Verify your email." : "Reset your password."}</h1>
         <p className="lede">
           {verification
@@ -127,7 +129,7 @@ export function ConfirmEmailForm() {
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <p className="eyebrow">ARBION</p>
+        <ArbionBrand className="auth-brand" priority />
         <h1>Verify your email.</h1>
         {complete ? (
           <>
@@ -200,7 +202,7 @@ export function ConfirmPasswordResetForm() {
   return (
     <main className="auth-page">
       <section className="auth-card">
-        <p className="eyebrow">ARBION</p>
+        <ArbionBrand className="auth-brand" priority />
         <h1>Choose a new password.</h1>
         <p className="lede">
           Completing this reset signs out every existing Arbion session.

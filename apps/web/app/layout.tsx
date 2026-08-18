@@ -5,7 +5,7 @@ import "./styles.css";
 
 export const metadata: Metadata = {
   title: "Arbion",
-  description: "A production-oriented trading platform foundation",
+  description: "A secure workspace for disciplined financial decisions.",
 };
 
 export default function RootLayout({

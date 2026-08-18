@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="459" height="380" viewBox="0 0 459 380">
+  <defs>
+    <linearGradient id="arbion-cyan" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#19c9d6"/>
+      <stop offset="1" stop-color="#03afbc"/>
+    </linearGradient>
+  </defs>
+  <rect width="459" height="380" rx="72" fill="#07110e"/>
+  <g fill="url(#arbion-cyan)" transform="translate(-70 -285)">
+    <path d="M70 665 268 307c10-19 18-15 22-15s13-2 24 18l69 127-34 36-59-110-171 302Z"/>
+    <path d="m424 507 85 158h-54l-66-123Z"/>
+    <path d="M180 665v-12c0-11 8-20 18-24l30-4v40Z"/>
+    <path d="M253 665v-52l46-19v71Z"/>
+    <path d="M325 665v-86l44-21v107Z"/>
+    <path d="M111 640c137-50 268-114 348-294l-29-14 99-47-19 106-20-22C408 517 290 596 131 644c-9 4-16 11-22 21H70c11-13 25-21 41-25Z"/>
+  </g>
+</svg>
