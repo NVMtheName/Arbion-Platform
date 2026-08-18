@@ -26,6 +26,7 @@ type Persistence interface {
 	Executions(context.Context, string, string) ([]ExecutionRecord, error)
 	Journal(context.Context, string, int, *JournalCursor) ([]JournalActivity, error)
 	Schedule(context.Context, string, string) (ScheduleStatus, error)
+	RecordLifecycle(context.Context, string, string, LifecycleCommand, time.Time) (LifecycleResult, error)
 }
 type Mandates interface {
 	Get(context.Context, authorization.Principal, string) (automation.Mandate, error)
@@ -39,9 +40,12 @@ type DecisionJournalEntry struct {
 type InstanceService struct {
 	store    Persistence
 	mandates Mandates
+	now      func() time.Time
 }
 
-func NewInstanceService(s Persistence, m Mandates) *InstanceService { return &InstanceService{s, m} }
+func NewInstanceService(s Persistence, m Mandates) *InstanceService {
+	return &InstanceService{store: s, mandates: m, now: func() time.Time { return time.Now().UTC() }}
+}
 func entitled(p authorization.Principal) bool {
 	return authorization.CanUseAutomation(p) && authorization.CanConnectFinancialAccounts(p)
 }
@@ -133,4 +137,23 @@ func (s *InstanceService) Schedule(c context.Context, p authorization.Principal,
 		return ScheduleStatus{}, ErrNotFound
 	}
 	return status, nil
+}
+
+func (s *InstanceService) RecordLifecycle(c context.Context, p authorization.Principal, id string, command LifecycleCommand) (LifecycleResult, error) {
+	if !entitled(p) {
+		return LifecycleResult{}, ErrForbidden
+	}
+	if id == "" || !evaluationEventID.MatchString(command.EventID) || command.ExpectedStateVersion < 1 || !command.ConfirmPaperSimulation {
+		return LifecycleResult{}, ErrInvalid
+	}
+	switch command.EventType {
+	case ExpireWorthless, Assignment, CallAway:
+	default:
+		return LifecycleResult{}, ErrInvalid
+	}
+	result, err := s.store.RecordLifecycle(c, p.UserID, id, command, s.now().UTC())
+	if err != nil {
+		return LifecycleResult{}, err
+	}
+	return result, nil
 }

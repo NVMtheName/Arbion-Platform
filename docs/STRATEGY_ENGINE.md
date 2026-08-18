@@ -65,7 +65,7 @@ See [Automation Engine](AUTOMATION_ENGINE.md), [Risk and Control Engine](RISK_CO
 
 ## Deferred decisions
 
-The remaining strategy-definition format, complete transition/event taxonomy, production-grade fill simulation, corporate actions, assignment/exercise ingestion, multi-leg atomicity, exchange-holiday calendars, deterministic replay requirements, state migration, mode-switch policy, broader orchestration, and backtester remain for later design. The current implementation is deliberately limited to explicit manual or opt-in scheduled PAPER/SHADOW evaluation.
+The remaining strategy-definition format, complete transition/event taxonomy, production-grade fill simulation, corporate actions, broker-authoritative assignment/exercise ingestion, multi-leg atomicity, exchange-holiday calendars, deterministic replay requirements, state migration, mode-switch policy, broader orchestration, and backtester remain for later design. The current implementation is deliberately limited to explicit manual or opt-in scheduled PAPER/SHADOW evaluation plus owner-attested PAPER Wheel lifecycle events.
 
 ## Implemented configuration registry
 
@@ -80,5 +80,7 @@ Cash-Secured Put and Covered Call use explicit legal states and provider-indepen
 `StrategyEvaluationInput`, `MarketSnapshot`, and `OptionCandidate` use exact decimal strings and provider-derived timestamps. The engine has no Schwab, broker, market-vendor, or AI dependency. The surrounding service obtains read-only inputs through normalized financial interfaces and rejects missing or stale market timestamps. Explicit `EXPIRE_WORTHLESS`, `ASSIGNED`, and `CALLED_AWAY` events drive lifecycle state; no probability is invented.
 
 Strategy parameters and schedule conditions are validated and normalized server-side. Saving either creates a new immutable mandate version and returns the mandate to DRAFT; the user must review and mark that version READY before initializing or evaluating its exact matching strategy instance. Manual requests supply an event ID; scheduled runs derive one from the durable due time. The database atomically claims that identity with risk evidence, non-live execution evidence, the Decision Journal entry, and any PAPER-only state/accounting mutation.
+
+For an open PAPER Wheel option, the owner can record only the legal deterministic lifecycle outcomes for the current state: worthless expiry or assignment for a put, and worthless expiry or called-away shares for a call. The command cannot provide a symbol, strike, quantity, or cash effect; those values are loaded from the one durable open simulated option. The database transaction closes that option, applies any simulated cash/share effect, advances the optimistic state version, and appends immutable lifecycle, transition, and journal evidence. Exact event-identity retries are idempotent. This records a PAPER fact only and does not inspect or change Schwab.
 
 **The same deterministic strategy definition is intended to serve paper, shadow, and future live execution.** Future live execution remains unavailable and requires separate approval.
