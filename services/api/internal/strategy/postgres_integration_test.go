@@ -63,7 +63,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	wheel := "wheel"
 	mandate := automation.Mandate{ID: mandateID, UserID: userID, FinancialAccountID: accountID, AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: bucketID, ExecutionMode: "PAPER", CurrentVersion: 1}
 	store := NewPostgresStore(pool)
-	instance, err := store.Initialize(ctx, userID, mandate, "1.0000000000", ReadyForPut)
+	instance, err := store.Initialize(ctx, userID, mandate, "20000.0000000000", ReadyForPut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT current_state,state_version FROM strategy_instances WHERE id=$1`, instance.ID).Scan(&state, &version); err != nil || state != ReadyForPut || version != 1 {
 		t.Fatalf("risk denial advanced state: %s v%d %v", state, version, err)
 	}
-	if err = pool.QueryRow(ctx, `SELECT cash::text FROM paper_portfolios WHERE strategy_instance_id=$1`, instance.ID).Scan(&cash); err != nil || cash != "1.0000000000" {
+	if err = pool.QueryRow(ctx, `SELECT cash::text FROM paper_portfolios WHERE strategy_instance_id=$1`, instance.ID).Scan(&cash); err != nil || cash != "20000.0000000000" {
 		t.Fatalf("risk denial mutated paper cash: %s %v", cash, err)
 	}
 
@@ -104,7 +104,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT current_state,state_version FROM strategy_instances WHERE id=$1`, instance.ID).Scan(&state, &version); err != nil || state != ShortPutOpen || version != 2 {
 		t.Fatalf("paper fill did not advance state: %s v%d %v", state, version, err)
 	}
-	if err = pool.QueryRow(ctx, `SELECT cash::text FROM paper_portfolios WHERE strategy_instance_id=$1`, instance.ID).Scan(&cash); err != nil || cash != "126.0000000000" {
+	if err = pool.QueryRow(ctx, `SELECT cash::text FROM paper_portfolios WHERE strategy_instance_id=$1`, instance.ID).Scan(&cash); err != nil || cash != "20125.0000000000" {
 		t.Fatalf("paper premium was not isolated: %s %v", cash, err)
 	}
 	var quantity string
@@ -136,6 +136,93 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || facts.Paper == nil || facts.Paper.CurrentExposure != "19000.0000000000" || facts.ActionsToday != 2 {
 		t.Fatalf("paper evaluation facts are incomplete: %#v %v", facts, err)
 	}
+
+	lifecycleTime := time.Date(2026, 2, 1, 12, 0, 0, 0, time.UTC)
+	lifecycleCommand := LifecycleCommand{EventID: "manual-lifecycle:expired-1", EventType: ExpireWorthless, ExpectedStateVersion: 2, ConfirmPaperSimulation: true}
+	lifecycle, err := store.RecordLifecycle(ctx, userID, instance.ID, lifecycleCommand, lifecycleTime)
+	if err != nil || lifecycle.Duplicate || lifecycle.PreviousState != ShortPutOpen || lifecycle.NewState != ReadyForPut || lifecycle.StateVersion != 3 {
+		t.Fatalf("paper expiration was not recorded atomically: %#v %v", lifecycle, err)
+	}
+	duplicate, err := store.RecordLifecycle(ctx, userID, instance.ID, lifecycleCommand, lifecycleTime.Add(time.Minute))
+	if err != nil || !duplicate.Duplicate || duplicate.ID != lifecycle.ID {
+		t.Fatalf("paper lifecycle retry was not idempotent: %#v %v", duplicate, err)
+	}
+	conflictingCommand := lifecycleCommand
+	conflictingCommand.EventType = Assignment
+	if _, err = store.RecordLifecycle(ctx, userID, instance.ID, conflictingCommand, lifecycleTime.Add(2*time.Minute)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflicting lifecycle identity was accepted: %v", err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT current_state,state_version FROM strategy_instances WHERE id=$1`, instance.ID).Scan(&state, &version); err != nil || state != ReadyForPut || version != 3 {
+		t.Fatalf("paper expiration did not advance state once: %s v%d %v", state, version, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT quantity::text FROM paper_positions WHERE instrument='OPTION'`).Scan(&quantity); err != nil || quantity != "0.0000000000" {
+		t.Fatalf("expired paper option remained open: %s %v", quantity, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT cash::text FROM paper_portfolios WHERE strategy_instance_id=$1`, instance.ID).Scan(&cash); err != nil || cash != "20125.0000000000" {
+		t.Fatalf("worthless expiration changed paper cash: %s %v", cash, err)
+	}
+	assertCount(t, pool, `SELECT count(*) FROM strategy_lifecycle_events`, 1)
+	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 3)
+	assertCount(t, pool, `SELECT count(*) FROM decision_journal_entries`, 3)
+	lifecyclePage, err := store.Journal(ctx, userID, 1, nil)
+	if err != nil || len(lifecyclePage) != 1 || lifecyclePage[0].Source != "LIFECYCLE" || lifecyclePage[0].DecisionType != string(ExpireWorthless) || lifecyclePage[0].RiskDecision != nil || lifecyclePage[0].ExecutionStatus != nil {
+		t.Fatalf("paper lifecycle journal projection is incomplete: %#v %v", lifecyclePage, err)
+	}
+
+	readyInstance, err := store.Get(ctx, userID, instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPutTime := lifecycleTime.Add(time.Minute)
+	secondPut := proposedOption(readyInstance, "manual:filled-2", "action:filled-2")
+	secondPut.Option.Expiration = "2026-02-28"
+	secondPutEvaluation := risk.RiskEvaluation{ID: "99999999-9999-4999-8999-999999999998", UserID: userID, AccountID: accountID, MandateID: secondPut.MandateID, MandateVersion: secondPut.MandateVersion, Timestamp: secondPutTime, Decision: risk.Allow, Checks: []risk.RiskCheck{}, ReasonCodes: []risk.ReasonCode{risk.Allowed}, Mode: "PAPER"}
+	secondPutDecision := Decision{ProposedAction: &secondPut, ProposedState: PutProposed, CandidateCount: 1, Reason: "test", Rationale: []byte(`{"strategy":"wheel","candidate_count":1}`)}
+	if err = store.CommitEvaluation(ctx, readyInstance, readyInstance.StateVersion, secondPutDecision, secondPutEvaluation, filledResult, secondPutTime); err != nil {
+		t.Fatal(err)
+	}
+	assignmentTime := secondPutTime.Add(time.Minute)
+	assignmentCommand := LifecycleCommand{EventID: "manual-lifecycle:assigned-1", EventType: Assignment, ExpectedStateVersion: 4, ConfirmPaperSimulation: true}
+	assignment, err := store.RecordLifecycle(ctx, userID, instance.ID, assignmentCommand, assignmentTime)
+	if err != nil || assignment.NewState != LongShares || assignment.StateVersion != 5 {
+		t.Fatalf("paper assignment was not applied: %#v %v", assignment, err)
+	}
+	var shares string
+	if err = pool.QueryRow(ctx, `SELECT quantity::text FROM paper_positions WHERE instrument='EQUITY' AND symbol='AAPL'`).Scan(&shares); err != nil || shares != "100.0000000000" {
+		t.Fatalf("paper assignment did not create shares: %s %v", shares, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT cash::text FROM paper_portfolios WHERE strategy_instance_id=$1`, instance.ID).Scan(&cash); err != nil || cash != "1250.0000000000" {
+		t.Fatalf("paper assignment cash is wrong: %s %v", cash, err)
+	}
+
+	sharesInstance, err := store.Get(ctx, userID, instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callTime := assignmentTime.Add(time.Minute)
+	callAction := proposedCall(sharesInstance, "manual:call-filled", "action:call-filled")
+	callEvaluation := risk.RiskEvaluation{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", UserID: userID, AccountID: accountID, MandateID: callAction.MandateID, MandateVersion: callAction.MandateVersion, Timestamp: callTime, Decision: risk.Allow, Checks: []risk.RiskCheck{}, ReasonCodes: []risk.ReasonCode{risk.Allowed}, Mode: "PAPER"}
+	callDecision := Decision{ProposedAction: &callAction, ProposedState: CallProposed, CandidateCount: 1, Reason: "test", Rationale: []byte(`{"strategy":"wheel","candidate_count":1}`)}
+	callPrice, callPremium := "2.0000000000", "200.0000000000"
+	callResult := ExecutionResult{Status: SimulatedFilled, Price: &callPrice, Notional: &callPremium, ExpectedState: ShortCallOpen}
+	if err = store.CommitEvaluation(ctx, sharesInstance, sharesInstance.StateVersion, callDecision, callEvaluation, callResult, callTime); err != nil {
+		t.Fatal(err)
+	}
+	callAwayTime := callTime.Add(time.Minute)
+	callAwayCommand := LifecycleCommand{EventID: "manual-lifecycle:called-away-1", EventType: CallAway, ExpectedStateVersion: 6, ConfirmPaperSimulation: true}
+	callAway, err := store.RecordLifecycle(ctx, userID, instance.ID, callAwayCommand, callAwayTime)
+	if err != nil || callAway.NewState != Cash || callAway.StateVersion != 7 {
+		t.Fatalf("paper called-away event was not applied: %#v %v", callAway, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT quantity::text FROM paper_positions WHERE instrument='EQUITY' AND symbol='AAPL'`).Scan(&shares); err != nil || shares != "0.0000000000" {
+		t.Fatalf("paper called-away event did not remove shares: %s %v", shares, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT cash::text FROM paper_portfolios WHERE strategy_instance_id=$1`, instance.ID).Scan(&cash); err != nil || cash != "21450.0000000000" {
+		t.Fatalf("paper called-away cash is wrong: %s %v", cash, err)
+	}
+	assertCount(t, pool, `SELECT count(*) FROM strategy_lifecycle_events`, 3)
+	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 7)
+	assertCount(t, pool, `SELECT count(*) FROM decision_journal_entries`, 7)
 }
 
 func proposedOption(instance Instance, eventID, actionID string) risk.ProposedAction {
@@ -147,6 +234,18 @@ func proposedOption(instance Instance, eventID, actionID string) risk.ProposedAc
 	price := "1.2500000000"
 	return risk.ProposedAction{ID: actionID, CorrelationID: eventID, FinancialAccountID: instance.FinancialAccountID, Source: risk.SourceStrategy, ActionType: risk.ActionOpenOption, MandateID: &mandateID, MandateVersion: &mandateVersion, Instrument: "AAPL", Side: "SELL_TO_OPEN", Quantity: "1", Notional: "19000.0000000000", EstimatedPrice: &price, Option: &risk.OptionContract{Underlying: "AAPL", Expiration: "2026-01-31", PutCall: "PUT", Strike: "190", ContractMultiplier: 100}, StrategyIdentifier: &strategyIdentifier, StrategyInstanceID: &strategyInstanceID, StrategyState: &strategyState}
 }
+
+func proposedCall(instance Instance, eventID, actionID string) risk.ProposedAction {
+	action := proposedOption(instance, eventID, actionID)
+	action.Notional = "20000.0000000000"
+	action.EstimatedPrice = ptrString("2.0000000000")
+	action.Option.PutCall = "CALL"
+	action.Option.Strike = "200"
+	action.Option.Expiration = "2026-03-31"
+	return action
+}
+
+func ptrString(value string) *string { return &value }
 
 func assertCount(t *testing.T, pool *pgxpool.Pool, query string, expected int) {
 	t.Helper()

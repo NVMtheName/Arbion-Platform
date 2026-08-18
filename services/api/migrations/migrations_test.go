@@ -107,3 +107,20 @@ func TestNonLiveSchedulerMigrationUsesDurableLeasesAndExactMandateVersions(t *te
 		}
 	}
 }
+
+func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00013_paper_lifecycle_events.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"strategy_lifecycle_events", "strategy_instance_id,user_id", "EXPIRE_WORTHLESS", "ASSIGNED", "CALLED_AWAY", "strategy_lifecycle_event_immutable", "reject_nonlive_history_mutation"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("paper lifecycle migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"broker_orders", "provider_order", "LIVE_EXECUTION"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("paper lifecycle migration unexpectedly contains %q", prohibited)
+		}
+	}
+}

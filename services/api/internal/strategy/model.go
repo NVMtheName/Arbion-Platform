@@ -97,6 +97,26 @@ const (
 	CallAway        LifecycleEvent = "CALLED_AWAY"
 )
 
+type LifecycleCommand struct {
+	EventID                string         `json:"event_id"`
+	EventType              LifecycleEvent `json:"event_type"`
+	ExpectedStateVersion   int            `json:"expected_state_version"`
+	ConfirmPaperSimulation bool           `json:"confirm_paper_simulation"`
+}
+
+type LifecycleResult struct {
+	ID                 string          `json:"id"`
+	EventID            string          `json:"event_id"`
+	StrategyInstanceID string          `json:"strategy_instance_id"`
+	EventType          LifecycleEvent  `json:"event_type"`
+	PreviousState      State           `json:"previous_state"`
+	NewState           State           `json:"new_state"`
+	StateVersion       int             `json:"state_version"`
+	Metadata           json.RawMessage `json:"metadata"`
+	OccurredAt         time.Time       `json:"occurred_at"`
+	Duplicate          bool            `json:"duplicate"`
+}
+
 type Transition struct {
 	ID, StrategyInstanceID, Trigger                       string
 	PreviousState, NewState                               State

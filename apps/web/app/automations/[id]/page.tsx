@@ -12,6 +12,7 @@ import {
   type StrategyScheduleConditions,
   type StrategyScheduleStatus,
 } from "../strategy-schedule-controls";
+import { StrategyLifecycleControls } from "../strategy-lifecycle-controls";
 export default async function MandateReview({
   params,
 }: {
@@ -154,6 +155,23 @@ export default async function MandateReview({
                 | undefined
             }
           />
+          {instance && (
+            <StrategyLifecycleControls
+              instanceId={instanceID}
+              currentState={String(
+                instance.CurrentState ?? instance.current_state ?? "",
+              )}
+              stateVersion={Number(
+                instance.StateVersion ?? instance.state_version ?? 0,
+              )}
+              status={String(instance.Status ?? instance.status ?? "")}
+              executionMode={read("execution_mode", "ExecutionMode")}
+              strategyIdentifier={read(
+                "strategy_identifier",
+                "StrategyIdentifier",
+              )}
+            />
+          )}
         </>
       )}
       <section className="review-grid" aria-label="Non-live strategy">

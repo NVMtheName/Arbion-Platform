@@ -11,10 +11,15 @@ import (
 )
 
 type journalPersistenceFake struct {
-	entries        []JournalActivity
-	requestedUser  string
-	requestedLimit int
-	requestedAfter *JournalCursor
+	entries         []JournalActivity
+	requestedUser   string
+	requestedLimit  int
+	requestedAfter  *JournalCursor
+	lifecycleID     string
+	lifecycle       LifecycleCommand
+	lifecycleAt     time.Time
+	lifecycleResult LifecycleResult
+	lifecycleError  error
 }
 
 func (*journalPersistenceFake) Initialize(context.Context, string, automation.Mandate, string, State) (Instance, error) {
@@ -45,6 +50,13 @@ func (f *journalPersistenceFake) Journal(_ context.Context, userID string, limit
 func (*journalPersistenceFake) Schedule(context.Context, string, string) (ScheduleStatus, error) {
 	return ScheduleStatus{}, nil
 }
+func (f *journalPersistenceFake) RecordLifecycle(_ context.Context, userID, instanceID string, command LifecycleCommand, occurredAt time.Time) (LifecycleResult, error) {
+	f.requestedUser = userID
+	f.lifecycleID = instanceID
+	f.lifecycle = command
+	f.lifecycleAt = occurredAt
+	return f.lifecycleResult, f.lifecycleError
+}
 
 func TestJournalIsOwnerScopedAndBuildsStableNextCursor(t *testing.T) {
 	now := time.Date(2026, 8, 18, 18, 0, 0, 0, time.UTC)
@@ -72,5 +84,36 @@ func TestJournalRequiresAutomationEntitlement(t *testing.T) {
 	_, err := service.Journal(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, 25, nil)
 	if !errors.Is(err, ErrForbidden) || store.requestedUser != "" {
 		t.Fatalf("unentitled journal request was not rejected: %v", err)
+	}
+}
+
+func TestRecordLifecycleRequiresExplicitPaperConfirmationAndOwnerEntitlement(t *testing.T) {
+	store := &journalPersistenceFake{}
+	service := NewInstanceService(store, nil)
+	command := LifecycleCommand{EventID: "manual-lifecycle:event-1", EventType: Assignment, ExpectedStateVersion: 2}
+	if _, err := service.RecordLifecycle(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", command); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unconfirmed paper event was accepted: %v", err)
+	}
+	command.ConfirmPaperSimulation = true
+	if _, err := service.RecordLifecycle(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, "instance-1", command); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("unentitled paper event was accepted: %v", err)
+	}
+	if store.lifecycleID != "" {
+		t.Fatal("rejected lifecycle command reached persistence")
+	}
+}
+
+func TestRecordLifecycleIsOwnerScopedAndUsesServerTime(t *testing.T) {
+	now := time.Date(2026, 8, 18, 20, 0, 0, 0, time.UTC)
+	store := &journalPersistenceFake{lifecycleResult: LifecycleResult{ID: "event-record-1", EventType: ExpireWorthless}}
+	service := NewInstanceService(store, nil)
+	service.now = func() time.Time { return now }
+	command := LifecycleCommand{EventID: "manual-lifecycle:event-1", EventType: ExpireWorthless, ExpectedStateVersion: 2, ConfirmPaperSimulation: true}
+	result, err := service.RecordLifecycle(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ID != "event-record-1" || store.requestedUser != "owner" || store.lifecycleID != "instance-1" || store.lifecycle != command || !store.lifecycleAt.Equal(now) {
+		t.Fatalf("lifecycle command boundary changed: result=%#v store=%#v", result, store)
 	}
 }

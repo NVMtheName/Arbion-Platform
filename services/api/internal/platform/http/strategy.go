@@ -33,6 +33,7 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/strategy-instances/{id}/decisions", h.require(stdhttp.HandlerFunc(h.strategyDecisions)))
 	m.Handle("GET /api/strategy-instances/{id}/executions", h.require(stdhttp.HandlerFunc(h.strategyExecutions)))
 	m.Handle("GET /api/strategy-instances/{id}/schedule", h.require(stdhttp.HandlerFunc(h.strategySchedule)))
+	m.Handle("POST /api/strategy-instances/{id}/lifecycle-events", h.require(stdhttp.HandlerFunc(h.recordStrategyLifecycle)))
 	m.Handle("GET /api/decision-journal", h.require(stdhttp.HandlerFunc(h.decisionJournal)))
 	if h.evaluations != nil {
 		m.Handle("POST /api/strategy-instances/{id}/evaluate", h.require(stdhttp.HandlerFunc(h.evaluateStrategy)))
@@ -99,7 +100,7 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 	case errors.Is(e, strategy.ErrInvalid):
 		writeError(w, 422, "INVALID_STRATEGY", "The deterministic strategy request is invalid or unsupported.")
 	case errors.Is(e, strategy.ErrConflict):
-		writeError(w, 409, "STRATEGY_CONFLICT", "A strategy instance already exists for this mandate version.")
+		writeError(w, 409, "STRATEGY_CONFLICT", "The strategy state changed or this request conflicts with an existing record.")
 	case errors.Is(e, strategy.ErrDuplicate):
 		writeError(w, 409, "EVALUATION_DUPLICATE", "This manual evaluation was already recorded.")
 	default:
@@ -178,6 +179,27 @@ func (h *authHandler) strategySchedule(w stdhttp.ResponseWriter, r *stdhttp.Requ
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{"schedule": v, "scheduler_enabled": h.schedulerEnabled, "live_execution_available": false})
+}
+
+func (h *authHandler) recordStrategyLifecycle(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var command strategy.LifecycleCommand
+	if !decode(w, r, &command) {
+		return
+	}
+	result, err := h.strategies.RecordLifecycle(r.Context(), principal(r), r.PathValue("id"), command)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	status := 201
+	if result.Duplicate {
+		status = 200
+	}
+	writeJSON(w, status, map[string]any{"lifecycle_event": result, "live_execution_available": false})
 }
 
 func (h *authHandler) evaluateStrategy(w stdhttp.ResponseWriter, r *stdhttp.Request) {
