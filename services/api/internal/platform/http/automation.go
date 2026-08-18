@@ -139,7 +139,7 @@ func (h *authHandler) getAutomation(w stdhttp.ResponseWriter, r *stdhttp.Request
 		h.automationError(w, e)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"automation": v, "execution_enabled": false})
+	writeJSON(w, 200, map[string]any{"automation": v, "execution_enabled": false, "email_delivery_available": h.emailDeliveryAvailable})
 }
 func (h *authHandler) updateAutomation(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	h.autoMutation(w, r, func() error {

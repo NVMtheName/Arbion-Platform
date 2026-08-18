@@ -23,17 +23,18 @@ import (
 
 type identityKey struct{}
 type authHandler struct {
-	service            *auth.Service
-	admin              *authorization.Service
-	ai                 *aiconnection.Service
-	financialProviders financial.Registry
-	schwabConfigured   bool
-	financial          *financialconnection.Service
-	automation         *automation.Service
-	strategies         *strategy.InstanceService
-	evaluations        *strategy.EvaluationService
-	schedulerEnabled   bool
-	cfg                config.Auth
+	service                *auth.Service
+	admin                  *authorization.Service
+	ai                     *aiconnection.Service
+	financialProviders     financial.Registry
+	schwabConfigured       bool
+	financial              *financialconnection.Service
+	automation             *automation.Service
+	strategies             *strategy.InstanceService
+	evaluations            *strategy.EvaluationService
+	schedulerEnabled       bool
+	emailDeliveryAvailable bool
+	cfg                    config.Auth
 }
 type credentials struct {
 	Email       string `json:"email"`
@@ -83,7 +84,7 @@ func NewApplicationHandler(database ReadinessChecker, timeout config.Config, ser
 }
 
 func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances ...*financialconnection.Service) stdhttp.Handler {
-	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled}
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp"}
 	if len(finances) > 0 {
 		h.financial = finances[0]
 	}
@@ -157,7 +158,7 @@ func firstStrategy(strategies []*strategy.InstanceService) *strategy.InstanceSer
 }
 
 func newFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService) stdhttp.Handler {
-	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, financial: finances, automation: automations}
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp", financial: finances, automation: automations}
 	h.strategies = strategies
 	h.evaluations = evaluations
 	mux := stdhttp.NewServeMux()

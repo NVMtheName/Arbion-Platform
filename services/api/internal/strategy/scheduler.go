@@ -9,6 +9,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/arbion/platform/services/api/internal/authorization"
+	"github.com/arbion/platform/services/api/internal/automationnotification"
 	"github.com/arbion/platform/services/api/internal/financial"
 )
 
@@ -30,12 +31,17 @@ type ScheduledEvaluator interface {
 type Scheduler struct {
 	store     ScheduleStore
 	evaluator ScheduledEvaluator
+	notifier  automationnotification.Sender
 	now       func() time.Time
 	logger    *slog.Logger
 }
 
-func NewScheduler(store ScheduleStore, evaluator ScheduledEvaluator) *Scheduler {
-	return &Scheduler{store: store, evaluator: evaluator, now: func() time.Time { return time.Now().UTC() }, logger: slog.Default()}
+func NewScheduler(store ScheduleStore, evaluator ScheduledEvaluator, notifier ...automationnotification.Sender) *Scheduler {
+	scheduler := &Scheduler{store: store, evaluator: evaluator, now: func() time.Time { return time.Now().UTC() }, logger: slog.Default()}
+	if len(notifier) > 0 {
+		scheduler.notifier = notifier[0]
+	}
+	return scheduler
 }
 
 func (s *Scheduler) Run(ctx context.Context) {
@@ -94,8 +100,39 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 	if err := s.store.CompleteSchedule(ctx, *run, completion); err != nil {
 		return true, err
 	}
+	if event := scheduleNotification(*run, completion); event != nil && s.notifier != nil {
+		if err := s.notifier.Send(ctx, *event); err != nil {
+			s.logger.Error("non-live schedule notification delivery failed", "strategy_instance_id", run.StrategyInstanceID, "notification_kind", event.Kind)
+		} else {
+			s.logger.Info("non-live schedule notification delivered", "strategy_instance_id", run.StrategyInstanceID, "notification_kind", event.Kind)
+		}
+	}
 	s.logger.Info("non-live schedule completed", "strategy_instance_id", run.StrategyInstanceID, "status", completion.Status, "error_code", completion.ErrorCode)
 	return true, nil
+}
+
+func scheduleNotification(run ScheduledRun, completion ScheduleCompletion) *automationnotification.Event {
+	if run.OwnerEmail == "" || !run.OwnerEmailVerified {
+		return nil
+	}
+	event := automationnotification.Event{
+		Recipient:     run.OwnerEmail,
+		MandateID:     run.MandateID,
+		ExecutionMode: string(run.ExecutionMode),
+		ScheduledFor:  run.ScheduledFor,
+		SafeErrorCode: completion.ErrorCode,
+	}
+	switch {
+	case completion.Status == "SUCCEEDED" && run.NotifyEvaluation:
+		event.Kind = automationnotification.EvaluationCompleted
+	case completion.ErrorCode == "WAITING_FOR_LIFECYCLE" && run.NotifyLifecycle && (run.PreviousErrorCode == nil || *run.PreviousErrorCode != "WAITING_FOR_LIFECYCLE"):
+		event.Kind = automationnotification.LifecycleRequired
+	case completion.Status == "FAILED" && run.NotifyFirstFailure && run.ConsecutiveFailures == 0:
+		event.Kind = automationnotification.FirstFailure
+	default:
+		return nil
+	}
+	return &event
 }
 
 func actionableState(state State) bool {

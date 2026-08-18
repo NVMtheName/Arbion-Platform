@@ -224,10 +224,12 @@ func TestReadyStrategyRequiresCompleteParameters(t *testing.T) {
 
 func TestScheduleConditionsAreStrictAndNonLiveOnly(t *testing.T) {
 	for name, raw := range map[string][]byte{
-		"too frequent":  []byte(`{"enabled":true,"interval_minutes":15,"session":"US_EQUITIES_REGULAR"}`),
-		"wrong session": []byte(`{"enabled":true,"interval_minutes":60,"session":"ALWAYS"}`),
-		"unknown field": []byte(`{"enabled":false,"live":true}`),
-		"disabled data": []byte(`{"enabled":false,"interval_minutes":60}`),
+		"too frequent":          []byte(`{"enabled":true,"interval_minutes":15,"session":"US_EQUITIES_REGULAR"}`),
+		"wrong session":         []byte(`{"enabled":true,"interval_minutes":60,"session":"ALWAYS"}`),
+		"unknown field":         []byte(`{"enabled":false,"live":true}`),
+		"disabled data":         []byte(`{"enabled":false,"interval_minutes":60}`),
+		"disabled notification": []byte(`{"enabled":false,"notifications":{"first_failure":true}}`),
+		"unknown notification":  []byte(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR","notifications":{"execute":true}}`),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ParseScheduleConditions(raw); err != ErrInvalid {
@@ -235,8 +237,8 @@ func TestScheduleConditionsAreStrictAndNonLiveOnly(t *testing.T) {
 			}
 		})
 	}
-	valid, err := ParseScheduleConditions([]byte(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR"}`))
-	if err != nil || !valid.Enabled || valid.IntervalMinutes != 60 {
+	valid, err := ParseScheduleConditions([]byte(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR","notifications":{"evaluation_completed":true,"lifecycle_required":true,"first_failure":true}}`))
+	if err != nil || !valid.Enabled || valid.IntervalMinutes != 60 || !valid.Notifications.EvaluationCompleted || !valid.Notifications.LifecycleRequired || !valid.Notifications.FirstFailure {
 		t.Fatalf("valid schedule rejected: %#v %v", valid, err)
 	}
 }

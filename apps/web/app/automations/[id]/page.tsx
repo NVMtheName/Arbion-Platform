@@ -37,9 +37,11 @@ export default async function MandateReview({
         <h1>Mandate unavailable</h1>
       </main>
     );
-  const { automation: m } = (await r.json()) as {
+  const automationResponse = (await r.json()) as {
     automation: Record<string, unknown>;
+    email_delivery_available?: boolean;
   };
+  const m = automationResponse.automation;
   const instancesResponse = await fetch(`${api}/api/strategy-instances`, {
     headers: { cookie: jar.toString() },
     cache: "no-store",
@@ -162,6 +164,10 @@ export default async function MandateReview({
             executionMode={read("execution_mode", "ExecutionMode")}
             instanceId={instanceID}
             schedulerEnabled={Boolean(scheduleResponse.scheduler_enabled)}
+            emailDeliveryAvailable={Boolean(
+              scheduleResponse.email_delivery_available ??
+                automationResponse.email_delivery_available,
+            )}
             conditions={
               (m.schedule_conditions ??
                 m.ScheduleConditions ??

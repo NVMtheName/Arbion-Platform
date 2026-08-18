@@ -7,6 +7,11 @@ export type StrategyScheduleConditions = {
   enabled?: boolean;
   interval_minutes?: number;
   session?: string;
+  notifications?: {
+    evaluation_completed?: boolean;
+    lifecycle_required?: boolean;
+    first_failure?: boolean;
+  };
 };
 
 export type StrategyScheduleStatus = {
@@ -31,6 +36,7 @@ type Props = {
   conditions: StrategyScheduleConditions;
   runtime?: StrategyScheduleStatus;
   schedulerEnabled: boolean;
+  emailDeliveryAvailable: boolean;
 };
 
 function readableTime(value?: string) {
@@ -58,6 +64,12 @@ export function StrategyScheduleControls(props: Props) {
           enabled: true,
           interval_minutes: Number(form.get("interval_minutes")),
           session: "US_EQUITIES_REGULAR",
+          notifications: {
+            evaluation_completed:
+              form.get("notify_evaluation_completed") === "on",
+            lifecycle_required: form.get("notify_lifecycle_required") === "on",
+            first_failure: form.get("notify_first_failure") === "on",
+          },
         }
       : { enabled: false };
     setBusy(true);
@@ -130,6 +142,55 @@ export function StrategyScheduleControls(props: Props) {
           Session: 9:35 a.m.–3:55 p.m. America/New_York, weekdays. Provider
           freshness checks fail closed on market holidays or stale data.
         </p>
+        <fieldset
+          disabled={
+            !enabled || !eligible || busy || !props.emailDeliveryAvailable
+          }
+        >
+          <legend>Informational email</legend>
+          <label>
+            <input
+              name="notify_evaluation_completed"
+              type="checkbox"
+              defaultChecked={Boolean(
+                props.conditions.notifications?.evaluation_completed,
+              )}
+            />{" "}
+            Email after each scheduled evaluation
+          </label>
+          <label>
+            <input
+              name="notify_lifecycle_required"
+              type="checkbox"
+              defaultChecked={Boolean(
+                props.conditions.notifications?.lifecycle_required,
+              )}
+            />{" "}
+            Email once when a PAPER option needs lifecycle review
+          </label>
+          <label>
+            <input
+              name="notify_first_failure"
+              type="checkbox"
+              defaultChecked={Boolean(
+                props.conditions.notifications?.first_failure,
+              )}
+            />{" "}
+            Email on the first consecutive scheduler failure
+          </label>
+        </fieldset>
+        {props.emailDeliveryAvailable ? (
+          <p className="security-note">
+            Emails go only to your verified Arbion address. They are
+            informational and contain no approval, continuation, or execution
+            action.
+          </p>
+        ) : (
+          <p className="security-note">
+            Email delivery is not configured, so notification options are
+            unavailable.
+          </p>
+        )}
         <button type="submit" disabled={!eligible || busy}>
           Save Schedule — Creates Draft
         </button>

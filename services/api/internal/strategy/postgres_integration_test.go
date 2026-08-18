@@ -49,10 +49,11 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	)
 	statements := []string{
 		`INSERT INTO users(id,email,normalized_email,display_name,email_verified_at) VALUES('` + userID + `','test@example.com','test@example.com','Test',now())`,
+		`INSERT INTO user_entitlements(user_id,entitlement_key,source,billing_required) VALUES('` + userID + `','founder','bootstrap',false)`,
 		`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES('` + connectionID + `','` + userID + `','financial','schwab','Schwab','active')`,
 		`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES('` + accountID + `','` + userID + `','` + connectionID + `','schwab','opaque','Schwab Test','brokerage','USD','active','{"options":"SUPPORTED","margin":"UNKNOWN"}')`,
 		`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES('` + bucketID + `','` + userID + `','` + accountID + `','Paper','FIXED_AMOUNT',20000,'USD',0,'ACTIVE')`,
-		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + mandateID + `','` + userID + `','` + accountID + `','STRATEGY','wheel','` + bucketID + `','STRATEGY_AUTONOMOUS','PAPER','READY',1,'{"symbols":["AAPL"],"minimum_dte":20,"maximum_dte":60,"target_delta":"0.30","target_delta_min":"0.20","target_delta_max":"0.40","maximum_contracts":1,"assignment_handling_policy":"continue_wheel"}','{}','{"symbols":["AAPL"],"universe_ids":[]}','{"symbols":[]}',false,true,'{}',false)`,
+		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + mandateID + `','` + userID + `','` + accountID + `','STRATEGY','wheel','` + bucketID + `','STRATEGY_AUTONOMOUS','PAPER','READY',1,'{"symbols":["AAPL"],"minimum_dte":20,"maximum_dte":60,"target_delta":"0.30","target_delta_min":"0.20","target_delta_max":"0.40","maximum_contracts":1,"assignment_handling_policy":"continue_wheel"}','{}','{"symbols":["AAPL"],"universe_ids":[]}','{"symbols":[]}',false,true,'{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR","notifications":{"evaluation_completed":true,"lifecycle_required":true,"first_failure":true}}',false)`,
 		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) VALUES('` + mandateID + `',1,'` + userID + `','UI','{}','{}')`,
 	}
 	for _, statement := range statements {
@@ -65,6 +66,17 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	store := NewPostgresStore(pool)
 	instance, err := store.Initialize(ctx, userID, mandate, "20000.0000000000", ReadyForPut)
 	if err != nil {
+		t.Fatal(err)
+	}
+	claimAt := time.Now().UTC().Add(time.Minute)
+	scheduled, err := store.ClaimDueSchedule(ctx, claimAt, scheduleLeaseDuration)
+	if err != nil || scheduled == nil {
+		t.Fatalf("guarded schedule was not claimed: %#v %v", scheduled, err)
+	}
+	if scheduled.OwnerEmail != "test@example.com" || !scheduled.OwnerEmailVerified || !scheduled.NotifyEvaluation || !scheduled.NotifyLifecycle || !scheduled.NotifyFirstFailure || scheduled.PreviousErrorCode != nil || scheduled.ConsecutiveFailures != 0 {
+		t.Fatalf("notification preferences crossed the schedule boundary: %#v", scheduled)
+	}
+	if err = store.CompleteSchedule(ctx, *scheduled, ScheduleCompletion{CompletedAt: claimAt, NextRunAt: claimAt.Add(24 * time.Hour), Status: "SKIPPED", ErrorCode: "OUTSIDE_SESSION"}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
