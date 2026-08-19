@@ -189,7 +189,7 @@ func (h *authHandler) strategySchedule(w stdhttp.ResponseWriter, r *stdhttp.Requ
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 200, map[string]any{"schedule": v, "scheduler_enabled": h.schedulerEnabled, "live_execution_available": false})
+	writeJSON(w, 200, map[string]any{"schedule": v, "scheduler_enabled": h.schedulerEnabled, "email_delivery_available": h.emailDeliveryAvailable, "live_execution_available": false})
 }
 
 func (h *authHandler) recordStrategyLifecycle(w stdhttp.ResponseWriter, r *stdhttp.Request) {

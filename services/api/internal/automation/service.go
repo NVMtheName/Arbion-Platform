@@ -116,7 +116,7 @@ func ParseStrategyParameters(raw json.RawMessage) (StrategyParameters, error) {
 
 func ValidateScheduleConditions(schedule ScheduleConditions) error {
 	if !schedule.Enabled {
-		if schedule.IntervalMinutes != 0 || schedule.Session != "" {
+		if schedule.IntervalMinutes != 0 || schedule.Session != "" || schedule.Notifications != (ScheduleNotifications{}) {
 			return ErrInvalid
 		}
 		return nil

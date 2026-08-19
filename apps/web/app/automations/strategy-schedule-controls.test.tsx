@@ -22,6 +22,7 @@ const base = {
   executionMode: "PAPER",
   instanceId: "",
   schedulerEnabled: false,
+  emailDeliveryAvailable: true,
   conditions: {},
 };
 
@@ -41,6 +42,11 @@ describe("StrategyScheduleControls", () => {
     fireEvent.change(screen.getByLabelText(/evaluation interval/i), {
       target: { value: "120" },
     });
+    fireEvent.click(screen.getByLabelText(/after each scheduled evaluation/i));
+    fireEvent.click(screen.getByLabelText(/option needs lifecycle review/i));
+    fireEvent.click(
+      screen.getByLabelText(/first consecutive scheduler failure/i),
+    );
     fireEvent.click(screen.getByRole("button", { name: /save schedule/i }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -53,9 +59,28 @@ describe("StrategyScheduleControls", () => {
         enabled: true,
         interval_minutes: 120,
         session: "US_EQUITIES_REGULAR",
+        notifications: {
+          evaluation_completed: true,
+          lifecycle_required: true,
+          first_failure: true,
+        },
       },
     });
     expect(await screen.findByText(/new DRAFT version/i)).toBeInTheDocument();
+  });
+
+  it("keeps notification choices opt-in and informational", () => {
+    render(<StrategyScheduleControls {...base} />);
+    expect(
+      screen.getByText(/go only to your verified Arbion address/i),
+    ).toBeInTheDocument();
+    for (const name of [
+      /after each scheduled evaluation/i,
+      /option needs lifecycle review/i,
+      /first consecutive scheduler failure/i,
+    ]) {
+      expect(screen.getByLabelText(name)).not.toBeChecked();
+    }
   });
 
   it("keeps scheduling unavailable outside the guarded mandate boundary", () => {
@@ -72,5 +97,18 @@ describe("StrategyScheduleControls", () => {
     expect(
       screen.getByText(/requires STRATEGY_AUTONOMOUS/i),
     ).toBeInTheDocument();
+  });
+
+  it("disables email choices when delivery is unavailable", () => {
+    render(
+      <StrategyScheduleControls {...base} emailDeliveryAvailable={false} />,
+    );
+    fireEvent.click(screen.getByLabelText(/enable guarded/i));
+    expect(
+      screen.getByText(/email delivery is not configured/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/after each scheduled evaluation/i),
+    ).toBeDisabled();
   });
 });

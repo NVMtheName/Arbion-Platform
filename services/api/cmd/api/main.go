@@ -11,6 +11,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/automation"
+	"github.com/arbion/platform/services/api/internal/automationnotification"
 	"github.com/arbion/platform/services/api/internal/credential"
 	"github.com/arbion/platform/services/api/internal/financial/oauthstate"
 	"github.com/arbion/platform/services/api/internal/financial/schwab"
@@ -78,7 +79,8 @@ func main() {
 	strategies := strategy.NewInstanceService(strategyStore, automations)
 	evaluations := strategy.NewEvaluationService(strategyStore, automations, financialConnections)
 	if cfg.Scheduler.Enabled {
-		scheduler := strategy.NewScheduler(strategyStore, evaluations)
+		notifications := automationnotification.NewEmailSender(emailSender, cfg.Email.PublicBaseURL)
+		scheduler := strategy.NewScheduler(strategyStore, evaluations, notifications)
 		go scheduler.Run(context.Background())
 		slog.Info("non-live strategy scheduler enabled")
 	}

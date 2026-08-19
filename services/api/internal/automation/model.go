@@ -38,13 +38,20 @@ type StrategyParameters struct {
 	AssignmentHandlingPolicy string   `json:"assignment_handling_policy"`
 }
 
+type ScheduleNotifications struct {
+	EvaluationCompleted bool `json:"evaluation_completed,omitempty"`
+	LifecycleRequired   bool `json:"lifecycle_required,omitempty"`
+	FirstFailure        bool `json:"first_failure,omitempty"`
+}
+
 // ScheduleConditions is intentionally narrow. A schedule only requests a
-// non-live evaluation cadence; it never grants authority beyond the immutable
-// mandate version that contains it.
+// non-live evaluation cadence and optional informational email; it never grants
+// authority beyond the immutable mandate version that contains it.
 type ScheduleConditions struct {
-	Enabled         bool   `json:"enabled"`
-	IntervalMinutes int    `json:"interval_minutes,omitempty"`
-	Session         string `json:"session,omitempty"`
+	Enabled         bool                  `json:"enabled"`
+	IntervalMinutes int                   `json:"interval_minutes,omitempty"`
+	Session         string                `json:"session,omitempty"`
+	Notifications   ScheduleNotifications `json:"notifications,omitempty"`
 }
 
 type Universe struct {

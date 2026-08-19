@@ -239,16 +239,23 @@ type ScheduleStatus struct {
 }
 
 type ScheduledRun struct {
-	StrategyInstanceID string
-	UserID             string
-	MandateID          string
-	MandateVersion     int
-	ExecutionMode      ExecutionMode
-	CurrentState       State
-	IntervalMinutes    int
-	Session            string
-	ScheduledFor       time.Time
-	LeaseToken         string
+	StrategyInstanceID  string
+	UserID              string
+	OwnerEmail          string
+	OwnerEmailVerified  bool
+	MandateID           string
+	MandateVersion      int
+	ExecutionMode       ExecutionMode
+	CurrentState        State
+	IntervalMinutes     int
+	Session             string
+	ScheduledFor        time.Time
+	LeaseToken          string
+	NotifyEvaluation    bool
+	NotifyLifecycle     bool
+	NotifyFirstFailure  bool
+	PreviousErrorCode   *string
+	ConsecutiveFailures int
 }
 
 type ScheduleCompletion struct {

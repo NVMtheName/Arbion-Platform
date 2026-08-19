@@ -156,6 +156,22 @@ select {
 .mandate-controls form {
   max-width: 460px;
 }
+.mandate-controls fieldset {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid #315447;
+  border-radius: 10px;
+}
+.mandate-controls fieldset label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.mandate-controls fieldset input[type="checkbox"] {
+  width: auto;
+  margin-top: 3px;
+}
 .builder fieldset {
   display: grid;
   gap: 10px;

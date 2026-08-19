@@ -39,12 +39,20 @@ func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, lea
 		FROM candidate c WHERE s.strategy_instance_id=c.strategy_instance_id
 		RETURNING s.*
 	)
-	SELECT c.strategy_instance_id::text,c.user_id::text,c.mandate_id::text,c.mandate_version,
-		i.execution_mode,i.current_state,c.interval_minutes,c.session,c.next_run_at,c.lease_token::text
-	FROM claimed c JOIN strategy_instances i ON i.id=c.strategy_instance_id`, now, int(leaseFor/time.Second)).Scan(
-		&run.StrategyInstanceID, &run.UserID, &run.MandateID, &run.MandateVersion,
+	SELECT c.strategy_instance_id::text,c.user_id::text,COALESCE(u.normalized_email,''),u.email_verified_at IS NOT NULL,c.mandate_id::text,c.mandate_version,
+		i.execution_mode,i.current_state,c.interval_minutes,c.session,c.next_run_at,c.lease_token::text,
+		COALESCE((m.schedule_conditions #>> '{notifications,evaluation_completed}')::boolean,false),
+		COALESCE((m.schedule_conditions #>> '{notifications,lifecycle_required}')::boolean,false),
+		COALESCE((m.schedule_conditions #>> '{notifications,first_failure}')::boolean,false),
+		c.last_error_code,c.consecutive_failures
+	FROM claimed c
+	JOIN strategy_instances i ON i.id=c.strategy_instance_id
+	JOIN automation_mandates m ON m.id=c.mandate_id AND m.user_id=c.user_id
+	JOIN users u ON u.id=c.user_id`, now, int(leaseFor/time.Second)).Scan(
+		&run.StrategyInstanceID, &run.UserID, &run.OwnerEmail, &run.OwnerEmailVerified, &run.MandateID, &run.MandateVersion,
 		&run.ExecutionMode, &run.CurrentState, &run.IntervalMinutes, &run.Session,
-		&run.ScheduledFor, &run.LeaseToken,
+		&run.ScheduledFor, &run.LeaseToken, &run.NotifyEvaluation, &run.NotifyLifecycle,
+		&run.NotifyFirstFailure, &run.PreviousErrorCode, &run.ConsecutiveFailures,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil

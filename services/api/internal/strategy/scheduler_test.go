@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/authorization"
+	"github.com/arbion/platform/services/api/internal/automationnotification"
 )
 
 type scheduleStoreFake struct {
@@ -34,6 +35,16 @@ type scheduledEvaluatorFake struct {
 	err       error
 }
 
+type scheduleNotifierFake struct {
+	events []automationnotification.Event
+	err    error
+}
+
+func (f *scheduleNotifierFake) Send(_ context.Context, event automationnotification.Event) error {
+	f.events = append(f.events, event)
+	return f.err
+}
+
 func (f *scheduledEvaluatorFake) Evaluate(_ context.Context, principal authorization.Principal, _ string, eventID string) (EvaluationOutcome, error) {
 	f.calls++
 	f.eventID = eventID
@@ -42,7 +53,7 @@ func (f *scheduledEvaluatorFake) Evaluate(_ context.Context, principal authoriza
 }
 
 func scheduledRun(state State, scheduledFor time.Time) *ScheduledRun {
-	return &ScheduledRun{StrategyInstanceID: "instance", UserID: "owner", ExecutionMode: Paper, CurrentState: state, IntervalMinutes: 60, Session: "US_EQUITIES_REGULAR", ScheduledFor: scheduledFor, LeaseToken: "lease"}
+	return &ScheduledRun{StrategyInstanceID: "instance", UserID: "owner", OwnerEmail: "owner@example.com", OwnerEmailVerified: true, MandateID: "mandate", ExecutionMode: Paper, CurrentState: state, IntervalMinutes: 60, Session: "US_EQUITIES_REGULAR", ScheduledFor: scheduledFor, LeaseToken: "lease"}
 }
 
 func TestSchedulerEvaluatesActionableStateWithStableEventID(t *testing.T) {
@@ -100,5 +111,75 @@ func TestSchedulerTreatsCommittedDuplicateAsRecoveredSuccess(t *testing.T) {
 	_, _ = scheduler.RunOnce(context.Background())
 	if store.completion.Status != "FAILED" || store.completion.ErrorCode != "INTERNAL" {
 		t.Fatalf("raw failure leaked into schedule status: %#v", store.completion)
+	}
+}
+
+func TestScheduleNotificationsAreOptInVerifiedAndDeduplicated(t *testing.T) {
+	scheduledFor := time.Date(2026, 8, 18, 15, 0, 0, 0, time.UTC)
+	waiting := "WAITING_FOR_LIFECYCLE"
+	tests := []struct {
+		name       string
+		run        ScheduledRun
+		completion ScheduleCompletion
+		kind       automationnotification.Kind
+	}{
+		{
+			name:       "evaluation",
+			run:        ScheduledRun{OwnerEmail: "owner@example.com", OwnerEmailVerified: true, MandateID: "mandate", ExecutionMode: Paper, ScheduledFor: scheduledFor, NotifyEvaluation: true},
+			completion: ScheduleCompletion{Status: "SUCCEEDED"},
+			kind:       automationnotification.EvaluationCompleted,
+		},
+		{
+			name:       "lifecycle first observation",
+			run:        ScheduledRun{OwnerEmail: "owner@example.com", OwnerEmailVerified: true, MandateID: "mandate", ExecutionMode: Paper, ScheduledFor: scheduledFor, NotifyLifecycle: true},
+			completion: ScheduleCompletion{Status: "SKIPPED", ErrorCode: "WAITING_FOR_LIFECYCLE"},
+			kind:       automationnotification.LifecycleRequired,
+		},
+		{
+			name:       "first failure",
+			run:        ScheduledRun{OwnerEmail: "owner@example.com", OwnerEmailVerified: true, MandateID: "mandate", ExecutionMode: Shadow, ScheduledFor: scheduledFor, NotifyFirstFailure: true},
+			completion: ScheduleCompletion{Status: "FAILED", ErrorCode: "PROVIDER"},
+			kind:       automationnotification.FirstFailure,
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			event := scheduleNotification(testCase.run, testCase.completion)
+			if event == nil || event.Kind != testCase.kind || event.Recipient != "owner@example.com" || event.MandateID != "mandate" {
+				t.Fatalf("unexpected notification: %#v", event)
+			}
+		})
+	}
+
+	suppressed := []ScheduledRun{
+		{OwnerEmail: "owner@example.com", OwnerEmailVerified: false, NotifyEvaluation: true},
+		{OwnerEmail: "owner@example.com", OwnerEmailVerified: true},
+		{OwnerEmail: "owner@example.com", OwnerEmailVerified: true, NotifyLifecycle: true, PreviousErrorCode: &waiting},
+		{OwnerEmail: "owner@example.com", OwnerEmailVerified: true, NotifyFirstFailure: true, ConsecutiveFailures: 1},
+	}
+	completions := []ScheduleCompletion{
+		{Status: "SUCCEEDED"},
+		{Status: "SUCCEEDED"},
+		{Status: "SKIPPED", ErrorCode: "WAITING_FOR_LIFECYCLE"},
+		{Status: "FAILED", ErrorCode: "PROVIDER"},
+	}
+	for index := range suppressed {
+		if event := scheduleNotification(suppressed[index], completions[index]); event != nil {
+			t.Fatalf("notification was not suppressed: %#v", event)
+		}
+	}
+}
+
+func TestNotificationDeliveryFailureDoesNotFailCompletedSchedule(t *testing.T) {
+	now := time.Date(2026, 8, 18, 15, 0, 0, 0, time.UTC)
+	run := scheduledRun(ReadyForPut, now)
+	run.NotifyEvaluation = true
+	store := &scheduleStoreFake{run: run}
+	notifier := &scheduleNotifierFake{err: errors.New("delivery unavailable")}
+	scheduler := NewScheduler(store, &scheduledEvaluatorFake{}, notifier)
+	scheduler.now = func() time.Time { return now }
+	claimed, err := scheduler.RunOnce(context.Background())
+	if err != nil || !claimed || len(notifier.events) != 1 || store.completion.Status != "SUCCEEDED" {
+		t.Fatalf("delivery failure changed schedule result: claimed=%v completion=%#v events=%#v err=%v", claimed, store.completion, notifier.events, err)
 	}
 }
