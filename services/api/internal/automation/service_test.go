@@ -19,6 +19,17 @@ type fakeStore struct {
 	updatedCommand   MandateCommand
 }
 
+type fakeAuditor struct {
+	action string
+	data   map[string]any
+}
+
+func (f *fakeAuditor) Record(_ context.Context, _ *string, action string, data map[string]any) error {
+	f.action = action
+	f.data = data
+	return nil
+}
+
 func (f *fakeStore) AccountFacts(context.Context, string, string) (AccountFacts, error) {
 	return f.account, nil
 }
@@ -54,10 +65,12 @@ func (f *fakeStore) ListMandates(context.Context, string) ([]Mandate, error) {
 func (f *fakeStore) GetMandate(context.Context, string, string) (Mandate, error) {
 	return f.created, nil
 }
-func (f *fakeStore) UpdateMandate(_ context.Context, _, _ string, _ int, command MandateCommand, _ bool, _ string) (Mandate, error) {
+func (f *fakeStore) UpdateMandate(_ context.Context, _, _ string, _ int, command MandateCommand, unverified bool, _ string) (Mandate, error) {
 	f.updatedCommand = command
 	f.created.CurrentVersion++
 	f.created.Status = "DRAFT"
+	f.created.CapabilityUnverified = unverified
+	f.created.PaperOptionsSimulationAttested = command.PaperOptionsSimulationAttested
 	return f.created, nil
 }
 func (f *fakeStore) Transition(_ context.Context, _, _ string, _ int, status, source string) (Mandate, error) {
@@ -257,6 +270,96 @@ func TestAutonomyUpdateRejectsLiveAndNonStrategyMandates(t *testing.T) {
 	}
 	if _, err := service.UpdateAutonomy(context.Background(), founder, "m", 1, "FULL_AUTONOMOUS"); err != ErrInvalid {
 		t.Fatalf("unsupported autonomy update was accepted: %v", err)
+	}
+}
+
+func TestPaperOptionsSimulationAttestationCreatesAuditedDraft(t *testing.T) {
+	f := baseStore()
+	f.account.Options = "UNKNOWN"
+	wheel := "wheel"
+	f.created = Mandate{
+		ID:                   "m",
+		UserID:               founder.UserID,
+		FinancialAccountID:   "a",
+		AutomationType:       "STRATEGY",
+		StrategyIdentifier:   &wheel,
+		CapitalBucketID:      "b",
+		AutonomyLevel:        "STRATEGY_AUTONOMOUS",
+		ExecutionMode:        "PAPER",
+		Status:               "READY",
+		CurrentVersion:       6,
+		StrategyParameters:   []byte(`{"symbols":["AAPL"]}`),
+		ScheduleConditions:   []byte(`{}`),
+		OptionsAllowed:       true,
+		CapabilityUnverified: true,
+	}
+	audit := &fakeAuditor{}
+
+	updated, err := NewService(f, audit).UpdatePaperOptionsSimulationAttestation(context.Background(), founder, "m", 6, true)
+	if err != nil || updated.Status != "DRAFT" || updated.CurrentVersion != 7 || !updated.PaperOptionsSimulationAttested {
+		t.Fatalf("attestation did not create a new draft version: %#v %v", updated, err)
+	}
+	if !f.updatedCommand.PaperOptionsSimulationAttested || f.updatedCommand.ExecutionMode != "PAPER" || string(f.updatedCommand.ScheduleConditions) != `{}` {
+		t.Fatalf("attestation changed unrelated safety settings: %#v", f.updatedCommand)
+	}
+	if audit.action != "automation_mandate.paper_options_simulation_attestation_changed" || audit.data["broker_capability_changed"] != false || audit.data["to_attested"] != true {
+		t.Fatalf("attestation audit evidence is incomplete: %q %#v", audit.action, audit.data)
+	}
+}
+
+func TestPaperOptionsSimulationAttestationRejectsUnsafeScope(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		capability string
+		mode       string
+		automation string
+		strategy   string
+		options    bool
+	}{
+		{"supported capability", "SUPPORTED", "PAPER", "STRATEGY", "wheel", true},
+		{"unsupported capability", "UNSUPPORTED", "PAPER", "STRATEGY", "wheel", true},
+		{"shadow mode", "UNKNOWN", "SHADOW", "STRATEGY", "wheel", true},
+		{"live mode", "UNKNOWN", "LIVE", "STRATEGY", "wheel", true},
+		{"backtest mode", "UNKNOWN", "BACKTEST", "STRATEGY", "wheel", true},
+		{"hybrid automation", "UNKNOWN", "PAPER", "HYBRID", "wheel", true},
+		{"non-options strategy policy", "UNKNOWN", "PAPER", "STRATEGY", "wheel", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := baseStore()
+			f.account.Options = test.capability
+			strategy := test.strategy
+			f.created = Mandate{ID: "m", UserID: founder.UserID, FinancialAccountID: "a", AutomationType: test.automation, StrategyIdentifier: &strategy, CapitalBucketID: "b", AutonomyLevel: "STRATEGY_AUTONOMOUS", ExecutionMode: test.mode, CurrentVersion: 1, OptionsAllowed: test.options, ScheduleConditions: []byte(`{}`)}
+			if _, err := NewService(f, nil).UpdatePaperOptionsSimulationAttestation(context.Background(), founder, "m", 1, true); err != ErrInvalid {
+				t.Fatalf("unsafe attestation was accepted: %v", err)
+			}
+		})
+	}
+}
+
+func TestGenericMandateUpdateCannotBypassPaperAttestationBoundary(t *testing.T) {
+	f := baseStore()
+	f.account.Options = "UNKNOWN"
+	command := baseCommand()
+	command.ExecutionMode = "PAPER"
+	command.PaperOptionsSimulationAttested = true
+	if _, err := NewService(f, nil).Create(context.Background(), founder, command); err != ErrInvalid {
+		t.Fatalf("generic create bypassed the dedicated attestation command: %v", err)
+	}
+	wheel := "wheel"
+	f.created = Mandate{ID: "m", UserID: founder.UserID, FinancialAccountID: "a", AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: "b", AutonomyLevel: "STRATEGY_AUTONOMOUS", ExecutionMode: "PAPER", CurrentVersion: 1, OptionsAllowed: true, ScheduleConditions: []byte(`{}`)}
+	if _, err := NewService(f, nil).Update(context.Background(), founder, "m", 1, command); err != ErrInvalid {
+		t.Fatalf("generic update bypassed the dedicated attestation command: %v", err)
+	}
+}
+
+func TestExistingPaperAttestationCanBePreservedAfterCapabilityBecomesSupported(t *testing.T) {
+	f := baseStore()
+	wheel := "wheel"
+	f.created = Mandate{ID: "m", UserID: founder.UserID, FinancialAccountID: "a", AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: "b", AutonomyLevel: "STRATEGY_AUTONOMOUS", ExecutionMode: "PAPER", Status: "READY", CurrentVersion: 7, OptionsAllowed: true, PaperOptionsSimulationAttested: true, ScheduleConditions: []byte(`{}`)}
+	command := commandFrom(f.created)
+	updated, err := NewService(f, nil).Update(context.Background(), founder, "m", 7, command)
+	if err != nil || !updated.PaperOptionsSimulationAttested {
+		t.Fatalf("existing attestation could not be preserved after broker support became known: %#v %v", updated, err)
 	}
 }
 

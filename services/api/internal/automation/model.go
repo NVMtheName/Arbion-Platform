@@ -69,6 +69,7 @@ type Mandate struct {
 	Risk                                                  RiskPolicy
 	AllowedUniverse, ProhibitedUniverse                   Universe
 	MarginAllowed, OptionsAllowed, CapabilityUnverified   bool
+	PaperOptionsSimulationAttested                        bool
 	ScheduleConditions                                    json.RawMessage
 	EffectiveFrom                                         time.Time
 	EffectiveUntil                                        *time.Time
@@ -112,23 +113,24 @@ type CreateBucketCommand struct {
 	IsReserve          bool    `json:"is_reserve"`
 }
 type MandateCommand struct {
-	FinancialAccountID     string          `json:"financial_account_id"`
-	AutomationType         string          `json:"automation_type"`
-	CapitalBucketID        string          `json:"capital_bucket_id"`
-	AutonomyLevel          string          `json:"autonomy_level"`
-	ExecutionMode          string          `json:"execution_mode"`
-	StrategyIdentifier     *string         `json:"strategy_identifier,omitempty"`
-	AIProviderConnectionID *string         `json:"ai_provider_connection_id,omitempty"`
-	AIModelID              *string         `json:"ai_model_id,omitempty"`
-	StrategyParameters     json.RawMessage `json:"strategy_parameters"`
-	Risk                   RiskPolicy      `json:"risk_parameters"`
-	AllowedUniverse        Universe        `json:"allowed_universe"`
-	ProhibitedUniverse     Universe        `json:"prohibited_universe"`
-	MarginAllowed          bool            `json:"margin_allowed"`
-	OptionsAllowed         bool            `json:"options_allowed"`
-	ScheduleConditions     json.RawMessage `json:"schedule_conditions"`
-	EffectiveFrom          *time.Time      `json:"effective_from,omitempty"`
-	EffectiveUntil         *time.Time      `json:"effective_until,omitempty"`
+	FinancialAccountID             string          `json:"financial_account_id"`
+	AutomationType                 string          `json:"automation_type"`
+	CapitalBucketID                string          `json:"capital_bucket_id"`
+	AutonomyLevel                  string          `json:"autonomy_level"`
+	ExecutionMode                  string          `json:"execution_mode"`
+	StrategyIdentifier             *string         `json:"strategy_identifier,omitempty"`
+	AIProviderConnectionID         *string         `json:"ai_provider_connection_id,omitempty"`
+	AIModelID                      *string         `json:"ai_model_id,omitempty"`
+	StrategyParameters             json.RawMessage `json:"strategy_parameters"`
+	Risk                           RiskPolicy      `json:"risk_parameters"`
+	AllowedUniverse                Universe        `json:"allowed_universe"`
+	ProhibitedUniverse             Universe        `json:"prohibited_universe"`
+	MarginAllowed                  bool            `json:"margin_allowed"`
+	OptionsAllowed                 bool            `json:"options_allowed"`
+	PaperOptionsSimulationAttested bool            `json:"paper_options_simulation_attested"`
+	ScheduleConditions             json.RawMessage `json:"schedule_conditions"`
+	EffectiveFrom                  *time.Time      `json:"effective_from,omitempty"`
+	EffectiveUntil                 *time.Time      `json:"effective_until,omitempty"`
 }
 
 type ScheduleCommand struct {
@@ -139,4 +141,9 @@ type ScheduleCommand struct {
 type AutonomyCommand struct {
 	ExpectedVersion int    `json:"expected_version"`
 	AutonomyLevel   string `json:"autonomy_level"`
+}
+
+type PaperOptionsSimulationAttestationCommand struct {
+	ExpectedVersion int  `json:"expected_version"`
+	Attested        bool `json:"attested"`
 }

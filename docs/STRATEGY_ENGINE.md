@@ -69,7 +69,7 @@ The remaining strategy-definition format, complete transition/event taxonomy, pr
 
 ## Implemented configuration registry
 
-The Go automation domain exposes metadata for `wheel`, `covered_call`, `cash_secured_put`, and `collar`, including capability and parameter-schema hints. The registry itself remains configuration metadata; implemented strategy definitions, evaluation, the guarded scheduler, and non-live adapters live in `internal/strategy`. No order preview or live adapter exists. Definitively unsupported required options capability rejects configuration; `UNKNOWN` is saved only with `capability_unverified=true` and fails closed during action evaluation.
+The Go automation domain exposes metadata for `wheel`, `covered_call`, `cash_secured_put`, and `collar`, including capability and parameter-schema hints. The registry itself remains configuration metadata; implemented strategy definitions, evaluation, the guarded scheduler, and non-live adapters live in `internal/strategy`. No order preview or live adapter exists. Definitively unsupported required options capability rejects configuration. `UNKNOWN` is saved with `capability_unverified=true` and fails closed during action evaluation unless the owner creates a separately confirmed, immutable PAPER-only simulation attestation. That attestation is warning evidence, not broker capability, and is invalid for SHADOW or LIVE.
 
 ## Implemented deterministic non-live foundation
 

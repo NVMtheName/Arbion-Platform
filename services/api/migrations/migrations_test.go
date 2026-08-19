@@ -148,3 +148,20 @@ func TestNonLiveAccountExclusivityFailsClosedWithoutReservationLedger(t *testing
 		}
 	}
 }
+
+func TestPaperOptionsSimulationAttestationIsDatabaseConstrained(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00016_paper_options_simulation_attestation.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"paper_options_simulation_attested", "automation_type = 'STRATEGY'", "execution_mode = 'PAPER'", "options_allowed"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("PAPER options attestation migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"SHADOW", "LIVE", "broker_order"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("PAPER options attestation migration unexpectedly contains %q", prohibited)
+		}
+	}
+}

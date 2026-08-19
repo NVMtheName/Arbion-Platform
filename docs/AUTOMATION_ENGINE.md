@@ -95,7 +95,7 @@ Notification actions and additional transports, reservation accounting, broader 
 
 ## Relationship to read-only financial connections
 
-The financial connector supplies durable account inventory plus read-only balance, position, capability, quote, and option-chain observations. It grants no automation or execution authority; the separate automation domain owns mandates and buckets, while the strategy domain owns isolated PAPER/SHADOW records. A disabled financial connection is ineligible for evaluation; logout does not disable it. Unknown safety-critical capabilities remain unavailable until resolved.
+The financial connector supplies durable account inventory plus read-only balance, position, capability, quote, and option-chain observations. It grants no automation or execution authority; the separate automation domain owns mandates and buckets, while the strategy domain owns isolated PAPER/SHADOW records. A disabled financial connection is ineligible for evaluation; logout does not disable it. Unknown safety-critical capabilities fail closed except for a separately confirmed, immutable options-simulation attestation that applies only to PAPER; this warning-bearing simulation exception does not assert broker support or permit SHADOW/LIVE execution.
 
 **Broker-reported buying power does not grant Arbion authority to deploy that capital.**
 

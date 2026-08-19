@@ -197,6 +197,9 @@ func optionsRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 		return check(InvalidAction, false, "Option contract fields are invalid.")
 	}
 	if c.Account.Options != CapabilitySupported {
+		if c.Account.Options == CapabilityUnknown && c.Mandate.ExecutionMode == "PAPER" && c.Mandate.PaperOptionsSimulationAttested {
+			return RiskCheck{Code: PaperOptionsSimulationAttested, Result: CheckWarn, Message: "Explicit owner attestation permits PAPER-only options simulation; broker options capability remains unverified."}
+		}
 		return check(OptionsCapabilityUnsupported, false, "Account options capability is not confirmed supported.")
 	}
 	return check(OptionsNotAllowed, true, "Options policy, structure, and capability are valid.")

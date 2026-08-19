@@ -22,7 +22,7 @@ Use a patched Linux host with Docker Engine, Compose v2, `curl`, `jq`, `openssl`
 Copy `.env.production.example` to ignored `.env.production` and populate it only on the host:
 
 - `ARBION_ENV=production`;
-- `NONLIVE_SCHEDULER_ENABLED=false` for the initial migration and smoke test. Change it to `true` only after the current schema (15) is confirmed and the guarded scheduler validation below passes;
+- `NONLIVE_SCHEDULER_ENABLED=false` for the initial migration and smoke test. Change it to `true` only after the current schema (16) is confirmed and the guarded scheduler validation below passes;
 - PostgreSQL database/user and a strong `POSTGRES_PASSWORD`;
 - `DATABASE_URL` with matching non-development credentials. Bundled private PostgreSQL may use `postgres://...@postgres:5432/arbion?sslmode=disable` only inside this host; external databases must use TLS;
 - `REDIS_URL=redis://redis:6379/0`;
@@ -155,7 +155,7 @@ Manual Schwab test (never place an order):
 
 Guarded scheduler activation (never place an order):
 
-1. Confirm migrations `00012_nonlive_strategy_scheduler.sql` through `00015_nonlive_account_exclusivity.sql` completed and keep every existing mandate schedule disabled.
+1. Confirm migrations `00012_nonlive_strategy_scheduler.sql` through `00016_paper_options_simulation_attestation.sql` completed and keep every existing mandate schedule disabled.
 2. Set `NONLIVE_SCHEDULER_ENABLED=true` in the owner-only production environment and redeploy the API. With no opted-in mandate version, the scheduler remains idle.
 3. In the UI, enable a 30-minute or longer schedule on a `STRATEGY_AUTONOMOUS` PAPER or SHADOW mandate. Confirm this creates a new DRAFT version; review it, mark that exact version READY, and initialize it.
    For PAPER, confirm starting cash above the selected bucket's allocation after its protected amount/absolute limit is rejected, and confirm a second active instance cannot reuse either that bucket or another bucket on the same financial account.

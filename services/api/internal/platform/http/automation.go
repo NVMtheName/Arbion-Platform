@@ -22,6 +22,7 @@ func registerAutomationRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/automations/{id}", h.require(stdhttp.HandlerFunc(h.getAutomation)))
 	m.Handle("PATCH /api/automations/{id}", h.require(stdhttp.HandlerFunc(h.updateAutomation)))
 	m.Handle("PATCH /api/automations/{id}/autonomy", h.require(stdhttp.HandlerFunc(h.updateAutonomy)))
+	m.Handle("PATCH /api/automations/{id}/paper-options-simulation-attestation", h.require(stdhttp.HandlerFunc(h.updatePaperOptionsSimulationAttestation)))
 	m.Handle("PATCH /api/automations/{id}/strategy-parameters", h.require(stdhttp.HandlerFunc(h.updateStrategyParameters)))
 	m.Handle("PATCH /api/automations/{id}/schedule", h.require(stdhttp.HandlerFunc(h.updateSchedule)))
 	for _, x := range []string{"ready", "pause", "disable", "archive"} {
@@ -165,6 +166,20 @@ func (h *authHandler) updateAutonomy(w stdhttp.ResponseWriter, r *stdhttp.Reques
 		updated, err := h.automation.UpdateAutonomy(r.Context(), principal(r), r.PathValue("id"), input.ExpectedVersion, input.AutonomyLevel)
 		if err == nil {
 			writeJSON(w, 200, map[string]any{"automation": updated, "live_execution_available": false})
+		}
+		return err
+	})
+}
+
+func (h *authHandler) updatePaperOptionsSimulationAttestation(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.autoMutation(w, r, func() error {
+		var input automation.PaperOptionsSimulationAttestationCommand
+		if !decode(w, r, &input) {
+			return nil
+		}
+		updated, err := h.automation.UpdatePaperOptionsSimulationAttestation(r.Context(), principal(r), r.PathValue("id"), input.ExpectedVersion, input.Attested)
+		if err == nil {
+			writeJSON(w, 200, map[string]any{"automation": updated, "live_execution_available": false, "broker_capability_changed": false})
 		}
 		return err
 	})

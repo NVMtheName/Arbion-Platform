@@ -281,6 +281,9 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 	if _, ok := map[string]bool{"BACKTEST": true, "PAPER": true, "SHADOW": true, "LIVE": true}[c.ExecutionMode]; !ok {
 		return false, ErrInvalid
 	}
+	if c.PaperOptionsSimulationAttested && (c.AutomationType != "STRATEGY" || c.ExecutionMode != "PAPER" || !c.OptionsAllowed || !meta.OptionsRequired) {
+		return false, ErrInvalid
+	}
 	if len(c.StrategyParameters) > 0 && !json.Valid(c.StrategyParameters) {
 		return false, ErrInvalid
 	}
@@ -325,6 +328,12 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 	return unverified, nil
 }
 func (s *Service) Create(ctx context.Context, p authorization.Principal, c MandateCommand) (Mandate, error) {
+	if !allowed(p) {
+		return Mandate{}, ErrForbidden
+	}
+	if c.PaperOptionsSimulationAttested {
+		return Mandate{}, ErrInvalid
+	}
 	u, e := s.validate(ctx, p, c, false)
 	if e != nil {
 		return Mandate{}, e
@@ -349,6 +358,16 @@ func (s *Service) Get(c context.Context, p authorization.Principal, id string) (
 	return s.store.GetMandate(c, p.UserID, id)
 }
 func (s *Service) Update(c context.Context, p authorization.Principal, id string, expected int, cmd MandateCommand) (Mandate, error) {
+	if !allowed(p) {
+		return Mandate{}, ErrForbidden
+	}
+	old, e := s.store.GetMandate(c, p.UserID, id)
+	if e != nil {
+		return Mandate{}, ErrNotFound
+	}
+	if cmd.PaperOptionsSimulationAttested != old.PaperOptionsSimulationAttested {
+		return Mandate{}, ErrInvalid
+	}
 	u, e := s.validate(c, p, cmd, false)
 	if e != nil {
 		return Mandate{}, e
@@ -385,6 +404,51 @@ func (s *Service) UpdateAutonomy(c context.Context, p authorization.Principal, i
 			"to_autonomy":    autonomyLevel,
 			"execution_mode": old.ExecutionMode,
 			"source":         "UI",
+		})
+	}
+	return updated, err
+}
+
+func (s *Service) UpdatePaperOptionsSimulationAttestation(c context.Context, p authorization.Principal, id string, expected int, attested bool) (Mandate, error) {
+	if !allowed(p) {
+		return Mandate{}, ErrForbidden
+	}
+	old, err := s.store.GetMandate(c, p.UserID, id)
+	if err != nil {
+		return Mandate{}, ErrNotFound
+	}
+	if old.AutomationType != "STRATEGY" || old.StrategyIdentifier == nil || old.ExecutionMode != "PAPER" || !old.OptionsAllowed {
+		return Mandate{}, ErrInvalid
+	}
+	strategy, ok := Strategies[*old.StrategyIdentifier]
+	if !ok || !strategy.OptionsRequired {
+		return Mandate{}, ErrInvalid
+	}
+	if attested == old.PaperOptionsSimulationAttested {
+		return Mandate{}, ErrInvalid
+	}
+	if attested {
+		facts, factsErr := s.store.AccountFacts(c, p.UserID, old.FinancialAccountID)
+		if factsErr != nil || !facts.Owned || facts.Options != "UNKNOWN" {
+			return Mandate{}, ErrInvalid
+		}
+	}
+	cmd := commandFrom(old)
+	cmd.PaperOptionsSimulationAttested = attested
+	unverified, err := s.validate(c, p, cmd, false)
+	if err != nil {
+		return Mandate{}, err
+	}
+	updated, err := s.store.UpdateMandate(c, p.UserID, id, expected, cmd, unverified, "UI")
+	if err == nil {
+		s.auditEvent(c, p, "automation_mandate.paper_options_simulation_attestation_changed", map[string]any{
+			"mandate_id":                id,
+			"version":                   updated.CurrentVersion,
+			"from_attested":             old.PaperOptionsSimulationAttested,
+			"to_attested":               attested,
+			"execution_mode":            old.ExecutionMode,
+			"broker_capability_changed": false,
+			"source":                    "UI",
 		})
 	}
 	return updated, err
@@ -476,23 +540,24 @@ func (s *Service) Transition(c context.Context, p authorization.Principal, id st
 }
 func commandFrom(m Mandate) MandateCommand {
 	return MandateCommand{
-		FinancialAccountID:     m.FinancialAccountID,
-		AutomationType:         m.AutomationType,
-		CapitalBucketID:        m.CapitalBucketID,
-		AutonomyLevel:          m.AutonomyLevel,
-		ExecutionMode:          m.ExecutionMode,
-		StrategyIdentifier:     m.StrategyIdentifier,
-		AIProviderConnectionID: m.AIProviderConnectionID,
-		AIModelID:              m.AIModelID,
-		StrategyParameters:     m.StrategyParameters,
-		Risk:                   m.Risk,
-		AllowedUniverse:        m.AllowedUniverse,
-		ProhibitedUniverse:     m.ProhibitedUniverse,
-		MarginAllowed:          m.MarginAllowed,
-		OptionsAllowed:         m.OptionsAllowed,
-		ScheduleConditions:     m.ScheduleConditions,
-		EffectiveFrom:          &m.EffectiveFrom,
-		EffectiveUntil:         m.EffectiveUntil,
+		FinancialAccountID:             m.FinancialAccountID,
+		AutomationType:                 m.AutomationType,
+		CapitalBucketID:                m.CapitalBucketID,
+		AutonomyLevel:                  m.AutonomyLevel,
+		ExecutionMode:                  m.ExecutionMode,
+		StrategyIdentifier:             m.StrategyIdentifier,
+		AIProviderConnectionID:         m.AIProviderConnectionID,
+		AIModelID:                      m.AIModelID,
+		StrategyParameters:             m.StrategyParameters,
+		Risk:                           m.Risk,
+		AllowedUniverse:                m.AllowedUniverse,
+		ProhibitedUniverse:             m.ProhibitedUniverse,
+		MarginAllowed:                  m.MarginAllowed,
+		OptionsAllowed:                 m.OptionsAllowed,
+		PaperOptionsSimulationAttested: m.PaperOptionsSimulationAttested,
+		ScheduleConditions:             m.ScheduleConditions,
+		EffectiveFrom:                  &m.EffectiveFrom,
+		EffectiveUntil:                 m.EffectiveUntil,
 	}
 }
 func (s *Service) Versions(c context.Context, p authorization.Principal, id string) ([]Version, error) {
