@@ -26,6 +26,7 @@ export function AutomationCircuitBreakerControls({
   const router = useRouter();
   const active = breaker?.state === "OPEN";
   const [reason, setReason] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -39,7 +40,7 @@ export function AutomationCircuitBreakerControls({
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reason, confirm: true }),
+        body: JSON.stringify({ reason, confirm: confirmed }),
       },
     );
     setBusy(false);
@@ -55,6 +56,7 @@ export function AutomationCircuitBreakerControls({
       return;
     }
     setReason("");
+    setConfirmed(false);
     setMessage(
       active
         ? "Emergency stop released after your review. Arbion may evaluate this automation again, but no Schwab order was sent."
@@ -116,7 +118,12 @@ export function AutomationCircuitBreakerControls({
           />
         </label>
         <label className="checkbox-row">
-          <input type="checkbox" required />
+          <input
+            type="checkbox"
+            required
+            checked={confirmed}
+            onChange={(event) => setConfirmed(event.target.checked)}
+          />
           {active
             ? "I reviewed the cause and understand this automation may be evaluated again."
             : "I understand this immediately blocks new actions for this automation."}
