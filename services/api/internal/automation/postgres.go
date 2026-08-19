@@ -82,11 +82,11 @@ func (s *PostgresStore) DeleteBucket(c context.Context, u, id string) error {
 	return e
 }
 
-const mandateCols = `id::text,user_id::text,financial_account_id::text,automation_type,strategy_identifier,ai_provider_connection_id::text,ai_model_id,capital_bucket_id::text,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,capability_unverified,schedule_conditions,effective_from,effective_until,created_at,updated_at`
+const mandateCols = `id::text,user_id::text,financial_account_id::text,automation_type,strategy_identifier,ai_provider_connection_id::text,ai_model_id,capital_bucket_id::text,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,capability_unverified,paper_options_simulation_attested,schedule_conditions,effective_from,effective_until,created_at,updated_at`
 
 func scanMandate(r pgx.Row) (m Mandate, e error) {
 	var risk, allow, deny []byte
-	e = r.Scan(&m.ID, &m.UserID, &m.FinancialAccountID, &m.AutomationType, &m.StrategyIdentifier, &m.AIProviderConnectionID, &m.AIModelID, &m.CapitalBucketID, &m.AutonomyLevel, &m.ExecutionMode, &m.Status, &m.CurrentVersion, &m.StrategyParameters, &risk, &allow, &deny, &m.MarginAllowed, &m.OptionsAllowed, &m.CapabilityUnverified, &m.ScheduleConditions, &m.EffectiveFrom, &m.EffectiveUntil, &m.CreatedAt, &m.UpdatedAt)
+	e = r.Scan(&m.ID, &m.UserID, &m.FinancialAccountID, &m.AutomationType, &m.StrategyIdentifier, &m.AIProviderConnectionID, &m.AIModelID, &m.CapitalBucketID, &m.AutonomyLevel, &m.ExecutionMode, &m.Status, &m.CurrentVersion, &m.StrategyParameters, &risk, &allow, &deny, &m.MarginAllowed, &m.OptionsAllowed, &m.CapabilityUnverified, &m.PaperOptionsSimulationAttested, &m.ScheduleConditions, &m.EffectiveFrom, &m.EffectiveUntil, &m.CreatedAt, &m.UpdatedAt)
 	_ = json.Unmarshal(risk, &m.Risk)
 	_ = json.Unmarshal(allow, &m.AllowedUniverse)
 	_ = json.Unmarshal(deny, &m.ProhibitedUniverse)
@@ -104,10 +104,10 @@ func args(u string, x MandateCommand, unverified bool) []any {
 	allow, _ := json.Marshal(x.AllowedUniverse)
 	deny, _ := json.Marshal(x.ProhibitedUniverse)
 	from := x.EffectiveFrom
-	return []any{u, x.FinancialAccountID, x.AutomationType, x.StrategyIdentifier, x.AIProviderConnectionID, x.AIModelID, x.CapitalBucketID, x.AutonomyLevel, x.ExecutionMode, normalizeJSON(x.StrategyParameters), risk, allow, deny, x.MarginAllowed, x.OptionsAllowed, normalizeJSON(x.ScheduleConditions), unverified, from, x.EffectiveUntil}
+	return []any{u, x.FinancialAccountID, x.AutomationType, x.StrategyIdentifier, x.AIProviderConnectionID, x.AIModelID, x.CapitalBucketID, x.AutonomyLevel, x.ExecutionMode, normalizeJSON(x.StrategyParameters), risk, allow, deny, x.MarginAllowed, x.OptionsAllowed, normalizeJSON(x.ScheduleConditions), unverified, x.PaperOptionsSimulationAttested, from, x.EffectiveUntil}
 }
 func snapshot(m Mandate) ([]byte, error) {
-	return json.Marshal(map[string]any{"financial_account_id": m.FinancialAccountID, "automation_type": m.AutomationType, "strategy_identifier": m.StrategyIdentifier, "ai_provider_connection_id": m.AIProviderConnectionID, "ai_model_id": m.AIModelID, "capital_bucket_id": m.CapitalBucketID, "autonomy_level": m.AutonomyLevel, "execution_mode": m.ExecutionMode, "status": m.Status, "strategy_parameters": m.StrategyParameters, "risk_parameters": m.Risk, "allowed_universe": m.AllowedUniverse, "prohibited_universe": m.ProhibitedUniverse, "margin_allowed": m.MarginAllowed, "options_allowed": m.OptionsAllowed, "schedule_conditions": m.ScheduleConditions, "capability_unverified": m.CapabilityUnverified, "effective_from": m.EffectiveFrom, "effective_until": m.EffectiveUntil, "execution_capable": false})
+	return json.Marshal(map[string]any{"financial_account_id": m.FinancialAccountID, "automation_type": m.AutomationType, "strategy_identifier": m.StrategyIdentifier, "ai_provider_connection_id": m.AIProviderConnectionID, "ai_model_id": m.AIModelID, "capital_bucket_id": m.CapitalBucketID, "autonomy_level": m.AutonomyLevel, "execution_mode": m.ExecutionMode, "status": m.Status, "strategy_parameters": m.StrategyParameters, "risk_parameters": m.Risk, "allowed_universe": m.AllowedUniverse, "prohibited_universe": m.ProhibitedUniverse, "margin_allowed": m.MarginAllowed, "options_allowed": m.OptionsAllowed, "schedule_conditions": m.ScheduleConditions, "capability_unverified": m.CapabilityUnverified, "paper_options_simulation_attested": m.PaperOptionsSimulationAttested, "effective_from": m.EffectiveFrom, "effective_until": m.EffectiveUntil, "execution_capable": false})
 }
 func versionChangeSummary(previous int) ([]byte, error) {
 	return json.Marshal(map[string]int{"previous_version": previous})
@@ -119,7 +119,7 @@ func (s *PostgresStore) CreateMandate(c context.Context, u string, x MandateComm
 	}
 	defer tx.Rollback(c)
 	a := args(u, x, unverified)
-	m, e := scanMandate(tx.QueryRow(c, `INSERT INTO automation_mandates(user_id,financial_account_id,automation_type,strategy_identifier,ai_provider_connection_id,ai_model_id,capital_bucket_id,autonomy_level,execution_mode,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified,effective_from,effective_until,current_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,COALESCE($18,now()),$19,1) RETURNING `+mandateCols, a...))
+	m, e := scanMandate(tx.QueryRow(c, `INSERT INTO automation_mandates(user_id,financial_account_id,automation_type,strategy_identifier,ai_provider_connection_id,ai_model_id,capital_bucket_id,autonomy_level,execution_mode,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified,paper_options_simulation_attested,effective_from,effective_until,current_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,COALESCE($19,now()),$20,1) RETURNING `+mandateCols, a...))
 	if e != nil {
 		return m, e
 	}
@@ -151,7 +151,7 @@ func (s *PostgresStore) GetMandate(c context.Context, u, id string) (Mandate, er
 }
 func (s *PostgresStore) UpdateMandate(c context.Context, u, id string, expected int, x MandateCommand, unverified bool, source string) (Mandate, error) {
 	a := args(u, x, unverified)
-	q := `UPDATE automation_mandates SET financial_account_id=$3,automation_type=$4,strategy_identifier=$5,ai_provider_connection_id=$6,ai_model_id=$7,capital_bucket_id=$8,autonomy_level=$9,execution_mode=$10,strategy_parameters=$11,risk_parameters=$12,allowed_universe=$13,prohibited_universe=$14,margin_allowed=$15,options_allowed=$16,schedule_conditions=$17,capability_unverified=$18,effective_from=COALESCE($19,effective_from),effective_until=$20,status='DRAFT',current_version=current_version+1,updated_at=now() WHERE id=$1 AND user_id=$2 AND current_version=$21 RETURNING ` + mandateCols
+	q := `UPDATE automation_mandates SET financial_account_id=$3,automation_type=$4,strategy_identifier=$5,ai_provider_connection_id=$6,ai_model_id=$7,capital_bucket_id=$8,autonomy_level=$9,execution_mode=$10,strategy_parameters=$11,risk_parameters=$12,allowed_universe=$13,prohibited_universe=$14,margin_allowed=$15,options_allowed=$16,schedule_conditions=$17,capability_unverified=$18,paper_options_simulation_attested=$19,effective_from=COALESCE($20,effective_from),effective_until=$21,status='DRAFT',current_version=current_version+1,updated_at=now() WHERE id=$1 AND user_id=$2 AND current_version=$22 RETURNING ` + mandateCols
 	return s.versionedUpdate(c, u, id, expected, source, q, append([]any{id, u}, append(a[1:], expected)...)...)
 }
 func (s *PostgresStore) Transition(c context.Context, u, id string, expected int, status, source string) (Mandate, error) {

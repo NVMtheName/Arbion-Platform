@@ -22,6 +22,15 @@ func reason(e RiskEvaluation, r ReasonCode) bool {
 	}
 	return false
 }
+
+func warning(e RiskEvaluation, r ReasonCode) bool {
+	for _, x := range e.Warnings {
+		if x == r {
+			return true
+		}
+	}
+	return false
+}
 func TestAllowIsDeterministicAndLiveNeverExecutable(t *testing.T) {
 	c, a := fixture()
 	e := NewEngine()
@@ -152,5 +161,79 @@ func TestOptionsAndMarginFailClosed(t *testing.T) {
 	c.Account.Margin = CapabilityUnknown
 	if !reason(NewEngine().Evaluate(c, a), MarginCapabilityUnsupported) {
 		t.Fatal("unknown margin allowed")
+	}
+}
+
+func TestPaperOptionsSimulationAttestationIsNarrowAndAuditable(t *testing.T) {
+	optionAction := func() (EvaluationContext, ProposedAction) {
+		c, a := fixture()
+		c.Mandate.ExecutionMode = "PAPER"
+		c.Mandate.PaperOptionsSimulationAttested = true
+		c.Account.Options = CapabilityUnknown
+		a.ActionType = ActionOpenOption
+		a.Option = &OptionContract{Underlying: "AAPL", Expiration: "2027-01-15", PutCall: "PUT", Strike: "200", ContractMultiplier: 100}
+		return c, a
+	}
+
+	c, a := optionAction()
+	evaluation := NewEngine().Evaluate(c, a)
+	if evaluation.Decision != Allow || !warning(evaluation, PaperOptionsSimulationAttested) {
+		t.Fatalf("attested PAPER simulation did not produce an explicit warning: %#v", evaluation)
+	}
+	foundWarningCheck := false
+	for _, item := range evaluation.Checks {
+		if item.Code == PaperOptionsSimulationAttested && item.Result == CheckWarn {
+			foundWarningCheck = true
+		}
+	}
+	if !foundWarningCheck {
+		t.Fatalf("durable risk checks omitted attestation evidence: %#v", evaluation.Checks)
+	}
+
+	for _, test := range []struct {
+		name       string
+		mode       string
+		capability CapabilityState
+	}{
+		{"shadow", "SHADOW", CapabilityUnknown},
+		{"live", "LIVE", CapabilityUnknown},
+		{"unsupported", "PAPER", CapabilityUnsupported},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c, a := optionAction()
+			c.Mandate.ExecutionMode = test.mode
+			c.Account.Options = test.capability
+			got := NewEngine().Evaluate(c, a)
+			if got.Decision != Deny || !reason(got, OptionsCapabilityUnsupported) {
+				t.Fatalf("unsafe attestation scope was accepted: %#v", got)
+			}
+		})
+	}
+
+	c, a = optionAction()
+	c.Account.Options = CapabilitySupported
+	evaluation = NewEngine().Evaluate(c, a)
+	if evaluation.Decision != Allow || warning(evaluation, PaperOptionsSimulationAttested) {
+		t.Fatalf("known broker support did not use the normal capability path: %#v", evaluation)
+	}
+}
+
+func TestAttestedPaperOptionStillFailsOneDollarCapitalGate(t *testing.T) {
+	c, a := fixture()
+	c.Mandate.ExecutionMode = "PAPER"
+	c.Mandate.PaperOptionsSimulationAttested = true
+	c.Account.Options = CapabilityUnknown
+	c.Account.BuyingPower = "1"
+	c.Account.AvailableCash = "1"
+	a.ActionType = ActionOpenOption
+	a.Notional = "30500"
+	a.Option = &OptionContract{Underlying: "AAPL", Expiration: "2026-09-25", PutCall: "PUT", Strike: "305", ContractMultiplier: 100}
+
+	evaluation := NewEngine().Evaluate(c, a)
+	if evaluation.Decision != Deny || !reason(evaluation, InsufficientBuyingPower) {
+		t.Fatalf("$1 capital gate did not deny the simulated option: %#v", evaluation)
+	}
+	if !warning(evaluation, PaperOptionsSimulationAttested) {
+		t.Fatalf("attestation evidence was lost before the capital denial: %#v", evaluation)
 	}
 }

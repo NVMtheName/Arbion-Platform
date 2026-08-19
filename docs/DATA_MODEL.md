@@ -52,7 +52,7 @@ Migration `00006_automation_mandates.sql` replaces the early placeholder in plac
 
 `capital_buckets` stores exact PostgreSQL numeric allocation values, currency, allocation basis, optional absolute limit/protected amount, reserve semantics, and durable status. It is explicit Arbion authorization, distinct from transient broker balances. Referenced buckets cannot be silently deleted.
 
-`automation_mandate_versions` is append-only and protected by a database trigger against update/delete. Its complete credential-free JSON snapshot records account, type, strategy, AI references/model, bucket, autonomy, mode, lifecycle, parameters, risk, universes, margin/options policy, conditions, effective dates, capability warning, and `execution_capable=false`. Expected-version updates atomically advance the mandate and append the next version, otherwise returning a conflict.
+`automation_mandate_versions` is append-only and protected by a database trigger against update/delete. Its complete credential-free JSON snapshot records account, type, strategy, AI references/model, bucket, autonomy, mode, lifecycle, parameters, risk, universes, margin/options policy, conditions, effective dates, capability warning, PAPER-only options-simulation attestation, and `execution_capable=false`. Expected-version updates atomically advance the mandate and append the next version, otherwise returning a conflict.
 
 **A configured or READY Automation Mandate does not itself execute trades.**
 
@@ -77,3 +77,5 @@ Migration `00013_paper_lifecycle_events.sql` adds immutable, owner-scoped event 
 Migration `00014_strategy_capital_bucket_binding.sql` backfills every strategy instance from its exact immutable mandate-version snapshot, then makes the same-owner capital bucket a required foreign key. A partial unique index allows at most one `ACTIVE` or `PAUSED` strategy instance per owner/bucket pair. This prevents direct reuse of one bucket by concurrent non-live instances; it does not claim to solve aggregate reservation accounting across distinct buckets, which remains deferred.
 
 Migration `00015_nonlive_account_exclusivity.sql` adds a conservative partial unique index allowing at most one `ACTIVE` or `PAUSED` strategy instance per owner/financial-account pair. This prevents separate buckets from concurrently claiming one account while the full reservation ledger remains deferred. Paused instances intentionally retain the claim; completed or errored instances release it.
+
+Migration `00016_paper_options_simulation_attestation.sql` adds a default-false mandate field constrained to options-enabled PAPER strategy configurations. The value is copied into every new immutable version snapshot. It records an owner decision to permit simulation when provider capability is `UNKNOWN`; it neither changes provider capability nor applies to a confirmed `UNSUPPORTED` account, SHADOW, LIVE, or broker execution.

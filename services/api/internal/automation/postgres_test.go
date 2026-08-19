@@ -18,3 +18,22 @@ func TestVersionChangeSummaryIsValidJSON(t *testing.T) {
 		t.Fatalf("unexpected version change summary: %s", encoded)
 	}
 }
+
+func TestPaperOptionsSimulationAttestationIsVersionedAndPersisted(t *testing.T) {
+	command := MandateCommand{PaperOptionsSimulationAttested: true}
+	values := args("user", command, true)
+	if len(values) != 20 || values[17] != true {
+		t.Fatalf("attestation is not in the expected persisted argument position: %#v", values)
+	}
+	encoded, err := snapshot(Mandate{PaperOptionsSimulationAttested: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal(encoded, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored["paper_options_simulation_attested"] != true {
+		t.Fatalf("immutable snapshot omitted attestation: %s", encoded)
+	}
+}

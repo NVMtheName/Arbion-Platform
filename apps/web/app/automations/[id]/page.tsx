@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { AppPageHeader } from "../../app-page-header";
 import { MandateControls } from "../mandate-controls";
 import { StrategyAutonomyControls } from "../strategy-autonomy-controls";
+import { PaperOptionsSimulationAttestationControls } from "../paper-options-simulation-attestation-controls";
 import {
   StrategyEvaluationControls,
   type StrategyParameters,
@@ -105,6 +106,8 @@ export default async function MandateReview({
     openPaperOptions.length === 1 ? openPaperOptions[0] : undefined;
   const read = (key: string, legacy: string) =>
     String(m[key] ?? m[legacy] ?? "—");
+  const flag = (key: string, legacy: string) =>
+    Boolean(m[key] ?? m[legacy] ?? false);
   const count = (value: unknown) => (Array.isArray(value) ? value.length : 0);
   return (
     <main className="connections-page automation-page">
@@ -139,9 +142,9 @@ export default async function MandateReview({
         </p>
       </section>
       <p className="security-note">
-        Capability checks are conservative: UNKNOWN is never treated as
-        supported. A configured or READY Automation Mandate does not itself
-        execute trades.
+        Capability checks are conservative: UNKNOWN is not treated as broker
+        support. A separately confirmed attestation may permit PAPER-only
+        simulation, but never SHADOW, LIVE, or broker execution.
       </p>
       <MandateControls
         automationId={id}
@@ -158,6 +161,22 @@ export default async function MandateReview({
         automationType={read("automation_type", "AutomationType")}
         autonomyLevel={read("autonomy_level", "AutonomyLevel")}
         executionMode={read("execution_mode", "ExecutionMode")}
+        hasActiveInstance={hasActiveInstance}
+      />
+      <PaperOptionsSimulationAttestationControls
+        automationId={id}
+        currentVersion={currentVersion}
+        automationType={read("automation_type", "AutomationType")}
+        executionMode={read("execution_mode", "ExecutionMode")}
+        optionsAllowed={flag("options_allowed", "OptionsAllowed")}
+        capabilityUnverified={flag(
+          "capability_unverified",
+          "CapabilityUnverified",
+        )}
+        attested={flag(
+          "paper_options_simulation_attested",
+          "PaperOptionsSimulationAttested",
+        )}
         hasActiveInstance={hasActiveInstance}
       />
       {read("automation_type", "AutomationType") === "STRATEGY" && (

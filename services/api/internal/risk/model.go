@@ -74,7 +74,7 @@ type Mandate struct {
 	EffectiveFrom                                                                                              time.Time
 	EffectiveUntil                                                                                             *time.Time
 	AllowedSymbols, ProhibitedSymbols, UniverseIDs                                                             []string
-	MarginAllowed, OptionsAllowed                                                                              bool
+	MarginAllowed, OptionsAllowed, PaperOptionsSimulationAttested                                              bool
 	MaxCapitalDeployed, MaxSinglePositionAmount, MaxSinglePositionPercentage, MaxDailyLoss, MinimumCashReserve *string
 	MaxTradesPerDay                                                                                            *int
 }
