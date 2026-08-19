@@ -186,7 +186,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || len(decisions) != 2 || decisions[0].CreatedAt.IsZero() {
 		t.Fatalf("per-instance journal timestamps are missing: %#v %v", decisions, err)
 	}
-	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 2)
+	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 3)
 	facts, err := store.EvaluationFacts(ctx, Instance{ID: instance.ID, UserID: userID, FinancialAccountID: accountID, AutomationMandateID: mandateID, ExecutionMode: Paper}, fillTime)
 	if err != nil || facts.Paper == nil || facts.Paper.CurrentExposure != "19000.0000000000" || facts.ActionsToday != 2 {
 		t.Fatalf("paper evaluation facts are incomplete: %#v %v", facts, err)
