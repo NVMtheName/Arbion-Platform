@@ -29,6 +29,18 @@ type journalPersistenceFake struct {
 	initializedUser    string
 	initializedCash    string
 	initializedMandate automation.Mandate
+	pausedUser         string
+	pausedID           string
+	pausedVersion      int
+	pausedAt           time.Time
+	pauseResult        Instance
+	pauseError         error
+	resumedUser        string
+	resumedID          string
+	resumedVersion     int
+	resumedAt          time.Time
+	resumeResult       Instance
+	resumeError        error
 	finishedUser       string
 	finishedID         string
 	finishedVersion    int
@@ -42,6 +54,20 @@ func (f *journalPersistenceFake) Initialize(_ context.Context, userID string, ma
 	f.initializedCash = cash
 	f.initializedMandate = mandate
 	return Instance{UserID: userID, AutomationMandateID: mandate.ID, FinancialAccountID: mandate.FinancialAccountID, CapitalBucketID: mandate.CapitalBucketID, CurrentState: state}, nil
+}
+func (f *journalPersistenceFake) Pause(_ context.Context, userID, instanceID string, expectedVersion int, at time.Time) (Instance, error) {
+	f.pausedUser = userID
+	f.pausedID = instanceID
+	f.pausedVersion = expectedVersion
+	f.pausedAt = at
+	return f.pauseResult, f.pauseError
+}
+func (f *journalPersistenceFake) Resume(_ context.Context, userID, instanceID string, expectedVersion int, at time.Time) (Instance, error) {
+	f.resumedUser = userID
+	f.resumedID = instanceID
+	f.resumedVersion = expectedVersion
+	f.resumedAt = at
+	return f.resumeResult, f.resumeError
 }
 func (f *journalPersistenceFake) Finish(_ context.Context, userID, instanceID string, expectedVersion int, at time.Time) (Instance, error) {
 	f.finishedUser = userID
@@ -179,6 +205,36 @@ func TestFinishRequiresExplicitConfirmationAndAuditsReleasedClaim(t *testing.T) 
 	}
 	if audit.userID == nil || *audit.userID != "owner" || audit.action != "strategy_instance.completed" || audit.metadata["strategy_instance_id"] != "instance" || audit.metadata["account_id"] != "account" {
 		t.Fatalf("finish audit evidence is incomplete: %#v", audit)
+	}
+}
+
+func TestPauseAndResumeAreOwnerScopedAndAudited(t *testing.T) {
+	now := time.Date(2026, 8, 19, 13, 30, 0, 0, time.UTC)
+	store := &journalPersistenceFake{
+		pauseResult:  Instance{ID: "instance", UserID: "owner", AutomationMandateID: "mandate", FinancialAccountID: "account", ExecutionMode: Paper, Status: "PAUSED", StateVersion: 4},
+		resumeResult: Instance{ID: "instance", UserID: "owner", AutomationMandateID: "mandate", FinancialAccountID: "account", ExecutionMode: Paper, Status: "ACTIVE", StateVersion: 5},
+	}
+	audit := &strategyAuditFake{}
+	service := NewInstanceService(store, nil, audit)
+	service.now = func() time.Time { return now }
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+
+	paused, err := service.Pause(context.Background(), principal, "instance", 3)
+	if err != nil || paused.Status != "PAUSED" || store.pausedUser != "owner" || store.pausedID != "instance" || store.pausedVersion != 3 || !store.pausedAt.Equal(now) {
+		t.Fatalf("pause was not owner-scoped: instance=%#v store=%#v err=%v", paused, store, err)
+	}
+	if audit.userID == nil || *audit.userID != "owner" || audit.action != "strategy_instance.paused" || audit.metadata["strategy_instance_id"] != "instance" {
+		t.Fatalf("pause audit evidence is incomplete: %#v", audit)
+	}
+	if _, err = service.Resume(context.Background(), principal, "instance", 4, false); !errors.Is(err, ErrInvalid) || store.resumedID != "" {
+		t.Fatalf("unconfirmed resume reached persistence: id=%q err=%v", store.resumedID, err)
+	}
+	resumed, err := service.Resume(context.Background(), principal, "instance", 4, true)
+	if err != nil || resumed.Status != "ACTIVE" || store.resumedUser != "owner" || store.resumedID != "instance" || store.resumedVersion != 4 || !store.resumedAt.Equal(now) {
+		t.Fatalf("resume was not owner-scoped: instance=%#v store=%#v err=%v", resumed, store, err)
+	}
+	if audit.action != "strategy_instance.resumed" || audit.metadata["account_id"] != "account" {
+		t.Fatalf("resume audit evidence is incomplete: %#v", audit)
 	}
 }
 

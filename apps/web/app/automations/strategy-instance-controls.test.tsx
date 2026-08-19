@@ -21,6 +21,68 @@ describe("StrategyInstanceControls", () => {
     vi.unstubAllGlobals();
   });
 
+  it("pauses an active simulation without releasing its claim", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <StrategyInstanceControls
+        instanceId="instance-1"
+        status="ACTIVE"
+        stateVersion={3}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /pause non-live strategy/i }),
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/strategy-instances/instance-1/pause",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expected_state_version: 3 }),
+      },
+    );
+    expect(screen.getByText(/capital claim is retained/i)).toBeInTheDocument();
+    expect(navigation.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires confirmation before resuming a paused simulation", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <StrategyInstanceControls
+        instanceId="instance-1"
+        status="PAUSED"
+        stateVersion={4}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText(/resuming makes this simulation/i));
+    fireEvent.click(
+      screen.getByRole("button", { name: /resume non-live strategy/i }),
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/strategy-instances/instance-1/resume",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          expected_state_version: 4,
+          confirm_non_live_resume: true,
+        }),
+      },
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /eligible for non-live evaluation/i,
+    );
+    expect(navigation.refresh).toHaveBeenCalledTimes(1);
+  });
+
   it("finishes only after explicit non-live confirmation", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);

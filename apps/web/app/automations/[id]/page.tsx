@@ -55,12 +55,20 @@ export default async function MandateReview({
       ).strategy_instances ?? [])
     : [];
   const currentVersion = Number(m.current_version ?? m.CurrentVersion ?? 0);
-  const instance = instances.find(
+  const mandateInstances = instances.filter(
     (item) =>
-      String(item.AutomationMandateID ?? item.automation_mandate_id) === id &&
-      Number(item.MandateVersion ?? item.mandate_version ?? 0) ===
-        currentVersion,
+      String(item.AutomationMandateID ?? item.automation_mandate_id) === id,
   );
+  const instance =
+    mandateInstances.find((item) => {
+      const status = String(item.Status ?? item.status ?? "");
+      return status === "ACTIVE" || status === "PAUSED";
+    }) ??
+    mandateInstances.find(
+      (item) =>
+        Number(item.MandateVersion ?? item.mandate_version ?? 0) ===
+        currentVersion,
+    );
   const instanceID = instance ? String(instance.ID ?? instance.id ?? "") : "";
   const [history, decisions, executions, scheduleResponse, portfolioResponse] =
     instanceID
@@ -151,6 +159,7 @@ export default async function MandateReview({
               "StrategyIdentifier",
             )}
             instanceId={instanceID}
+            instanceStatus={String(instance?.Status ?? instance?.status ?? "")}
             strategyParameters={
               (m.strategy_parameters ??
                 m.StrategyParameters ??

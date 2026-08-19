@@ -34,6 +34,8 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/strategy-instances/{id}/executions", h.require(stdhttp.HandlerFunc(h.strategyExecutions)))
 	m.Handle("GET /api/strategy-instances/{id}/paper-portfolio", h.require(stdhttp.HandlerFunc(h.strategyPaperPortfolio)))
 	m.Handle("GET /api/strategy-instances/{id}/schedule", h.require(stdhttp.HandlerFunc(h.strategySchedule)))
+	m.Handle("POST /api/strategy-instances/{id}/pause", h.require(stdhttp.HandlerFunc(h.pauseStrategyInstance)))
+	m.Handle("POST /api/strategy-instances/{id}/resume", h.require(stdhttp.HandlerFunc(h.resumeStrategyInstance)))
 	m.Handle("POST /api/strategy-instances/{id}/finish", h.require(stdhttp.HandlerFunc(h.finishStrategyInstance)))
 	m.Handle("POST /api/strategy-instances/{id}/lifecycle-events", h.require(stdhttp.HandlerFunc(h.recordStrategyLifecycle)))
 	m.Handle("GET /api/decision-journal", h.require(stdhttp.HandlerFunc(h.decisionJournal)))
@@ -107,6 +109,8 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 409, "ACCOUNT_CAPITAL_IN_USE", "This financial account already has an active or paused non-live strategy.")
 	case errors.Is(e, strategy.ErrOpenExposure):
 		writeError(w, 409, "PAPER_POSITION_OPEN", "Resolve every open simulated position before finishing this PAPER strategy.")
+	case errors.Is(e, strategy.ErrMandateStale):
+		writeError(w, 409, "MANDATE_NOT_READY", "The exact mandate version for this strategy is no longer current and ready.")
 	case errors.Is(e, strategy.ErrConflict):
 		writeError(w, 409, "STRATEGY_CONFLICT", "The strategy state changed or this request conflicts with an existing record.")
 	case errors.Is(e, strategy.ErrDuplicate):
@@ -197,6 +201,45 @@ func (h *authHandler) strategySchedule(w stdhttp.ResponseWriter, r *stdhttp.Requ
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{"schedule": v, "scheduler_enabled": h.schedulerEnabled, "email_delivery_available": h.emailDeliveryAvailable, "live_execution_available": false})
+}
+
+func (h *authHandler) pauseStrategyInstance(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		ExpectedStateVersion int `json:"expected_state_version"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	instance, err := h.strategies.Pause(r.Context(), principal(r), r.PathValue("id"), input.ExpectedStateVersion)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"strategy_instance": instance, "live_execution_available": false})
+}
+
+func (h *authHandler) resumeStrategyInstance(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		ExpectedStateVersion int  `json:"expected_state_version"`
+		ConfirmNonLiveResume bool `json:"confirm_non_live_resume"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	instance, err := h.strategies.Resume(r.Context(), principal(r), r.PathValue("id"), input.ExpectedStateVersion, input.ConfirmNonLiveResume)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"strategy_instance": instance, "live_execution_available": false})
 }
 
 func (h *authHandler) finishStrategyInstance(w stdhttp.ResponseWriter, r *stdhttp.Request) {

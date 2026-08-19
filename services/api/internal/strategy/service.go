@@ -19,10 +19,13 @@ var (
 	ErrCapitalLimit = errors.New("paper starting cash exceeds capital bucket capacity")
 	ErrAccountInUse = errors.New("financial account already has an active non-live strategy")
 	ErrOpenExposure = errors.New("paper strategy still has open simulated positions")
+	ErrMandateStale = errors.New("strategy mandate is not current and ready")
 )
 
 type Persistence interface {
 	Initialize(context.Context, string, automation.Mandate, string, State) (Instance, error)
+	Pause(context.Context, string, string, int, time.Time) (Instance, error)
+	Resume(context.Context, string, string, int, time.Time) (Instance, error)
 	Finish(context.Context, string, string, int, time.Time) (Instance, error)
 	List(context.Context, string) ([]Instance, error)
 	Get(context.Context, string, string) (Instance, error)
@@ -153,6 +156,36 @@ func (s *InstanceService) Get(c context.Context, p authorization.Principal, id s
 	return s.store.Get(c, p.UserID, id)
 }
 
+func (s *InstanceService) Pause(c context.Context, p authorization.Principal, id string, expectedStateVersion int) (Instance, error) {
+	if !entitled(p) {
+		return Instance{}, ErrForbidden
+	}
+	if id == "" || expectedStateVersion < 1 {
+		return Instance{}, ErrInvalid
+	}
+	instance, err := s.store.Pause(c, p.UserID, id, expectedStateVersion, s.now().UTC())
+	if err != nil {
+		return Instance{}, err
+	}
+	s.auditInstanceStatus(c, p.UserID, instance, "paused")
+	return instance, nil
+}
+
+func (s *InstanceService) Resume(c context.Context, p authorization.Principal, id string, expectedStateVersion int, confirmed bool) (Instance, error) {
+	if !entitled(p) {
+		return Instance{}, ErrForbidden
+	}
+	if id == "" || expectedStateVersion < 1 || !confirmed {
+		return Instance{}, ErrInvalid
+	}
+	instance, err := s.store.Resume(c, p.UserID, id, expectedStateVersion, s.now().UTC())
+	if err != nil {
+		return Instance{}, err
+	}
+	s.auditInstanceStatus(c, p.UserID, instance, "resumed")
+	return instance, nil
+}
+
 func (s *InstanceService) Finish(c context.Context, p authorization.Principal, id string, expectedStateVersion int, confirmed bool) (Instance, error) {
 	if !entitled(p) {
 		return Instance{}, ErrForbidden
@@ -164,16 +197,21 @@ func (s *InstanceService) Finish(c context.Context, p authorization.Principal, i
 	if err != nil {
 		return Instance{}, err
 	}
-	if s.audit != nil {
-		_ = s.audit.Record(c, &p.UserID, "strategy_instance.completed", map[string]any{
-			"strategy_instance_id": instance.ID,
-			"mandate_id":           instance.AutomationMandateID,
-			"account_id":           instance.FinancialAccountID,
-			"mode":                 instance.ExecutionMode,
-			"source":               "UI",
-		})
-	}
+	s.auditInstanceStatus(c, p.UserID, instance, "completed")
 	return instance, nil
+}
+
+func (s *InstanceService) auditInstanceStatus(c context.Context, userID string, instance Instance, action string) {
+	if s.audit == nil {
+		return
+	}
+	_ = s.audit.Record(c, &userID, "strategy_instance."+action, map[string]any{
+		"strategy_instance_id": instance.ID,
+		"mandate_id":           instance.AutomationMandateID,
+		"account_id":           instance.FinancialAccountID,
+		"mode":                 instance.ExecutionMode,
+		"source":               "UI",
+	})
 }
 func (s *InstanceService) History(c context.Context, p authorization.Principal, id string) ([]Transition, error) {
 	if !entitled(p) {

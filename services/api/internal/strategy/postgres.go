@@ -67,6 +67,84 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 	return i, tx.Commit(c)
 }
 
+func (s *PostgresStore) Pause(c context.Context, userID, instanceID string, expectedStateVersion int, pausedAt time.Time) (Instance, error) {
+	tx, err := s.db.Begin(c)
+	if err != nil {
+		return Instance{}, err
+	}
+	defer tx.Rollback(c)
+
+	current, err := scanInstance(tx.QueryRow(c, `SELECT `+instanceColumns+` FROM strategy_instances WHERE id=$1 AND user_id=$2 FOR UPDATE`, instanceID, userID))
+	if err == pgx.ErrNoRows {
+		return Instance{}, ErrNotFound
+	}
+	if err != nil {
+		return Instance{}, err
+	}
+	if current.StateVersion != expectedStateVersion || current.Status != "ACTIVE" {
+		return Instance{}, ErrConflict
+	}
+	paused, err := scanInstance(tx.QueryRow(c, `UPDATE strategy_instances
+		SET status='PAUSED',state_version=state_version+1,paused_at=$4,updated_at=$4
+		WHERE id=$1 AND user_id=$2 AND state_version=$3 AND status='ACTIVE'
+		RETURNING `+instanceColumns, instanceID, userID, expectedStateVersion, pausedAt))
+	if err == pgx.ErrNoRows {
+		return Instance{}, ErrConflict
+	}
+	if err != nil {
+		return Instance{}, err
+	}
+	metadata, _ := json.Marshal(map[string]any{"previous_status": "ACTIVE", "new_status": "PAUSED"})
+	if _, err = tx.Exec(c, `INSERT INTO strategy_state_transitions(strategy_instance_id,previous_state,new_state,state_version,trigger,metadata) VALUES($1,$2,$2,$3,'PAUSED',$4)`, paused.ID, current.CurrentState, paused.StateVersion, metadata); err != nil {
+		return Instance{}, err
+	}
+	return paused, tx.Commit(c)
+}
+
+func (s *PostgresStore) Resume(c context.Context, userID, instanceID string, expectedStateVersion int, resumedAt time.Time) (Instance, error) {
+	tx, err := s.db.Begin(c)
+	if err != nil {
+		return Instance{}, err
+	}
+	defer tx.Rollback(c)
+
+	current, err := scanInstance(tx.QueryRow(c, `SELECT `+instanceColumns+` FROM strategy_instances WHERE id=$1 AND user_id=$2 FOR UPDATE`, instanceID, userID))
+	if err == pgx.ErrNoRows {
+		return Instance{}, ErrNotFound
+	}
+	if err != nil {
+		return Instance{}, err
+	}
+	if current.StateVersion != expectedStateVersion || current.Status != "PAUSED" {
+		return Instance{}, ErrConflict
+	}
+	var mandateReady bool
+	if err = tx.QueryRow(c, `SELECT EXISTS(
+		SELECT 1 FROM automation_mandates
+		WHERE id=$1 AND user_id=$2 AND status='READY' AND current_version=$3
+	)`, current.AutomationMandateID, userID, current.MandateVersion).Scan(&mandateReady); err != nil {
+		return Instance{}, err
+	}
+	if !mandateReady {
+		return Instance{}, ErrMandateStale
+	}
+	resumed, err := scanInstance(tx.QueryRow(c, `UPDATE strategy_instances
+		SET status='ACTIVE',state_version=state_version+1,paused_at=NULL,updated_at=$4
+		WHERE id=$1 AND user_id=$2 AND state_version=$3 AND status='PAUSED'
+		RETURNING `+instanceColumns, instanceID, userID, expectedStateVersion, resumedAt))
+	if err == pgx.ErrNoRows {
+		return Instance{}, ErrConflict
+	}
+	if err != nil {
+		return Instance{}, err
+	}
+	metadata, _ := json.Marshal(map[string]any{"previous_status": "PAUSED", "new_status": "ACTIVE"})
+	if _, err = tx.Exec(c, `INSERT INTO strategy_state_transitions(strategy_instance_id,previous_state,new_state,state_version,trigger,metadata) VALUES($1,$2,$2,$3,'RESUMED',$4)`, resumed.ID, current.CurrentState, resumed.StateVersion, metadata); err != nil {
+		return Instance{}, err
+	}
+	return resumed, tx.Commit(c)
+}
+
 func (s *PostgresStore) Finish(c context.Context, userID, instanceID string, expectedStateVersion int, finishedAt time.Time) (Instance, error) {
 	tx, err := s.db.Begin(c)
 	if err != nil {

@@ -22,6 +22,7 @@ type Props = {
   executionMode: string;
   strategyIdentifier: string;
   instanceId: string;
+  instanceStatus: string;
   strategyParameters: StrategyParameters;
 };
 
@@ -48,6 +49,7 @@ export function StrategyEvaluationControls(props: Props) {
     hasParameters &&
     props.status === "READY" &&
     Boolean(props.instanceId) &&
+    props.instanceStatus === "ACTIVE" &&
     (props.executionMode === "PAPER" || props.executionMode === "SHADOW");
 
   async function saveParameters(event: FormEvent<HTMLFormElement>) {
@@ -227,6 +229,12 @@ export function StrategyEvaluationControls(props: Props) {
         <p className="security-note">
           Mark the current version READY and initialize its non-live strategy
           instance before evaluation.
+        </p>
+      )}
+      {hasParameters && props.instanceStatus === "PAUSED" && (
+        <p className="security-note">
+          This non-live strategy is paused. Resume its exact READY mandate
+          instance before running another evaluation.
         </p>
       )}
       {canEvaluate && (

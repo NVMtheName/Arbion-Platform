@@ -144,6 +144,10 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT status,state_version FROM strategy_instances WHERE id=$1`, instance.ID).Scan(&status, &version); err != nil || status != "ACTIVE" || version != 2 {
 		t.Fatalf("rejected finish changed the strategy instance: %s v%d %v", status, version, err)
 	}
+	pausedWithExposure, err := store.Pause(ctx, userID, instance.ID, 2, fillTime.Add(2*time.Second))
+	if err != nil || pausedWithExposure.Status != "PAUSED" || pausedWithExposure.StateVersion != 3 {
+		t.Fatalf("open PAPER exposure could not be paused safely: %#v %v", pausedWithExposure, err)
+	}
 	if err = pool.QueryRow(ctx, `SELECT cash::text FROM paper_portfolios WHERE strategy_instance_id=$1`, instance.ID).Scan(&cash); err != nil || cash != "20125.0000000000" {
 		t.Fatalf("paper premium was not isolated: %s %v", cash, err)
 	}
@@ -182,16 +186,16 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || len(decisions) != 2 || decisions[0].CreatedAt.IsZero() {
 		t.Fatalf("per-instance journal timestamps are missing: %#v %v", decisions, err)
 	}
-	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 2)
+	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 3)
 	facts, err := store.EvaluationFacts(ctx, Instance{ID: instance.ID, UserID: userID, FinancialAccountID: accountID, AutomationMandateID: mandateID, ExecutionMode: Paper}, fillTime)
 	if err != nil || facts.Paper == nil || facts.Paper.CurrentExposure != "19000.0000000000" || facts.ActionsToday != 2 {
 		t.Fatalf("paper evaluation facts are incomplete: %#v %v", facts, err)
 	}
 
 	lifecycleTime := time.Date(2026, 2, 1, 12, 0, 0, 0, time.UTC)
-	lifecycleCommand := LifecycleCommand{EventID: "manual-lifecycle:expired-1", EventType: ExpireWorthless, ExpectedStateVersion: 2, ConfirmPaperSimulation: true}
+	lifecycleCommand := LifecycleCommand{EventID: "manual-lifecycle:expired-1", EventType: ExpireWorthless, ExpectedStateVersion: 3, ConfirmPaperSimulation: true}
 	lifecycle, err := store.RecordLifecycle(ctx, userID, instance.ID, lifecycleCommand, lifecycleTime)
-	if err != nil || lifecycle.Duplicate || lifecycle.PreviousState != ShortPutOpen || lifecycle.NewState != ReadyForPut || lifecycle.StateVersion != 3 {
+	if err != nil || lifecycle.Duplicate || lifecycle.PreviousState != ShortPutOpen || lifecycle.NewState != ReadyForPut || lifecycle.StateVersion != 4 {
 		t.Fatalf("paper expiration was not recorded atomically: %#v %v", lifecycle, err)
 	}
 	duplicate, err := store.RecordLifecycle(ctx, userID, instance.ID, lifecycleCommand, lifecycleTime.Add(time.Minute))
@@ -203,8 +207,12 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if _, err = store.RecordLifecycle(ctx, userID, instance.ID, conflictingCommand, lifecycleTime.Add(2*time.Minute)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("conflicting lifecycle identity was accepted: %v", err)
 	}
-	if err = pool.QueryRow(ctx, `SELECT current_state,state_version FROM strategy_instances WHERE id=$1`, instance.ID).Scan(&state, &version); err != nil || state != ReadyForPut || version != 3 {
+	if err = pool.QueryRow(ctx, `SELECT current_state,state_version,status FROM strategy_instances WHERE id=$1`, instance.ID).Scan(&state, &version, &status); err != nil || state != ReadyForPut || version != 4 || status != "PAUSED" {
 		t.Fatalf("paper expiration did not advance state once: %s v%d %v", state, version, err)
+	}
+	resumedAfterLifecycle, err := store.Resume(ctx, userID, instance.ID, 4, lifecycleTime.Add(time.Second))
+	if err != nil || resumedAfterLifecycle.Status != "ACTIVE" || resumedAfterLifecycle.StateVersion != 5 {
+		t.Fatalf("resolved PAPER lifecycle did not resume under its ready mandate: %#v %v", resumedAfterLifecycle, err)
 	}
 	if err = pool.QueryRow(ctx, `SELECT quantity::text FROM paper_positions WHERE instrument='OPTION'`).Scan(&quantity); err != nil || quantity != "0.0000000000" {
 		t.Fatalf("expired paper option remained open: %s %v", quantity, err)
@@ -217,7 +225,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		t.Fatalf("worthless expiration changed paper cash: %s %v", cash, err)
 	}
 	assertCount(t, pool, `SELECT count(*) FROM strategy_lifecycle_events`, 1)
-	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 3)
+	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 5)
 	assertCount(t, pool, `SELECT count(*) FROM decision_journal_entries`, 3)
 	lifecyclePage, err := store.Journal(ctx, userID, 1, nil)
 	if err != nil || len(lifecyclePage) != 1 || lifecyclePage[0].Source != "LIFECYCLE" || lifecyclePage[0].DecisionType != string(ExpireWorthless) || lifecyclePage[0].RiskDecision != nil || lifecyclePage[0].ExecutionStatus != nil {
@@ -237,9 +245,9 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	assignmentTime := secondPutTime.Add(time.Minute)
-	assignmentCommand := LifecycleCommand{EventID: "manual-lifecycle:assigned-1", EventType: Assignment, ExpectedStateVersion: 4, ConfirmPaperSimulation: true}
+	assignmentCommand := LifecycleCommand{EventID: "manual-lifecycle:assigned-1", EventType: Assignment, ExpectedStateVersion: 6, ConfirmPaperSimulation: true}
 	assignment, err := store.RecordLifecycle(ctx, userID, instance.ID, assignmentCommand, assignmentTime)
-	if err != nil || assignment.NewState != LongShares || assignment.StateVersion != 5 {
+	if err != nil || assignment.NewState != LongShares || assignment.StateVersion != 7 {
 		t.Fatalf("paper assignment was not applied: %#v %v", assignment, err)
 	}
 	var shares string
@@ -264,9 +272,9 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	callAwayTime := callTime.Add(time.Minute)
-	callAwayCommand := LifecycleCommand{EventID: "manual-lifecycle:called-away-1", EventType: CallAway, ExpectedStateVersion: 6, ConfirmPaperSimulation: true}
+	callAwayCommand := LifecycleCommand{EventID: "manual-lifecycle:called-away-1", EventType: CallAway, ExpectedStateVersion: 8, ConfirmPaperSimulation: true}
 	callAway, err := store.RecordLifecycle(ctx, userID, instance.ID, callAwayCommand, callAwayTime)
-	if err != nil || callAway.NewState != Cash || callAway.StateVersion != 7 {
+	if err != nil || callAway.NewState != Cash || callAway.StateVersion != 9 {
 		t.Fatalf("paper called-away event was not applied: %#v %v", callAway, err)
 	}
 	if err = pool.QueryRow(ctx, `SELECT quantity::text FROM paper_positions WHERE instrument='EQUITY' AND symbol='AAPL'`).Scan(&shares); err != nil || shares != "0.0000000000" {
@@ -276,19 +284,43 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		t.Fatalf("paper called-away cash is wrong: %s %v", cash, err)
 	}
 	assertCount(t, pool, `SELECT count(*) FROM strategy_lifecycle_events`, 3)
-	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 7)
+	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 9)
 	assertCount(t, pool, `SELECT count(*) FROM decision_journal_entries`, 7)
 
-	finished, err := store.Finish(ctx, userID, instance.ID, 7, callAwayTime.Add(time.Minute))
-	if err != nil || finished.Status != "COMPLETED" || finished.StateVersion != 8 || finished.CompletedAt == nil {
+	finished, err := store.Finish(ctx, userID, instance.ID, 9, callAwayTime.Add(time.Minute))
+	if err != nil || finished.Status != "COMPLETED" || finished.StateVersion != 10 || finished.CompletedAt == nil {
 		t.Fatalf("finishing did not release the account claim: %#v %v", finished, err)
 	}
 	secondInstance, err := store.Initialize(ctx, userID, secondMandate, "1000", ReadyForPut)
 	if err != nil || secondInstance.CapitalBucketID != secondBucketID || secondInstance.FinancialAccountID != accountID {
 		t.Fatalf("completed strategy did not release its financial account: %#v %v", secondInstance, err)
 	}
+	pauseTime := callAwayTime.Add(2 * time.Minute)
+	paused, err := store.Pause(ctx, userID, secondInstance.ID, 1, pauseTime)
+	if err != nil || paused.Status != "PAUSED" || paused.StateVersion != 2 || paused.PausedAt == nil {
+		t.Fatalf("non-live pause did not preserve the account claim: %#v %v", paused, err)
+	}
+	if _, err = store.Initialize(ctx, userID, mandate, "20000", ReadyForPut); !errors.Is(err, ErrAccountInUse) {
+		t.Fatalf("paused strategy released its financial account claim: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE automation_mandates SET status='PAUSED' WHERE id=$1`, secondMandateID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Resume(ctx, userID, secondInstance.ID, 2, pauseTime.Add(time.Minute)); !errors.Is(err, ErrMandateStale) {
+		t.Fatalf("paused strategy resumed under a non-ready mandate: %v", err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT status,state_version FROM strategy_instances WHERE id=$1`, secondInstance.ID).Scan(&status, &version); err != nil || status != "PAUSED" || version != 2 {
+		t.Fatalf("rejected resume changed the strategy instance: %s v%d %v", status, version, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE automation_mandates SET status='READY' WHERE id=$1`, secondMandateID); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := store.Resume(ctx, userID, secondInstance.ID, 2, pauseTime.Add(2*time.Minute))
+	if err != nil || resumed.Status != "ACTIVE" || resumed.StateVersion != 3 || resumed.PausedAt != nil {
+		t.Fatalf("exact ready mandate did not resume safely: %#v %v", resumed, err)
+	}
 	assertCount(t, pool, `SELECT count(*) FROM strategy_instances`, 2)
-	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 9)
+	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 13)
 }
 
 func proposedOption(instance Instance, eventID, actionID string) risk.ProposedAction {
