@@ -65,6 +65,9 @@ func TestAuthorizationMandateAndBreakerFailures(t *testing.T) {
 		{"account breaker", func(c *EvaluationContext, a *ProposedAction) {
 			c.Breakers = []CircuitBreaker{{Scope: ScopeAccount, ScopeID: ptr("a"), State: BreakerOpen}}
 		}, CircuitBreakerActive},
+		{"automation breaker", func(c *EvaluationContext, a *ProposedAction) {
+			c.Breakers = []CircuitBreaker{{Scope: ScopeAutomation, ScopeID: ptr("m"), State: BreakerOpen}}
+		}, CircuitBreakerActive},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

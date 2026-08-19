@@ -156,6 +156,32 @@ select {
 .mandate-controls form {
   max-width: 460px;
 }
+.circuit-breaker-active {
+  border-color: #9c5151;
+  box-shadow: inset 4px 0 #b85a5a;
+}
+.circuit-breaker-active > [role="alert"] {
+  color: #ffcdcd;
+}
+.circuit-breaker-facts {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0;
+}
+.circuit-breaker-facts div {
+  display: grid;
+  gap: 5px;
+}
+.circuit-breaker-facts dt {
+  color: #8ba198;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.circuit-breaker-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .mandate-controls fieldset {
   display: grid;
   gap: 10px;

@@ -18,6 +18,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/financialconnection"
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/platform/config"
+	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/arbion/platform/services/api/internal/strategy"
 )
 
@@ -32,6 +33,7 @@ type authHandler struct {
 	automation             *automation.Service
 	strategies             *strategy.InstanceService
 	evaluations            *strategy.EvaluationService
+	breakers               breakerController
 	schedulerEnabled       bool
 	emailDeliveryAvailable bool
 	cfg                    config.Auth
@@ -146,8 +148,12 @@ func NewFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg conf
 	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, firstStrategy(strategies), nil)
 }
 
-func NewFullApplicationHandlerWithEvaluation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService) stdhttp.Handler {
-	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, strategies, evaluations)
+func NewFullApplicationHandlerWithEvaluation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService, breakers ...*risk.BreakerService) stdhttp.Handler {
+	var breakerService *risk.BreakerService
+	if len(breakers) > 0 {
+		breakerService = breakers[0]
+	}
+	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, strategies, evaluations, breakerService)
 }
 
 func firstStrategy(strategies []*strategy.InstanceService) *strategy.InstanceService {
@@ -157,10 +163,13 @@ func firstStrategy(strategies []*strategy.InstanceService) *strategy.InstanceSer
 	return strategies[0]
 }
 
-func newFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService) stdhttp.Handler {
+func newFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService, breakers ...breakerController) stdhttp.Handler {
 	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp", financial: finances, automation: automations}
 	h.strategies = strategies
 	h.evaluations = evaluations
+	if len(breakers) > 0 {
+		h.breakers = breakers[0]
+	}
 	mux := stdhttp.NewServeMux()
 	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("GET /readyz", readiness(database, cfg.Database.ReadinessTimeout))
@@ -169,6 +178,7 @@ func newFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg conf
 	base := NewFullApplicationHandler(database, cfg, service, admin, ai, finances)
 	registerAutomationRoutes(mux, h)
 	registerStrategyRoutes(mux, h)
+	registerBreakerRoutes(mux, h)
 	mux.Handle("/", base)
 	return securityHeaders(mux)
 }
