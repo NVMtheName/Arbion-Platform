@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"regexp"
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/authorization"
@@ -12,9 +13,10 @@ import (
 )
 
 var (
-	ErrForbidden = errors.New("strategy entitlement required")
-	ErrNotFound  = errors.New("strategy instance not found")
-	ErrConflict  = errors.New("strategy instance conflict")
+	ErrForbidden    = errors.New("strategy entitlement required")
+	ErrNotFound     = errors.New("strategy instance not found")
+	ErrConflict     = errors.New("strategy instance conflict")
+	ErrCapitalLimit = errors.New("paper starting cash exceeds capital bucket capacity")
 )
 
 type Persistence interface {
@@ -31,6 +33,7 @@ type Persistence interface {
 }
 type Mandates interface {
 	Get(context.Context, authorization.Principal, string) (automation.Mandate, error)
+	GetBucket(context.Context, authorization.Principal, string) (automation.CapitalBucket, error)
 }
 type DecisionJournalEntry struct {
 	ID, StrategyInstanceID, StrategyState, Source, DecisionType           string
@@ -50,6 +53,43 @@ func NewInstanceService(s Persistence, m Mandates) *InstanceService {
 func entitled(p authorization.Principal) bool {
 	return authorization.CanUseAutomation(p) && authorization.CanConnectFinancialAccounts(p)
 }
+
+var paperCashPattern = regexp.MustCompile(`^\d+(\.\d{1,10})?$`)
+
+func paperCashCapacity(bucket automation.CapitalBucket) (*big.Rat, bool) {
+	if bucket.Status != "ACTIVE" || bucket.IsReserve {
+		return nil, false
+	}
+	allocation, ok := new(big.Rat).SetString(bucket.AllocationValue)
+	if !ok || allocation.Sign() <= 0 {
+		return nil, false
+	}
+	capacity := new(big.Rat).Set(allocation)
+	if bucket.AllocationType != "FIXED_AMOUNT" {
+		if bucket.AllocationLimit == nil {
+			return nil, false
+		}
+		capacity, ok = new(big.Rat).SetString(*bucket.AllocationLimit)
+		if !ok || capacity.Sign() <= 0 {
+			return nil, false
+		}
+	} else if bucket.AllocationLimit != nil {
+		limit, valid := new(big.Rat).SetString(*bucket.AllocationLimit)
+		if !valid || limit.Sign() <= 0 {
+			return nil, false
+		}
+		if limit.Cmp(capacity) < 0 {
+			capacity = limit
+		}
+	}
+	protected, ok := new(big.Rat).SetString(bucket.ProtectedAmount)
+	if !ok || protected.Sign() < 0 {
+		return nil, false
+	}
+	capacity = new(big.Rat).Sub(capacity, protected)
+	return capacity, capacity.Sign() > 0
+}
+
 func (s *InstanceService) Initialize(ctx context.Context, p authorization.Principal, mandateID, startingCash string) (Instance, error) {
 	if !entitled(p) {
 		return Instance{}, ErrForbidden
@@ -67,10 +107,21 @@ func (s *InstanceService) Initialize(ctx context.Context, p authorization.Princi
 	if m.ExecutionMode != "PAPER" && m.ExecutionMode != "SHADOW" {
 		return Instance{}, ErrInvalid
 	}
+	bucket, e := s.mandates.GetBucket(ctx, p, m.CapitalBucketID)
+	if e != nil || bucket.UserID != p.UserID || bucket.FinancialAccountID != m.FinancialAccountID || bucket.Status != "ACTIVE" || bucket.IsReserve {
+		return Instance{}, ErrInvalid
+	}
 	if m.ExecutionMode == "PAPER" {
+		if !paperCashPattern.MatchString(startingCash) {
+			return Instance{}, ErrInvalid
+		}
 		x, ok := new(big.Rat).SetString(startingCash)
 		if !ok || x.Sign() <= 0 {
 			return Instance{}, ErrInvalid
+		}
+		capacity, available := paperCashCapacity(bucket)
+		if !available || x.Cmp(capacity) > 0 {
+			return Instance{}, ErrCapitalLimit
 		}
 	} else {
 		startingCash = ""

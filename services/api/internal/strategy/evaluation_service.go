@@ -93,14 +93,14 @@ func (s *EvaluationService) Evaluate(ctx context.Context, principal authorizatio
 	if err != nil {
 		return EvaluationOutcome{}, ErrNotFound
 	}
-	if mandate.ID != instance.AutomationMandateID || mandate.UserID != principal.UserID || mandate.FinancialAccountID != instance.FinancialAccountID || mandate.CurrentVersion != instance.MandateVersion || mandate.Status != "READY" || mandate.StrategyIdentifier == nil || *mandate.StrategyIdentifier != instance.StrategyIdentifier || mandate.ExecutionMode != string(instance.ExecutionMode) {
+	if mandate.ID != instance.AutomationMandateID || mandate.UserID != principal.UserID || mandate.FinancialAccountID != instance.FinancialAccountID || mandate.CapitalBucketID != instance.CapitalBucketID || mandate.CurrentVersion != instance.MandateVersion || mandate.Status != "READY" || mandate.StrategyIdentifier == nil || *mandate.StrategyIdentifier != instance.StrategyIdentifier || mandate.ExecutionMode != string(instance.ExecutionMode) {
 		return EvaluationOutcome{}, ErrInvalid
 	}
 	parameters, err := ParseParameters(mandate.StrategyParameters)
 	if err != nil {
 		return EvaluationOutcome{}, err
 	}
-	bucket, err := s.automation.GetBucket(ctx, principal, mandate.CapitalBucketID)
+	bucket, err := s.automation.GetBucket(ctx, principal, instance.CapitalBucketID)
 	if err != nil || bucket.UserID != principal.UserID || bucket.FinancialAccountID != instance.FinancialAccountID || bucket.Status != "ACTIVE" || bucket.IsReserve {
 		return EvaluationOutcome{}, ErrInvalid
 	}
@@ -130,7 +130,7 @@ func (s *EvaluationService) Evaluate(ctx context.Context, principal authorizatio
 		ID:                          mandate.ID,
 		UserID:                      mandate.UserID,
 		AccountID:                   mandate.FinancialAccountID,
-		BucketID:                    mandate.CapitalBucketID,
+		BucketID:                    instance.CapitalBucketID,
 		Status:                      mandate.Status,
 		AutomationType:              mandate.AutomationType,
 		AutonomyLevel:               mandate.AutonomyLevel,

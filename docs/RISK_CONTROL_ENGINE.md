@@ -63,6 +63,6 @@ The package imports no connector or Neural Engine code and exposes no broker-wri
 
 ## Non-live strategy integration
 
-The deterministic strategy orchestrator emits the existing `ProposedAction` and invokes this engine unchanged for PAPER and SHADOW. A DENY records denial and cannot fill or advance execution-dependent state. Circuit breakers, stale data, exact mandate version, account options capability, allocation, reserve, and autonomy rules remain authoritative; simulation has no risk bypass.
+The deterministic strategy orchestrator emits the existing `ProposedAction` and invokes this engine unchanged for PAPER and SHADOW. A DENY records denial and cannot fill or advance execution-dependent state. Circuit breakers, stale data, exact mandate version, account options capability, allocation, reserve, and autonomy rules remain authoritative; simulation has no risk bypass. The persistence boundary also binds each instance to the exact same-owner capital bucket, rejects direct concurrent bucket reuse, and caps PAPER starting cash before the first evaluation.
 
 **Every strategy action must pass the Risk/Control Engine.** An ALLOW result permits only the selected non-live adapter in this milestone and is not broker authorization.

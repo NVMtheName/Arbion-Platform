@@ -38,13 +38,13 @@ const (
 )
 
 type Instance struct {
-	ID, UserID, AutomationMandateID, FinancialAccountID, StrategyIdentifier string
-	MandateVersion, DefinitionVersion, StateVersion                         int
-	ExecutionMode                                                           ExecutionMode
-	CurrentState                                                            State
-	Status                                                                  string
-	StartedAt, UpdatedAt                                                    time.Time
-	PausedAt, CompletedAt, LastEvaluatedAt                                  *time.Time
+	ID, UserID, AutomationMandateID, FinancialAccountID, CapitalBucketID, StrategyIdentifier string
+	MandateVersion, DefinitionVersion, StateVersion                                          int
+	ExecutionMode                                                                            ExecutionMode
+	CurrentState                                                                             State
+	Status                                                                                   string
+	StartedAt, UpdatedAt                                                                     time.Time
+	PausedAt, CompletedAt, LastEvaluatedAt                                                   *time.Time
 }
 
 type Parameters = automation.StrategyParameters
