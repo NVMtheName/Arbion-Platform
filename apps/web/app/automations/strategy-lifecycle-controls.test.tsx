@@ -94,4 +94,12 @@ describe("StrategyLifecycleControls", () => {
       screen.queryByRole("button", { name: /record paper event/i }),
     ).not.toBeInTheDocument();
   });
+
+  it("allows lifecycle resolution while the simulation remains paused", () => {
+    render(<StrategyLifecycleControls {...base} status="PAUSED" />);
+    expect(
+      screen.getByRole("button", { name: /record paper event/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/remains paused/i)).toBeInTheDocument();
+  });
 });

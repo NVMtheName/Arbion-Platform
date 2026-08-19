@@ -59,7 +59,7 @@ export function StrategyLifecycleControls(props: Props) {
         : "";
   const stateEligible =
     Boolean(props.instanceId) &&
-    props.status === "ACTIVE" &&
+    (props.status === "ACTIVE" || props.status === "PAUSED") &&
     props.executionMode === "PAPER" &&
     props.strategyIdentifier === "wheel" &&
     choices.length > 0;
@@ -127,7 +127,8 @@ export function StrategyLifecycleControls(props: Props) {
       <p>
         This updates only Arbion&apos;s PAPER ledger. The open simulated
         contract, strike, quantity, and shares are derived from durable records
-        rather than typed into this form.
+        rather than typed into this form. A paused strategy remains paused after
+        this lifecycle event.
       </p>
       <div className="paper-contract-facts" aria-label="Open simulated option">
         <p>

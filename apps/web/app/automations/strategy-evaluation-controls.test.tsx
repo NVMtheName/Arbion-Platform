@@ -21,6 +21,7 @@ const base = {
   executionMode: "PAPER",
   strategyIdentifier: "wheel",
   instanceId: "",
+  instanceStatus: "",
   strategyParameters: {},
 };
 
@@ -96,6 +97,7 @@ describe("StrategyEvaluationControls", () => {
       <StrategyEvaluationControls
         {...base}
         instanceId="instance-1"
+        instanceStatus="ACTIVE"
         strategyParameters={configured}
       />,
     );
@@ -113,5 +115,20 @@ describe("StrategyEvaluationControls", () => {
     expect(
       await screen.findByText(/no broker order was sent/i),
     ).toBeInTheDocument();
+  });
+
+  it("does not offer manual evaluation while the instance is paused", () => {
+    render(
+      <StrategyEvaluationControls
+        {...base}
+        instanceId="instance-1"
+        instanceStatus="PAUSED"
+        strategyParameters={configured}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: /run manual paper evaluation/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/strategy is paused/i)).toBeInTheDocument();
   });
 });

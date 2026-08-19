@@ -59,7 +59,7 @@ func (s *PostgresStore) RecordLifecycle(ctx context.Context, userID, instanceID 
 	if err != pgx.ErrNoRows {
 		return LifecycleResult{}, err
 	}
-	if instance.Status != "ACTIVE" || instance.ExecutionMode != Paper || instance.StrategyIdentifier != "wheel" {
+	if (instance.Status != "ACTIVE" && instance.Status != "PAUSED") || instance.ExecutionMode != Paper || instance.StrategyIdentifier != "wheel" {
 		return LifecycleResult{}, ErrInvalid
 	}
 	if instance.StateVersion != command.ExpectedStateVersion {
@@ -168,7 +168,7 @@ func (s *PostgresStore) RecordLifecycle(ctx context.Context, userID, instanceID 
 	}
 
 	var nextVersion int
-	err = tx.QueryRow(ctx, `UPDATE strategy_instances SET current_state=$5,state_version=state_version+1,updated_at=$6 WHERE id=$1 AND user_id=$2 AND state_version=$3 AND current_state=$4 AND status='ACTIVE' AND execution_mode='PAPER' AND strategy_identifier='wheel' RETURNING state_version`, instance.ID, userID, command.ExpectedStateVersion, instance.CurrentState, nextState, occurredAt).Scan(&nextVersion)
+	err = tx.QueryRow(ctx, `UPDATE strategy_instances SET current_state=$5,state_version=state_version+1,updated_at=$6 WHERE id=$1 AND user_id=$2 AND state_version=$3 AND current_state=$4 AND status IN ('ACTIVE','PAUSED') AND execution_mode='PAPER' AND strategy_identifier='wheel' RETURNING state_version`, instance.ID, userID, command.ExpectedStateVersion, instance.CurrentState, nextState, occurredAt).Scan(&nextVersion)
 	if err == pgx.ErrNoRows {
 		return LifecycleResult{}, ErrConflict
 	}
