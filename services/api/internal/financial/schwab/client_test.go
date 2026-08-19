@@ -126,7 +126,7 @@ func TestReadOnlyQuoteAndStandardOptionChainNormalization(t *testing.T) {
 			if q.Get("symbol") != "AAPL" || q.Get("contractType") != "PUT" || q.Get("strikeCount") != "50" || q.Get("includeUnderlyingQuote") != "true" || q.Get("strategy") != "SINGLE" || q.Get("fromDate") != "2026-01-21" || q.Get("toDate") != "2026-03-02" {
 				t.Fatalf("unexpected chain query: %s", r.URL.RawQuery)
 			}
-			_, _ = w.Write([]byte(`{"symbol":"AAPL","status":"SUCCESS","underlyingPrice":"200.000000005","underlying":{"quoteTime":1767268800000},"putExpDateMap":{"2026-01-31:30":{"190.0":[{"putCall":"PUT","symbol":"AAPL  260131P00190000","bidPrice":"1.2500000001","askPrice":1.35,"markPrice":1.30,"volatility":"21.123456789","delta":"-0.300000001","quoteTimeInLong":1767268800000,"openInterest":123,"totalVolume":7,"strikePrice":"190.0000000000","expirationDate":"2026-01-31","multiplier":100.0,"isMini":false,"isNonStandard":false},{"putCall":"PUT","symbol":"NONSTANDARD","bidPrice":9,"delta":-0.3,"strikePrice":190,"expirationDate":"2026-01-31","multiplier":10.0,"isNonStandard":true}],"195.0":{"putCall":"PUT","symbol":"AAPL  260131P00195000","bidPrice":2.5,"askPrice":2.7,"delta":-0.4,"strikePrice":195,"expirationDate":"2026-01-31","multiplier":100.0}}}}`))
+			_, _ = w.Write([]byte(`{"symbol":"AAPL","status":"SUCCESS","underlyingPrice":"200.000000005","underlying":{"quoteTime":1767268800000},"putExpDateMap":{"2026-01-31:30":{"190.0":[{"putCall":"PUT","symbol":"AAPL  260131P00190000","bidPrice":"1.2500000001","askPrice":1.35,"markPrice":1.30,"volatility":"21.123456789","delta":"-0.300000001","quoteTimeInLong":1767268800000,"openInterest":123,"totalVolume":7,"strikePrice":"190.0000000000","expirationDate":"2026-01-31T20:00:00.000+00:00","multiplier":100.0,"isMini":false,"isNonStandard":false},{"putCall":"PUT","symbol":"NONSTANDARD","bidPrice":9,"delta":-0.3,"strikePrice":190,"expirationDate":"2026-01-31T20:00:00.000+00:00","multiplier":10.0,"isNonStandard":true}],"195.0":{"putCall":"PUT","symbol":"AAPL  260131P00195000","bidPrice":2.5,"askPrice":2.7,"delta":-0.4,"strikePrice":195,"expirationDate":"2026-01-31T20:00:00.000+00:00","multiplier":100.0}}}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -139,7 +139,7 @@ func TestReadOnlyQuoteAndStandardOptionChainNormalization(t *testing.T) {
 		t.Fatalf("quote normalization failed: %#v %v", quote, err)
 	}
 	chain, err := c.GetOptionChain(context.Background(), credentials, financial.OptionChainRequest{Symbol: "aapl", ContractType: "put", StrikeCount: 50, FromDate: time.Date(2026, 1, 21, 12, 0, 0, 0, time.UTC), ToDate: time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC)})
-	if err != nil || len(chain.Contracts) != 2 || chain.UnderlyingPrice == nil || *chain.UnderlyingPrice != "200.000000005" {
+	if err != nil || len(chain.Contracts) != 2 || chain.UnderlyingPrice == nil || *chain.UnderlyingPrice != "200.000000005" || chain.Contracts[0].Expiration != "2026-01-31" {
 		t.Fatalf("chain normalization failed: %#v %v (%v)", chain, err, errors.Unwrap(err))
 	}
 	if chain.Contracts[0].Bid == nil || *chain.Contracts[0].Bid != "1.2500000001" || chain.Contracts[0].Delta == nil || *chain.Contracts[0].Delta != "-0.300000001" || chain.Contracts[0].OpenInterest == nil || *chain.Contracts[0].OpenInterest != 123 {
@@ -174,6 +174,24 @@ func TestProviderIntegerRequiresAnExactNonNegativeWholeNumber(t *testing.T) {
 	for _, input := range []decimal{"-1", "1.5", "not-a-number", "999999999999999999999999999999999999"} {
 		if got, err := providerInt(input); err == nil || got != nil {
 			t.Fatalf("providerInt(%q) = %v, %v; want fail closed", input, got, err)
+		}
+	}
+}
+
+func TestProviderExpirationDateRequiresACompleteDateOrRFC3339Timestamp(t *testing.T) {
+	for input, want := range map[string]string{
+		"2026-09-11":                      "2026-09-11",
+		"2026-09-11T20:00:00.000+00:00":   "2026-09-11",
+		" 2026-09-11T16:00:00.000-04:00 ": "2026-09-11",
+	} {
+		got, ok := providerExpirationDate(input)
+		if !ok || got != want {
+			t.Fatalf("providerExpirationDate(%q) = %q, %v; want %q", input, got, ok, want)
+		}
+	}
+	for _, input := range []string{"", "2026-02-30", "2026-09-11 20:00:00", "2026-09-11T20:00:00", "not-a-date"} {
+		if got, ok := providerExpirationDate(input); ok || got != "" {
+			t.Fatalf("providerExpirationDate(%q) = %q, %v; want fail closed", input, got, ok)
 		}
 	}
 }
