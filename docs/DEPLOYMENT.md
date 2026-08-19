@@ -159,8 +159,9 @@ Guarded scheduler activation (never place an order):
 2. Set `NONLIVE_SCHEDULER_ENABLED=true` in the owner-only production environment and redeploy the API. With no opted-in mandate version, the scheduler remains idle.
 3. In the UI, enable a 30-minute or longer schedule on a `STRATEGY_AUTONOMOUS` PAPER or SHADOW mandate. Confirm this creates a new DRAFT version; review it, mark that exact version READY, and initialize it.
 4. During the regular session, confirm one due run creates only PAPER/SHADOW decision evidence and no Schwab order. Confirm the schedule status advances and contains only a stable result code.
-5. For PAPER, confirm an open option leg changes the schedule result to `WAITING_FOR_LIFECYCLE` without another provider read. Outside the weekday 9:35 a.m.–3:55 p.m. America/New_York window, confirm it records `OUTSIDE_SESSION` and moves to the next session.
-6. To stop all scheduled claims without altering mandate history, set `NONLIVE_SCHEDULER_ENABLED=false` and restart the API. To stop one strategy, disable its schedule or pause/disable its mandate.
+5. For PAPER, confirm an open option leg changes the schedule result to `WAITING_FOR_LIFECYCLE` without another provider read. Outside the 9:35 a.m.–3:55 p.m. America/New_York window, on a published NYSE holiday, or after the 12:55 p.m. safety cutoff on a published early-close day, confirm it records `OUTSIDE_SESSION` and moves to the next published session.
+6. The checked-in calendar is authoritative only for NYSE-published 2026-2028 dates. Before the 2029 calendar year, review the current official NYSE holiday page, extend the tested horizon, and deploy it. If the horizon expires first, confirm due schedules fail closed with `SESSION_CALENDAR_UNAVAILABLE` and make no provider call.
+7. To stop all scheduled claims without altering mandate history, set `NONLIVE_SCHEDULER_ENABLED=false` and restart the API. To stop one strategy, disable its schedule or pause/disable its mandate.
 
 ## Exact first-host checklist
 
