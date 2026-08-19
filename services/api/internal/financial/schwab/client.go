@@ -411,7 +411,8 @@ func normalizeOptionContract(underlying, contractType string, raw rawOptionContr
 	if !strikeOK || strikeValue.Sign() <= 0 {
 		return financial.OptionContract{}, false, nil
 	}
-	if _, err = time.Parse("2006-01-02", raw.ExpirationDate); err != nil {
+	expiration, ok := providerExpirationDate(raw.ExpirationDate)
+	if !ok {
 		return financial.OptionContract{}, false, nil
 	}
 	bid, err := providerDecimal(raw.BidPrice)
@@ -449,7 +450,28 @@ func normalizeOptionContract(underlying, contractType string, raw rawOptionContr
 	if timestamp.IsZero() {
 		timestamp = fallbackTime
 	}
-	return financial.OptionContract{Symbol: raw.Symbol, Underlying: underlying, PutCall: contractType, Expiration: raw.ExpirationDate, Strike: *strike, Bid: bid, Ask: ask, Mark: mark, Delta: delta, ImpliedVolatility: volatility, OpenInterest: openInterest, Volume: volume, ProviderTimestamp: timestamp}, true, nil
+	return financial.OptionContract{Symbol: raw.Symbol, Underlying: underlying, PutCall: contractType, Expiration: expiration, Strike: *strike, Bid: bid, Ask: ask, Mark: mark, Delta: delta, ImpliedVolatility: volatility, OpenInterest: openInterest, Volume: volume, ProviderTimestamp: timestamp}, true, nil
+}
+
+func providerExpirationDate(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if len(value) < len("2006-01-02") {
+		return "", false
+	}
+	calendarDate := value[:len("2006-01-02")]
+	if _, err := time.Parse("2006-01-02", calendarDate); err != nil {
+		return "", false
+	}
+	if len(value) == len(calendarDate) {
+		return calendarDate, true
+	}
+	if value[len(calendarDate)] != 'T' {
+		return "", false
+	}
+	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
+		return "", false
+	}
+	return calendarDate, true
 }
 
 func providerDecimal(value decimal) (*financial.Decimal, error) {
