@@ -41,6 +41,9 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 	if e != nil {
 		var postgresError *pgconn.PgError
 		if errors.As(e, &postgresError) && postgresError.Code == "23505" {
+			if postgresError.ConstraintName == "strategy_one_active_account_idx" {
+				return i, ErrAccountInUse
+			}
 			return i, ErrConflict
 		}
 		return i, e
@@ -62,6 +65,41 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 		}
 	}
 	return i, tx.Commit(c)
+}
+
+func (s *PostgresStore) Finish(c context.Context, userID, instanceID string, expectedStateVersion int, finishedAt time.Time) (Instance, error) {
+	tx, err := s.db.Begin(c)
+	if err != nil {
+		return Instance{}, err
+	}
+	defer tx.Rollback(c)
+
+	current, err := scanInstance(tx.QueryRow(c, `SELECT `+instanceColumns+` FROM strategy_instances WHERE id=$1 AND user_id=$2 FOR UPDATE`, instanceID, userID))
+	if err == pgx.ErrNoRows {
+		return Instance{}, ErrNotFound
+	}
+	if err != nil {
+		return Instance{}, err
+	}
+	if current.StateVersion != expectedStateVersion || (current.Status != "ACTIVE" && current.Status != "PAUSED") {
+		return Instance{}, ErrConflict
+	}
+
+	finished, err := scanInstance(tx.QueryRow(c, `UPDATE strategy_instances
+		SET status='COMPLETED',state_version=state_version+1,completed_at=$4,paused_at=NULL,updated_at=$4
+		WHERE id=$1 AND user_id=$2 AND state_version=$3 AND status IN ('ACTIVE','PAUSED')
+		RETURNING `+instanceColumns, instanceID, userID, expectedStateVersion, finishedAt))
+	if err == pgx.ErrNoRows {
+		return Instance{}, ErrConflict
+	}
+	if err != nil {
+		return Instance{}, err
+	}
+	metadata, _ := json.Marshal(map[string]any{"previous_status": current.Status, "new_status": "COMPLETED"})
+	if _, err = tx.Exec(c, `INSERT INTO strategy_state_transitions(strategy_instance_id,previous_state,new_state,state_version,trigger,metadata) VALUES($1,$2,$2,$3,'FINISHED',$4)`, finished.ID, current.CurrentState, finished.StateVersion, metadata); err != nil {
+		return Instance{}, err
+	}
+	return finished, tx.Commit(c)
 }
 func (s *PostgresStore) List(c context.Context, u string) ([]Instance, error) {
 	rows, e := s.db.Query(c, `SELECT `+instanceColumns+` FROM strategy_instances WHERE user_id=$1 ORDER BY updated_at DESC`, u)

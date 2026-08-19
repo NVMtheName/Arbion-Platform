@@ -17,10 +17,12 @@ var (
 	ErrNotFound     = errors.New("strategy instance not found")
 	ErrConflict     = errors.New("strategy instance conflict")
 	ErrCapitalLimit = errors.New("paper starting cash exceeds capital bucket capacity")
+	ErrAccountInUse = errors.New("financial account already has an active non-live strategy")
 )
 
 type Persistence interface {
 	Initialize(context.Context, string, automation.Mandate, string, State) (Instance, error)
+	Finish(context.Context, string, string, int, time.Time) (Instance, error)
 	List(context.Context, string) ([]Instance, error)
 	Get(context.Context, string, string) (Instance, error)
 	History(context.Context, string, string) ([]Transition, error)
@@ -30,6 +32,9 @@ type Persistence interface {
 	Journal(context.Context, string, int, *JournalCursor) ([]JournalActivity, error)
 	Schedule(context.Context, string, string) (ScheduleStatus, error)
 	RecordLifecycle(context.Context, string, string, LifecycleCommand, time.Time) (LifecycleResult, error)
+}
+type Auditor interface {
+	Record(context.Context, *string, string, map[string]any) error
 }
 type Mandates interface {
 	Get(context.Context, authorization.Principal, string) (automation.Mandate, error)
@@ -44,11 +49,16 @@ type DecisionJournalEntry struct {
 type InstanceService struct {
 	store    Persistence
 	mandates Mandates
+	audit    Auditor
 	now      func() time.Time
 }
 
-func NewInstanceService(s Persistence, m Mandates) *InstanceService {
-	return &InstanceService{store: s, mandates: m, now: func() time.Time { return time.Now().UTC() }}
+func NewInstanceService(s Persistence, m Mandates, auditors ...Auditor) *InstanceService {
+	var audit Auditor
+	if len(auditors) > 0 {
+		audit = auditors[0]
+	}
+	return &InstanceService{store: s, mandates: m, audit: audit, now: func() time.Time { return time.Now().UTC() }}
 }
 func entitled(p authorization.Principal) bool {
 	return authorization.CanUseAutomation(p) && authorization.CanConnectFinancialAccounts(p)
@@ -140,6 +150,29 @@ func (s *InstanceService) Get(c context.Context, p authorization.Principal, id s
 		return Instance{}, ErrForbidden
 	}
 	return s.store.Get(c, p.UserID, id)
+}
+
+func (s *InstanceService) Finish(c context.Context, p authorization.Principal, id string, expectedStateVersion int, confirmed bool) (Instance, error) {
+	if !entitled(p) {
+		return Instance{}, ErrForbidden
+	}
+	if id == "" || expectedStateVersion < 1 || !confirmed {
+		return Instance{}, ErrInvalid
+	}
+	instance, err := s.store.Finish(c, p.UserID, id, expectedStateVersion, s.now().UTC())
+	if err != nil {
+		return Instance{}, err
+	}
+	if s.audit != nil {
+		_ = s.audit.Record(c, &p.UserID, "strategy_instance.completed", map[string]any{
+			"strategy_instance_id": instance.ID,
+			"mandate_id":           instance.AutomationMandateID,
+			"account_id":           instance.FinancialAccountID,
+			"mode":                 instance.ExecutionMode,
+			"source":               "UI",
+		})
+	}
+	return instance, nil
 }
 func (s *InstanceService) History(c context.Context, p authorization.Principal, id string) ([]Transition, error) {
 	if !entitled(p) {

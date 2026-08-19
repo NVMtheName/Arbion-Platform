@@ -29,6 +29,12 @@ type journalPersistenceFake struct {
 	initializedUser    string
 	initializedCash    string
 	initializedMandate automation.Mandate
+	finishedUser       string
+	finishedID         string
+	finishedVersion    int
+	finishedAt         time.Time
+	finishResult       Instance
+	finishError        error
 }
 
 func (f *journalPersistenceFake) Initialize(_ context.Context, userID string, mandate automation.Mandate, cash string, state State) (Instance, error) {
@@ -36,6 +42,13 @@ func (f *journalPersistenceFake) Initialize(_ context.Context, userID string, ma
 	f.initializedCash = cash
 	f.initializedMandate = mandate
 	return Instance{UserID: userID, AutomationMandateID: mandate.ID, FinancialAccountID: mandate.FinancialAccountID, CapitalBucketID: mandate.CapitalBucketID, CurrentState: state}, nil
+}
+func (f *journalPersistenceFake) Finish(_ context.Context, userID, instanceID string, expectedVersion int, at time.Time) (Instance, error) {
+	f.finishedUser = userID
+	f.finishedID = instanceID
+	f.finishedVersion = expectedVersion
+	f.finishedAt = at
+	return f.finishResult, f.finishError
 }
 func (*journalPersistenceFake) List(context.Context, string) ([]Instance, error) { return nil, nil }
 func (f *journalPersistenceFake) Get(_ context.Context, userID, instanceID string) (Instance, error) {
@@ -81,6 +94,19 @@ func (f *journalPersistenceFake) RecordLifecycle(_ context.Context, userID, inst
 type instanceMandatesFake struct {
 	mandate automation.Mandate
 	bucket  automation.CapitalBucket
+}
+
+type strategyAuditFake struct {
+	userID   *string
+	action   string
+	metadata map[string]any
+}
+
+func (f *strategyAuditFake) Record(_ context.Context, userID *string, action string, metadata map[string]any) error {
+	f.userID = userID
+	f.action = action
+	f.metadata = metadata
+	return nil
 }
 
 func (f *instanceMandatesFake) Get(context.Context, authorization.Principal, string) (automation.Mandate, error) {
@@ -133,6 +159,26 @@ func TestShadowInitializationBindsBucketWithoutCreatingPaperCash(t *testing.T) {
 	instance, err := service.Initialize(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "mandate", "untrusted")
 	if err != nil || store.initializedCash != "" || instance.CapitalBucketID != "bucket" {
 		t.Fatalf("shadow bucket binding changed: instance=%#v cash=%q err=%v", instance, store.initializedCash, err)
+	}
+}
+
+func TestFinishRequiresExplicitConfirmationAndAuditsReleasedClaim(t *testing.T) {
+	now := time.Date(2026, 8, 19, 13, 0, 0, 0, time.UTC)
+	store := &journalPersistenceFake{finishResult: Instance{ID: "instance", UserID: "owner", AutomationMandateID: "mandate", FinancialAccountID: "account", ExecutionMode: Paper, Status: "COMPLETED", StateVersion: 4}}
+	audit := &strategyAuditFake{}
+	service := NewInstanceService(store, nil, audit)
+	service.now = func() time.Time { return now }
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+
+	if _, err := service.Finish(context.Background(), principal, "instance", 3, false); !errors.Is(err, ErrInvalid) || store.finishedID != "" {
+		t.Fatalf("unconfirmed finish reached persistence: id=%q err=%v", store.finishedID, err)
+	}
+	instance, err := service.Finish(context.Background(), principal, "instance", 3, true)
+	if err != nil || instance.Status != "COMPLETED" || store.finishedUser != "owner" || store.finishedID != "instance" || store.finishedVersion != 3 || !store.finishedAt.Equal(now) {
+		t.Fatalf("confirmed finish was not owner-scoped: instance=%#v store=%#v err=%v", instance, store, err)
+	}
+	if audit.userID == nil || *audit.userID != "owner" || audit.action != "strategy_instance.completed" || audit.metadata["strategy_instance_id"] != "instance" || audit.metadata["account_id"] != "account" {
+		t.Fatalf("finish audit evidence is incomplete: %#v", audit)
 	}
 }
 
