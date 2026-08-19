@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../../app-page-header";
 import { MandateControls } from "../mandate-controls";
+import { StrategyAutonomyControls } from "../strategy-autonomy-controls";
 import {
   StrategyEvaluationControls,
   type StrategyParameters,
@@ -70,6 +71,10 @@ export default async function MandateReview({
         currentVersion,
     );
   const instanceID = instance ? String(instance.ID ?? instance.id ?? "") : "";
+  const hasActiveInstance = mandateInstances.some((item) => {
+    const status = String(item.Status ?? item.status ?? "");
+    return status === "ACTIVE" || status === "PAUSED";
+  });
   const [history, decisions, executions, scheduleResponse, portfolioResponse] =
     instanceID
       ? await Promise.all(
@@ -146,6 +151,14 @@ export default async function MandateReview({
         executionMode={read("execution_mode", "ExecutionMode")}
         strategyIdentifier={read("strategy_identifier", "StrategyIdentifier")}
         instanceExists={Boolean(instance)}
+      />
+      <StrategyAutonomyControls
+        automationId={id}
+        currentVersion={currentVersion}
+        automationType={read("automation_type", "AutomationType")}
+        autonomyLevel={read("autonomy_level", "AutonomyLevel")}
+        executionMode={read("execution_mode", "ExecutionMode")}
+        hasActiveInstance={hasActiveInstance}
       />
       {read("automation_type", "AutomationType") === "STRATEGY" && (
         <>
