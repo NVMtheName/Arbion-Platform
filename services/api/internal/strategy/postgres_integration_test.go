@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
@@ -65,7 +66,11 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		}
 	}
 	wheel := "wheel"
-	mandate := automation.Mandate{ID: mandateID, UserID: userID, FinancialAccountID: accountID, AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: bucketID, ExecutionMode: "PAPER", CurrentVersion: 1}
+	mandate := automation.Mandate{
+		ID: mandateID, UserID: userID, FinancialAccountID: accountID, AutomationType: "STRATEGY",
+		StrategyIdentifier: &wheel, CapitalBucketID: bucketID, ExecutionMode: "PAPER", CurrentVersion: 1,
+		ScheduleConditions: json.RawMessage(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR","notifications":{"evaluation_completed":true,"lifecycle_required":true,"first_failure":true}}`),
+	}
 	store := NewPostgresStore(pool)
 	instance, err := store.Initialize(ctx, userID, mandate, "20000.0000000000", ReadyForPut)
 	if err != nil {
