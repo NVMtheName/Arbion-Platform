@@ -281,9 +281,9 @@ func (c *Client) GetQuote(ctx context.Context, cr *financial.Credentials, symbol
 type rawOptionContract struct {
 	PutCall         string  `json:"putCall"`
 	Symbol          string  `json:"symbol"`
-	BidPrice        decimal `json:"bidPrice"`
-	AskPrice        decimal `json:"askPrice"`
-	MarkPrice       decimal `json:"markPrice"`
+	Bid             decimal `json:"bid"`
+	Ask             decimal `json:"ask"`
+	Mark            decimal `json:"mark"`
 	Volatility      decimal `json:"volatility"`
 	Delta           decimal `json:"delta"`
 	StrikePrice     decimal `json:"strikePrice"`
@@ -415,15 +415,15 @@ func normalizeOptionContract(underlying, contractType string, raw rawOptionContr
 	if !ok {
 		return financial.OptionContract{}, false, nil
 	}
-	bid, err := providerDecimal(raw.BidPrice)
+	bid, err := providerDecimal(raw.Bid)
 	if err != nil {
 		return financial.OptionContract{}, false, err
 	}
-	ask, err := providerDecimal(raw.AskPrice)
+	ask, err := providerDecimal(raw.Ask)
 	if err != nil {
 		return financial.OptionContract{}, false, err
 	}
-	mark, err := providerDecimal(raw.MarkPrice)
+	mark, err := providerDecimal(raw.Mark)
 	if err != nil {
 		return financial.OptionContract{}, false, err
 	}
