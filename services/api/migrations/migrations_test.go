@@ -124,3 +124,15 @@ func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
 		}
 	}
 }
+
+func TestStrategyCapitalBucketBindingIsOwnerScopedAndExclusive(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00014_strategy_capital_bucket_binding.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"capital_bucket_id", "strategy_instances_capital_bucket_owner_fkey", "strategy_one_active_bucket_idx", "status IN ('ACTIVE','PAUSED')", "immutable capital bucket binding"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("strategy capital binding migration missing %q", required)
+		}
+	}
+}

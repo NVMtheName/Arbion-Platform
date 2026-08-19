@@ -100,6 +100,8 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 403, "PERMISSION_DENIED", "Automation entitlement is required.")
 	case errors.Is(e, strategy.ErrInvalid):
 		writeError(w, 422, "INVALID_STRATEGY", "The deterministic strategy request is invalid or unsupported.")
+	case errors.Is(e, strategy.ErrCapitalLimit):
+		writeError(w, 422, "PAPER_CAPITAL_LIMIT", "Starting simulated cash exceeds the selected capital bucket's protected capacity.")
 	case errors.Is(e, strategy.ErrConflict):
 		writeError(w, 409, "STRATEGY_CONFLICT", "The strategy state changed or this request conflicts with an existing record.")
 	case errors.Is(e, strategy.ErrDuplicate):

@@ -11,25 +11,31 @@ import (
 )
 
 type journalPersistenceFake struct {
-	entries         []JournalActivity
-	requestedUser   string
-	requestedLimit  int
-	requestedAfter  *JournalCursor
-	lifecycleID     string
-	lifecycle       LifecycleCommand
-	lifecycleAt     time.Time
-	lifecycleResult LifecycleResult
-	lifecycleError  error
-	instance        Instance
-	getError        error
-	portfolio       PaperPortfolio
-	portfolioError  error
-	portfolioCalls  int
-	requestedID     string
+	entries            []JournalActivity
+	requestedUser      string
+	requestedLimit     int
+	requestedAfter     *JournalCursor
+	lifecycleID        string
+	lifecycle          LifecycleCommand
+	lifecycleAt        time.Time
+	lifecycleResult    LifecycleResult
+	lifecycleError     error
+	instance           Instance
+	getError           error
+	portfolio          PaperPortfolio
+	portfolioError     error
+	portfolioCalls     int
+	requestedID        string
+	initializedUser    string
+	initializedCash    string
+	initializedMandate automation.Mandate
 }
 
-func (*journalPersistenceFake) Initialize(context.Context, string, automation.Mandate, string, State) (Instance, error) {
-	return Instance{}, nil
+func (f *journalPersistenceFake) Initialize(_ context.Context, userID string, mandate automation.Mandate, cash string, state State) (Instance, error) {
+	f.initializedUser = userID
+	f.initializedCash = cash
+	f.initializedMandate = mandate
+	return Instance{UserID: userID, AutomationMandateID: mandate.ID, FinancialAccountID: mandate.FinancialAccountID, CapitalBucketID: mandate.CapitalBucketID, CurrentState: state}, nil
 }
 func (*journalPersistenceFake) List(context.Context, string) ([]Instance, error) { return nil, nil }
 func (f *journalPersistenceFake) Get(_ context.Context, userID, instanceID string) (Instance, error) {
@@ -70,6 +76,64 @@ func (f *journalPersistenceFake) RecordLifecycle(_ context.Context, userID, inst
 	f.lifecycle = command
 	f.lifecycleAt = occurredAt
 	return f.lifecycleResult, f.lifecycleError
+}
+
+type instanceMandatesFake struct {
+	mandate automation.Mandate
+	bucket  automation.CapitalBucket
+}
+
+func (f *instanceMandatesFake) Get(context.Context, authorization.Principal, string) (automation.Mandate, error) {
+	return f.mandate, nil
+}
+
+func (f *instanceMandatesFake) GetBucket(context.Context, authorization.Principal, string) (automation.CapitalBucket, error) {
+	return f.bucket, nil
+}
+
+func TestPaperInitializationIsBoundToProtectedBucketCapacity(t *testing.T) {
+	wheel := "wheel"
+	mandates := &instanceMandatesFake{
+		mandate: automation.Mandate{ID: "mandate", UserID: "owner", FinancialAccountID: "account", CapitalBucketID: "bucket", AutomationType: "STRATEGY", StrategyIdentifier: &wheel, Status: "READY", ExecutionMode: "PAPER"},
+		bucket:  automation.CapitalBucket{ID: "bucket", UserID: "owner", FinancialAccountID: "account", AllocationType: "FIXED_AMOUNT", AllocationValue: "100", ProtectedAmount: "20", Status: "ACTIVE"},
+	}
+	store := &journalPersistenceFake{}
+	service := NewInstanceService(store, mandates)
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+
+	instance, err := service.Initialize(context.Background(), principal, "mandate", "80")
+	if err != nil || store.initializedCash != "80" || instance.CapitalBucketID != "bucket" {
+		t.Fatalf("authorized paper capacity was not bound: instance=%#v store=%#v err=%v", instance, store, err)
+	}
+	store.initializedCash = ""
+	if _, err = service.Initialize(context.Background(), principal, "mandate", "80.0000000001"); !errors.Is(err, ErrCapitalLimit) || store.initializedCash != "" {
+		t.Fatalf("over-capacity paper cash reached persistence: cash=%q err=%v", store.initializedCash, err)
+	}
+
+	limit := "75"
+	mandates.bucket.AllocationLimit = &limit
+	if _, err = service.Initialize(context.Background(), principal, "mandate", "55.0000000001"); !errors.Is(err, ErrCapitalLimit) {
+		t.Fatalf("absolute bucket limit was not enforced: %v", err)
+	}
+	mandates.bucket.AllocationType = "PERCENT_OF_AVAILABLE_CASH"
+	mandates.bucket.AllocationLimit = nil
+	if _, err = service.Initialize(context.Background(), principal, "mandate", "1"); !errors.Is(err, ErrCapitalLimit) {
+		t.Fatalf("unbounded percentage bucket initialized PAPER: %v", err)
+	}
+}
+
+func TestShadowInitializationBindsBucketWithoutCreatingPaperCash(t *testing.T) {
+	wheel := "wheel"
+	mandates := &instanceMandatesFake{
+		mandate: automation.Mandate{ID: "mandate", UserID: "owner", FinancialAccountID: "account", CapitalBucketID: "bucket", AutomationType: "STRATEGY", StrategyIdentifier: &wheel, Status: "READY", ExecutionMode: "SHADOW"},
+		bucket:  automation.CapitalBucket{ID: "bucket", UserID: "owner", FinancialAccountID: "account", AllocationType: "PERCENT_OF_AVAILABLE_CASH", AllocationValue: "25", ProtectedAmount: "0", Status: "ACTIVE"},
+	}
+	store := &journalPersistenceFake{}
+	service := NewInstanceService(store, mandates)
+	instance, err := service.Initialize(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "mandate", "untrusted")
+	if err != nil || store.initializedCash != "" || instance.CapitalBucketID != "bucket" {
+		t.Fatalf("shadow bucket binding changed: instance=%#v cash=%q err=%v", instance, store.initializedCash, err)
+	}
 }
 
 func TestJournalIsOwnerScopedAndBuildsStableNextCursor(t *testing.T) {

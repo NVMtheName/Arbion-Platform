@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
@@ -41,11 +42,12 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	defer pool.Close()
 
 	const (
-		userID       = "11111111-1111-4111-8111-111111111111"
-		connectionID = "22222222-2222-4222-8222-222222222222"
-		accountID    = "33333333-3333-4333-8333-333333333333"
-		bucketID     = "44444444-4444-4444-8444-444444444444"
-		mandateID    = "55555555-5555-4555-8555-555555555555"
+		userID          = "11111111-1111-4111-8111-111111111111"
+		connectionID    = "22222222-2222-4222-8222-222222222222"
+		accountID       = "33333333-3333-4333-8333-333333333333"
+		bucketID        = "44444444-4444-4444-8444-444444444444"
+		mandateID       = "55555555-5555-4555-8555-555555555555"
+		secondMandateID = "66666666-6666-4666-8666-666666666666"
 	)
 	statements := []string{
 		`INSERT INTO users(id,email,normalized_email,display_name,email_verified_at) VALUES('` + userID + `','test@example.com','test@example.com','Test',now())`,
@@ -55,6 +57,8 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES('` + bucketID + `','` + userID + `','` + accountID + `','Paper','FIXED_AMOUNT',20000,'USD',0,'ACTIVE')`,
 		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + mandateID + `','` + userID + `','` + accountID + `','STRATEGY','wheel','` + bucketID + `','STRATEGY_AUTONOMOUS','PAPER','READY',1,'{"symbols":["AAPL"],"minimum_dte":20,"maximum_dte":60,"target_delta":"0.30","target_delta_min":"0.20","target_delta_max":"0.40","maximum_contracts":1,"assignment_handling_policy":"continue_wheel"}','{}','{"symbols":["AAPL"],"universe_ids":[]}','{"symbols":[]}',false,true,'{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR","notifications":{"evaluation_completed":true,"lifecycle_required":true,"first_failure":true}}',false)`,
 		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) VALUES('` + mandateID + `',1,'` + userID + `','UI','{}','{}')`,
+		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + secondMandateID + `','` + userID + `','` + accountID + `','STRATEGY','wheel','` + bucketID + `','RESEARCH_ONLY','PAPER','READY',1,'{}','{}','{"symbols":[],"universe_ids":[]}','{"symbols":[]}',false,true,'{}',false)`,
+		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) VALUES('` + secondMandateID + `',1,'` + userID + `','UI','{}','{}')`,
 	}
 	for _, statement := range statements {
 		if _, err = pool.Exec(ctx, statement); err != nil {
@@ -62,12 +66,25 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		}
 	}
 	wheel := "wheel"
-	mandate := automation.Mandate{ID: mandateID, UserID: userID, FinancialAccountID: accountID, AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: bucketID, ExecutionMode: "PAPER", CurrentVersion: 1}
+	mandate := automation.Mandate{
+		ID: mandateID, UserID: userID, FinancialAccountID: accountID, AutomationType: "STRATEGY",
+		StrategyIdentifier: &wheel, CapitalBucketID: bucketID, ExecutionMode: "PAPER", CurrentVersion: 1,
+		ScheduleConditions: json.RawMessage(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR","notifications":{"evaluation_completed":true,"lifecycle_required":true,"first_failure":true}}`),
+	}
 	store := NewPostgresStore(pool)
 	instance, err := store.Initialize(ctx, userID, mandate, "20000.0000000000", ReadyForPut)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if instance.CapitalBucketID != bucketID {
+		t.Fatalf("strategy instance lost its capital bucket binding: %#v", instance)
+	}
+	secondMandate := mandate
+	secondMandate.ID = secondMandateID
+	if _, err = store.Initialize(ctx, userID, secondMandate, "1000", ReadyForPut); !errors.Is(err, ErrConflict) {
+		t.Fatalf("capital bucket was reused by a second active strategy: %v", err)
+	}
+	assertCount(t, pool, `SELECT count(*) FROM strategy_instances`, 1)
 	claimAt := time.Now().UTC().Add(time.Minute)
 	scheduled, err := store.ClaimDueSchedule(ctx, claimAt, scheduleLeaseDuration)
 	if err != nil || scheduled == nil {

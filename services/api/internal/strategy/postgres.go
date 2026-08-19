@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/automation"
 	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -19,10 +21,10 @@ type PostgresStore struct{ db *pgxpool.Pool }
 
 func NewPostgresStore(db *pgxpool.Pool) *PostgresStore { return &PostgresStore{db} }
 
-const instanceColumns = `id::text,user_id::text,automation_mandate_id::text,mandate_version,financial_account_id::text,strategy_identifier,strategy_definition_version,execution_mode,current_state,state_version,status,started_at,updated_at,paused_at,completed_at,last_evaluated_at`
+const instanceColumns = `id::text,user_id::text,automation_mandate_id::text,mandate_version,financial_account_id::text,capital_bucket_id::text,strategy_identifier,strategy_definition_version,execution_mode,current_state,state_version,status,started_at,updated_at,paused_at,completed_at,last_evaluated_at`
 
 func scanInstance(r pgx.Row) (i Instance, e error) {
-	e = r.Scan(&i.ID, &i.UserID, &i.AutomationMandateID, &i.MandateVersion, &i.FinancialAccountID, &i.StrategyIdentifier, &i.DefinitionVersion, &i.ExecutionMode, &i.CurrentState, &i.StateVersion, &i.Status, &i.StartedAt, &i.UpdatedAt, &i.PausedAt, &i.CompletedAt, &i.LastEvaluatedAt)
+	e = r.Scan(&i.ID, &i.UserID, &i.AutomationMandateID, &i.MandateVersion, &i.FinancialAccountID, &i.CapitalBucketID, &i.StrategyIdentifier, &i.DefinitionVersion, &i.ExecutionMode, &i.CurrentState, &i.StateVersion, &i.Status, &i.StartedAt, &i.UpdatedAt, &i.PausedAt, &i.CompletedAt, &i.LastEvaluatedAt)
 	return
 }
 func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Mandate, cash string, state State) (Instance, error) {
@@ -35,8 +37,12 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 		return Instance{}, e
 	}
 	defer tx.Rollback(c)
-	i, e := scanInstance(tx.QueryRow(c, `INSERT INTO strategy_instances(user_id,automation_mandate_id,mandate_version,financial_account_id,strategy_identifier,strategy_definition_version,execution_mode,current_state) VALUES($1,$2,$3,$4,$5,1,$6,$7) RETURNING `+instanceColumns, u, m.ID, m.CurrentVersion, m.FinancialAccountID, *m.StrategyIdentifier, m.ExecutionMode, state))
+	i, e := scanInstance(tx.QueryRow(c, `INSERT INTO strategy_instances(user_id,automation_mandate_id,mandate_version,financial_account_id,capital_bucket_id,strategy_identifier,strategy_definition_version,execution_mode,current_state) VALUES($1,$2,$3,$4,$5,$6,1,$7,$8) RETURNING `+instanceColumns, u, m.ID, m.CurrentVersion, m.FinancialAccountID, m.CapitalBucketID, *m.StrategyIdentifier, m.ExecutionMode, state))
 	if e != nil {
+		var postgresError *pgconn.PgError
+		if errors.As(e, &postgresError) && postgresError.Code == "23505" {
+			return i, ErrConflict
+		}
 		return i, e
 	}
 	if m.ExecutionMode == "PAPER" {

@@ -68,7 +68,14 @@ export function MandateControls(props: MandateControlsProps) {
     );
     setBusy(false);
     if (!response.ok) {
-      setMessage("The non-live strategy could not be initialized.");
+      const body = (await response.json().catch(() => null)) as {
+        error?: { code?: string };
+      } | null;
+      setMessage(
+        body?.error?.code === "PAPER_CAPITAL_LIMIT"
+          ? "Starting simulated cash must fit within the selected capital bucket after protected amounts and absolute limits."
+          : "The non-live strategy could not be initialized.",
+      );
       return;
     }
     setMessage(
@@ -131,6 +138,10 @@ export function MandateControls(props: MandateControlsProps) {
                 step="any"
                 required
               />
+              <span className="field-hint">
+                Must fit within this mandate&apos;s capital bucket after
+                protected amounts and absolute limits.
+              </span>
             </label>
           )}
           <button type="submit" disabled={busy}>

@@ -78,7 +78,7 @@ func (f *evaluationFinancialFake) GetOptionChain(_ context.Context, _ authorizat
 func evaluationFixture() (*EvaluationService, *evaluationStoreFake, *evaluationFinancialFake, authorization.Principal) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	identifier := "wheel"
-	instance := Instance{ID: "instance", UserID: "user", AutomationMandateID: "mandate", FinancialAccountID: "account", StrategyIdentifier: identifier, MandateVersion: 2, ExecutionMode: Paper, CurrentState: ReadyForPut, StateVersion: 1, Status: "ACTIVE"}
+	instance := Instance{ID: "instance", UserID: "user", AutomationMandateID: "mandate", FinancialAccountID: "account", CapitalBucketID: "bucket", StrategyIdentifier: identifier, MandateVersion: 2, ExecutionMode: Paper, CurrentState: ReadyForPut, StateVersion: 1, Status: "ACTIVE"}
 	parameters := []byte(`{"symbols":["AAPL"],"minimum_dte":20,"maximum_dte":60,"target_delta":"0.30","target_delta_min":"0.20","target_delta_max":"0.40","maximum_contracts":1,"assignment_handling_policy":"continue_wheel"}`)
 	mandate := automation.Mandate{ID: "mandate", UserID: "user", FinancialAccountID: "account", AutomationType: "STRATEGY", StrategyIdentifier: &identifier, CapitalBucketID: "bucket", AutonomyLevel: "RESEARCH_ONLY", ExecutionMode: "PAPER", Status: "READY", CurrentVersion: 2, StrategyParameters: parameters, OptionsAllowed: true, EffectiveFrom: now.Add(-time.Hour)}
 	store := &evaluationStoreFake{instance: instance, facts: EvaluationFacts{Paper: &PaperEvaluationFacts{Cash: "1.0000000000", CurrentExposure: "0.0000000000", Positions: []Position{}, RiskPositions: []risk.Position{}}, Breakers: []risk.CircuitBreaker{}}}
@@ -109,6 +109,15 @@ func TestManualEvaluationRequiresCurrentImmutableMandateVersion(t *testing.T) {
 	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:stale")
 	if !errors.Is(err, ErrInvalid) || store.commits != 0 || finances.quoteCalls != 0 {
 		t.Fatalf("stale mandate version was not rejected before provider reads: %v", err)
+	}
+}
+
+func TestManualEvaluationRequiresImmutableCapitalBucketBinding(t *testing.T) {
+	service, store, finances, principal := evaluationFixture()
+	service.automation.(*evaluationAutomationFake).mandate.CapitalBucketID = "different-bucket"
+	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:different-bucket")
+	if !errors.Is(err, ErrInvalid) || store.commits != 0 || finances.quoteCalls != 0 {
+		t.Fatalf("changed capital bucket was not rejected before provider reads: %v", err)
 	}
 }
 

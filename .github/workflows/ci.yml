@@ -45,6 +45,35 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
 
+  strategy-postgres:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: arbion_strategy
+          POSTGRES_USER: arbion
+          POSTGRES_PASSWORD: ci-integration-not-a-production-secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U arbion -d arbion_strategy"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      STRATEGY_TEST_DATABASE_URL: postgres://arbion:ci-integration-not-a-production-secret@127.0.0.1:5432/arbion_strategy?sslmode=disable
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: services/api/go.mod
+          cache-dependency-path: services/api/go.sum
+      - run: go test -race ./internal/strategy -run TestPostgresEvaluationCommitIsAtomicAndModeBound -count=1
+
   ai:
     runs-on: ubuntu-latest
     defaults:
