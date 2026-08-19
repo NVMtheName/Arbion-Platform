@@ -126,7 +126,7 @@ func TestReadOnlyQuoteAndStandardOptionChainNormalization(t *testing.T) {
 			if q.Get("symbol") != "AAPL" || q.Get("contractType") != "PUT" || q.Get("strikeCount") != "50" || q.Get("includeUnderlyingQuote") != "true" || q.Get("strategy") != "SINGLE" || q.Get("fromDate") != "2026-01-21" || q.Get("toDate") != "2026-03-02" {
 				t.Fatalf("unexpected chain query: %s", r.URL.RawQuery)
 			}
-			_, _ = w.Write([]byte(`{"symbol":"AAPL","status":"SUCCESS","underlyingPrice":"200.000000005","underlying":{"quoteTime":1767268800000},"putExpDateMap":{"2026-01-31:30":{"190.0":[{"putCall":"PUT","symbol":"AAPL  260131P00190000","bidPrice":"1.2500000001","askPrice":1.35,"markPrice":1.30,"volatility":"21.123456789","delta":"-0.300000001","quoteTimeInLong":1767268800000,"openInterest":123,"totalVolume":7,"strikePrice":"190.0000000000","expirationDate":"2026-01-31","multiplier":100,"isMini":false,"isNonStandard":false},{"putCall":"PUT","symbol":"NONSTANDARD","bidPrice":9,"delta":-0.3,"strikePrice":190,"expirationDate":"2026-01-31","multiplier":10,"isNonStandard":true}],"195.0":{"putCall":"PUT","symbol":"AAPL  260131P00195000","bidPrice":2.5,"askPrice":2.7,"delta":-0.4,"strikePrice":195,"expirationDate":"2026-01-31","multiplier":100}}}}`))
+			_, _ = w.Write([]byte(`{"symbol":"AAPL","status":"SUCCESS","underlyingPrice":"200.000000005","underlying":{"quoteTime":1767268800000},"putExpDateMap":{"2026-01-31:30":{"190.0":[{"putCall":"PUT","symbol":"AAPL  260131P00190000","bidPrice":"1.2500000001","askPrice":1.35,"markPrice":1.30,"volatility":"21.123456789","delta":"-0.300000001","quoteTimeInLong":1767268800000,"openInterest":123,"totalVolume":7,"strikePrice":"190.0000000000","expirationDate":"2026-01-31","multiplier":100.0,"isMini":false,"isNonStandard":false},{"putCall":"PUT","symbol":"NONSTANDARD","bidPrice":9,"delta":-0.3,"strikePrice":190,"expirationDate":"2026-01-31","multiplier":10.0,"isNonStandard":true}],"195.0":{"putCall":"PUT","symbol":"AAPL  260131P00195000","bidPrice":2.5,"askPrice":2.7,"delta":-0.4,"strikePrice":195,"expirationDate":"2026-01-31","multiplier":100.0}}}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -156,5 +156,24 @@ func TestMarketDataMalformedDecimalFailsClosed(t *testing.T) {
 	var providerError *financial.ProviderError
 	if !errors.As(err, &providerError) || providerError.Code != financial.InvalidProviderResponse {
 		t.Fatalf("malformed market data did not fail closed: %v", err)
+	}
+}
+
+func TestProviderIntegerRequiresAnExactNonNegativeWholeNumber(t *testing.T) {
+	for input, want := range map[decimal]int{
+		"0":      0,
+		"7":      7,
+		"100.0":  100,
+		"42.000": 42,
+	} {
+		got, err := providerInt(input)
+		if err != nil || got == nil || *got != want {
+			t.Fatalf("providerInt(%q) = %v, %v; want %d", input, got, err, want)
+		}
+	}
+	for _, input := range []decimal{"-1", "1.5", "not-a-number", "999999999999999999999999999999999999"} {
+		if got, err := providerInt(input); err == nil || got != nil {
+			t.Fatalf("providerInt(%q) = %v, %v; want fail closed", input, got, err)
+		}
 	}
 }
