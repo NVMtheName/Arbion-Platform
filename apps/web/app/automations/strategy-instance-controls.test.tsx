@@ -65,4 +65,29 @@ describe("StrategyInstanceControls", () => {
       screen.queryByRole("button", { name: /finish non-live strategy/i }),
     ).not.toBeInTheDocument();
   });
+
+  it("keeps the claim when PAPER still has simulated exposure", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      json: async () => ({ error: { code: "PAPER_POSITION_OPEN" } }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <StrategyInstanceControls
+        instanceId="instance-1"
+        status="ACTIVE"
+        stateVersion={2}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(
+      screen.getByRole("button", { name: /finish non-live strategy/i }),
+    );
+
+    expect(
+      await screen.findByText(/still has an open option or share position/i),
+    ).toBeInTheDocument();
+    expect(navigation.refresh).not.toHaveBeenCalled();
+  });
 });

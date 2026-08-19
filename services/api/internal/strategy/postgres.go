@@ -84,6 +84,20 @@ func (s *PostgresStore) Finish(c context.Context, userID, instanceID string, exp
 	if current.StateVersion != expectedStateVersion || (current.Status != "ACTIVE" && current.Status != "PAUSED") {
 		return Instance{}, ErrConflict
 	}
+	if current.ExecutionMode == Paper {
+		var openExposure bool
+		err = tx.QueryRow(c, `SELECT EXISTS(
+			SELECT 1 FROM paper_portfolios p
+			JOIN paper_positions x ON x.paper_portfolio_id=p.id
+			WHERE p.strategy_instance_id=$1 AND p.user_id=$2 AND x.quantity<>0
+		)`, instanceID, userID).Scan(&openExposure)
+		if err != nil {
+			return Instance{}, err
+		}
+		if openExposure {
+			return Instance{}, ErrOpenExposure
+		}
+	}
 
 	finished, err := scanInstance(tx.QueryRow(c, `UPDATE strategy_instances
 		SET status='COMPLETED',state_version=state_version+1,completed_at=$4,paused_at=NULL,updated_at=$4

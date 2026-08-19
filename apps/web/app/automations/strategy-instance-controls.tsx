@@ -32,8 +32,13 @@ export function StrategyInstanceControls(props: Props) {
     );
     setBusy(false);
     if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: { code?: string };
+      } | null;
       setMessage(
-        "The simulation was not finished. Refresh the page and review its latest state.",
+        body?.error?.code === "PAPER_POSITION_OPEN"
+          ? "This PAPER simulation still has an open option or share position. Resolve its simulated lifecycle before finishing."
+          : "The simulation was not finished. Refresh the page and review its latest state.",
       );
       return;
     }
@@ -49,8 +54,9 @@ export function StrategyInstanceControls(props: Props) {
       <h2>Finish this simulation</h2>
       <p>
         Active and paused simulations keep the financial account&apos;s Arbion
-        capital claim. Finishing is permanent, preserves all history, and only
-        releases that claim. It never changes the Schwab account.
+        capital claim. PAPER must have no open simulated positions. Finishing is
+        permanent, preserves all history, and only releases that claim. It never
+        changes the Schwab account.
       </p>
       <form onSubmit={finish}>
         <label className="checkbox-row">
