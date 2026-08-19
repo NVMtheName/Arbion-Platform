@@ -21,6 +21,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/platform/database"
 	platformhttp "github.com/arbion/platform/services/api/internal/platform/http"
+	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/arbion/platform/services/api/internal/strategy"
 	"github.com/redis/go-redis/v9"
 )
@@ -78,6 +79,7 @@ func main() {
 	strategyStore := strategy.NewPostgresStore(pool)
 	strategies := strategy.NewInstanceService(strategyStore, automations, users)
 	evaluations := strategy.NewEvaluationService(strategyStore, automations, financialConnections)
+	breakers := risk.NewBreakerService(risk.NewPostgresBreakerStore(pool), users)
 	if cfg.Scheduler.Enabled {
 		notifications := automationnotification.NewEmailSender(emailSender, cfg.Email.PublicBaseURL)
 		scheduler := strategy.NewScheduler(strategyStore, evaluations, notifications)
@@ -87,7 +89,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           platformhttp.NewFullApplicationHandlerWithEvaluation(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies, evaluations),
+		Handler:           platformhttp.NewFullApplicationHandlerWithEvaluation(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies, evaluations, breakers),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      45 * time.Second,

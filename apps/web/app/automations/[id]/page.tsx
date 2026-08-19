@@ -20,6 +20,10 @@ import {
   PaperPortfolioSummary,
   type PaperPortfolio,
 } from "../paper-portfolio-summary";
+import {
+  AutomationCircuitBreakerControls,
+  type AutomationCircuitBreaker,
+} from "../automation-circuit-breaker-controls";
 export default async function MandateReview({
   params,
 }: {
@@ -45,10 +49,16 @@ export default async function MandateReview({
     email_delivery_available?: boolean;
   };
   const m = automationResponse.automation;
-  const instancesResponse = await fetch(`${api}/api/strategy-instances`, {
-    headers: { cookie: jar.toString() },
-    cache: "no-store",
-  });
+  const [instancesResponse, breakerResponse] = await Promise.all([
+    fetch(`${api}/api/strategy-instances`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+    fetch(`${api}/api/automations/${id}/circuit-breaker`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+  ]);
   const instances = instancesResponse.ok
     ? ((
         (await instancesResponse.json()) as {
@@ -56,6 +66,13 @@ export default async function MandateReview({
         }
       ).strategy_instances ?? [])
     : [];
+  const breaker = breakerResponse.ok
+    ? (
+        (await breakerResponse.json()) as {
+          circuit_breaker?: AutomationCircuitBreaker | null;
+        }
+      ).circuit_breaker
+    : null;
   const currentVersion = Number(m.current_version ?? m.CurrentVersion ?? 0);
   const mandateInstances = instances.filter(
     (item) =>
@@ -146,6 +163,7 @@ export default async function MandateReview({
         support. A separately confirmed attestation may permit PAPER-only
         simulation, but never SHADOW, LIVE, or broker execution.
       </p>
+      <AutomationCircuitBreakerControls automationId={id} breaker={breaker} />
       <MandateControls
         automationId={id}
         currentVersion={currentVersion}

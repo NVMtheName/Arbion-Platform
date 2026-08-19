@@ -141,10 +141,14 @@ const (
 )
 
 type CircuitBreaker struct {
-	ID             string
-	Scope          BreakerScope
-	ScopeID        *string
-	State          BreakerState
-	Reason, Source string
-	EngagedAt      time.Time
+	ID               string       `json:"id"`
+	Scope            BreakerScope `json:"scope"`
+	ScopeID          *string      `json:"scope_id,omitempty"`
+	State            BreakerState `json:"state"`
+	Reason           string       `json:"reason"`
+	Source           string       `json:"source"`
+	EngagedByUserID  *string      `json:"engaged_by_user_id,omitempty"`
+	EngagedAt        time.Time    `json:"engaged_at"`
+	ReleasedByUserID *string      `json:"released_by_user_id,omitempty"`
+	ReleasedAt       *time.Time   `json:"released_at,omitempty"`
 }

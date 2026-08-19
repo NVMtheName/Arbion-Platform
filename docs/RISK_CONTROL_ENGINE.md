@@ -41,7 +41,7 @@ See [Execution Engine](EXECUTION_ENGINE.md) for lifecycle and reconciliation and
 
 ## Deferred decisions
 
-The broader policy language, production numerical defaults, jurisdictional rules, realized-loss calculation, cross-account aggregation, reservation accounting, breaker reset workflows, administrative dual control, audit integrity, and formal live-trading safety case remain deferred. The implemented deterministic gate authorizes only current manual or guarded scheduled PAPER/SHADOW evaluation; it has no broker trading capability.
+The broader policy language, production numerical defaults, jurisdictional rules, realized-loss calculation, cross-account aggregation, reservation accounting, breaker reset workflows beyond the owner-controlled automation stop described below, administrative dual control, audit integrity, and formal live-trading safety case remain deferred. The implemented deterministic gate authorizes only current manual or guarded scheduled PAPER/SHADOW evaluation; it has no broker trading capability.
 
 ## Implemented mandate risk-policy foundation
 
@@ -59,7 +59,7 @@ The Go `internal/risk` package defines provider-independent `ProposedAction`, no
 
 **No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine.**
 
-The package imports no connector or Neural Engine code and exposes no broker-write operation. The authenticated evaluation service builds normalized snapshots, loads applicable durable breakers, invokes the gate, and atomically persists its evidence with the non-live result. Both manual and guarded scheduled evaluation call this same service. Breaker mutation/reset APIs, realized daily P/L ingestion, exchange-holiday calendars, and broader orchestration remain deferred.
+The package imports no connector or Neural Engine code and exposes no broker-write operation. The authenticated evaluation service builds normalized snapshots, loads applicable durable breakers, invokes the gate, and atomically persists its evidence with the non-live result. Both manual and guarded scheduled evaluation call this same service. An authenticated founder can engage and release a durable automation-scoped emergency stop through the same owner-facing API and UI; both actions require an explicit confirmation and operator reason, are owner-scoped and audited, and never request a broker action. Global, user, and account breaker mutation workflows, administrative dual control, realized daily P/L ingestion, and broader orchestration remain deferred.
 
 ## Non-live strategy integration
 

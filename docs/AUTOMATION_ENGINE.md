@@ -91,7 +91,7 @@ Arbion must not store private model chain-of-thought. It stores user-appropriate
 
 ## Deferred implementation decisions
 
-Notification actions and additional transports, reservation accounting, broader mandate-diff significance, consequential approval UX, authoritative unscheduled-closure ingestion, broker-authoritative lifecycle ingestion, and live enablement remain deferred. Implemented schemas and APIs are limited to durable mandate/non-live state, manual or guarded scheduled PAPER/SHADOW evaluation, a reviewed finite NYSE calendar, explicit owner-attested PAPER Wheel lifecycle events, owner-opted informational schedule email, and read-only observations. This document authorizes no broker trading implementation.
+Notification actions and additional transports, reservation accounting, broader mandate-diff significance, consequential approval UX, authoritative unscheduled-closure ingestion, broker-authoritative lifecycle ingestion, and live enablement remain deferred. Implemented schemas and APIs are limited to durable mandate/non-live state, manual or guarded scheduled PAPER/SHADOW evaluation, a reviewed finite NYSE calendar, explicit owner-attested PAPER Wheel lifecycle events, owner-opted informational schedule email, read-only observations, and an audited owner-controlled automation emergency stop. The emergency stop is enforced by the deterministic risk gate and does not alter Schwab state. This document authorizes no broker trading implementation.
 
 ## Relationship to read-only financial connections
 
