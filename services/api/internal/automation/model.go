@@ -135,3 +135,8 @@ type ScheduleCommand struct {
 	ExpectedVersion    int                `json:"expected_version"`
 	ScheduleConditions ScheduleConditions `json:"schedule_conditions"`
 }
+
+type AutonomyCommand struct {
+	ExpectedVersion int    `json:"expected_version"`
+	AutonomyLevel   string `json:"autonomy_level"`
+}

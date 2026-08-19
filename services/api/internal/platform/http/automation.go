@@ -21,6 +21,7 @@ func registerAutomationRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("POST /api/automations", h.require(stdhttp.HandlerFunc(h.createAutomation)))
 	m.Handle("GET /api/automations/{id}", h.require(stdhttp.HandlerFunc(h.getAutomation)))
 	m.Handle("PATCH /api/automations/{id}", h.require(stdhttp.HandlerFunc(h.updateAutomation)))
+	m.Handle("PATCH /api/automations/{id}/autonomy", h.require(stdhttp.HandlerFunc(h.updateAutonomy)))
 	m.Handle("PATCH /api/automations/{id}/strategy-parameters", h.require(stdhttp.HandlerFunc(h.updateStrategyParameters)))
 	m.Handle("PATCH /api/automations/{id}/schedule", h.require(stdhttp.HandlerFunc(h.updateSchedule)))
 	for _, x := range []string{"ready", "pause", "disable", "archive"} {
@@ -152,6 +153,20 @@ func (h *authHandler) updateAutomation(w stdhttp.ResponseWriter, r *stdhttp.Requ
 			writeJSON(w, 200, map[string]any{"automation": v})
 		}
 		return e
+	})
+}
+
+func (h *authHandler) updateAutonomy(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.autoMutation(w, r, func() error {
+		var input automation.AutonomyCommand
+		if !decode(w, r, &input) {
+			return nil
+		}
+		updated, err := h.automation.UpdateAutonomy(r.Context(), principal(r), r.PathValue("id"), input.ExpectedVersion, input.AutonomyLevel)
+		if err == nil {
+			writeJSON(w, 200, map[string]any{"automation": updated, "live_execution_available": false})
+		}
+		return err
 	})
 }
 

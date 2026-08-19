@@ -356,6 +356,40 @@ func (s *Service) Update(c context.Context, p authorization.Principal, id string
 	return s.store.UpdateMandate(c, p.UserID, id, expected, cmd, u, "UI")
 }
 
+func (s *Service) UpdateAutonomy(c context.Context, p authorization.Principal, id string, expected int, autonomyLevel string) (Mandate, error) {
+	if !allowed(p) {
+		return Mandate{}, ErrForbidden
+	}
+	if autonomyLevel != "RESEARCH_ONLY" && autonomyLevel != "STRATEGY_AUTONOMOUS" {
+		return Mandate{}, ErrInvalid
+	}
+	old, err := s.store.GetMandate(c, p.UserID, id)
+	if err != nil {
+		return Mandate{}, ErrNotFound
+	}
+	if old.AutomationType != "STRATEGY" || old.StrategyIdentifier == nil || (old.ExecutionMode != "PAPER" && old.ExecutionMode != "SHADOW") {
+		return Mandate{}, ErrInvalid
+	}
+	cmd := commandFrom(old)
+	cmd.AutonomyLevel = autonomyLevel
+	unverified, err := s.validate(c, p, cmd, false)
+	if err != nil {
+		return Mandate{}, err
+	}
+	updated, err := s.store.UpdateMandate(c, p.UserID, id, expected, cmd, unverified, "UI")
+	if err == nil {
+		s.auditEvent(c, p, "automation_mandate.autonomy_changed", map[string]any{
+			"mandate_id":     id,
+			"version":        updated.CurrentVersion,
+			"from_autonomy":  old.AutonomyLevel,
+			"to_autonomy":    autonomyLevel,
+			"execution_mode": old.ExecutionMode,
+			"source":         "UI",
+		})
+	}
+	return updated, err
+}
+
 func (s *Service) UpdateStrategyParameters(c context.Context, p authorization.Principal, id string, expected int, parameters StrategyParameters) (Mandate, error) {
 	if !allowed(p) {
 		return Mandate{}, ErrForbidden

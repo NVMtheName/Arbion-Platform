@@ -213,6 +213,53 @@ func TestReadyPaperWheelAllowsUnknownOptionsCapability(t *testing.T) {
 	}
 }
 
+func TestAutonomyUpdateCreatesNonLiveDraftAndPreservesConfiguration(t *testing.T) {
+	f := baseStore()
+	wheel := "wheel"
+	f.created = Mandate{
+		ID:                 "m",
+		UserID:             founder.UserID,
+		FinancialAccountID: "a",
+		AutomationType:     "STRATEGY",
+		StrategyIdentifier: &wheel,
+		CapitalBucketID:    "b",
+		AutonomyLevel:      "RESEARCH_ONLY",
+		ExecutionMode:      "PAPER",
+		Status:             "READY",
+		CurrentVersion:     4,
+		StrategyParameters: []byte(`{"symbols":["AAPL"]}`),
+		ScheduleConditions: []byte(`{}`),
+		OptionsAllowed:     true,
+	}
+
+	updated, err := NewService(f, nil).UpdateAutonomy(context.Background(), founder, "m", 4, "STRATEGY_AUTONOMOUS")
+	if err != nil || updated.Status != "DRAFT" || updated.CurrentVersion != 5 {
+		t.Fatalf("autonomy update did not create a draft version: %#v %v", updated, err)
+	}
+	if f.updatedCommand.AutonomyLevel != "STRATEGY_AUTONOMOUS" || f.updatedCommand.ExecutionMode != "PAPER" || string(f.updatedCommand.ScheduleConditions) != `{}` {
+		t.Fatalf("autonomy update changed unrelated safety settings: %#v", f.updatedCommand)
+	}
+}
+
+func TestAutonomyUpdateRejectsLiveAndNonStrategyMandates(t *testing.T) {
+	f := baseStore()
+	wheel := "wheel"
+	f.created = Mandate{ID: "m", UserID: founder.UserID, FinancialAccountID: "a", AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: "b", AutonomyLevel: "RESEARCH_ONLY", ExecutionMode: "LIVE", CurrentVersion: 1, ScheduleConditions: []byte(`{}`)}
+	service := NewService(f, nil)
+	if _, err := service.UpdateAutonomy(context.Background(), founder, "m", 1, "STRATEGY_AUTONOMOUS"); err != ErrInvalid {
+		t.Fatalf("live autonomy update was accepted: %v", err)
+	}
+	f.created.AutomationType = "AI_AUTONOMOUS"
+	f.created.StrategyIdentifier = nil
+	f.created.ExecutionMode = "PAPER"
+	if _, err := service.UpdateAutonomy(context.Background(), founder, "m", 1, "STRATEGY_AUTONOMOUS"); err != ErrInvalid {
+		t.Fatalf("non-strategy autonomy update was accepted: %v", err)
+	}
+	if _, err := service.UpdateAutonomy(context.Background(), founder, "m", 1, "FULL_AUTONOMOUS"); err != ErrInvalid {
+		t.Fatalf("unsupported autonomy update was accepted: %v", err)
+	}
+}
+
 func TestReadyStrategyRequiresCompleteParameters(t *testing.T) {
 	f := baseStore()
 	wheel := "wheel"
