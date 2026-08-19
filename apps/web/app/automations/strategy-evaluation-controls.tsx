@@ -40,6 +40,26 @@ function configured(parameters: StrategyParameters) {
   );
 }
 
+function evaluationFailureMessage(code?: string) {
+  switch (code) {
+    case "AUTHORIZATION_FAILED":
+    case "AUTHORIZATION_EXPIRED":
+      return `The manual evaluation failed closed (${code}). Reconnect Schwab before trying again. Nothing was sent to Schwab.`;
+    case "PROVIDER_UNAVAILABLE":
+    case "RATE_LIMITED":
+    case "TIMEOUT":
+      return `The manual evaluation failed closed (${code}). Schwab market data is temporarily unavailable. Nothing was sent to Schwab.`;
+    case "INVALID_PROVIDER_RESPONSE":
+      return `The manual evaluation failed closed (${code}). Schwab returned market data Arbion could not safely validate. Nothing was sent to Schwab.`;
+    case "INVALID_STRATEGY":
+      return `The manual evaluation failed closed (${code}). The saved strategy or market-data snapshot did not pass validation. Nothing was sent to Schwab.`;
+    default:
+      return code
+        ? `The manual evaluation failed closed (${code}). Nothing was sent to Schwab.`
+        : "The manual evaluation failed closed. Nothing was sent to Schwab.";
+  }
+}
+
 export function StrategyEvaluationControls(props: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -112,12 +132,11 @@ export function StrategyEvaluationControls(props: Props) {
         risk_reason_codes?: string[];
         execution?: { status?: string };
       };
+      error?: { code?: string };
     };
     setBusy(false);
     if (!response.ok || !body.evaluation) {
-      setMessage(
-        "The manual evaluation failed closed. Nothing was sent to Schwab.",
-      );
+      setMessage(evaluationFailureMessage(body.error?.code));
       return;
     }
     const reasons = body.evaluation.risk_reason_codes?.join(", ") || "none";
