@@ -13,6 +13,7 @@ import {
   type StrategyScheduleStatus,
 } from "../strategy-schedule-controls";
 import { StrategyLifecycleControls } from "../strategy-lifecycle-controls";
+import { StrategyInstanceControls } from "../strategy-instance-controls";
 import {
   PaperPortfolioSummary,
   type PaperPortfolio,
@@ -180,22 +181,31 @@ export default async function MandateReview({
             }
           />
           {instance && (
-            <StrategyLifecycleControls
-              instanceId={instanceID}
-              currentState={String(
-                instance.CurrentState ?? instance.current_state ?? "",
-              )}
-              stateVersion={Number(
-                instance.StateVersion ?? instance.state_version ?? 0,
-              )}
-              status={String(instance.Status ?? instance.status ?? "")}
-              executionMode={read("execution_mode", "ExecutionMode")}
-              strategyIdentifier={read(
-                "strategy_identifier",
-                "StrategyIdentifier",
-              )}
-              openPosition={openPaperOption}
-            />
+            <>
+              <StrategyLifecycleControls
+                instanceId={instanceID}
+                currentState={String(
+                  instance.CurrentState ?? instance.current_state ?? "",
+                )}
+                stateVersion={Number(
+                  instance.StateVersion ?? instance.state_version ?? 0,
+                )}
+                status={String(instance.Status ?? instance.status ?? "")}
+                executionMode={read("execution_mode", "ExecutionMode")}
+                strategyIdentifier={read(
+                  "strategy_identifier",
+                  "StrategyIdentifier",
+                )}
+                openPosition={openPaperOption}
+              />
+              <StrategyInstanceControls
+                instanceId={instanceID}
+                status={String(instance.Status ?? instance.status ?? "")}
+                stateVersion={Number(
+                  instance.StateVersion ?? instance.state_version ?? 0,
+                )}
+              />
+            </>
           )}
         </>
       )}

@@ -76,7 +76,7 @@ func main() {
 	financialConnections := financialconnection.NewService(financialconnection.NewPostgresStore(pool), vault, states, schwabClient, users)
 	automations := automation.NewService(automation.NewPostgresStore(pool), users)
 	strategyStore := strategy.NewPostgresStore(pool)
-	strategies := strategy.NewInstanceService(strategyStore, automations)
+	strategies := strategy.NewInstanceService(strategyStore, automations, users)
 	evaluations := strategy.NewEvaluationService(strategyStore, automations, financialConnections)
 	if cfg.Scheduler.Enabled {
 		notifications := automationnotification.NewEmailSender(emailSender, cfg.Email.PublicBaseURL)

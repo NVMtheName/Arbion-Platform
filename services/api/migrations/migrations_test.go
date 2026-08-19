@@ -136,3 +136,15 @@ func TestStrategyCapitalBucketBindingIsOwnerScopedAndExclusive(t *testing.T) {
 		}
 	}
 }
+
+func TestNonLiveAccountExclusivityFailsClosedWithoutReservationLedger(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00015_nonlive_account_exclusivity.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"strategy_one_active_account_idx", "user_id,financial_account_id", "status IN ('ACTIVE','PAUSED')", "aggregate reservation accounting"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("non-live account exclusivity migration missing %q", required)
+		}
+	}
+}

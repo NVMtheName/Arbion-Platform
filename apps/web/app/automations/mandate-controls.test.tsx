@@ -97,6 +97,27 @@ describe("MandateControls", () => {
     expect(navigation.refresh).not.toHaveBeenCalled();
   });
 
+  it("explains conservative account-level capital isolation", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      json: async () => ({ error: { code: "ACCOUNT_CAPITAL_IN_USE" } }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<MandateControls {...base} status="READY" />);
+
+    fireEvent.change(screen.getByLabelText(/starting simulated cash/i), {
+      target: { value: "1" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /initialize paper strategy/i }),
+    );
+
+    expect(
+      await screen.findByText(/already has an active or paused simulation/i),
+    ).toBeInTheDocument();
+    expect(navigation.refresh).not.toHaveBeenCalled();
+  });
+
   it("does not offer initialization for live configuration", () => {
     render(<MandateControls {...base} status="READY" executionMode="LIVE" />);
     expect(

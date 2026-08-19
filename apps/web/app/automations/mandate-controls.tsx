@@ -71,11 +71,17 @@ export function MandateControls(props: MandateControlsProps) {
       const body = (await response.json().catch(() => null)) as {
         error?: { code?: string };
       } | null;
-      setMessage(
-        body?.error?.code === "PAPER_CAPITAL_LIMIT"
-          ? "Starting simulated cash must fit within the selected capital bucket after protected amounts and absolute limits."
-          : "The non-live strategy could not be initialized.",
-      );
+      if (body?.error?.code === "PAPER_CAPITAL_LIMIT") {
+        setMessage(
+          "Starting simulated cash must fit within the selected capital bucket after protected amounts and absolute limits.",
+        );
+      } else if (body?.error?.code === "ACCOUNT_CAPITAL_IN_USE") {
+        setMessage(
+          "This financial account already has an active or paused simulation. Finish that strategy before starting another; paused strategies keep their capital claim.",
+        );
+      } else {
+        setMessage("The non-live strategy could not be initialized.");
+      }
       return;
     }
     setMessage(
