@@ -117,6 +117,70 @@ describe("StrategyEvaluationControls", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a safe validation reason when an evaluation fails closed", async () => {
+    const fetchMock = vi
+      .fn<
+        (
+          input: RequestInfo | URL,
+          init?: RequestInit,
+        ) => Promise<{ ok: boolean; json: () => Promise<object> }>
+      >()
+      .mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: { code: "INVALID_STRATEGY" } }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <StrategyEvaluationControls
+        {...base}
+        instanceId="instance-1"
+        instanceStatus="ACTIVE"
+        strategyParameters={configured}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /run manual paper evaluation/i }),
+    );
+
+    expect(
+      await screen.findByText(/INVALID_STRATEGY.*did not pass validation/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/nothing was sent to Schwab/i)).toBeInTheDocument();
+  });
+
+  it("shows a safe authorization reason without exposing provider details", async () => {
+    const fetchMock = vi
+      .fn<
+        (
+          input: RequestInfo | URL,
+          init?: RequestInit,
+        ) => Promise<{ ok: boolean; json: () => Promise<object> }>
+      >()
+      .mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: { code: "AUTHORIZATION_EXPIRED" } }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <StrategyEvaluationControls
+        {...base}
+        instanceId="instance-1"
+        instanceStatus="ACTIVE"
+        strategyParameters={configured}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /run manual paper evaluation/i }),
+    );
+
+    expect(
+      await screen.findByText(/AUTHORIZATION_EXPIRED.*Reconnect Schwab/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/nothing was sent to Schwab/i)).toBeInTheDocument();
+  });
+
   it("does not offer manual evaluation while the instance is paused", () => {
     render(
       <StrategyEvaluationControls
