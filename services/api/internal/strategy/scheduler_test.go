@@ -96,6 +96,22 @@ func TestSchedulerFailsClosedOutsideSessionAndWhileWaitingForLifecycle(t *testin
 	}
 }
 
+func TestSchedulerFailsClosedWhenSessionCalendarIsUnavailable(t *testing.T) {
+	now := time.Date(2029, 1, 2, 16, 0, 0, 0, time.UTC)
+	store := &scheduleStoreFake{run: scheduledRun(ReadyForPut, now)}
+	evaluator := &scheduledEvaluatorFake{}
+	scheduler := NewScheduler(store, evaluator)
+	scheduler.now = func() time.Time { return now }
+
+	claimed, err := scheduler.RunOnce(context.Background())
+	if err != nil || !claimed {
+		t.Fatalf("run was not safely completed: %v", err)
+	}
+	if evaluator.calls != 0 || store.completion.Status != "FAILED" || store.completion.ErrorCode != "SESSION_CALENDAR_UNAVAILABLE" || !store.completion.NextRunAt.Equal(now.Add(24*time.Hour)) {
+		t.Fatalf("unsupported calendar did not fail closed: calls=%d completion=%#v", evaluator.calls, store.completion)
+	}
+}
+
 func TestSchedulerTreatsCommittedDuplicateAsRecoveredSuccess(t *testing.T) {
 	now := time.Date(2026, 8, 18, 15, 0, 0, 0, time.UTC)
 	store := &scheduleStoreFake{run: scheduledRun(ReadyForCall, now)}

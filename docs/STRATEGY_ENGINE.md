@@ -65,7 +65,7 @@ See [Automation Engine](AUTOMATION_ENGINE.md), [Risk and Control Engine](RISK_CO
 
 ## Deferred decisions
 
-The remaining strategy-definition format, complete transition/event taxonomy, production-grade fill simulation, corporate actions, broker-authoritative assignment/exercise ingestion, multi-leg atomicity, exchange-holiday calendars, deterministic replay requirements, state migration, mode-switch policy, broader orchestration, and backtester remain for later design. The current implementation is deliberately limited to explicit manual or opt-in scheduled PAPER/SHADOW evaluation plus owner-attested PAPER Wheel lifecycle events.
+The remaining strategy-definition format, complete transition/event taxonomy, production-grade fill simulation, corporate actions, broker-authoritative assignment/exercise ingestion, multi-leg atomicity, authoritative unscheduled-closure ingestion and calendar-horizon maintenance, deterministic replay requirements, state migration, mode-switch policy, broader orchestration, and backtester remain for later design. The current implementation is deliberately limited to explicit manual or opt-in scheduled PAPER/SHADOW evaluation plus owner-attested PAPER Wheel lifecycle events.
 
 ## Implemented configuration registry
 

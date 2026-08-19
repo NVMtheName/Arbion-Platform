@@ -79,7 +79,7 @@ Future manual trading is equally UI-complete: account, instrument, side, quantit
 
 ## Server-side operation and administration
 
-Authorized automation operates server-side; browser presence and login-session lifetime are irrelevant. The implemented opt-in scheduler evaluates only current READY, `STRATEGY_AUTONOMOUS` PAPER/SHADOW strategy versions. It uses database leases and stable event IDs, and it cannot preview or submit an order. A mandate version may separately opt into informational email after each completed evaluation, on the first lifecycle-required observation, or on the first consecutive failure. Broader workers that request AI analysis, execute live work, monitor orders, reconcile, or expose actionable notifications remain unimplemented.
+Authorized automation operates server-side; browser presence and login-session lifetime are irrelevant. The implemented opt-in scheduler evaluates only current READY, `STRATEGY_AUTONOMOUS` PAPER/SHADOW strategy versions. It uses database leases and stable event IDs, and it cannot preview or submit an order. Its reviewed NYSE calendar covers the exchange-published 2026-2028 closures and early closes, retains the conservative 9:35 a.m. open and five-minute pre-close cutoff, and fails closed with `SESSION_CALENDAR_UNAVAILABLE` outside that horizon. A mandate version may separately opt into informational email after each completed evaluation, on the first lifecycle-required observation, or on the first consecutive failure. Broader workers that request AI analysis, execute live work, monitor orders, reconcile, or expose actionable notifications remain unimplemented.
 
 Future superadmin operations may show automation, worker, execution, provider, and reconciliation health. They must not reveal plaintext user credentials. Automation-, account-, user-, and global-level emergency controls are audited domain actions; administrative authority does not bypass user boundaries or safety policy.
 
@@ -91,7 +91,7 @@ Arbion must not store private model chain-of-thought. It stores user-appropriate
 
 ## Deferred implementation decisions
 
-Notification actions and additional transports, reservation accounting, broader mandate-diff significance, consequential approval UX, exchange-holiday calendars, broker-authoritative lifecycle ingestion, and live enablement remain deferred. Implemented schemas and APIs are limited to durable mandate/non-live state, manual or guarded scheduled PAPER/SHADOW evaluation, explicit owner-attested PAPER Wheel lifecycle events, owner-opted informational schedule email, and read-only observations. This document authorizes no broker trading implementation.
+Notification actions and additional transports, reservation accounting, broader mandate-diff significance, consequential approval UX, authoritative unscheduled-closure ingestion, broker-authoritative lifecycle ingestion, and live enablement remain deferred. Implemented schemas and APIs are limited to durable mandate/non-live state, manual or guarded scheduled PAPER/SHADOW evaluation, a reviewed finite NYSE calendar, explicit owner-attested PAPER Wheel lifecycle events, owner-opted informational schedule email, and read-only observations. This document authorizes no broker trading implementation.
 
 ## Relationship to read-only financial connections
 

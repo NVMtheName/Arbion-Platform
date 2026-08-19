@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
-	_ "time/tzdata"
 
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/automationnotification"
@@ -83,8 +82,13 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 	if run.ExecutionMode != Paper && run.ExecutionMode != Shadow {
 		completion.Status, completion.ErrorCode = "FAILED", "UNSUPPORTED_MODE"
 	} else if !inRegularSession(now) {
-		completion.Status, completion.ErrorCode = "SKIPPED", "OUTSIDE_SESSION"
-		completion.NextRunAt = nextRegularSession(now)
+		if nextRunAt, ok := nextRegularSession(now); ok {
+			completion.Status, completion.ErrorCode = "SKIPPED", "OUTSIDE_SESSION"
+			completion.NextRunAt = nextRunAt
+		} else {
+			completion.Status, completion.ErrorCode = "FAILED", "SESSION_CALENDAR_UNAVAILABLE"
+			completion.NextRunAt = now.Add(24 * time.Hour)
+		}
 	} else if !actionableState(run.CurrentState) {
 		completion.Status, completion.ErrorCode = "SKIPPED", "WAITING_FOR_LIFECYCLE"
 	} else {
@@ -160,35 +164,4 @@ func classifyScheduleError(err error) string {
 		return "PROVIDER"
 	}
 	return "INTERNAL"
-}
-
-var easternLocation = func() *time.Location {
-	location, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		panic("embedded America/New_York timezone unavailable")
-	}
-	return location
-}()
-
-func inRegularSession(at time.Time) bool {
-	local := at.In(easternLocation)
-	if local.Weekday() == time.Saturday || local.Weekday() == time.Sunday {
-		return false
-	}
-	minutes := local.Hour()*60 + local.Minute()
-	return minutes >= 9*60+35 && minutes < 15*60+55
-}
-
-func nextRegularSession(after time.Time) time.Time {
-	local := after.In(easternLocation)
-	for dayOffset := 0; ; dayOffset++ {
-		day := local.AddDate(0, 0, dayOffset)
-		if day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
-			continue
-		}
-		candidate := time.Date(day.Year(), day.Month(), day.Day(), 9, 35, 0, 0, easternLocation)
-		if candidate.After(local) {
-			return candidate.UTC()
-		}
-	}
 }
