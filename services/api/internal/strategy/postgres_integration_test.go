@@ -118,6 +118,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	var state State
 	var version int
 	var cash string
+	var status string
 	if err = pool.QueryRow(ctx, `SELECT current_state,state_version FROM strategy_instances WHERE id=$1`, instance.ID).Scan(&state, &version); err != nil || state != ReadyForPut || version != 1 {
 		t.Fatalf("risk denial advanced state: %s v%d %v", state, version, err)
 	}
@@ -136,6 +137,12 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	}
 	if err = pool.QueryRow(ctx, `SELECT current_state,state_version FROM strategy_instances WHERE id=$1`, instance.ID).Scan(&state, &version); err != nil || state != ShortPutOpen || version != 2 {
 		t.Fatalf("paper fill did not advance state: %s v%d %v", state, version, err)
+	}
+	if _, err = store.Finish(ctx, userID, instance.ID, 2, fillTime.Add(time.Second)); !errors.Is(err, ErrOpenExposure) {
+		t.Fatalf("open PAPER exposure released the account claim: %v", err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT status,state_version FROM strategy_instances WHERE id=$1`, instance.ID).Scan(&status, &version); err != nil || status != "ACTIVE" || version != 2 {
+		t.Fatalf("rejected finish changed the strategy instance: %s v%d %v", status, version, err)
 	}
 	if err = pool.QueryRow(ctx, `SELECT cash::text FROM paper_portfolios WHERE strategy_instance_id=$1`, instance.ID).Scan(&cash); err != nil || cash != "20125.0000000000" {
 		t.Fatalf("paper premium was not isolated: %s %v", cash, err)

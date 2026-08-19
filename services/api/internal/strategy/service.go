@@ -18,6 +18,7 @@ var (
 	ErrConflict     = errors.New("strategy instance conflict")
 	ErrCapitalLimit = errors.New("paper starting cash exceeds capital bucket capacity")
 	ErrAccountInUse = errors.New("financial account already has an active non-live strategy")
+	ErrOpenExposure = errors.New("paper strategy still has open simulated positions")
 )
 
 type Persistence interface {

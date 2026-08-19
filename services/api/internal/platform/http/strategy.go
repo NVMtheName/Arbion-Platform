@@ -105,6 +105,8 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 422, "PAPER_CAPITAL_LIMIT", "Starting simulated cash exceeds the selected capital bucket's protected capacity.")
 	case errors.Is(e, strategy.ErrAccountInUse):
 		writeError(w, 409, "ACCOUNT_CAPITAL_IN_USE", "This financial account already has an active or paused non-live strategy.")
+	case errors.Is(e, strategy.ErrOpenExposure):
+		writeError(w, 409, "PAPER_POSITION_OPEN", "Resolve every open simulated position before finishing this PAPER strategy.")
 	case errors.Is(e, strategy.ErrConflict):
 		writeError(w, 409, "STRATEGY_CONFLICT", "The strategy state changed or this request conflicts with an existing record.")
 	case errors.Is(e, strategy.ErrDuplicate):
