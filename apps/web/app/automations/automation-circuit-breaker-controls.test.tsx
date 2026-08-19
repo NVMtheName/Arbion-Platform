@@ -100,6 +100,42 @@ describe("AutomationCircuitBreakerControls", () => {
     expect(screen.getByRole("status")).toHaveTextContent(/may evaluate/i);
   });
 
+  it("never carries an engage confirmation into the release form", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(
+      <AutomationCircuitBreakerControls
+        automationId="mandate-1"
+        breaker={null}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/why are you stopping it/i), {
+      target: { value: "Unexpected market data needs review" },
+    });
+    fireEvent.click(screen.getByLabelText(/immediately blocks new actions/i));
+    fireEvent.click(
+      screen.getByRole("button", { name: /engage emergency stop/i }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    rerender(
+      <AutomationCircuitBreakerControls
+        automationId="mandate-1"
+        breaker={{
+          id: "breaker-1",
+          scope: "AUTOMATION",
+          scope_id: "mandate-1",
+          state: "OPEN",
+          reason: "Unexpected market data needs review",
+          source: "UI",
+          engaged_at: "2026-08-19T18:00:00Z",
+        }}
+      />,
+    );
+
+    expect(screen.getByLabelText(/reviewed the cause/i)).not.toBeChecked();
+  });
+
   it("does not refresh when the breaker state conflicts", async () => {
     vi.stubGlobal(
       "fetch",
