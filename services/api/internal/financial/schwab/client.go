@@ -467,11 +467,15 @@ func providerInt(value decimal) (*int, error) {
 	if value == "" {
 		return nil, nil
 	}
-	parsed, err := value.Int64()
-	if err != nil || parsed < 0 || int64(int(parsed)) != parsed {
+	parsed, ok := new(big.Rat).SetString(value.String())
+	if !ok || parsed.Sign() < 0 || !parsed.IsInt() || !parsed.Num().IsInt64() {
 		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("provider integer is malformed")}
 	}
-	result := int(parsed)
+	integer := parsed.Num().Int64()
+	if int64(int(integer)) != integer {
+		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("provider integer is malformed")}
+	}
+	result := int(integer)
 	return &result, nil
 }
 
