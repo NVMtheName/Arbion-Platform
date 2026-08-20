@@ -1,4 +1,5 @@
-import { redirect } from "next/navigation";
+import { LandingExperience } from "./landing-experience";
+
 export default function Home() {
-  redirect("/dashboard");
+  return <LandingExperience />;
 }

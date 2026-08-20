@@ -18,6 +18,7 @@ export function ArbionBrand({
       width={1402}
       height={380}
       alt="Arbion"
+      loading={priority ? "eager" : undefined}
       priority={priority}
     />
   );
