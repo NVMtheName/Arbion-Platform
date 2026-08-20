@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import { MotionProvider } from "./motion-provider";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "Arbion",
-  description: "A secure workspace for disciplined financial decisions.",
+  title: {
+    default: "Arbion — Your financial command center",
+    template: "%s · Arbion",
+  },
+  description:
+    "A source-aware financial command center for disciplined, explainable decisions.",
 };
 
 export default function RootLayout({
@@ -13,7 +18,9 @@ export default function RootLayout({
 }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <MotionProvider>{children}</MotionProvider>
+      </body>
     </html>
   );
 }
