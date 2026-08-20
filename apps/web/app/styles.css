@@ -43,6 +43,22 @@ body {
   width: min(200px, 56vw);
   margin-bottom: 14px;
 }
+.auth-assurance {
+  display: grid;
+  gap: 5px;
+  margin-top: 22px;
+  padding: 16px 18px;
+  border: 1px solid #315447;
+  border-left: 3px solid var(--brand-cyan);
+  border-radius: 12px;
+  background: rgba(25, 201, 214, 0.06);
+  color: #cfe4da;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.auth-assurance strong {
+  color: #edf7f1;
+}
 .dashboard-brand {
   width: min(154px, 36vw);
 }

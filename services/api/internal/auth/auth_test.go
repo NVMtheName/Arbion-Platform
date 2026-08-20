@@ -352,6 +352,9 @@ func TestRequiredEmailVerificationCreatesNoSessionAndUsesHashedSingleUseToken(t 
 	if err != nil || sessionToken != "" || user.Status != "pending_verification" || len(sender.messages) != 1 {
 		t.Fatalf("pending registration failed: user=%#v token=%q messages=%d error=%v", user, sessionToken, len(sender.messages), err)
 	}
+	if !strings.Contains(sender.messages[0].HTML, "https://www.arbion.ai/brand/arbion-wordmark.svg") || !strings.Contains(sender.messages[0].HTML, "Verify email") {
+		t.Fatal("verification email did not include the Arbion-branded HTML alternative")
+	}
 	rawToken := tokenFromMessage(t, sender.messages[0])
 	if bytes.Contains(tokens.hash, []byte(rawToken)) || len(tokens.hash) != sha256.Size {
 		t.Fatal("token store retained a raw or malformed email token")
@@ -391,6 +394,9 @@ func TestPasswordResetIsGenericSingleUseAndRevokesSessions(t *testing.T) {
 	}
 	if err = service.RequestPasswordReset(context.Background(), "PERSON@example.com", "ip-user"); err != nil || len(sender.messages) != 1 {
 		t.Fatalf("password reset request failed: messages=%d error=%v", len(sender.messages), err)
+	}
+	if !strings.Contains(sender.messages[0].HTML, "https://www.arbion.ai/brand/arbion-wordmark.svg") || !strings.Contains(sender.messages[0].HTML, "Reset password") {
+		t.Fatal("password reset email did not include the Arbion-branded HTML alternative")
 	}
 	rawToken := tokenFromMessage(t, sender.messages[0])
 	if err = service.ResetPassword(context.Background(), rawToken, "a different secure passphrase", "ip"); err != nil {

@@ -63,12 +63,28 @@ export function EmailRequestForm({
     <main className="auth-page">
       <section className="auth-card">
         <ArbionBrand className="auth-brand" priority />
-        <h1>{verification ? "Verify your email." : "Reset your password."}</h1>
+        <h1>
+          {verification && initialSent
+            ? "Check your inbox."
+            : verification
+              ? "Verify your email."
+              : "Reset your password."}
+        </h1>
         <p className="lede">
-          {verification
-            ? "Enter your registered email and we’ll send a new secure verification link."
-            : "Enter your registered email and we’ll send a secure, single-use reset link."}
+          {verification && initialSent
+            ? "Your invited Arbion account is protected until you confirm the secure, single-use link we sent."
+            : verification
+              ? "Enter your registered email and we’ll send a new secure verification link."
+              : "Enter your registered email and we’ll send a secure, single-use reset link."}
         </p>
+        {verification && initialSent && (
+          <div className="auth-assurance" role="note">
+            <strong>One final secure step</strong>
+            <span>
+              The link expires after 24 hours and can be used only once.
+            </span>
+          </div>
+        )}
         <form onSubmit={submit}>
           <label>
             Email
@@ -91,7 +107,11 @@ export function EmailRequestForm({
             </p>
           )}
           <button disabled={busy}>
-            {busy ? "Please wait…" : "Send secure link"}
+            {busy
+              ? "Please wait…"
+              : verification && initialSent
+                ? "Send another link"
+                : "Send secure link"}
           </button>
         </form>
         <p className="switch">

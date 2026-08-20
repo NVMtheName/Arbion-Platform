@@ -221,9 +221,9 @@ func (s *Service) sendEmailToken(ctx context.Context, user User, purpose EmailTo
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	hash := sha256.Sum256([]byte(token))
 	now := s.now().UTC()
-	ttl, route, subject, intro := s.emailPolicy.VerificationTTL, "/verify-email", "Verify your Arbion email", "Verify your email address to activate your Arbion account."
+	ttl, route, subject, intro, action := s.emailPolicy.VerificationTTL, "/verify-email", "Verify your Arbion email", "Verify your email address to activate your Arbion account.", "Verify email"
 	if purpose == ResetPasswordToken {
-		ttl, route, subject, intro = s.emailPolicy.PasswordResetTTL, "/reset-password", "Reset your Arbion password", "A password reset was requested for your Arbion account."
+		ttl, route, subject, intro, action = s.emailPolicy.PasswordResetTTL, "/reset-password", "Reset your Arbion password", "A password reset was requested for your Arbion account.", "Reset password"
 	}
 	if ttl <= 0 {
 		return errors.New("email token lifetime is not configured")
@@ -232,7 +232,20 @@ func (s *Service) sendEmailToken(ctx context.Context, user User, purpose EmailTo
 		return err
 	}
 	link := strings.TrimRight(s.emailPolicy.PublicBaseURL, "/") + route + "#token=" + token
-	message := mailer.Message{To: user.NormalizedEmail, Subject: subject, Text: fmt.Sprintf("%s\n\nOpen this secure link:\n%s\n\nThis link expires in %s and can be used once. If you did not request this, you can ignore this email.\n", intro, link, ttl)}
+	detail := fmt.Sprintf("This link expires in %s and can be used once. If you did not request this, you can safely ignore this email.", ttl)
+	html, err := mailer.RenderBrandedHTML(mailer.BrandedEmailContent{
+		Preheader:   subject,
+		LogoURL:     strings.TrimRight(s.emailPolicy.PublicBaseURL, "/") + "/brand/arbion-wordmark.svg",
+		Heading:     subject,
+		Intro:       intro,
+		ActionLabel: action,
+		ActionURL:   link,
+		Detail:      detail,
+	})
+	if err != nil {
+		return err
+	}
+	message := mailer.Message{To: user.NormalizedEmail, Subject: subject, Text: fmt.Sprintf("%s\n\nOpen this secure link:\n%s\n\n%s\n", intro, link, detail), HTML: html}
 	return s.emailSender.Send(ctx, message)
 }
 
