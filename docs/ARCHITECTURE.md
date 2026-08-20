@@ -60,6 +60,7 @@ The permanent domain design is split into focused specifications:
 - [Strategy Engine](STRATEGY_ENGINE.md) defines deterministic state machines shared across backtest, paper, shadow, and live adapters.
 - [Execution Engine](EXECUTION_ENGINE.md) defines provider-independent Order Intents, lifecycle, idempotency, capability discovery, and broker reconciliation.
 - [Risk and Control Engine](RISK_CONTROL_ENGINE.md) defines the authoritative deterministic gate and non-bypassable circuit breakers.
+- [Market Intelligence and Command Center](MARKET_INTELLIGENCE.md) defines independent read-only market sources, feed quality, provenance, freshness, caching, and the branded command-center boundary.
 
 ### Neural Engine
 
@@ -74,6 +75,8 @@ The Neural Engine receives only the minimum data and tools authorized for a requ
 Financial connectors live behind narrow provider-independent Go interfaces and adapters. Schwab currently implements delegated authorization plus read-only accounts, balances, positions, quotes, and option chains. Candidate future providers include E\*TRADE, Coinbase, Alpaca, and Interactive Brokers. No connector exposes order preview, placement, cancellation, or another broker-write operation.
 
 The connector layer is subordinate to the control plane: it translates approved operations but does not decide whether they are allowed. See [Connectors](CONNECTORS.md).
+
+Independent market-data credentials and reads must not be forced through a user's broker connection. The provider-neutral market-intelligence foundation in Go defines declared source roles, exact normalized observations, freshness/feed-quality policy, and fixture-tested read-only Alpaca, CoinGecko, and SEC EDGAR adapters. Its authenticated source catalog and branded `/markets` shell keep every external source disabled until runtime configuration and health verification are implemented. Alpaca is the proposed equity/option data source, CoinGecko the proposed crypto reference source, and SEC EDGAR the primary insider-filing source. See [Market Intelligence and Command Center](MARKET_INTELLIGENCE.md).
 
 ## Controlled tool flow
 

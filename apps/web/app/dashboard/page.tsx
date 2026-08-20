@@ -92,6 +92,12 @@ export default async function Dashboard() {
           <p>Read-only PAPER and SHADOW decision evidence</p>
           <Link href="/activity">Review activity</Link>
         </article>
+        <article>
+          <span className="icon">◌</span>
+          <h2>Market Command Center</h2>
+          <p>Source-stamped equities, crypto, and insider intelligence</p>
+          <Link href="/markets">View market intelligence</Link>
+        </article>
       </section>
       <InsightPanel
         configured={preference !== null}

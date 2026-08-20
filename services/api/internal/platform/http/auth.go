@@ -16,6 +16,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/automation"
 	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/financialconnection"
+	"github.com/arbion/platform/services/api/internal/marketintelligence"
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/risk"
@@ -28,6 +29,7 @@ type authHandler struct {
 	admin                  *authorization.Service
 	ai                     *aiconnection.Service
 	financialProviders     financial.Registry
+	marketSources          []marketintelligence.Source
 	schwabConfigured       bool
 	financial              *financialconnection.Service
 	automation             *automation.Service
@@ -86,7 +88,7 @@ func NewApplicationHandler(database ReadinessChecker, timeout config.Config, ser
 }
 
 func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances ...*financialconnection.Service) stdhttp.Handler {
-	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp"}
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), marketSources: marketintelligence.DefaultSources(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp"}
 	if len(finances) > 0 {
 		h.financial = finances[0]
 	}
@@ -127,6 +129,7 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.Handle("POST /api/neural/insight", h.require(stdhttp.HandlerFunc(h.neuralInsight)))
 	mux.Handle("DELETE /api/connections/ai/{id}", h.require(stdhttp.HandlerFunc(h.deleteAI)))
 	mux.Handle("GET /api/connections/financial/providers", h.require(stdhttp.HandlerFunc(h.listFinancialProviders)))
+	mux.Handle("GET /api/markets/sources", h.require(stdhttp.HandlerFunc(h.listMarketSources)))
 	if h.financial != nil {
 		mux.Handle("GET /api/connections/financial", h.require(stdhttp.HandlerFunc(h.listFinancialConnections)))
 		mux.Handle("POST /api/connections/financial/schwab/start", h.require(stdhttp.HandlerFunc(h.startSchwab)))
@@ -164,7 +167,7 @@ func firstStrategy(strategies []*strategy.InstanceService) *strategy.InstanceSer
 }
 
 func newFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService, breakers ...breakerController) stdhttp.Handler {
-	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp", financial: finances, automation: automations}
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), marketSources: marketintelligence.DefaultSources(), schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp", financial: finances, automation: automations}
 	h.strategies = strategies
 	h.evaluations = evaluations
 	if len(breakers) > 0 {
