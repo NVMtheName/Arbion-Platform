@@ -759,6 +759,159 @@ button:disabled {
 .journal-pagination {
   margin-top: 30px;
 }
+.markets-page {
+  max-width: 1180px;
+  padding-top: 8vh;
+}
+.market-safety {
+  display: grid;
+  gap: 8px;
+  margin: 34px 0;
+  padding: 18px 20px;
+  border: 1px solid #377c58;
+  border-radius: 12px;
+  color: #cfe4da;
+  background: rgba(94, 224, 160, 0.07);
+  line-height: 1.5;
+}
+.market-safety strong {
+  color: #7cebb1;
+}
+.market-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 38px 0 58px;
+}
+.market-summary article {
+  display: grid;
+  gap: 10px;
+  padding: 22px;
+  border: 1px solid #244237;
+  border-radius: 14px;
+  background: #0b1b15cc;
+}
+.market-summary span,
+.market-summary small,
+.market-section > div > p:last-child,
+.market-policy-grid p {
+  color: #8ba198;
+  line-height: 1.55;
+}
+.market-summary strong {
+  color: #edf7f1;
+  font-size: 1.65rem;
+}
+.market-section > div {
+  max-width: 720px;
+}
+.market-section h2 {
+  margin: 8px 0;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+}
+.market-source-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 28px;
+}
+.market-source-card {
+  padding: 22px;
+  border: 1px solid #244237;
+  border-radius: 16px;
+  background: #091a14;
+}
+.market-source-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.market-source-card h3 {
+  margin: 4px 0 0;
+  font-size: 1.25rem;
+}
+.market-source-role {
+  margin: 0;
+  color: #8ba198;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.market-source-status {
+  flex-shrink: 0;
+  padding: 6px 9px;
+  border: 1px solid #46564f;
+  border-radius: 999px;
+  color: #b8c7c0;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+.market-source-status.available {
+  color: #7cebb1;
+  border-color: #377c58;
+}
+.market-source-status.degraded {
+  color: #f3d79a;
+  border-color: #7c6540;
+}
+.market-source-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 22px 0 16px;
+}
+.market-source-card dl div {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid #244237;
+  border-radius: 10px;
+  background: #07110e;
+}
+.market-source-card dt {
+  color: #8ba198;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.market-source-card dd {
+  margin: 0;
+  color: #cfe4da;
+  text-transform: capitalize;
+}
+.market-source-card ul {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.market-source-card li {
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: #aabbb3;
+  background: #10271e;
+  font-size: 0.75rem;
+  text-transform: capitalize;
+}
+.market-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 54px;
+}
+.market-policy-grid article {
+  padding: 26px;
+  border: 1px solid #244237;
+  border-radius: 18px;
+  background: #0b1b15cc;
+}
+.market-policy-grid a {
+  color: var(--brand-cyan);
+}
 @media (max-width: 700px) {
   .dashboard-grid {
     grid-template-columns: 1fr;
@@ -774,6 +927,11 @@ button:disabled {
   .journal-rationale,
   .paper-portfolio-summary,
   .paper-contract-facts {
+    grid-template-columns: 1fr;
+  }
+  .market-summary,
+  .market-source-grid,
+  .market-policy-grid {
     grid-template-columns: 1fr;
   }
   .journal-entry > header,

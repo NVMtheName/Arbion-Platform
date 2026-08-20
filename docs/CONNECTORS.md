@@ -14,6 +14,8 @@ Connectors belong in the Go modular monolith because Go owns the control plane a
 
 Platform modules should depend on narrow capability interfaces rather than provider SDKs or wire formats. Provider-specific authentication, endpoints, identifiers, pagination, rate limits, errors, asset conventions, and order semantics stay behind adapters.
 
+Connected-broker reads and independent market-data subscriptions have different identity and credential lifecycles. The existing Schwab market-data capability may use the user's delegated broker authorization. Alpaca, CoinGecko, SEC EDGAR, and another independent source instead belong behind the provider-neutral market-intelligence boundary described in [Market Intelligence and Command Center](MARKET_INTELLIGENCE.md); they must not fabricate a brokerage account or reuse a user's broker token.
+
 Conceptual capabilities may eventually include:
 
 - accounts and account metadata;
