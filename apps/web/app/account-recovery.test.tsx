@@ -26,6 +26,20 @@ afterEach(() => {
 });
 
 describe("Account recovery", () => {
+  it("shows an Arbion-branded verification handoff after registration", () => {
+    render(<EmailRequestForm kind="verification" initialSent />);
+    expect(screen.getByRole("img", { name: "Arbion" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /check your inbox/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent(
+      /one final secure step/i,
+    );
+    expect(
+      screen.getByRole("button", { name: /send another link/i }),
+    ).toBeInTheDocument();
+  });
+
   it("shows the same password-reset acknowledgement without exposing account state", async () => {
     const request = vi
       .fn()

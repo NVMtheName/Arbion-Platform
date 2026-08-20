@@ -2,14 +2,18 @@ package mailer
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strings"
 	"time"
 )
@@ -20,6 +24,7 @@ type Message struct {
 	To      string
 	Subject string
 	Text    string
+	HTML    string
 }
 
 type Sender interface {
@@ -92,8 +97,11 @@ func (s *SMTPSender) Send(ctx context.Context, message Message) error {
 	if s.cfg.FromName != "" {
 		from = (&mail.Address{Name: s.cfg.FromName, Address: s.cfg.FromAddress}).String()
 	}
-	body := strings.ReplaceAll(message.Text, "\n", "\r\n")
-	data := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n%s", from, message.To, message.Subject, body)
+	data, err := formatMessageData(from, message)
+	if err != nil {
+		_ = w.Close()
+		return err
+	}
 	if _, err = io.Copy(w, bufio.NewReader(strings.NewReader(data))); err != nil {
 		_ = w.Close()
 		return err
@@ -102,4 +110,42 @@ func (s *SMTPSender) Send(ctx context.Context, message Message) error {
 		return err
 	}
 	return client.Quit()
+}
+
+func formatMessageData(from string, message Message) (string, error) {
+	baseHeaders := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\n", from, message.To, message.Subject)
+	if message.HTML == "" {
+		return baseHeaders + "Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" + normalizeCRLF(message.Text), nil
+	}
+
+	var body bytes.Buffer
+	alternative := multipart.NewWriter(&body)
+	writePart := func(contentType, content string) error {
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Type", contentType+"; charset=UTF-8")
+		header.Set("Content-Transfer-Encoding", "8bit")
+		part, err := alternative.CreatePart(header)
+		if err != nil {
+			return err
+		}
+		_, err = io.WriteString(part, normalizeCRLF(content))
+		return err
+	}
+	if err := writePart("text/plain", message.Text); err != nil {
+		return "", err
+	}
+	if err := writePart("text/html", message.HTML); err != nil {
+		return "", err
+	}
+	if err := alternative.Close(); err != nil {
+		return "", err
+	}
+	contentType := mime.FormatMediaType("multipart/alternative", map[string]string{"boundary": alternative.Boundary()})
+	return baseHeaders + "Content-Type: " + contentType + "\r\n\r\n" + body.String(), nil
+}
+
+func normalizeCRLF(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	return strings.ReplaceAll(value, "\n", "\r\n")
 }
