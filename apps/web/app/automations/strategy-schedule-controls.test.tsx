@@ -111,4 +111,32 @@ describe("StrategyScheduleControls", () => {
       screen.getByLabelText(/after each scheduled evaluation/i),
     ).toBeDisabled();
   });
+
+  it.each([
+    ["MARKET_DATA_STALE", /market data refreshes/i],
+    ["NO_ELIGIBLE_OPTION_CONTRACTS", /review those filters/i],
+    ["STRATEGY_CONFIGURATION_CHANGED", /review the automation/i],
+    ["WAITING_FOR_LIFECYCLE", /record the explicit paper option lifecycle/i],
+    ["OUTSIDE_SESSION", /no action is needed/i],
+    ["SESSION_CALENDAR_UNAVAILABLE", /operator must extend it/i],
+    ["INTERNAL", /failed closed/i],
+  ])("explains the safe scheduled result %s", (code, guidance) => {
+    render(
+      <StrategyScheduleControls
+        {...base}
+        conditions={{ enabled: true }}
+        instanceId="instance-1"
+        schedulerEnabled
+        runtime={{
+          enabled: true,
+          last_status: "FAILED",
+          last_error_code: code,
+          consecutive_failures: 1,
+        }}
+      />,
+    );
+
+    expect(screen.getByText(guidance)).toBeInTheDocument();
+    expect(screen.getByText(/no broker order was sent/i)).toBeInTheDocument();
+  });
 });
