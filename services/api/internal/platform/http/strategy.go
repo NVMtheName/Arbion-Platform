@@ -101,6 +101,18 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 	switch {
 	case errors.Is(e, strategy.ErrForbidden):
 		writeError(w, 403, "PERMISSION_DENIED", "Automation entitlement is required.")
+	case errors.Is(e, strategy.ErrEvaluationInactive):
+		writeError(w, 409, "STRATEGY_NOT_ACTIVE", "The non-live strategy must be active before it can be evaluated.")
+	case errors.Is(e, strategy.ErrEvaluationConfigurationChanged):
+		writeError(w, 409, "STRATEGY_CONFIGURATION_CHANGED", "The initialized strategy no longer matches its current mandate, capital bucket, or account.")
+	case errors.Is(e, strategy.ErrEvaluationParametersInvalid):
+		writeError(w, 422, "STRATEGY_PARAMETERS_INVALID", "The saved deterministic strategy parameters are invalid.")
+	case errors.Is(e, strategy.ErrEvaluationPaperStateUnavailable):
+		writeError(w, 409, "PAPER_STATE_UNAVAILABLE", "The PAPER portfolio state required for evaluation is unavailable.")
+	case errors.Is(e, strategy.ErrEvaluationMarketDataStale):
+		writeError(w, 422, "MARKET_DATA_STALE", "Schwab market data is missing a current provider timestamp.")
+	case errors.Is(e, strategy.ErrEvaluationNoEligibleContracts):
+		writeError(w, 422, "NO_ELIGIBLE_OPTION_CONTRACTS", "No option contract matched the saved symbol, expiration, delta, and premium filters.")
 	case errors.Is(e, strategy.ErrInvalid):
 		writeError(w, 422, "INVALID_STRATEGY", "The deterministic strategy request is invalid or unsupported.")
 	case errors.Is(e, strategy.ErrCapitalLimit):
