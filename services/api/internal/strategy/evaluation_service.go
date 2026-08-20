@@ -86,7 +86,10 @@ func (s *EvaluationService) Evaluate(ctx context.Context, principal authorizatio
 	if err != nil {
 		return EvaluationOutcome{}, ErrNotFound
 	}
-	if instance.Status != "ACTIVE" || (instance.ExecutionMode != Paper && instance.ExecutionMode != Shadow) {
+	if instance.Status != "ACTIVE" {
+		return EvaluationOutcome{}, ErrEvaluationInactive
+	}
+	if instance.ExecutionMode != Paper && instance.ExecutionMode != Shadow {
 		return EvaluationOutcome{}, ErrInvalid
 	}
 	mandate, err := s.automation.Get(ctx, principal, instance.AutomationMandateID)
@@ -94,22 +97,22 @@ func (s *EvaluationService) Evaluate(ctx context.Context, principal authorizatio
 		return EvaluationOutcome{}, ErrNotFound
 	}
 	if mandate.ID != instance.AutomationMandateID || mandate.UserID != principal.UserID || mandate.FinancialAccountID != instance.FinancialAccountID || mandate.CapitalBucketID != instance.CapitalBucketID || mandate.CurrentVersion != instance.MandateVersion || mandate.Status != "READY" || mandate.StrategyIdentifier == nil || *mandate.StrategyIdentifier != instance.StrategyIdentifier || mandate.ExecutionMode != string(instance.ExecutionMode) {
-		return EvaluationOutcome{}, ErrInvalid
+		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
 	}
 	parameters, err := ParseParameters(mandate.StrategyParameters)
 	if err != nil {
-		return EvaluationOutcome{}, err
+		return EvaluationOutcome{}, ErrEvaluationParametersInvalid
 	}
 	bucket, err := s.automation.GetBucket(ctx, principal, instance.CapitalBucketID)
 	if err != nil || bucket.UserID != principal.UserID || bucket.FinancialAccountID != instance.FinancialAccountID || bucket.Status != "ACTIVE" || bucket.IsReserve {
-		return EvaluationOutcome{}, ErrInvalid
+		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
 	}
 	account, err := s.financial.GetAccount(ctx, principal, instance.FinancialAccountID)
 	if err != nil || account.ID != instance.FinancialAccountID || account.UserID != principal.UserID || account.Status != "active" {
 		if err != nil {
 			return EvaluationOutcome{}, err
 		}
-		return EvaluationOutcome{}, ErrInvalid
+		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
 	}
 
 	now := s.now().UTC()
@@ -188,20 +191,21 @@ func (s *EvaluationService) marketSnapshot(ctx context.Context, principal author
 		kind = "CALL"
 	}
 	market := MarketSnapshot{Options: []OptionCandidate{}}
+	staleContractObserved := false
 	for index, symbol := range parameters.Symbols {
 		quote, err := s.financial.GetQuote(ctx, principal, instance.FinancialAccountID, symbol)
 		if err != nil {
 			return MarketSnapshot{}, err
 		}
 		if !freshMarketTimestamp(quote.ProviderTimestamp, now) {
-			return MarketSnapshot{}, ErrInvalid
+			return MarketSnapshot{}, ErrEvaluationMarketDataStale
 		}
 		chain, err := s.financial.GetOptionChain(ctx, principal, instance.FinancialAccountID, financial.OptionChainRequest{Symbol: symbol, ContractType: kind, StrikeCount: 50, FromDate: now.AddDate(0, 0, parameters.MinimumDTE), ToDate: now.AddDate(0, 0, parameters.MaximumDTE)})
 		if err != nil {
 			return MarketSnapshot{}, err
 		}
 		if !freshMarketTimestamp(chain.ProviderTimestamp, now) {
-			return MarketSnapshot{}, ErrInvalid
+			return MarketSnapshot{}, ErrEvaluationMarketDataStale
 		}
 		if index == 0 {
 			market.Symbol = symbol
@@ -213,14 +217,21 @@ func (s *EvaluationService) marketSnapshot(ctx context.Context, principal author
 			market.Timestamp = olderTimestamp(market.Timestamp, olderTimestamp(quote.ProviderTimestamp, chain.ProviderTimestamp))
 		}
 		for _, contract := range chain.Contracts {
-			if !strings.EqualFold(contract.Underlying, symbol) || !strings.EqualFold(contract.PutCall, kind) || !freshMarketTimestamp(contract.ProviderTimestamp, now) {
+			if !strings.EqualFold(contract.Underlying, symbol) || !strings.EqualFold(contract.PutCall, kind) {
+				continue
+			}
+			if !freshMarketTimestamp(contract.ProviderTimestamp, now) {
+				staleContractObserved = true
 				continue
 			}
 			market.Options = append(market.Options, OptionCandidate{Underlying: strings.ToUpper(contract.Underlying), OptionType: strings.ToUpper(contract.PutCall), Strike: string(contract.Strike), Expiration: contract.Expiration, Bid: decimalPointer(contract.Bid), Ask: decimalPointer(contract.Ask), Mark: decimalPointer(contract.Mark), Delta: decimalPointer(contract.Delta), ImpliedVolatility: decimalPointer(contract.ImpliedVolatility), OpenInterest: contract.OpenInterest, Volume: contract.Volume, Timestamp: contract.ProviderTimestamp})
 		}
 	}
 	if len(market.Options) == 0 {
-		return MarketSnapshot{}, ErrInvalid
+		if staleContractObserved {
+			return MarketSnapshot{}, ErrEvaluationMarketDataStale
+		}
+		return MarketSnapshot{}, ErrEvaluationNoEligibleContracts
 	}
 	return market, nil
 }
@@ -257,7 +268,7 @@ func (s *EvaluationService) accountSnapshots(ctx context.Context, principal auth
 	}
 	if instance.ExecutionMode == Paper {
 		if facts.Paper == nil {
-			return AccountSnapshot{}, risk.AccountRiskSnapshot{}, ErrInvalid
+			return AccountSnapshot{}, risk.AccountRiskSnapshot{}, ErrEvaluationPaperStateUnavailable
 		}
 		return AccountSnapshot{Timestamp: now, AvailableCash: facts.Paper.Cash, Positions: facts.Paper.Positions}, risk.AccountRiskSnapshot{AccountID: account.ID, Currency: account.BaseCurrency, Timestamp: now, Cash: facts.Paper.Cash, AvailableCash: facts.Paper.Cash, BuyingPower: facts.Paper.Cash, CurrentExposure: facts.Paper.CurrentExposure, Positions: facts.Paper.RiskPositions, Options: capabilities("options"), Margin: capabilities("margin")}, nil
 	}

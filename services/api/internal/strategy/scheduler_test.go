@@ -130,6 +130,22 @@ func TestSchedulerTreatsCommittedDuplicateAsRecoveredSuccess(t *testing.T) {
 	}
 }
 
+func TestScheduleErrorClassificationPreservesSafeEvaluationDiagnostics(t *testing.T) {
+	tests := map[string]error{
+		"STRATEGY_NOT_ACTIVE":            ErrEvaluationInactive,
+		"STRATEGY_CONFIGURATION_CHANGED": ErrEvaluationConfigurationChanged,
+		"STRATEGY_PARAMETERS_INVALID":    ErrEvaluationParametersInvalid,
+		"PAPER_STATE_UNAVAILABLE":        ErrEvaluationPaperStateUnavailable,
+		"MARKET_DATA_STALE":              ErrEvaluationMarketDataStale,
+		"NO_ELIGIBLE_OPTION_CONTRACTS":   ErrEvaluationNoEligibleContracts,
+	}
+	for want, err := range tests {
+		if got := classifyScheduleError(err); got != want {
+			t.Fatalf("classification=%q want=%q", got, want)
+		}
+	}
+}
+
 func TestScheduleNotificationsAreOptInVerifiedAndDeduplicated(t *testing.T) {
 	scheduledFor := time.Date(2026, 8, 18, 15, 0, 0, 0, time.UTC)
 	waiting := "WAITING_FOR_LIFECYCLE"

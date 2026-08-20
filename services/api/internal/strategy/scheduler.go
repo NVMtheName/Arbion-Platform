@@ -152,6 +152,18 @@ func classifyScheduleError(err error) string {
 		return "FORBIDDEN"
 	case errors.Is(err, ErrNotFound):
 		return "NOT_FOUND"
+	case errors.Is(err, ErrEvaluationInactive):
+		return "STRATEGY_NOT_ACTIVE"
+	case errors.Is(err, ErrEvaluationConfigurationChanged):
+		return "STRATEGY_CONFIGURATION_CHANGED"
+	case errors.Is(err, ErrEvaluationParametersInvalid):
+		return "STRATEGY_PARAMETERS_INVALID"
+	case errors.Is(err, ErrEvaluationPaperStateUnavailable):
+		return "PAPER_STATE_UNAVAILABLE"
+	case errors.Is(err, ErrEvaluationMarketDataStale):
+		return "MARKET_DATA_STALE"
+	case errors.Is(err, ErrEvaluationNoEligibleContracts):
+		return "NO_ELIGIBLE_OPTION_CONTRACTS"
 	case errors.Is(err, ErrInvalid):
 		return "INVALID"
 	case errors.Is(err, ErrConflict):

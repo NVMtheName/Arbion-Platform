@@ -51,6 +51,8 @@ type evaluationFinancialFake struct {
 	balanceCalls  int
 	positionCalls int
 	timestamp     time.Time
+	contractTime  *time.Time
+	emptyChain    bool
 }
 
 func (f *evaluationFinancialFake) GetAccount(context.Context, authorization.Principal, string) (financial.FinancialAccount, error) {
@@ -71,8 +73,15 @@ func (f *evaluationFinancialFake) GetQuote(_ context.Context, _ authorization.Pr
 }
 func (f *evaluationFinancialFake) GetOptionChain(_ context.Context, _ authorization.Principal, _ string, request financial.OptionChainRequest) (financial.OptionChain, error) {
 	f.chainCalls++
+	if f.emptyChain {
+		return financial.OptionChain{Symbol: request.Symbol, ProviderTimestamp: f.timestamp, Contracts: []financial.OptionContract{}}, nil
+	}
 	bid, ask, delta := financial.Decimal("1.25"), financial.Decimal("1.35"), financial.Decimal("-0.30")
-	return financial.OptionChain{Symbol: request.Symbol, ProviderTimestamp: f.timestamp, Contracts: []financial.OptionContract{{Underlying: request.Symbol, PutCall: "PUT", Strike: "190", Expiration: "2026-01-31", Bid: &bid, Ask: &ask, Delta: &delta, ProviderTimestamp: f.timestamp}}}, nil
+	contractTime := f.timestamp
+	if f.contractTime != nil {
+		contractTime = *f.contractTime
+	}
+	return financial.OptionChain{Symbol: request.Symbol, ProviderTimestamp: f.timestamp, Contracts: []financial.OptionContract{{Underlying: request.Symbol, PutCall: "PUT", Strike: "190", Expiration: "2026-01-31", Bid: &bid, Ask: &ask, Delta: &delta, ProviderTimestamp: contractTime}}}, nil
 }
 
 func evaluationFixture() (*EvaluationService, *evaluationStoreFake, *evaluationFinancialFake, authorization.Principal) {
@@ -107,7 +116,7 @@ func TestManualEvaluationRequiresCurrentImmutableMandateVersion(t *testing.T) {
 	service, store, finances, principal := evaluationFixture()
 	service.automation.(*evaluationAutomationFake).mandate.CurrentVersion = 3
 	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:stale")
-	if !errors.Is(err, ErrInvalid) || store.commits != 0 || finances.quoteCalls != 0 {
+	if !errors.Is(err, ErrEvaluationConfigurationChanged) || store.commits != 0 || finances.quoteCalls != 0 {
 		t.Fatalf("stale mandate version was not rejected before provider reads: %v", err)
 	}
 }
@@ -116,7 +125,7 @@ func TestManualEvaluationRequiresImmutableCapitalBucketBinding(t *testing.T) {
 	service, store, finances, principal := evaluationFixture()
 	service.automation.(*evaluationAutomationFake).mandate.CapitalBucketID = "different-bucket"
 	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:different-bucket")
-	if !errors.Is(err, ErrInvalid) || store.commits != 0 || finances.quoteCalls != 0 {
+	if !errors.Is(err, ErrEvaluationConfigurationChanged) || store.commits != 0 || finances.quoteCalls != 0 {
 		t.Fatalf("changed capital bucket was not rejected before provider reads: %v", err)
 	}
 }
@@ -134,7 +143,53 @@ func TestManualEvaluationRejectsStaleMarketData(t *testing.T) {
 	service, store, finances, principal := evaluationFixture()
 	finances.timestamp = service.now().Add(-marketDataMaxAge - time.Second)
 	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:stale-market")
-	if !errors.Is(err, ErrInvalid) || store.commits != 0 {
+	if !errors.Is(err, ErrEvaluationMarketDataStale) || store.commits != 0 {
 		t.Fatalf("stale market data was not rejected before persistence: %v", err)
+	}
+}
+
+func TestManualEvaluationReportsInactiveStrategy(t *testing.T) {
+	service, store, finances, principal := evaluationFixture()
+	store.instance.Status = "PAUSED"
+	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:paused")
+	if !errors.Is(err, ErrEvaluationInactive) || store.commits != 0 || finances.quoteCalls != 0 {
+		t.Fatalf("inactive strategy was not identified before provider reads: %v", err)
+	}
+}
+
+func TestManualPaperEvaluationReportsMissingPaperState(t *testing.T) {
+	service, store, finances, principal := evaluationFixture()
+	store.facts.Paper = nil
+	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:missing-paper")
+	if !errors.Is(err, ErrEvaluationPaperStateUnavailable) || store.commits != 0 || finances.quoteCalls != 0 {
+		t.Fatalf("missing PAPER state was not identified before provider reads: %v", err)
+	}
+}
+
+func TestManualEvaluationReportsNoEligibleContracts(t *testing.T) {
+	service, store, finances, principal := evaluationFixture()
+	finances.emptyChain = true
+	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:no-contracts")
+	if !errors.Is(err, ErrEvaluationNoEligibleContracts) || store.commits != 0 || finances.quoteCalls != 1 || finances.chainCalls != 1 {
+		t.Fatalf("empty option chain was not identified safely: %v", err)
+	}
+}
+
+func TestManualEvaluationReportsStaleContractMarketData(t *testing.T) {
+	service, store, finances, principal := evaluationFixture()
+	stale := service.now().Add(-marketDataMaxAge - time.Second)
+	finances.contractTime = &stale
+	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:stale-contract")
+	if !errors.Is(err, ErrEvaluationMarketDataStale) || store.commits != 0 || finances.quoteCalls != 1 || finances.chainCalls != 1 {
+		t.Fatalf("stale option contract was not identified safely: %v", err)
+	}
+}
+
+func TestManualEvaluationReportsInvalidSavedParameters(t *testing.T) {
+	service, store, finances, principal := evaluationFixture()
+	service.automation.(*evaluationAutomationFake).mandate.StrategyParameters = []byte(`{"symbols":[]}`)
+	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:invalid-parameters")
+	if !errors.Is(err, ErrEvaluationParametersInvalid) || store.commits != 0 || finances.quoteCalls != 0 {
+		t.Fatalf("invalid saved parameters were not identified before provider reads: %v", err)
 	}
 }

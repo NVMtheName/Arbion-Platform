@@ -51,6 +51,18 @@ function evaluationFailureMessage(code?: string) {
       return `The manual evaluation failed closed (${code}). Schwab market data is temporarily unavailable. Nothing was sent to Schwab.`;
     case "INVALID_PROVIDER_RESPONSE":
       return `The manual evaluation failed closed (${code}). Schwab returned market data Arbion could not safely validate. Nothing was sent to Schwab.`;
+    case "MARKET_DATA_STALE":
+      return `The manual evaluation failed closed (${code}). Schwab's quote or option-chain timestamp is not current. Try again after market data refreshes. Nothing was sent to Schwab.`;
+    case "NO_ELIGIBLE_OPTION_CONTRACTS":
+      return `The manual evaluation failed closed (${code}). No option contract matched the saved expiration, delta, and premium filters. Review those filters before trying again. Nothing was sent to Schwab.`;
+    case "STRATEGY_NOT_ACTIVE":
+      return `The manual evaluation failed closed (${code}). Resume the non-live strategy before evaluating it again. Nothing was sent to Schwab.`;
+    case "STRATEGY_CONFIGURATION_CHANGED":
+      return `The manual evaluation failed closed (${code}). The initialized strategy no longer matches its current mandate, capital bucket, or account. Review the automation before trying again. Nothing was sent to Schwab.`;
+    case "STRATEGY_PARAMETERS_INVALID":
+      return `The manual evaluation failed closed (${code}). Review and save valid deterministic strategy parameters before trying again. Nothing was sent to Schwab.`;
+    case "PAPER_STATE_UNAVAILABLE":
+      return `The manual evaluation failed closed (${code}). The PAPER portfolio state needed for evaluation is unavailable. Nothing was sent to Schwab.`;
     case "INVALID_STRATEGY":
       return `The manual evaluation failed closed (${code}). The saved strategy or market-data snapshot did not pass validation. Nothing was sent to Schwab.`;
     default:

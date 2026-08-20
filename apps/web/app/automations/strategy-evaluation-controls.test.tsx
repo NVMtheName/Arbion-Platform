@@ -149,6 +149,41 @@ describe("StrategyEvaluationControls", () => {
     expect(screen.getByText(/nothing was sent to Schwab/i)).toBeInTheDocument();
   });
 
+  it.each([
+    ["MARKET_DATA_STALE", /timestamp is not current/i],
+    ["NO_ELIGIBLE_OPTION_CONTRACTS", /matched the saved expiration/i],
+    ["STRATEGY_NOT_ACTIVE", /resume the non-live strategy/i],
+    ["STRATEGY_CONFIGURATION_CHANGED", /no longer matches/i],
+    [
+      "STRATEGY_PARAMETERS_INVALID",
+      /save valid deterministic strategy parameters/i,
+    ],
+    ["PAPER_STATE_UNAVAILABLE", /paper portfolio state/i],
+  ])("shows the safe %s evaluation diagnostic", async (code, guidance) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: { code } }),
+      }),
+    );
+    render(
+      <StrategyEvaluationControls
+        {...base}
+        instanceId="instance-1"
+        instanceStatus="ACTIVE"
+        strategyParameters={configured}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /run manual paper evaluation/i }),
+    );
+
+    expect(await screen.findByText(guidance)).toBeInTheDocument();
+    expect(screen.getByText(/nothing was sent to Schwab/i)).toBeInTheDocument();
+  });
+
   it("shows a safe authorization reason without exposing provider details", async () => {
     const fetchMock = vi
       .fn<

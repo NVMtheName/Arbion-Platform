@@ -14,7 +14,15 @@ import (
 	"github.com/arbion/platform/services/api/internal/risk"
 )
 
-var ErrInvalid = errors.New("invalid strategy input")
+var (
+	ErrInvalid                         = errors.New("invalid strategy input")
+	ErrEvaluationInactive              = fmt.Errorf("%w: strategy instance is not active", ErrInvalid)
+	ErrEvaluationConfigurationChanged  = fmt.Errorf("%w: bound configuration changed", ErrInvalid)
+	ErrEvaluationParametersInvalid     = fmt.Errorf("%w: strategy parameters are invalid", ErrInvalid)
+	ErrEvaluationPaperStateUnavailable = fmt.Errorf("%w: paper state is unavailable", ErrInvalid)
+	ErrEvaluationMarketDataStale       = fmt.Errorf("%w: market data is stale", ErrInvalid)
+	ErrEvaluationNoEligibleContracts   = fmt.Errorf("%w: no eligible option contracts", ErrInvalid)
+)
 
 func number(s string) (*big.Rat, bool)   { r, ok := new(big.Rat).SetString(s); return r, ok }
 func positive(s string) (*big.Rat, bool) { r, ok := number(s); return r, ok && r.Sign() > 0 }
@@ -84,7 +92,7 @@ func SelectCandidate(now time.Time, p Parameters, kind string, candidates []Opti
 		eligible = append(eligible, ranked{c, abs(new(big.Rat).Sub(d, target)), expiry, strike})
 	}
 	if len(eligible) == 0 {
-		return nil, 0, ErrInvalid
+		return nil, 0, ErrEvaluationNoEligibleContracts
 	}
 	sort.Slice(eligible, func(i, j int) bool {
 		if x := eligible[i].distance.Cmp(eligible[j].distance); x != 0 {

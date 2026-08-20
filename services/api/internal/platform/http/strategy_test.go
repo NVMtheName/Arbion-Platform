@@ -1,6 +1,10 @@
 package http
 
 import (
+	"encoding/json"
+	"errors"
+	stdhttp "net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -19,6 +23,40 @@ func TestDecisionJournalCursorRoundTrips(t *testing.T) {
 	}
 	if got.ID != want.ID || !got.CreatedAt.Equal(want.CreatedAt) {
 		t.Fatalf("cursor changed during round trip: %#v", got)
+	}
+}
+
+func TestStrategyErrorReturnsSafeEvaluationDiagnostics(t *testing.T) {
+	tests := []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{strategy.ErrEvaluationInactive, stdhttp.StatusConflict, "STRATEGY_NOT_ACTIVE"},
+		{strategy.ErrEvaluationConfigurationChanged, stdhttp.StatusConflict, "STRATEGY_CONFIGURATION_CHANGED"},
+		{strategy.ErrEvaluationParametersInvalid, stdhttp.StatusUnprocessableEntity, "STRATEGY_PARAMETERS_INVALID"},
+		{strategy.ErrEvaluationPaperStateUnavailable, stdhttp.StatusConflict, "PAPER_STATE_UNAVAILABLE"},
+		{strategy.ErrEvaluationMarketDataStale, stdhttp.StatusUnprocessableEntity, "MARKET_DATA_STALE"},
+		{strategy.ErrEvaluationNoEligibleContracts, stdhttp.StatusUnprocessableEntity, "NO_ELIGIBLE_OPTION_CONTRACTS"},
+	}
+	for _, test := range tests {
+		t.Run(test.code, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			(&authHandler{}).strategyError(recorder, test.err)
+			if recorder.Code != test.status {
+				t.Fatalf("status=%d want=%d", recorder.Code, test.status)
+			}
+			var body apiError
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Error.Code != test.code || body.Error.Message == "" {
+				t.Fatalf("unexpected response: %#v", body)
+			}
+		})
+	}
+	if !errors.Is(strategy.ErrEvaluationMarketDataStale, strategy.ErrInvalid) {
+		t.Fatal("diagnostic errors must preserve generic fail-closed classification")
 	}
 }
 
