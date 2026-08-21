@@ -60,6 +60,8 @@ Connected Coinbase order history is a separate ephemeral observation model. Each
 
 Connected Coinbase trading costs are another ephemeral owner-scoped projection. The normalized snapshot contains only spot scope, a bounded provider tier label, exact maker/taker rates, exact USD Advanced Trade volume and fees, exact provider total fees, the provider pricing-model flag, and retrieval time. It is never persisted or joined to orders, strategies, positions, fills, tax lots, or journal records. Arbion does not infer the provider's reporting window, calculate next-tier progress, forecast an order fee, or turn the summary into an order preview.
 
+Connected Coinbase liquidity is an ephemeral keyless market observation rather than a financial-account record. A snapshot contains the canonical symbol/USD product, a fixed maximum depth of ten, exact positive bid/ask price and base-size pairs, exact provider last/mid/spread fields, and source provenance. It is held only in a one-second process cache and is never persisted, joined to account authority, converted into an order, or treated as consolidated, streaming, or executable market truth.
+
 ## Durable automation authorization records
 
 Migration `00006_automation_mandates.sql` replaces the early placeholder in place: `automation_configs` is renamed and normalized as `automation_mandates`, so there are not two active automation concepts. Stable security fields are columns; validated extensible strategy/risk/universe/condition documents remain structured JSON. Each mandate binds a same-owner `financial_accounts` row and `capital_buckets` row and has a lifecycle status, effective interval, and monotonically increasing current version.

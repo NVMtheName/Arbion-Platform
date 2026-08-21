@@ -25,12 +25,13 @@ const (
 type Capability string
 
 const (
-	EquityQuote   Capability = "EQUITY_QUOTE"
-	EquityBars    Capability = "EQUITY_BARS"
-	OptionData    Capability = "OPTION_DATA"
-	CryptoMarkets Capability = "CRYPTO_MARKETS"
-	CryptoCandles Capability = "CRYPTO_CANDLES"
-	InsiderFiling Capability = "INSIDER_FILING"
+	EquityQuote     Capability = "EQUITY_QUOTE"
+	EquityBars      Capability = "EQUITY_BARS"
+	OptionData      Capability = "OPTION_DATA"
+	CryptoMarkets   Capability = "CRYPTO_MARKETS"
+	CryptoCandles   Capability = "CRYPTO_CANDLES"
+	CryptoLiquidity Capability = "CRYPTO_LIQUIDITY"
+	InsiderFiling   Capability = "INSIDER_FILING"
 )
 
 type SourceRole string
@@ -134,6 +135,29 @@ type CryptoCandleSeries struct {
 	Provenance         Provenance     `json:"provenance"`
 }
 
+// CryptoBookLevel is one exact provider-reported price level. Size is the
+// available base-asset quantity at that venue level, not an executable quote.
+type CryptoBookLevel struct {
+	Price Decimal `json:"price"`
+	Size  Decimal `json:"size"`
+}
+
+// CryptoLiquiditySnapshot is a bounded, point-in-time view of one venue book.
+// It is deliberately distinct from account balances and order capabilities.
+type CryptoLiquiditySnapshot struct {
+	Symbol         string            `json:"symbol"`
+	Currency       string            `json:"currency"`
+	ProductID      string            `json:"product_id"`
+	Depth          int               `json:"depth"`
+	Bids           []CryptoBookLevel `json:"bids"`
+	Asks           []CryptoBookLevel `json:"asks"`
+	Last           Decimal           `json:"last"`
+	MidMarket      Decimal           `json:"mid_market"`
+	SpreadBPS      Decimal           `json:"spread_bps"`
+	SpreadAbsolute Decimal           `json:"spread_absolute"`
+	Provenance     Provenance        `json:"provenance"`
+}
+
 type OptionContractObservation struct {
 	Symbol            string    `json:"symbol"`
 	Underlying        string    `json:"underlying"`
@@ -210,6 +234,12 @@ type CryptoAssetMarketProvider interface {
 // one venue product. Implementations must preserve provider-reported gaps.
 type CryptoCandleProvider interface {
 	RecentCryptoCandles(context.Context, string, string, int, int) (CryptoCandleSeries, error)
+}
+
+// CryptoLiquidityProvider returns a bounded, keyless venue snapshot. It has no
+// preview, placement, replacement, or cancellation method by construction.
+type CryptoLiquidityProvider interface {
+	CryptoLiquidity(context.Context, string, string, int) (CryptoLiquiditySnapshot, error)
 }
 
 type InsiderFilingProvider interface {
@@ -340,6 +370,59 @@ func ValidateCryptoCandleSeries(series CryptoCandleSeries, now time.Time, policy
 		return fmt.Errorf("%w: crypto candle timestamp", ErrInvalidObservation)
 	}
 	return ValidateProvenance(series.Provenance, now, policy)
+}
+
+func ValidateCryptoLiquidity(snapshot CryptoLiquiditySnapshot, now time.Time, policy FreshnessPolicy) error {
+	if !boundedText(snapshot.Symbol, 32) || !boundedText(snapshot.Currency, 12) || !boundedText(snapshot.ProductID, 64) ||
+		snapshot.Depth < 1 || snapshot.Depth > 10 || len(snapshot.Bids) == 0 || len(snapshot.Bids) > snapshot.Depth || len(snapshot.Asks) == 0 || len(snapshot.Asks) > snapshot.Depth {
+		return fmt.Errorf("%w: crypto liquidity identity or bounds", ErrInvalidObservation)
+	}
+	if snapshot.ProductID != strings.ToUpper(snapshot.Symbol)+"-"+strings.ToUpper(snapshot.Currency) ||
+		!positiveDecimal(snapshot.Last) || !positiveDecimal(snapshot.MidMarket) || !positiveDecimal(snapshot.SpreadBPS) || !positiveDecimal(snapshot.SpreadAbsolute) {
+		return fmt.Errorf("%w: crypto liquidity summary", ErrInvalidObservation)
+	}
+	if err := validateBookSide(snapshot.Bids, true); err != nil {
+		return err
+	}
+	if err := validateBookSide(snapshot.Asks, false); err != nil {
+		return err
+	}
+	bestBid, bidOK := new(big.Rat).SetString(string(snapshot.Bids[0].Price))
+	bestAsk, askOK := new(big.Rat).SetString(string(snapshot.Asks[0].Price))
+	mid, midOK := new(big.Rat).SetString(string(snapshot.MidMarket))
+	spread, spreadOK := new(big.Rat).SetString(string(snapshot.SpreadAbsolute))
+	if !bidOK || !askOK || !midOK || !spreadOK || bestBid.Cmp(bestAsk) >= 0 || mid.Cmp(bestBid) < 0 || mid.Cmp(bestAsk) > 0 {
+		return fmt.Errorf("%w: crypto liquidity book", ErrInvalidObservation)
+	}
+	expectedSpread := new(big.Rat).Sub(new(big.Rat).Set(bestAsk), bestBid)
+	expectedMid := new(big.Rat).Quo(new(big.Rat).Add(new(big.Rat).Set(bestAsk), bestBid), big.NewRat(2, 1))
+	if spread.Cmp(expectedSpread) != 0 || mid.Cmp(expectedMid) != 0 {
+		return fmt.Errorf("%w: crypto liquidity summary mismatch", ErrInvalidObservation)
+	}
+	return ValidateProvenance(snapshot.Provenance, now, policy)
+}
+
+func positiveDecimal(value Decimal) bool {
+	if !validDecimal(&value) {
+		return false
+	}
+	parsed, ok := new(big.Rat).SetString(string(value))
+	return ok && parsed.Sign() > 0
+}
+
+func validateBookSide(levels []CryptoBookLevel, descending bool) error {
+	var prior *big.Rat
+	for _, level := range levels {
+		if !positiveDecimal(level.Price) || !positiveDecimal(level.Size) {
+			return fmt.Errorf("%w: crypto liquidity level", ErrInvalidObservation)
+		}
+		price, ok := new(big.Rat).SetString(string(level.Price))
+		if !ok || prior != nil && (descending && prior.Cmp(price) <= 0 || !descending && prior.Cmp(price) >= 0) {
+			return fmt.Errorf("%w: crypto liquidity ordering", ErrInvalidObservation)
+		}
+		prior = price
+	}
+	return nil
 }
 
 func ValidateInsiderFiling(observation InsiderFilingObservation, now time.Time, maxFutureSkew time.Duration) error {

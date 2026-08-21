@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	defaultBaseURL  = "https://api.exchange.coinbase.com"
-	maxResponseSize = 64 << 10
+	defaultBaseURL          = "https://api.exchange.coinbase.com"
+	defaultAdvancedTradeURL = "https://api.coinbase.com"
+	maxResponseSize         = 64 << 10
 )
 
 var (
@@ -42,18 +43,20 @@ type Product struct {
 }
 
 type Config struct {
-	BaseURL       string
-	Products      []Product
-	Timeout       time.Duration
-	MaxAge        time.Duration
-	MaxFutureSkew time.Duration
+	BaseURL              string
+	AdvancedTradeBaseURL string
+	Products             []Product
+	Timeout              time.Duration
+	MaxAge               time.Duration
+	MaxFutureSkew        time.Duration
 }
 
 type Client struct {
-	baseURL   *url.URL
-	products  []Product
-	freshness marketintelligence.FreshnessPolicy
-	http      *http.Client
+	baseURL              *url.URL
+	advancedTradeBaseURL *url.URL
+	products             []Product
+	freshness            marketintelligence.FreshnessPolicy
+	http                 *http.Client
 }
 
 type tickerResponse struct {
@@ -62,6 +65,24 @@ type tickerResponse struct {
 	Ask    string    `json:"ask"`
 	Volume string    `json:"volume"`
 	Time   time.Time `json:"time"`
+}
+
+type bookLevelResponse struct {
+	Price string `json:"price"`
+	Size  string `json:"size"`
+}
+
+type productBookResponse struct {
+	Pricebook struct {
+		ProductID string              `json:"product_id"`
+		Bids      []bookLevelResponse `json:"bids"`
+		Asks      []bookLevelResponse `json:"asks"`
+		Time      time.Time           `json:"time"`
+	} `json:"pricebook"`
+	Last           string `json:"last"`
+	MidMarket      string `json:"mid_market"`
+	SpreadBPS      string `json:"spread_bps"`
+	SpreadAbsolute string `json:"spread_absolute"`
 }
 
 func DefaultProducts() []Product {
@@ -82,6 +103,10 @@ func New(config Config, httpClient *http.Client) (*Client, error) {
 	if config.BaseURL == "" {
 		config.BaseURL = defaultBaseURL
 	}
+	config.AdvancedTradeBaseURL = strings.TrimRight(strings.TrimSpace(config.AdvancedTradeBaseURL), "/")
+	if config.AdvancedTradeBaseURL == "" {
+		config.AdvancedTradeBaseURL = defaultAdvancedTradeURL
+	}
 	if len(config.Products) == 0 {
 		config.Products = DefaultProducts()
 	}
@@ -89,7 +114,11 @@ func New(config Config, httpClient *http.Client) (*Client, error) {
 		return nil, ErrInvalidConfiguration
 	}
 	baseURL, err := url.Parse(config.BaseURL)
-	if err != nil || baseURL.User != nil || baseURL.RawQuery != "" || baseURL.Fragment != "" || !approvedBaseURL(baseURL) {
+	if err != nil || baseURL.User != nil || baseURL.RawQuery != "" || baseURL.Fragment != "" || !approvedBaseURL(baseURL, defaultBaseURL) {
+		return nil, ErrInvalidConfiguration
+	}
+	advancedTradeBaseURL, err := url.Parse(config.AdvancedTradeBaseURL)
+	if err != nil || advancedTradeBaseURL.User != nil || advancedTradeBaseURL.RawQuery != "" || advancedTradeBaseURL.Fragment != "" || !approvedBaseURL(advancedTradeBaseURL, defaultAdvancedTradeURL) {
 		return nil, ErrInvalidConfiguration
 	}
 	products := make([]Product, len(config.Products))
@@ -109,8 +138,9 @@ func New(config Config, httpClient *http.Client) (*Client, error) {
 	configuredHTTP := *httpClient
 	configuredHTTP.Timeout = config.Timeout
 	return &Client{
-		baseURL:  baseURL,
-		products: products,
+		baseURL:              baseURL,
+		advancedTradeBaseURL: advancedTradeBaseURL,
+		products:             products,
 		freshness: marketintelligence.FreshnessPolicy{
 			MaxAge: config.MaxAge, MaxFutureSkew: config.MaxFutureSkew,
 		},
@@ -118,8 +148,8 @@ func New(config Config, httpClient *http.Client) (*Client, error) {
 	}, nil
 }
 
-func approvedBaseURL(baseURL *url.URL) bool {
-	if baseURL.String() == defaultBaseURL {
+func approvedBaseURL(baseURL *url.URL, productionURL string) bool {
+	if baseURL.String() == productionURL {
 		return true
 	}
 	if baseURL.Scheme != "http" || baseURL.Path != "" {
@@ -127,6 +157,113 @@ func approvedBaseURL(baseURL *url.URL) bool {
 	}
 	host := baseURL.Hostname()
 	return host == "localhost" || net.ParseIP(host).IsLoopback()
+}
+
+// CryptoLiquidity returns a fixed-depth, credential-free Coinbase Advanced
+// Trade public book. It cannot preview or submit an order.
+func (client *Client) CryptoLiquidity(ctx context.Context, symbol, currency string, depth int) (marketintelligence.CryptoLiquiditySnapshot, error) {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if !validAssetSymbol(symbol) || !strings.EqualFold(strings.TrimSpace(currency), "usd") || depth != 10 {
+		return marketintelligence.CryptoLiquiditySnapshot{}, marketintelligence.ErrInvalidObservation
+	}
+	productID := symbol + "-USD"
+	endpoint := *client.advancedTradeBaseURL
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/api/v3/brokerage/market/product_book"
+	query := endpoint.Query()
+	query.Set("product_id", productID)
+	query.Set("limit", strconv.Itoa(depth))
+	endpoint.RawQuery = query.Encode()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return marketintelligence.CryptoLiquiditySnapshot{}, ErrUnavailable
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Cache-Control", "no-cache")
+	response, err := client.http.Do(request)
+	if err != nil {
+		return marketintelligence.CryptoLiquiditySnapshot{}, ErrUnavailable
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		if response.StatusCode == http.StatusTooManyRequests {
+			return marketintelligence.CryptoLiquiditySnapshot{}, ErrRateLimited
+		}
+		if response.StatusCode == http.StatusNotFound {
+			return marketintelligence.CryptoLiquiditySnapshot{}, marketintelligence.ErrInstrumentUnavailable
+		}
+		return marketintelligence.CryptoLiquiditySnapshot{}, ErrUnavailable
+	}
+	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseSize+1))
+	if err != nil || len(payload) > maxResponseSize {
+		return marketintelligence.CryptoLiquiditySnapshot{}, ErrInvalidResponse
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	var raw productBookResponse
+	if err = decoder.Decode(&raw); err != nil || len(raw.Pricebook.Bids) == 0 || len(raw.Pricebook.Bids) > depth || len(raw.Pricebook.Asks) == 0 || len(raw.Pricebook.Asks) > depth {
+		return marketintelligence.CryptoLiquiditySnapshot{}, ErrInvalidResponse
+	}
+	if err = decoder.Decode(&struct{}{}); err != io.EOF {
+		return marketintelligence.CryptoLiquiditySnapshot{}, ErrInvalidResponse
+	}
+	if strings.ToUpper(strings.TrimSpace(raw.Pricebook.ProductID)) != productID || raw.Pricebook.Time.IsZero() {
+		return marketintelligence.CryptoLiquiditySnapshot{}, ErrInvalidResponse
+	}
+	bids, ok := normalizeBookLevels(raw.Pricebook.Bids, true)
+	if !ok {
+		return marketintelligence.CryptoLiquiditySnapshot{}, ErrInvalidResponse
+	}
+	asks, ok := normalizeBookLevels(raw.Pricebook.Asks, false)
+	if !ok {
+		return marketintelligence.CryptoLiquiditySnapshot{}, ErrInvalidResponse
+	}
+	last, lastOK := decimal(raw.Last)
+	midMarket, midOK := decimal(raw.MidMarket)
+	spreadBPS, bpsOK := decimal(raw.SpreadBPS)
+	spreadAbsolute, spreadOK := decimal(raw.SpreadAbsolute)
+	if !lastOK || !midOK || !bpsOK || !spreadOK {
+		return marketintelligence.CryptoLiquiditySnapshot{}, ErrInvalidResponse
+	}
+	now := time.Now().UTC()
+	snapshot := marketintelligence.CryptoLiquiditySnapshot{
+		Symbol: symbol, Currency: "USD", ProductID: productID, Depth: depth,
+		Bids: bids, Asks: asks, Last: last, MidMarket: midMarket, SpreadBPS: spreadBPS, SpreadAbsolute: spreadAbsolute,
+		Provenance: marketintelligence.Provenance{
+			Provider: "coinbase", ProviderRequestID: requestID(response), Role: marketintelligence.MarketObservation,
+			Feed: "advanced_trade_public_product_book", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_advanced_trade",
+			ProviderTimestamp: raw.Pricebook.Time.UTC(), ReceivedAt: now,
+		},
+	}
+	liquidityFreshness := client.freshness
+	if liquidityFreshness.MaxAge > 30*time.Second {
+		liquidityFreshness.MaxAge = 30 * time.Second
+	}
+	if err := marketintelligence.ValidateCryptoLiquidity(snapshot, now, liquidityFreshness); err != nil {
+		return marketintelligence.CryptoLiquiditySnapshot{}, err
+	}
+	return snapshot, nil
+}
+
+func normalizeBookLevels(raw []bookLevelResponse, descending bool) ([]marketintelligence.CryptoBookLevel, bool) {
+	levels := make([]marketintelligence.CryptoBookLevel, 0, len(raw))
+	for _, value := range raw {
+		price, priceOK := decimal(value.Price)
+		size, sizeOK := decimal(value.Size)
+		if !priceOK || !sizeOK {
+			return nil, false
+		}
+		levels = append(levels, marketintelligence.CryptoBookLevel{Price: price, Size: size})
+	}
+	sort.Slice(levels, func(left, right int) bool {
+		leftValue, _ := new(big.Rat).SetString(string(levels[left].Price))
+		rightValue, _ := new(big.Rat).SetString(string(levels[right].Price))
+		if descending {
+			return leftValue.Cmp(rightValue) > 0
+		}
+		return leftValue.Cmp(rightValue) < 0
+	})
+	return levels, true
 }
 
 func (client *Client) TopCryptoMarkets(ctx context.Context, currency string, limit int) ([]marketintelligence.CryptoMarketObservation, error) {
@@ -484,3 +621,4 @@ func requestID(response *http.Response) string {
 var _ marketintelligence.CryptoMarketProvider = (*Client)(nil)
 var _ marketintelligence.CryptoAssetMarketProvider = (*Client)(nil)
 var _ marketintelligence.CryptoCandleProvider = (*Client)(nil)
+var _ marketintelligence.CryptoLiquidityProvider = (*Client)(nil)

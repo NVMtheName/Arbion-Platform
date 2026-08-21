@@ -13,6 +13,7 @@ import {
   type CoinbaseTradeActivity,
   type CoinbaseTradingCostSummary,
   type CryptoCandleSeries,
+  type CryptoLiquiditySnapshot,
   type CryptoPortfolioSnapshot,
 } from "./crypto-portfolio-command-center";
 
@@ -164,6 +165,33 @@ const history: CryptoCandleSeries = {
   },
 };
 
+const liquidity: CryptoLiquiditySnapshot = {
+  symbol: "BTC",
+  currency: "USD",
+  product_id: "BTC-USD",
+  depth: 10,
+  bids: [
+    { price: "60122.900000000001", size: "0.12500000" },
+    { price: "60122.80", size: "0.5" },
+  ],
+  asks: [
+    { price: "60123.20", size: "0.25000000" },
+    { price: "60123.30", size: "0.75" },
+  ],
+  last: "60123.10",
+  mid_market: "60123.05",
+  spread_bps: "0.049897",
+  spread_absolute: "0.30",
+  provenance: {
+    provider: "coinbase",
+    feed: "advanced_trade_public_product_book",
+    quality: "REAL_TIME_SINGLE_VENUE",
+    venue: "coinbase_advanced_trade",
+    provider_timestamp: observedAt,
+    received_at: observedAt,
+  },
+};
+
 describe("CryptoPortfolioCommandCenter", () => {
   afterEach(() => {
     cleanup();
@@ -176,6 +204,7 @@ describe("CryptoPortfolioCommandCenter", () => {
         accountID="coinbase-1"
         initialActivity={activity}
         initialHistory={history}
+        initialLiquidity={liquidity}
         initialOrderHistory={orderHistory}
         initialSnapshot={snapshot}
         initialTradingCosts={tradingCosts}
@@ -196,6 +225,14 @@ describe("CryptoPortfolioCommandCenter", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("2/96 intervals")).toBeInTheDocument();
     expect(screen.getByText(/not portfolio performance/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Top-of-book depth" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("60,122.900000000001")).toBeInTheDocument();
+    expect(screen.getByText("0.049897 bps")).toBeInTheDocument();
+    expect(
+      screen.getByText(/does not stream, aggregate venues/),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Recent external fills" }),
     ).toBeInTheDocument();
@@ -307,6 +344,45 @@ describe("CryptoPortfolioCommandCenter", () => {
       "/api/accounts/coinbase-1/markets/crypto/BTC/candles",
       { cache: "no-store" },
     );
+  });
+
+  it("refreshes a bounded keyless liquidity snapshot without exposing order actions", async () => {
+    const updatedLiquidity = {
+      ...liquidity,
+      spread_bps: "0.059000",
+      bids: [{ price: "60122.85", size: "0.75" }],
+    };
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        liquidity: updatedLiquidity,
+        cached: false,
+        snapshot_semantics: "SINGLE_VENUE_LIQUIDITY_SNAPSHOT",
+        order_book_streaming: false,
+        order_actions_available: false,
+        live_execution_available: false,
+      }),
+    });
+    vi.stubGlobal("fetch", request);
+    render(
+      <CryptoPortfolioCommandCenter
+        accountID="coinbase-1"
+        initialHistory={history}
+        initialLiquidity={liquidity}
+        initialSnapshot={snapshot}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh liquidity" }));
+
+    await waitFor(() => expect(screen.getByText("0.059000 bps")).toBeVisible());
+    expect(request).toHaveBeenCalledWith(
+      "/api/accounts/coinbase-1/markets/crypto/BTC/liquidity",
+      { cache: "no-store" },
+    );
+    expect(
+      screen.queryByRole("button", { name: /buy|sell|trade/i }),
+    ).toBeNull();
   });
 
   it("refreshes only normalized external execution evidence", async () => {
