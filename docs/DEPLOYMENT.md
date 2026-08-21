@@ -34,6 +34,7 @@ Copy `.env.production.example` to ignored `.env.production` and populate it only
 - explicit `FOUNDER_EMAIL` only for bootstrap; and
 - when Schwab is enabled, both client values and `SCHWAB_REDIRECT_URI=https://www.arbion.ai/api/connections/financial/schwab/callback`.
 - when independent market intelligence is enabled, provide both `ALPACA_MARKET_DATA_KEY_ID` and `ALPACA_MARKET_DATA_SECRET_KEY`, pin `ALPACA_EQUITY_FEED=iex` unless a reviewed SIP entitlement exists, and provide an authenticated `COINGECKO_API_KEY` with the matching `COINGECKO_API_TIER=demo|pro`;
+- `COINBASE_MARKET_DATA_BASE_URL=https://api.exchange.coinbase.com` enables the bounded keyless crypto venue board by default; it is not a secret and must not be redirected to an unapproved host;
 - set `SEC_EDGAR_USER_AGENT=Arbion market intelligence admin@arbion.ai` to enable primary-source filing discovery. This contact identity is not a secret. Alpaca and CoinGecko credentials are secrets and must be backed up and installed through the same owner-only secret workflow as other provider credentials.
 
 Compose rejects absent required values. Go rejects invalid URLs, known development database/key/token values, weak AI tokens, wildcard/noncanonical origins, and partial or misdirected Schwab settings. Python independently rejects missing/weak production internal authentication. Never print, commit, or send the environment file to support.

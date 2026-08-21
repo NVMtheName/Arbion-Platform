@@ -125,7 +125,7 @@ func TestIndicativeOptionsCannotSatisfyConsolidatedPolicy(t *testing.T) {
 
 func TestDefaultSourcesAreSafeAndDisabled(t *testing.T) {
 	sources := DefaultSources()
-	if len(sources) != 6 {
+	if len(sources) != 8 {
 		t.Fatalf("unexpected source count: %d", len(sources))
 	}
 	for _, source := range sources {

@@ -875,6 +875,28 @@ button:disabled {
 .market-query {
   margin-top: 22px;
 }
+.broker-account-select {
+  display: grid;
+  gap: 8px;
+  margin-top: 22px;
+}
+.broker-account-select span,
+.option-chain-controls label {
+  color: #91a89d;
+  font-size: 0.72rem;
+  font-weight: 740;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.broker-account-select select,
+.option-chain-controls select {
+  min-width: 0;
+  padding: 11px 36px 11px 12px;
+  border: 1px solid rgba(139, 181, 163, 0.22);
+  border-radius: 9px;
+  color: #d9e8e0;
+  background: #071710;
+}
 .market-query label {
   display: block;
   margin-bottom: 8px;
@@ -1057,6 +1079,108 @@ button:disabled {
 .live-provenance time {
   margin-left: auto;
 }
+.option-chain-desk {
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(139, 181, 163, 0.16);
+}
+.option-chain-desk > header {
+  display: flex;
+  gap: 18px;
+  align-items: end;
+  justify-content: space-between;
+}
+.option-chain-desk > header > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+.option-chain-desk > header > div:first-child span {
+  color: #71877c;
+  font-size: 0.65rem;
+  font-weight: 760;
+  letter-spacing: 0.1em;
+}
+.option-chain-desk > header > div:first-child strong {
+  color: #edf7f1;
+  font-size: 1.2rem;
+}
+.option-chain-controls {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 7px 8px;
+  align-items: center;
+}
+.option-chain-controls label {
+  grid-column: 1 / -1;
+}
+.option-chain-controls button {
+  width: auto;
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px solid rgba(124, 235, 177, 0.32);
+  border-radius: 9px;
+  color: #03130d;
+  background: linear-gradient(110deg, #7cebb1, #57cce3);
+  font-size: 0.76rem;
+  font-weight: 780;
+}
+.option-chain-controls button:disabled {
+  opacity: 0.55;
+}
+.option-chain-result {
+  margin-top: 18px;
+}
+.option-chain-summary {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+.option-chain-summary span,
+.option-chain-summary small {
+  color: #71877c;
+  font-size: 0.7rem;
+}
+.option-chain-summary strong {
+  color: #edf7f1;
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+}
+.option-chain-summary small {
+  margin-left: auto;
+}
+.option-chain-table {
+  max-height: 310px;
+  overflow: auto;
+  border: 1px solid rgba(139, 181, 163, 0.14);
+  border-radius: 10px;
+}
+.option-chain-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.option-chain-table th,
+.option-chain-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid rgba(139, 181, 163, 0.1);
+  text-align: right;
+}
+.option-chain-table th:first-child,
+.option-chain-table td:first-child {
+  text-align: left;
+}
+.option-chain-table th {
+  position: sticky;
+  top: 0;
+  color: #7f988c;
+  background: #071710;
+  font-size: 0.63rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 .market-section > div {
   max-width: 720px;
 }
@@ -1204,6 +1328,10 @@ button:disabled {
   .live-provenance time {
     width: 100%;
     margin: 3px 0 0;
+  }
+  .option-chain-desk > header {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .journal-entry > header,
   .journal-entry > footer {

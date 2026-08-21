@@ -19,6 +19,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/mailer"
 	"github.com/arbion/platform/services/api/internal/marketintelligence"
 	marketalpaca "github.com/arbion/platform/services/api/internal/marketintelligence/alpaca"
+	marketcoinbase "github.com/arbion/platform/services/api/internal/marketintelligence/coinbase"
 	"github.com/arbion/platform/services/api/internal/marketintelligence/coingecko"
 	marketsec "github.com/arbion/platform/services/api/internal/marketintelligence/sec"
 	"github.com/arbion/platform/services/api/internal/neural"
@@ -140,15 +141,29 @@ func newMarketIntelligenceService(cfg config.MarketData) (*marketintelligence.Se
 	}
 
 	var crypto marketintelligence.CryptoMarketProvider
+	cryptoSourceID := "coinbase_exchange"
+	cryptoCacheTTL := 5 * time.Second
+	cryptoInterval := 500 * time.Millisecond
+	coinbaseProvider, err := marketcoinbase.New(marketcoinbase.Config{
+		BaseURL: cfg.CoinbaseBaseURL, Timeout: cfg.RequestTimeout,
+		MaxAge: cfg.CryptoMaxAge, MaxFutureSkew: cfg.MaxFutureSkew,
+	}, client)
+	if err != nil {
+		return nil, err
+	}
+	crypto = coinbaseProvider
 	if cfg.CoinGeckoAPIKey != "" {
-		provider, err := coingecko.New(coingecko.Config{
+		coinGeckoProvider, coinGeckoErr := coingecko.New(coingecko.Config{
 			APIKey: cfg.CoinGeckoAPIKey, Tier: cfg.CoinGeckoTier, BaseURL: cfg.CoinGeckoBaseURL,
 			Timeout: cfg.RequestTimeout, MaxAge: cfg.CryptoMaxAge, MaxFutureSkew: cfg.MaxFutureSkew,
 		}, client)
-		if err != nil {
-			return nil, err
+		if coinGeckoErr != nil {
+			return nil, coinGeckoErr
 		}
-		crypto = provider
+		crypto = coinGeckoProvider
+		cryptoSourceID = "coingecko_rest"
+		cryptoCacheTTL = cfg.CryptoCacheTTL
+		cryptoInterval = cfg.CryptoRateInterval
 	}
 
 	var filings marketintelligence.InsiderFilingProvider
@@ -165,7 +180,7 @@ func newMarketIntelligenceService(cfg config.MarketData) (*marketintelligence.Se
 
 	return marketintelligence.NewService(marketintelligence.ServiceConfig{
 		EquityProvider: equity, EquitySourceID: equitySourceID, EquityCacheTTL: cfg.EquityCacheTTL, EquityInterval: cfg.EquityRateInterval,
-		CryptoProvider: crypto, CryptoCacheTTL: cfg.CryptoCacheTTL, CryptoInterval: cfg.CryptoRateInterval,
+		CryptoProvider: crypto, CryptoSourceID: cryptoSourceID, CryptoCacheTTL: cryptoCacheTTL, CryptoInterval: cryptoInterval,
 		FilingProvider: filings, FilingCacheTTL: cfg.InsiderFilingTTL, FilingInterval: cfg.SECRateInterval,
 	})
 }

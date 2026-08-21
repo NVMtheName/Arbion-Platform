@@ -76,7 +76,7 @@ Financial connectors live behind narrow provider-independent Go interfaces and a
 
 The connector layer is subordinate to the control plane: it translates approved operations but does not decide whether they are allowed. See [Connectors](CONNECTORS.md).
 
-Independent market-data credentials and reads must not be forced through a user's broker connection. The provider-neutral market-intelligence foundation in Go defines declared source roles, exact normalized observations, freshness/feed-quality policy, and fixture-tested read-only Alpaca, CoinGecko, and SEC EDGAR adapters. Its authenticated source catalog and branded `/markets` shell keep every external source disabled until runtime configuration and health verification are implemented. Alpaca is the proposed equity/option data source, CoinGecko the proposed crypto reference source, and SEC EDGAR the primary insider-filing source. See [Market Intelligence and Command Center](MARKET_INTELLIGENCE.md).
+Independent market-data credentials and reads must not be forced through a user's broker connection. Delegated Schwab market observations remain explicitly account-scoped and ownership-checked, while the provider-neutral market-intelligence foundation defines source roles, exact decimals, freshness/feed quality, and fixture-tested Alpaca, CoinGecko, keyless Coinbase Exchange, and SEC EDGAR adapters. The branded `/markets` shell uses Schwab for the connected user's equities/options, Coinbase for bounded single-venue crypto snapshots, and SEC EDGAR for primary filings; no source creates an execution path. See [Market Intelligence and Command Center](MARKET_INTELLIGENCE.md).
 
 ## Controlled tool flow
 

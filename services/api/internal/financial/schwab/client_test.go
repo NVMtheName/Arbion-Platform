@@ -120,13 +120,13 @@ func TestReadOnlyQuoteAndStandardOptionChainNormalization(t *testing.T) {
 			if r.URL.Query().Get("fields") != "quote,reference" {
 				t.Fatalf("unexpected quote fields: %s", r.URL.RawQuery)
 			}
-			_, _ = w.Write([]byte(`{"AAPL":{"assetMainType":"EQUITY","symbol":"AAPL","quote":{"bidPrice":"199.90000001","askPrice":200.10,"mark":"200.000000005","lastPrice":199.99,"quoteTime":1767268800000}}}`))
+			_, _ = w.Write([]byte(`{"AAPL":{"assetMainType":"EQUITY","symbol":"AAPL","realtime":true,"quote":{"bidPrice":"199.90000001","askPrice":200.10,"mark":"200.000000005","lastPrice":199.99,"quoteTime":1767268800000}}}`))
 		case "/chains":
 			q := r.URL.Query()
 			if q.Get("symbol") != "AAPL" || q.Get("contractType") != "PUT" || q.Get("strikeCount") != "50" || q.Get("includeUnderlyingQuote") != "true" || q.Get("strategy") != "SINGLE" || q.Get("fromDate") != "2026-01-21" || q.Get("toDate") != "2026-03-02" {
 				t.Fatalf("unexpected chain query: %s", r.URL.RawQuery)
 			}
-			_, _ = w.Write([]byte(`{"symbol":"AAPL","status":"SUCCESS","underlyingPrice":"200.000000005","underlying":{"quoteTime":1767268800000},"putExpDateMap":{"2026-01-31:30":{"190.0":[{"putCall":"PUT","symbol":"AAPL  260131P00190000","bid":"1.2500000001","ask":1.35,"mark":1.30,"volatility":"21.123456789","delta":"-0.300000001","quoteTimeInLong":1767268800000,"openInterest":123,"totalVolume":7,"strikePrice":"190.0000000000","expirationDate":"2026-01-31T20:00:00.000+00:00","multiplier":100.0,"isMini":false,"isNonStandard":false},{"putCall":"PUT","symbol":"NONSTANDARD","bid":9,"delta":-0.3,"strikePrice":190,"expirationDate":"2026-01-31T20:00:00.000+00:00","multiplier":10.0,"isNonStandard":true}],"195.0":{"putCall":"PUT","symbol":"AAPL  260131P00195000","bid":2.5,"ask":2.7,"delta":-0.4,"strikePrice":195,"expirationDate":"2026-01-31T20:00:00.000+00:00","multiplier":100.0}}}}`))
+			_, _ = w.Write([]byte(`{"symbol":"AAPL","status":"SUCCESS","isDelayed":false,"underlyingPrice":"200.000000005","underlying":{"quoteTime":1767268800000},"putExpDateMap":{"2026-01-31:30":{"190.0":[{"putCall":"PUT","symbol":"AAPL  260131P00190000","bid":"1.2500000001","ask":1.35,"mark":1.30,"volatility":"21.123456789","delta":"-0.300000001","quoteTimeInLong":1767268800000,"openInterest":123,"totalVolume":7,"strikePrice":"190.0000000000","expirationDate":"2026-01-31T20:00:00.000+00:00","multiplier":100.0,"isMini":false,"isNonStandard":false},{"putCall":"PUT","symbol":"NONSTANDARD","bid":9,"delta":-0.3,"strikePrice":190,"expirationDate":"2026-01-31T20:00:00.000+00:00","multiplier":10.0,"isNonStandard":true}],"195.0":{"putCall":"PUT","symbol":"AAPL  260131P00195000","bid":2.5,"ask":2.7,"delta":-0.4,"strikePrice":195,"expirationDate":"2026-01-31T20:00:00.000+00:00","multiplier":100.0}}}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -135,12 +135,15 @@ func TestReadOnlyQuoteAndStandardOptionChainNormalization(t *testing.T) {
 	c := New(Config{MarketDataBaseURL: srv.URL}, srv.Client())
 	credentials := &financial.Credentials{AccessToken: "market-access"}
 	quote, err := c.GetQuote(context.Background(), credentials, "aapl")
-	if err != nil || quote.Symbol != "AAPL" || quote.Bid == nil || *quote.Bid != "199.90000001" || quote.Mark == nil || *quote.Mark != "200.000000005" || !quote.ProviderTimestamp.Equal(time.UnixMilli(quoteTime).UTC()) {
+	if err != nil || quote.Symbol != "AAPL" || quote.Bid == nil || *quote.Bid != "199.90000001" || quote.Mark == nil || *quote.Mark != "200.000000005" || !quote.ProviderTimestamp.Equal(time.UnixMilli(quoteTime).UTC()) || quote.Realtime == nil || !*quote.Realtime {
 		t.Fatalf("quote normalization failed: %#v %v", quote, err)
 	}
 	chain, err := c.GetOptionChain(context.Background(), credentials, financial.OptionChainRequest{Symbol: "aapl", ContractType: "put", StrikeCount: 50, FromDate: time.Date(2026, 1, 21, 12, 0, 0, 0, time.UTC), ToDate: time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC)})
 	if err != nil || len(chain.Contracts) != 2 || chain.UnderlyingPrice == nil || *chain.UnderlyingPrice != "200.000000005" || chain.Contracts[0].Expiration != "2026-01-31" {
 		t.Fatalf("chain normalization failed: %#v %v (%v)", chain, err, errors.Unwrap(err))
+	}
+	if chain.Delayed == nil || *chain.Delayed {
+		t.Fatalf("option-chain entitlement metadata missing: %+v", chain.Delayed)
 	}
 	if chain.Contracts[0].Bid == nil || *chain.Contracts[0].Bid != "1.2500000001" || chain.Contracts[0].Delta == nil || *chain.Contracts[0].Delta != "-0.300000001" || chain.Contracts[0].OpenInterest == nil || *chain.Contracts[0].OpenInterest != 123 {
 		t.Fatalf("contract precision changed: %#v", chain.Contracts[0])

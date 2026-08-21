@@ -224,6 +224,7 @@ func (c *Client) Disconnect(context.Context, *financial.Credentials) error { ret
 type quoteEnvelope struct {
 	AssetMainType string `json:"assetMainType"`
 	Symbol        string `json:"symbol"`
+	Realtime      *bool  `json:"realtime"`
 	Quote         struct {
 		BidPrice, AskPrice, Mark, LastPrice decimal
 		QuoteTime, TradeTime                int64
@@ -275,7 +276,7 @@ func (c *Client) GetQuote(ctx context.Context, cr *financial.Credentials, symbol
 	if quoteTime == 0 {
 		quoteTime = value.Quote.TradeTime
 	}
-	return financial.Quote{Symbol: symbol, AssetType: value.AssetMainType, Bid: bid, Ask: ask, Mark: mark, Last: last, ProviderTimestamp: providerTime(quoteTime)}, nil
+	return financial.Quote{Symbol: symbol, AssetType: value.AssetMainType, Bid: bid, Ask: ask, Mark: mark, Last: last, ProviderTimestamp: providerTime(quoteTime), Realtime: value.Realtime}, nil
 }
 
 type rawOptionContract struct {
@@ -322,6 +323,7 @@ func (contracts *rawOptionContracts) UnmarshalJSON(data []byte) error {
 type rawOptionChain struct {
 	Symbol          string  `json:"symbol"`
 	Status          string  `json:"status"`
+	IsDelayed       *bool   `json:"isDelayed"`
 	UnderlyingPrice decimal `json:"underlyingPrice"`
 	Underlying      struct {
 		QuoteTime int64 `json:"quoteTime"`
@@ -389,7 +391,7 @@ func (c *Client) GetOptionChain(ctx context.Context, cr *financial.Credentials, 
 		}
 		return contracts[i].Symbol < contracts[j].Symbol
 	})
-	return financial.OptionChain{Symbol: request.Symbol, UnderlyingPrice: underlyingPrice, ProviderTimestamp: providerTimestamp, Contracts: contracts}, nil
+	return financial.OptionChain{Symbol: request.Symbol, UnderlyingPrice: underlyingPrice, ProviderTimestamp: providerTimestamp, Delayed: raw.IsDelayed, Contracts: contracts}, nil
 }
 
 func normalizeOptionContract(underlying, contractType string, raw rawOptionContract, fallbackTime time.Time) (financial.OptionContract, bool, error) {
