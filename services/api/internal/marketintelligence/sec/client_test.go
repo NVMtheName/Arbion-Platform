@@ -1,6 +1,7 @@
 package sec
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -109,5 +110,28 @@ func TestRecentInsiderFilingsClassifiesProviderFailuresWithoutBodies(t *testing.
 				t.Fatalf("got %v, want %v", err, test.want)
 			}
 		})
+	}
+}
+
+func TestPacingCancellationDoesNotReserveARequestSlot(t *testing.T) {
+	client, err := New(config("http://127.0.0.1:1"), http.DefaultClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = client.wait(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	canceled, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	if err = client.wait(canceled); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("paced request did not honor cancellation: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	available, stop := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer stop()
+	if err = client.wait(available); err != nil {
+		t.Fatalf("canceled request retained a future slot: %v", err)
 	}
 }
