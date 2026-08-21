@@ -59,15 +59,38 @@ const (
 
 type Decimal string
 
+type VerificationState string
+
+const (
+	NotConfigured       VerificationState = "NOT_CONFIGURED"
+	AwaitingObservation VerificationState = "AWAITING_OBSERVATION"
+	Verified            VerificationState = "VERIFIED"
+	Degraded            VerificationState = "DEGRADED"
+)
+
+// CapabilityStatus reports process-local adapter verification without
+// exposing provider error text, credentials, or claiming that a successful
+// request is a consolidated or executable market observation.
+type CapabilityStatus struct {
+	Capability          Capability        `json:"capability"`
+	Enabled             bool              `json:"enabled"`
+	State               VerificationState `json:"state"`
+	LastAttemptAt       *time.Time        `json:"last_attempt_at,omitempty"`
+	LastSuccessAt       *time.Time        `json:"last_success_at,omitempty"`
+	ConsecutiveFailures int               `json:"consecutive_failures"`
+	FailureCategory     string            `json:"failure_category,omitempty"`
+}
+
 type Source struct {
-	ID           string       `json:"id"`
-	Label        string       `json:"label"`
-	Role         SourceRole   `json:"role"`
-	Feed         string       `json:"feed"`
-	Quality      FeedQuality  `json:"quality"`
-	Capabilities []Capability `json:"capabilities"`
-	Enabled      bool         `json:"enabled"`
-	Healthy      bool         `json:"healthy"`
+	ID               string             `json:"id"`
+	Label            string             `json:"label"`
+	Role             SourceRole         `json:"role"`
+	Feed             string             `json:"feed"`
+	Quality          FeedQuality        `json:"quality"`
+	Capabilities     []Capability       `json:"capabilities"`
+	CapabilityStatus []CapabilityStatus `json:"capability_status"`
+	Enabled          bool               `json:"enabled"`
+	Healthy          bool               `json:"healthy"`
 }
 
 type Provenance struct {

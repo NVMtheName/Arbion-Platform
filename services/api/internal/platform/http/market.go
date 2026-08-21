@@ -92,6 +92,9 @@ func (h *authHandler) listMarketSources(writer stdhttp.ResponseWriter, request *
 	}
 	writeJSON(writer, stdhttp.StatusOK, map[string]any{
 		"sources":                  sources,
+		"status_generated_at":      time.Now().UTC(),
+		"status_semantics":         "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT",
+		"provider_errors_exposed":  false,
 		"live_execution_available": false,
 	})
 }
@@ -101,6 +104,10 @@ func setMarketSourceAvailable(sources []marketintelligence.Source, sourceID stri
 		if sources[index].ID == sourceID {
 			sources[index].Enabled = true
 			sources[index].Healthy = true
+			for statusIndex := range sources[index].CapabilityStatus {
+				sources[index].CapabilityStatus[statusIndex].Enabled = true
+				sources[index].CapabilityStatus[statusIndex].State = marketintelligence.AwaitingObservation
+			}
 			return
 		}
 	}

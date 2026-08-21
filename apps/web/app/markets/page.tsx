@@ -11,6 +11,9 @@ import { MarketSourceGrid, type MarketSource } from "./market-source-grid";
 
 type SourcesResponse = {
   sources: MarketSource[];
+  status_generated_at?: string;
+  status_semantics?: "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT";
+  provider_errors_exposed?: false;
   live_execution_available: false;
 };
 
@@ -30,7 +33,11 @@ export default async function MarketsPage() {
   if (response.status === 401) redirect("/login");
   const data: SourcesResponse = response.ok
     ? ((await response.json()) as SourcesResponse)
-    : { sources: [], live_execution_available: false };
+    : {
+        sources: [],
+        provider_errors_exposed: false,
+        live_execution_available: false,
+      };
   const accounts = accountsResponse.ok
     ? ((await accountsResponse.json()) as { accounts: MarketAccount[] })
         .accounts
@@ -92,7 +99,10 @@ export default async function MarketsPage() {
           </p>
         </div>
         {data.sources.length > 0 ? (
-          <MarketSourceGrid sources={data.sources} />
+          <MarketSourceGrid
+            sources={data.sources}
+            statusGeneratedAt={data.status_generated_at}
+          />
         ) : (
           <p className="unavailable">
             Source metadata is temporarily unavailable. No market value will be

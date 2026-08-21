@@ -163,6 +163,9 @@ func TestMarketSourcesAreNoStoreReadOnlyMetadata(t *testing.T) {
 
 	var response struct {
 		Sources                []marketintelligence.Source `json:"sources"`
+		StatusGeneratedAt      time.Time                   `json:"status_generated_at"`
+		StatusSemantics        string                      `json:"status_semantics"`
+		ProviderErrorsExposed  bool                        `json:"provider_errors_exposed"`
 		LiveExecutionAvailable bool                        `json:"live_execution_available"`
 	}
 	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
@@ -171,12 +174,17 @@ func TestMarketSourcesAreNoStoreReadOnlyMetadata(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("unexpected response metadata: status=%d cache=%q", recorder.Code, recorder.Header().Get("Cache-Control"))
 	}
-	if len(response.Sources) != 8 || response.LiveExecutionAvailable {
+	if len(response.Sources) != 8 || response.LiveExecutionAvailable || response.ProviderErrorsExposed || response.StatusGeneratedAt.IsZero() || response.StatusSemantics != "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT" {
 		t.Fatalf("unexpected market source response: %+v", response)
 	}
 	for _, source := range response.Sources {
 		if source.Enabled || source.Healthy {
 			t.Fatalf("unwired source exposed as available: %+v", source)
+		}
+		for _, status := range source.CapabilityStatus {
+			if status.Enabled || status.State != marketintelligence.NotConfigured || status.LastAttemptAt != nil || status.LastSuccessAt != nil {
+				t.Fatalf("unwired capability exposed as verified: %+v", status)
+			}
 		}
 	}
 }
@@ -191,6 +199,9 @@ func TestMarketSourcesExposeOnlyTheCurrentUsersActiveSchwabSource(t *testing.T) 
 	}
 	if !strings.Contains(recorder.Body.String(), `"enabled":true,"healthy":true`) {
 		t.Fatalf("active user source not marked available: %s", recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"state":"AWAITING_OBSERVATION"`) {
+		t.Fatalf("broker access was mislabeled as a completed provider observation: %s", recorder.Body.String())
 	}
 }
 

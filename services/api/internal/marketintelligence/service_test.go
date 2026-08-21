@@ -3,9 +3,21 @@ package marketintelligence
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
+
+func capabilityStatus(t *testing.T, source Source, capability Capability) CapabilityStatus {
+	t.Helper()
+	for _, status := range source.CapabilityStatus {
+		if status.Capability == capability {
+			return status
+		}
+	}
+	t.Fatalf("capability %s missing from source %+v", capability, source)
+	return CapabilityStatus{}
+}
 
 type fakeEquityProvider struct {
 	calls int
@@ -24,6 +36,13 @@ func (provider *fakeEquityProvider) LatestEquityQuote(_ context.Context, symbol 
 type fakeCryptoProvider struct{ calls int }
 
 type fakeTopOnlyCryptoProvider struct{ calls int }
+
+type failingLiquidityProvider struct{ fakeCryptoProvider }
+
+func (provider *failingLiquidityProvider) CryptoLiquidity(context.Context, string, string, int) (CryptoLiquiditySnapshot, error) {
+	provider.calls++
+	return CryptoLiquiditySnapshot{}, errors.New("provider failed with private diagnostic detail")
+}
 
 func (provider *fakeTopOnlyCryptoProvider) TopCryptoMarkets(_ context.Context, currency string, _ int) ([]CryptoMarketObservation, error) {
 	provider.calls++
@@ -124,8 +143,57 @@ func TestServiceCachesObservationsAndTracksSourceHealth(t *testing.T) {
 			if !source.Enabled || !source.Healthy {
 				t.Fatalf("configured source did not become healthy: %+v", source)
 			}
+			status := capabilityStatus(t, source, source.Capabilities[0])
+			if status.State != Verified || status.LastAttemptAt == nil || status.LastSuccessAt == nil || status.ConsecutiveFailures != 0 || status.FailureCategory != "" {
+				t.Fatalf("successful capability verification is incomplete: %+v", status)
+			}
 		}
 	}
+}
+
+func TestServiceTracksCoinbaseCapabilitiesIndependentlyWithoutRawErrors(t *testing.T) {
+	provider := &failingLiquidityProvider{}
+	service, err := NewService(ServiceConfig{
+		CryptoAssetProvider: provider, CryptoAssetSourceID: "coinbase_exchange",
+		CryptoCacheTTL: time.Minute, CryptoInterval: time.Millisecond,
+		CryptoLiquidityProvider: provider, CryptoLiquiditySourceID: "coinbase_exchange",
+		CryptoLiquidityCacheTTL: time.Minute, CryptoLiquidityInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.CryptoMarkets(context.Background(), "USD", []string{"BTC"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.CryptoLiquidity(context.Background(), "BTC", "USD", 10); err == nil {
+		t.Fatal("expected liquidity provider failure")
+	}
+
+	for _, source := range service.Sources() {
+		if source.ID != "coinbase_exchange" {
+			continue
+		}
+		if !source.Enabled || source.Healthy {
+			t.Fatalf("partial provider failure was masked: %+v", source)
+		}
+		markets := capabilityStatus(t, source, CryptoMarkets)
+		liquidity := capabilityStatus(t, source, CryptoLiquidity)
+		stats := capabilityStatus(t, source, CryptoStats)
+		if markets.State != Verified || markets.LastSuccessAt == nil {
+			t.Fatalf("successful Coinbase capability was lost: %+v", markets)
+		}
+		if liquidity.State != Degraded || liquidity.LastAttemptAt == nil || liquidity.LastSuccessAt != nil || liquidity.ConsecutiveFailures != 1 || liquidity.FailureCategory != "UPSTREAM_FAILURE" {
+			t.Fatalf("failed Coinbase capability was not safely classified: %+v", liquidity)
+		}
+		if stats.State != NotConfigured || stats.Enabled {
+			t.Fatalf("unconfigured capability was exposed: %+v", stats)
+		}
+		if strings.Contains(liquidity.FailureCategory, "private") {
+			t.Fatalf("raw provider error leaked: %+v", liquidity)
+		}
+		return
+	}
+	t.Fatal("Coinbase source missing")
 }
 
 func TestServiceCanonicalizesAndCachesPortfolioCryptoMarkets(t *testing.T) {
@@ -356,4 +424,33 @@ func TestInvalidQueryDoesNotDegradeAHealthyProvider(t *testing.T) {
 			t.Fatalf("invalid user query degraded provider health: %+v", source)
 		}
 	}
+}
+
+func TestInvalidProviderDataDegradesOnlyTheAttemptedCapability(t *testing.T) {
+	provider := &fakeEquityProvider{}
+	service, err := NewService(ServiceConfig{
+		EquityProvider: provider, EquitySourceID: "alpaca_iex",
+		EquityCacheTTL: time.Minute, EquityInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.LatestEquityQuote(context.Background(), "SPY"); err != nil {
+		t.Fatal(err)
+	}
+	provider.err = ErrInvalidObservation
+	if _, _, err = service.LatestEquityQuote(context.Background(), "AAPL"); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("invalid provider data was not preserved: %v", err)
+	}
+	for _, source := range service.Sources() {
+		if source.ID != "alpaca_iex" {
+			continue
+		}
+		status := capabilityStatus(t, source, EquityQuote)
+		if source.Healthy || status.State != Degraded || status.FailureCategory != "INVALID_DATA" || status.ConsecutiveFailures != 1 || status.LastSuccessAt == nil || status.LastAttemptAt == nil {
+			t.Fatalf("invalid provider data was not classified safely: source=%+v status=%+v", source, status)
+		}
+		return
+	}
+	t.Fatal("Alpaca source missing")
 }
