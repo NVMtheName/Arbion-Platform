@@ -107,6 +107,55 @@ type ActivityResponse = {
   error?: { message?: string };
 };
 
+export type CoinbaseOrderObservation = {
+  product_id: string;
+  base_asset: string;
+  quote_currency: string;
+  side: "BUY" | "SELL";
+  status:
+    | "PENDING"
+    | "OPEN"
+    | "FILLED"
+    | "CANCELLED"
+    | "EXPIRED"
+    | "FAILED"
+    | "QUEUED"
+    | "CANCEL_QUEUED"
+    | "EDIT_QUEUED"
+    | "UNKNOWN";
+  order_type: string;
+  time_in_force: string;
+  completion_percentage: string;
+  filled_size: string;
+  filled_size_unit: string;
+  filled_value: Money;
+  average_filled_price?: Money;
+  total_fees: Money;
+  number_of_fills: number;
+  pending_cancel: boolean;
+  settled: boolean;
+  is_liquidation: boolean;
+  outcome_reason: string;
+  created_at: string;
+  last_fill_at?: string;
+};
+
+export type CoinbaseOrderHistory = {
+  provider: "coinbase";
+  feed: "advanced_trade_orders";
+  orders: CoinbaseOrderObservation[];
+  has_more: boolean;
+  retrieved_at: string;
+};
+
+type OrderHistoryResponse = {
+  orders?: CoinbaseOrderHistory;
+  history_semantics?: "EXTERNAL_ORDER_STATUS";
+  order_actions_available: false;
+  live_execution_available: false;
+  error?: { message?: string };
+};
+
 function money(value?: Money, compact = false) {
   if (!value) return "—";
   const parsed = Number(value.amount);
@@ -233,12 +282,14 @@ export function CryptoPortfolioCommandCenter({
   initialHistory,
   initialHistoryCached = false,
   initialActivity,
+  initialOrderHistory,
 }: {
   accountID: string;
   initialSnapshot: CryptoPortfolioSnapshot;
   initialHistory?: CryptoCandleSeries;
   initialHistoryCached?: boolean;
   initialActivity?: CoinbaseTradeActivity;
+  initialOrderHistory?: CoinbaseOrderHistory;
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [refreshing, setRefreshing] = useState(false);
@@ -262,6 +313,9 @@ export function CryptoPortfolioCommandCenter({
   const [activity, setActivity] = useState(initialActivity);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState("");
+  const [orderHistory, setOrderHistory] = useState(initialOrderHistory);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState("");
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -394,6 +448,48 @@ export function CryptoPortfolioCommandCenter({
       setActivityLoading(false);
     }
   }, [accountID]);
+
+  const refreshOrderHistory = useCallback(async () => {
+    setOrdersLoading(true);
+    setOrdersError("");
+    try {
+      const response = await fetch(
+        `/api/accounts/${encodeURIComponent(accountID)}/activity/orders`,
+        { cache: "no-store" },
+      );
+      const body = (await response.json()) as OrderHistoryResponse;
+      if (
+        !response.ok ||
+        !body.orders ||
+        body.history_semantics !== "EXTERNAL_ORDER_STATUS" ||
+        body.order_actions_available !== false ||
+        body.live_execution_available !== false ||
+        body.orders.provider !== "coinbase" ||
+        body.orders.feed !== "advanced_trade_orders" ||
+        body.orders.orders.length > 50
+      ) {
+        setOrdersError(
+          body.error?.message ??
+            "Coinbase order status is temporarily unavailable. No state was inferred or substituted.",
+        );
+        return;
+      }
+      setOrderHistory(body.orders);
+    } catch {
+      setOrdersError(
+        "Coinbase order status is temporarily unavailable. No state was inferred or substituted.",
+      );
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, [accountID]);
+
+  const liveOrderCount =
+    orderHistory?.orders.filter((order) =>
+      ["PENDING", "OPEN", "QUEUED", "CANCEL_QUEUED", "EDIT_QUEUED"].includes(
+        order.status,
+      ),
+    ).length ?? 0;
 
   return (
     <section className="crypto-command" aria-labelledby="crypto-command-title">
@@ -750,6 +846,179 @@ export function CryptoPortfolioCommandCenter({
             </aside>
           </div>
         )}
+      </motion.section>
+
+      <motion.section
+        className="crypto-order-monitor"
+        aria-labelledby="crypto-order-title"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.24 }}
+      >
+        <header>
+          <div>
+            <p className="eyebrow">CONNECTED ORDER MONITOR</p>
+            <h2 id="crypto-order-title">Provider-reported order state</h2>
+            <p>
+              Open and historical spot orders created outside Arbion. Monitor
+              status and fill progress here; create, edit, and cancel actions
+              remain unavailable.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={ordersLoading}
+            onClick={() => void refreshOrderHistory()}
+          >
+            {ordersLoading ? "Refreshing…" : "Refresh orders"}
+          </button>
+        </header>
+
+        {orderHistory && (
+          <div
+            className="crypto-order-summary"
+            aria-label="Order monitor evidence"
+          >
+            <div>
+              <span>Working state</span>
+              <strong>{liveOrderCount} open or queued</strong>
+            </div>
+            <div>
+              <span>Orders shown</span>
+              <strong>{orderHistory.orders.length}/50 maximum</strong>
+            </div>
+            <div>
+              <span>History window</span>
+              <strong>
+                {orderHistory.has_more
+                  ? "More remains at Coinbase"
+                  : "First page complete"}
+              </strong>
+            </div>
+            <div>
+              <span>Arbion actions</span>
+              <strong>None · monitor only</strong>
+            </div>
+          </div>
+        )}
+
+        {ordersError ? (
+          <p className="crypto-order-unavailable" role="alert">
+            {ordersError}
+          </p>
+        ) : !orderHistory ? (
+          <p className="crypto-order-unavailable">
+            Coinbase order status is not available yet. Refresh to try the
+            protected View-only connection.
+          </p>
+        ) : orderHistory.orders.length === 0 ? (
+          <p className="crypto-order-unavailable">
+            Coinbase reported no recent Advanced Trade spot orders for this
+            portfolio.
+          </p>
+        ) : (
+          <div
+            className="crypto-order-table"
+            role="region"
+            aria-label="Provider-reported Coinbase order status"
+            tabIndex={0}
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th>Created</th>
+                  <th>Market</th>
+                  <th>State</th>
+                  <th>Instruction</th>
+                  <th>Fill progress</th>
+                  <th>Filled value</th>
+                  <th>Average / Fees</th>
+                </tr>
+              </thead>
+              <tbody>
+                {orderHistory.orders.map((order, index) => {
+                  const completion = Number(order.completion_percentage);
+                  return (
+                    <tr
+                      key={`${order.created_at}-${order.product_id}-${index}`}
+                    >
+                      <td>{timestamp(order.created_at)}</td>
+                      <td>
+                        <strong>{order.product_id}</strong>
+                        <small>
+                          {order.is_liquidation
+                            ? "Provider liquidation"
+                            : "Created outside Arbion"}
+                        </small>
+                      </td>
+                      <td>
+                        <span
+                          className={`crypto-order-state ${order.status.toLowerCase()}`}
+                        >
+                          {order.status.replaceAll("_", " ")}
+                        </span>
+                        <small>
+                          {order.pending_cancel
+                            ? "Cancellation pending at Coinbase"
+                            : order.outcome_reason === "NONE"
+                              ? order.settled
+                                ? "Settled"
+                                : "Provider state"
+                              : order.outcome_reason
+                                  .replaceAll("_", " ")
+                                  .toLowerCase()}
+                        </small>
+                      </td>
+                      <td>
+                        <strong>
+                          {order.side} · {order.order_type.replaceAll("_", " ")}
+                        </strong>
+                        <small>
+                          {order.time_in_force
+                            .replaceAll("_", " ")
+                            .toLowerCase()}
+                        </small>
+                      </td>
+                      <td>
+                        <div className="crypto-order-progress">
+                          <span>
+                            <i
+                              style={{
+                                width: `${Number.isFinite(completion) ? Math.min(100, Math.max(0, completion)) : 0}%`,
+                              }}
+                            />
+                          </span>
+                          <small>
+                            {exactDecimal(order.completion_percentage)}% ·{" "}
+                            {exactDecimal(order.filled_size)}{" "}
+                            {order.filled_size_unit}
+                          </small>
+                        </div>
+                      </td>
+                      <td>{exactMoney(order.filled_value)}</td>
+                      <td>
+                        <strong>
+                          {order.average_filled_price
+                            ? exactMoney(order.average_filled_price)
+                            : "No provider average"}
+                        </strong>
+                        <small>
+                          {exactMoney(order.total_fees)} fees ·{" "}
+                          {order.number_of_fills} fills
+                        </small>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <footer>
+          Arbion receives normalized order state only. Coinbase order IDs, user
+          IDs, portfolio IDs, messages, and pagination tokens never reach this
+          page.
+        </footer>
       </motion.section>
 
       <motion.section

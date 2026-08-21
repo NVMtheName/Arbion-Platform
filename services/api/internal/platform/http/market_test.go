@@ -75,6 +75,7 @@ type fakeBrokerMarketData struct {
 	chain    financial.OptionChain
 	query    financial.OptionChainRequest
 	fills    financial.TradeFillPage
+	orders   financial.OrderHistoryPage
 }
 
 func (fake *fakeBrokerMarketData) ListAccounts(context.Context, authorization.Principal) ([]financial.FinancialAccount, error) {
@@ -100,6 +101,10 @@ func (fake *fakeBrokerMarketData) GetPositions(context.Context, authorization.Pr
 
 func (fake *fakeBrokerMarketData) GetTradeFills(context.Context, authorization.Principal, string) (financial.TradeFillPage, error) {
 	return fake.fills, nil
+}
+
+func (fake *fakeBrokerMarketData) GetOrderHistory(context.Context, authorization.Principal, string) (financial.OrderHistoryPage, error) {
+	return fake.orders, nil
 }
 
 func (fake *fakeBrokerMarketData) GetQuote(context.Context, authorization.Principal, string, string) (financial.Quote, error) {
@@ -277,6 +282,31 @@ func TestConnectedTradeFillsAreOwnerScopedNoStoreExecutionEvidence(t *testing.T)
 	handler.connectedTradeFills(recorder, request)
 	if recorder.Code != stdhttp.StatusBadRequest || !strings.Contains(recorder.Body.String(), "TRADE_HISTORY_UNSUPPORTED") {
 		t.Fatalf("non-Coinbase activity entered the connected fill view: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestConnectedOrderHistoryIsOwnerScopedNoStoreAndActionFree(t *testing.T) {
+	broker := &fakeBrokerMarketData{
+		accounts: []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", Status: "active"}},
+		orders:   financial.OrderHistoryPage{Provider: "coinbase", Feed: "advanced_trade_orders", Orders: []financial.OrderObservation{{ProductID: "BTC-USD", Status: "OPEN", Side: "BUY", CompletionPercentage: "25.000"}}, HasMore: true},
+	}
+	handler := &authHandler{marketFinancial: broker}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/activity/orders", nil)
+	request.SetPathValue("id", "coinbase-1")
+	recorder := httptest.NewRecorder()
+	handler.connectedOrderHistory(recorder, request)
+	body := recorder.Body.String()
+	for _, expected := range []string{`"feed":"advanced_trade_orders"`, `"completion_percentage":"25.000"`, `"history_semantics":"EXTERNAL_ORDER_STATUS"`, `"order_actions_available":false`, `"live_execution_available":false`} {
+		if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(body, expected) {
+			t.Fatalf("order monitor boundary missing %s: status=%d body=%s", expected, recorder.Code, body)
+		}
+	}
+
+	broker.accounts[0].Provider = "schwab"
+	recorder = httptest.NewRecorder()
+	handler.connectedOrderHistory(recorder, request)
+	if recorder.Code != stdhttp.StatusBadRequest || !strings.Contains(recorder.Body.String(), "ORDER_HISTORY_UNSUPPORTED") {
+		t.Fatalf("non-Coinbase order history entered the monitor: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

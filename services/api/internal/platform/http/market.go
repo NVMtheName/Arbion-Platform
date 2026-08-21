@@ -31,6 +31,7 @@ type BrokerMarketData interface {
 	GetBalances(context.Context, authorization.Principal, string) (financial.Balances, error)
 	GetPositions(context.Context, authorization.Principal, string) ([]financial.Position, error)
 	GetTradeFills(context.Context, authorization.Principal, string) (financial.TradeFillPage, error)
+	GetOrderHistory(context.Context, authorization.Principal, string) (financial.OrderHistoryPage, error)
 	GetQuote(context.Context, authorization.Principal, string, string) (financial.Quote, error)
 	GetOptionChain(context.Context, authorization.Principal, string, financial.OptionChainRequest) (financial.OptionChain, error)
 }
@@ -360,6 +361,31 @@ func (h *authHandler) connectedTradeFills(writer stdhttp.ResponseWriter, request
 	}
 	writeJSON(writer, stdhttp.StatusOK, map[string]any{
 		"activity": activity, "history_semantics": "EXTERNAL_EXECUTION_EVIDENCE", "live_execution_available": false,
+	})
+}
+
+func (h *authHandler) connectedOrderHistory(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
+	if h.marketFinancial == nil {
+		h.marketUnavailable(writer, marketintelligence.ErrNoEligibleSource)
+		return
+	}
+	account, err := h.marketFinancial.GetAccount(request.Context(), principal(request), request.PathValue("id"))
+	if err != nil {
+		h.financialError(writer, err)
+		return
+	}
+	if account.Provider != "coinbase" {
+		writeError(writer, stdhttp.StatusBadRequest, "ORDER_HISTORY_UNSUPPORTED", "This account does not use the connected order monitor.")
+		return
+	}
+	history, err := h.marketFinancial.GetOrderHistory(request.Context(), principal(request), account.ID)
+	if err != nil {
+		h.financialError(writer, err)
+		return
+	}
+	writeJSON(writer, stdhttp.StatusOK, map[string]any{
+		"orders": history, "history_semantics": "EXTERNAL_ORDER_STATUS", "order_actions_available": false, "live_execution_available": false,
 	})
 }
 

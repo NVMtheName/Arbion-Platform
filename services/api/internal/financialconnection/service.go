@@ -396,6 +396,26 @@ func (s *Service) GetTradeFills(ctx context.Context, p authorization.Principal, 
 	return provider.GetTradeFills(ctx, &cr, a.ProviderAccountID, 50)
 }
 
+func (s *Service) GetOrderHistory(ctx context.Context, p authorization.Principal, id string) (financial.OrderHistoryPage, error) {
+	a, e := s.GetAccount(ctx, p, id)
+	if e != nil {
+		return financial.OrderHistoryPage{}, e
+	}
+	connection, cr, e := s.credentials(ctx, p.UserID, a.ProviderConnectionID)
+	if e != nil {
+		return financial.OrderHistoryPage{}, e
+	}
+	broker, e := s.provider(connection.Provider)
+	if e != nil {
+		return financial.OrderHistoryPage{}, e
+	}
+	provider, ok := broker.(financial.OrderHistoryProvider)
+	if !ok {
+		return financial.OrderHistoryPage{}, &financial.ProviderError{Code: financial.ProviderUnavailable}
+	}
+	return provider.GetOrderHistory(ctx, &cr, a.ProviderAccountID, 50)
+}
+
 func (s *Service) GetQuote(ctx context.Context, p authorization.Principal, accountID, symbol string) (financial.Quote, error) {
 	a, e := s.GetAccount(ctx, p, accountID)
 	if e != nil {

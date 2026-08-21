@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CryptoPortfolioCommandCenter,
+  type CoinbaseOrderHistory,
   type CoinbaseTradeActivity,
   type CryptoCandleSeries,
   type CryptoPortfolioSnapshot,
@@ -84,6 +85,37 @@ const activity: CoinbaseTradeActivity = {
   retrieved_at: observedAt,
 };
 
+const orderHistory: CoinbaseOrderHistory = {
+  provider: "coinbase",
+  feed: "advanced_trade_orders",
+  orders: [
+    {
+      product_id: "BTC-USD",
+      base_asset: "BTC",
+      quote_currency: "USD",
+      side: "BUY",
+      status: "OPEN",
+      order_type: "LIMIT",
+      time_in_force: "GOOD_UNTIL_CANCELLED",
+      completion_percentage: "25.000",
+      filled_size: "0.000000010000",
+      filled_size_unit: "BTC",
+      filled_value: { amount: "0.00060123123456789", currency: "USD" },
+      average_filled_price: { amount: "60123.123456789", currency: "USD" },
+      total_fees: { amount: "0.00000001", currency: "USD" },
+      number_of_fills: 1,
+      pending_cancel: false,
+      settled: false,
+      is_liquidation: false,
+      outcome_reason: "NONE",
+      created_at: "2026-08-21T14:20:00Z",
+      last_fill_at: "2026-08-21T14:29:00Z",
+    },
+  ],
+  has_more: true,
+  retrieved_at: observedAt,
+};
+
 const history: CryptoCandleSeries = {
   symbol: "BTC",
   currency: "USD",
@@ -129,6 +161,7 @@ describe("CryptoPortfolioCommandCenter", () => {
         accountID="coinbase-1"
         initialActivity={activity}
         initialHistory={history}
+        initialOrderHistory={orderHistory}
         initialSnapshot={snapshot}
       />,
     );
@@ -150,11 +183,24 @@ describe("CryptoPortfolioCommandCenter", () => {
     expect(
       screen.getByRole("heading", { name: "Recent external fills" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("60,123.123456789 USD")).toBeInTheDocument();
-    expect(screen.getByText("0.000000010000 BTC")).toBeInTheDocument();
+    expect(screen.getAllByText("60,123.123456789 USD").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText("0.000000010000 BTC").length).toBeGreaterThan(0);
     expect(screen.getByText("Executed outside Arbion")).toBeInTheDocument();
     expect(
       screen.getByText(/never exposes Coinbase order IDs/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Provider-reported order state" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("25.000% · 0.000000010000 BTC"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("0.00060123123456789 USD")).toBeInTheDocument();
+    expect(screen.getByText("None · monitor only")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Coinbase order IDs, user IDs/),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("img", {
@@ -265,5 +311,47 @@ describe("CryptoPortfolioCommandCenter", () => {
       "/api/accounts/coinbase-1/activity/fills",
       { cache: "no-store" },
     );
+  });
+
+  it("refreshes provider order state without exposing order actions", async () => {
+    const updatedOrders = {
+      ...orderHistory,
+      orders: [
+        {
+          ...orderHistory.orders[0],
+          status: "FILLED" as const,
+          completion_percentage: "100",
+          settled: true,
+        },
+      ],
+    };
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        orders: updatedOrders,
+        history_semantics: "EXTERNAL_ORDER_STATUS",
+        order_actions_available: false,
+        live_execution_available: false,
+      }),
+    });
+    vi.stubGlobal("fetch", request);
+    render(
+      <CryptoPortfolioCommandCenter
+        accountID="coinbase-1"
+        initialActivity={activity}
+        initialHistory={history}
+        initialOrderHistory={orderHistory}
+        initialSnapshot={snapshot}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh orders" }));
+
+    await waitFor(() => expect(screen.getByText("FILLED")).toBeVisible());
+    expect(request).toHaveBeenCalledWith(
+      "/api/accounts/coinbase-1/activity/orders",
+      { cache: "no-store" },
+    );
+    expect(screen.queryByRole("button", { name: /cancel/i })).toBeNull();
   });
 });

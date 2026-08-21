@@ -1455,6 +1455,7 @@ button:disabled {
 .crypto-allocation-panel,
 .crypto-evidence-panel,
 .crypto-history-panel,
+.crypto-order-monitor,
 .crypto-activity-panel,
 .crypto-position-ledger {
   padding: 28px;
@@ -1627,6 +1628,182 @@ button:disabled {
   padding: 24px;
   border: 1px dashed rgba(139, 181, 163, 0.16);
   border-radius: 12px;
+}
+.crypto-order-monitor {
+  margin-top: 16px;
+  padding: 32px;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      circle at 86% 0%,
+      rgba(87, 204, 227, 0.075),
+      transparent 28rem
+    ),
+    rgba(5, 18, 13, 0.88);
+}
+.crypto-order-monitor > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+}
+.crypto-order-monitor h2 {
+  margin: 7px 0 8px;
+  font-size: 1.65rem;
+}
+.crypto-order-monitor > header p:last-child {
+  max-width: 720px;
+  margin: 0;
+  color: #7d9489;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.crypto-order-monitor > header button {
+  min-width: 160px;
+  padding: 9px 13px;
+  border: 1px solid rgba(87, 204, 227, 0.24);
+  color: #cbeaf0;
+  background: rgba(87, 204, 227, 0.06);
+}
+.crypto-order-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 26px;
+  overflow: hidden;
+  border: 1px solid rgba(115, 191, 207, 0.14);
+  border-radius: 12px;
+  background: rgba(1, 10, 7, 0.42);
+}
+.crypto-order-summary > div {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 16px;
+  border-right: 1px solid rgba(115, 191, 207, 0.1);
+}
+.crypto-order-summary > div:last-child {
+  border-right: 0;
+}
+.crypto-order-summary span {
+  color: #627b7c;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.crypto-order-summary strong {
+  overflow: hidden;
+  color: #dcebed;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crypto-order-table {
+  margin-top: 22px;
+  overflow-x: auto;
+}
+.crypto-order-table table {
+  width: 100%;
+  min-width: 1220px;
+  border-collapse: collapse;
+}
+.crypto-order-table th {
+  padding: 0 14px 12px;
+  color: #6e8585;
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  text-align: left;
+  text-transform: uppercase;
+}
+.crypto-order-table td {
+  padding: 17px 14px;
+  border-top: 1px solid rgba(115, 191, 207, 0.1);
+  color: #cfe0df;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.crypto-order-table td:nth-child(2),
+.crypto-order-table td:nth-child(3),
+.crypto-order-table td:nth-child(4),
+.crypto-order-table td:nth-child(7) {
+  min-width: 140px;
+}
+.crypto-order-table td strong {
+  color: #eef8f5;
+  font-weight: 680;
+  text-transform: capitalize;
+}
+.crypto-order-table td small {
+  display: block;
+  margin-top: 5px;
+  color: #6e8582;
+  font-size: 0.66rem;
+}
+.crypto-order-state {
+  display: inline-flex;
+  width: max-content;
+  max-width: 150px;
+  justify-content: center;
+  padding: 5px 8px;
+  border: 1px solid rgba(87, 204, 227, 0.28);
+  border-radius: 999px;
+  color: #8cddec;
+  background: rgba(87, 204, 227, 0.08);
+  font-size: 0.62rem;
+  font-weight: 780;
+  letter-spacing: 0.06em;
+}
+.crypto-order-state.filled {
+  border-color: rgba(124, 235, 177, 0.26);
+  color: #8ff0bd;
+  background: rgba(124, 235, 177, 0.08);
+}
+.crypto-order-state.cancelled,
+.crypto-order-state.expired {
+  border-color: rgba(157, 168, 163, 0.2);
+  color: #a6b5ae;
+  background: rgba(157, 168, 163, 0.05);
+}
+.crypto-order-state.failed {
+  border-color: rgba(233, 163, 148, 0.3);
+  color: #efb1a4;
+  background: rgba(233, 163, 148, 0.07);
+}
+.crypto-order-progress {
+  display: grid;
+  gap: 8px;
+  min-width: 170px;
+}
+.crypto-order-progress > span {
+  display: block;
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(115, 191, 207, 0.11);
+}
+.crypto-order-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #57cce3, #7cebb1);
+  box-shadow: 0 0 12px rgba(87, 204, 227, 0.2);
+}
+.crypto-order-unavailable {
+  margin: 24px 0 0;
+  padding: 24px;
+  border: 1px dashed rgba(115, 191, 207, 0.18);
+  border-radius: 12px;
+  color: #758d8d;
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+.crypto-order-monitor > footer {
+  margin-top: 16px;
+  color: #617775;
+  font-size: 0.7rem;
+  line-height: 1.5;
 }
 .crypto-activity-panel {
   margin-top: 16px;
@@ -1971,6 +2148,7 @@ button:disabled {
   .crypto-allocation-panel,
   .crypto-evidence-panel,
   .crypto-history-panel,
+  .crypto-order-monitor,
   .crypto-activity-panel,
   .crypto-position-ledger {
     padding: 22px;
@@ -1982,6 +2160,28 @@ button:disabled {
   .crypto-activity-panel > header {
     align-items: stretch;
     flex-direction: column;
+  }
+  .crypto-order-monitor > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .crypto-order-monitor > header button {
+    width: 100%;
+  }
+  .crypto-order-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .crypto-order-summary > div:nth-child(2) {
+    border-right: 0;
+  }
+  .crypto-order-summary > div:nth-child(-n + 2) {
+    border-bottom: 1px solid rgba(115, 191, 207, 0.1);
+  }
+  .crypto-order-summary strong {
+    overflow: visible;
+    line-height: 1.4;
+    text-overflow: clip;
+    white-space: normal;
   }
   .crypto-activity-panel > header button {
     width: 100%;
