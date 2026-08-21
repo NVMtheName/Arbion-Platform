@@ -65,6 +65,17 @@ func (provider *fakeCryptoProvider) CryptoLiquidity(_ context.Context, symbol, c
 	}, nil
 }
 
+func (provider *fakeCryptoProvider) RecentCryptoTrades(_ context.Context, symbol, currency string, limit int) (CryptoTradeTape, error) {
+	provider.calls++
+	now := time.Now().UTC()
+	return CryptoTradeTape{
+		Symbol: symbol, Currency: currency, ProductID: symbol + "-" + currency, Limit: limit,
+		Trades:  []CryptoTradeObservation{{Price: "100", Size: "0.5", Time: now, Side: "BUY"}},
+		BestBid: "99.9", BestAsk: "100.1",
+		Provenance: Provenance{Provider: "coinbase", Role: MarketObservation, Feed: "advanced_trade_public_market_trades", Quality: RealTimeSingleVenue, Venue: "coinbase_advanced_trade", ProviderTimestamp: now, ReceivedAt: now},
+	}, nil
+}
+
 type fakeFilingProvider struct{ calls int }
 
 func (provider *fakeFilingProvider) RecentInsiderFilings(_ context.Context, cik string, _ int) ([]InsiderFilingObservation, error) {
@@ -217,6 +228,26 @@ func TestServiceKeepsLiquidityCacheBoundedAndCloned(t *testing.T) {
 	}
 	if _, _, err = service.CryptoLiquidity(context.Background(), "BTC", "USD", 25); !errors.Is(err, ErrInvalidObservation) {
 		t.Fatalf("unbounded liquidity contract accepted: %v", err)
+	}
+}
+
+func TestServiceKeepsPublicTradeTapeBoundedAndCloned(t *testing.T) {
+	provider := &fakeCryptoProvider{}
+	service, err := NewService(ServiceConfig{
+		CryptoTradeProvider: provider, CryptoTradeSourceID: "coinbase_exchange",
+		CryptoTradeCacheTTL: time.Minute, CryptoTradeInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, cached, err := service.RecentCryptoTrades(context.Background(), " btc ", "usd", 25)
+	if err != nil || cached || first.ProductID != "BTC-USD" || len(first.Trades) != 1 {
+		t.Fatalf("unexpected first trade tape: cached=%v tape=%+v err=%v", cached, first, err)
+	}
+	first.Trades[0].Size = "0"
+	second, cached, err := service.RecentCryptoTrades(context.Background(), "BTC", "USD", 25)
+	if err != nil || !cached || provider.calls != 1 || second.Trades[0].Size != "0.5" {
+		t.Fatalf("trade cache was not isolated or cloned: cached=%v calls=%d tape=%+v err=%v", cached, provider.calls, second, err)
 	}
 }
 

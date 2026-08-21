@@ -75,6 +75,18 @@ func (fake fakeMarketIntelligence) CryptoLiquidity(_ context.Context, symbol, cu
 		Provenance: marketintelligence.Provenance{Provider: "coinbase", Role: marketintelligence.MarketObservation, Feed: "advanced_trade_public_product_book", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_advanced_trade", ProviderTimestamp: now, ReceivedAt: now},
 	}, false, nil
 }
+func (fake fakeMarketIntelligence) RecentCryptoTrades(_ context.Context, symbol, currency string, limit int) (marketintelligence.CryptoTradeTape, bool, error) {
+	if fake.err != nil {
+		return marketintelligence.CryptoTradeTape{}, false, fake.err
+	}
+	now := time.Now().UTC()
+	return marketintelligence.CryptoTradeTape{
+		Symbol: symbol, Currency: currency, ProductID: symbol + "-" + currency, Limit: limit,
+		Trades:  []marketintelligence.CryptoTradeObservation{{Price: "70187.10", Size: "0.00012500", Time: now, Side: "BUY"}},
+		BestBid: "70186.90", BestAsk: "70187.20",
+		Provenance: marketintelligence.Provenance{Provider: "coinbase", Role: marketintelligence.MarketObservation, Feed: "advanced_trade_public_market_trades", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_advanced_trade", ProviderTimestamp: now, ReceivedAt: now},
+	}, false, nil
+}
 func (fake fakeMarketIntelligence) RecentInsiderFilings(_ context.Context, cik string, _ int) ([]marketintelligence.InsiderFilingObservation, bool, error) {
 	if fake.err != nil {
 		return nil, false, fake.err
@@ -300,6 +312,22 @@ func TestConnectedCryptoLiquidityIsOwnerScopedBoundedAndActionFree(t *testing.T)
 	handler.connectedCryptoLiquidity(recorder, request)
 	if recorder.Code != stdhttp.StatusNotFound || !strings.Contains(recorder.Body.String(), "CONNECTED_ASSET_NOT_FOUND") {
 		t.Fatalf("unconnected asset book was exposed: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestConnectedCryptoTradesAreOwnerScopedBoundedAndInferenceFree(t *testing.T) {
+	broker := &fakeBrokerMarketData{accounts: []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", BaseCurrency: "USD", Status: "active"}}}
+	handler := &authHandler{marketFinancial: broker, markets: fakeMarketIntelligence{}}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/markets/crypto/BTC/trades", nil)
+	request.SetPathValue("id", "coinbase-1")
+	request.SetPathValue("symbol", "BTC")
+	recorder := httptest.NewRecorder()
+	handler.connectedCryptoTrades(recorder, request)
+	body := recorder.Body.String()
+	for _, expected := range []string{`"limit":25`, `"price":"70187.10"`, `"feed":"advanced_trade_public_market_trades"`, `"snapshot_semantics":"PUBLIC_VENUE_TRADE_TAPE"`, `"trade_streaming":false`, `"order_flow_inference":false`, `"order_actions_available":false`, `"live_execution_available":false`} {
+		if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(body, expected) {
+			t.Fatalf("connected trade tape missing %s: status=%d body=%s", expected, recorder.Code, body)
+		}
 	}
 }
 

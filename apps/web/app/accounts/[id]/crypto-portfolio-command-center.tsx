@@ -108,6 +108,35 @@ type LiquidityResponse = {
   error?: { message?: string };
 };
 
+type CryptoPublicTrade = {
+  price: string;
+  size: string;
+  time: string;
+  side: "BUY" | "SELL";
+};
+
+export type CryptoPublicTradeTape = {
+  symbol: string;
+  currency: string;
+  product_id: string;
+  limit: 25;
+  trades: CryptoPublicTrade[];
+  best_bid: string;
+  best_ask: string;
+  provenance: Provenance;
+};
+
+type MarketTradesResponse = {
+  market_trades?: CryptoPublicTradeTape;
+  cached?: boolean;
+  snapshot_semantics?: "PUBLIC_VENUE_TRADE_TAPE";
+  trade_streaming: false;
+  order_flow_inference: false;
+  order_actions_available: false;
+  live_execution_available: false;
+  error?: { message?: string };
+};
+
 export type CoinbaseTradeFill = {
   product_id: string;
   base_asset: string;
@@ -262,6 +291,18 @@ function timestamp(value?: string) {
   }).format(parsed);
 }
 
+function clockTime(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.valueOf())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+    timeZoneName: "short",
+  }).format(parsed);
+}
+
 function observedNumber(value?: Money) {
   const parsed = Number(value?.amount ?? "0");
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
@@ -351,6 +392,8 @@ export function CryptoPortfolioCommandCenter({
   initialHistoryCached = false,
   initialLiquidity,
   initialLiquidityCached = false,
+  initialMarketTrades,
+  initialMarketTradesCached = false,
   initialActivity,
   initialOrderHistory,
   initialTradingCosts,
@@ -361,6 +404,8 @@ export function CryptoPortfolioCommandCenter({
   initialHistoryCached?: boolean;
   initialLiquidity?: CryptoLiquiditySnapshot;
   initialLiquidityCached?: boolean;
+  initialMarketTrades?: CryptoPublicTradeTape;
+  initialMarketTradesCached?: boolean;
   initialActivity?: CoinbaseTradeActivity;
   initialOrderHistory?: CoinbaseOrderHistory;
   initialTradingCosts?: CoinbaseTradingCostSummary;
@@ -396,6 +441,22 @@ export function CryptoPortfolioCommandCenter({
   );
   const [liquidityLoading, setLiquidityLoading] = useState(false);
   const [liquidityError, setLiquidityError] = useState("");
+  const [marketTradeTapes, setMarketTradeTapes] = useState<
+    Record<string, CryptoPublicTradeTape>
+  >(
+    initialMarketTrades
+      ? { [initialMarketTrades.symbol]: initialMarketTrades }
+      : {},
+  );
+  const [marketTradesCached, setMarketTradesCached] = useState<
+    Record<string, boolean>
+  >(
+    initialMarketTrades
+      ? { [initialMarketTrades.symbol]: initialMarketTradesCached }
+      : {},
+  );
+  const [marketTradesLoading, setMarketTradesLoading] = useState(false);
+  const [marketTradesError, setMarketTradesError] = useState("");
   const [activity, setActivity] = useState(initialActivity);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState("");
@@ -457,6 +518,7 @@ export function CryptoPortfolioCommandCenter({
   const digitalAssetValue = observedNumber(snapshot.digital_asset_value);
   const selectedHistory = histories[selectedSymbol];
   const selectedLiquidity = liquidities[selectedSymbol];
+  const selectedMarketTrades = marketTradeTapes[selectedSymbol];
   const chart = useMemo(() => historyChart(selectedHistory), [selectedHistory]);
 
   const loadHistory = useCallback(
@@ -553,6 +615,56 @@ export function CryptoPortfolioCommandCenter({
       }
     },
     [accountID, liquidities],
+  );
+
+  const loadMarketTrades = useCallback(
+    async (symbol: string, force = false) => {
+      if (!symbol || (!force && marketTradeTapes[symbol])) return;
+      setMarketTradesLoading(true);
+      setMarketTradesError("");
+      try {
+        const response = await fetch(
+          `/api/accounts/${encodeURIComponent(accountID)}/markets/crypto/${encodeURIComponent(symbol)}/trades`,
+          { cache: "no-store" },
+        );
+        const body = (await response.json()) as MarketTradesResponse;
+        if (
+          !response.ok ||
+          !body.market_trades ||
+          body.snapshot_semantics !== "PUBLIC_VENUE_TRADE_TAPE" ||
+          body.trade_streaming !== false ||
+          body.order_flow_inference !== false ||
+          body.order_actions_available !== false ||
+          body.live_execution_available !== false ||
+          body.market_trades.symbol !== symbol ||
+          body.market_trades.currency !== "USD" ||
+          body.market_trades.product_id !== `${symbol}-USD` ||
+          body.market_trades.limit !== 25 ||
+          body.market_trades.trades.length > 25
+        ) {
+          setMarketTradesError(
+            body.error?.message ??
+              "Coinbase public market trades are temporarily unavailable. No trade flow was inferred.",
+          );
+          return;
+        }
+        setMarketTradeTapes((current) => ({
+          ...current,
+          [symbol]: body.market_trades as CryptoPublicTradeTape,
+        }));
+        setMarketTradesCached((current) => ({
+          ...current,
+          [symbol]: Boolean(body.cached),
+        }));
+      } catch {
+        setMarketTradesError(
+          "Coinbase public market trades are temporarily unavailable. No trade flow was inferred.",
+        );
+      } finally {
+        setMarketTradesLoading(false);
+      }
+    },
+    [accountID, marketTradeTapes],
   );
 
   const refreshActivity = useCallback(async () => {
@@ -883,8 +995,10 @@ export function CryptoPortfolioCommandCenter({
                   setSelectedSymbol(position.symbol);
                   setHistoryError("");
                   setLiquidityError("");
+                  setMarketTradesError("");
                   void loadHistory(position.symbol);
                   void loadLiquidity(position.symbol);
+                  void loadMarketTrades(position.symbol);
                 }}
               >
                 {position.symbol}
@@ -1172,6 +1286,135 @@ export function CryptoPortfolioCommandCenter({
           refresh. Size is provider-reported base-asset quantity at one price
           level. Arbion does not stream, aggregate venues, estimate slippage, or
           expose order actions from this panel.
+        </footer>
+      </motion.section>
+
+      <motion.section
+        className="crypto-market-tape"
+        aria-labelledby="crypto-market-tape-title"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.235 }}
+      >
+        <header>
+          <div>
+            <p className="eyebrow">PUBLIC TIME &amp; SALES</p>
+            <h2 id="crypto-market-tape-title">Latest Coinbase venue ticks</h2>
+            <p>
+              The newest 25 public trades for the selected held asset. Side is
+              reported by Coinbase; Arbion does not infer aggressor flow,
+              sentiment, execution quality, cost basis, or P&amp;L.
+            </p>
+          </div>
+          <div className="crypto-market-tape-actions">
+            <span>
+              {selectedSymbol ? `${selectedSymbol} / USD` : "No priced asset"}
+            </span>
+            <button
+              type="button"
+              disabled={!selectedSymbol || marketTradesLoading}
+              onClick={() => void loadMarketTrades(selectedSymbol, true)}
+            >
+              {marketTradesLoading ? "Refreshing…" : "Refresh public trades"}
+            </button>
+          </div>
+        </header>
+
+        {marketTradesError ? (
+          <p className="crypto-market-tape-unavailable" role="alert">
+            {marketTradesError}
+          </p>
+        ) : !selectedMarketTrades ? (
+          <p className="crypto-market-tape-unavailable">
+            {marketTradesLoading
+              ? "Loading provider-reported public trades…"
+              : "No Coinbase public trade tape is available for this connected asset."}
+          </p>
+        ) : (
+          <>
+            <div className="crypto-market-tape-summary">
+              <div>
+                <span>Best bid</span>
+                <strong>
+                  {price(
+                    selectedMarketTrades.best_bid,
+                    selectedMarketTrades.currency,
+                  )}
+                </strong>
+                <small>{exactDecimal(selectedMarketTrades.best_bid)} USD</small>
+              </div>
+              <div>
+                <span>Best ask</span>
+                <strong>
+                  {price(
+                    selectedMarketTrades.best_ask,
+                    selectedMarketTrades.currency,
+                  )}
+                </strong>
+                <small>{exactDecimal(selectedMarketTrades.best_ask)} USD</small>
+              </div>
+              <div>
+                <span>Ticks shown</span>
+                <strong>
+                  {selectedMarketTrades.trades.length}/
+                  {selectedMarketTrades.limit}
+                </strong>
+                <small>Newest provider snapshot</small>
+              </div>
+              <div>
+                <span>Observed</span>
+                <strong>
+                  {timestamp(
+                    selectedMarketTrades.provenance.provider_timestamp,
+                  )}
+                </strong>
+                <small>
+                  {marketTradesCached[selectedSymbol]
+                    ? "One-second display cache"
+                    : "Provider response"}
+                </small>
+              </div>
+            </div>
+            <div
+              className="crypto-market-tape-table"
+              role="region"
+              aria-label={`${selectedMarketTrades.product_id} public Coinbase time and sales`}
+              tabIndex={0}
+            >
+              <table>
+                <thead>
+                  <tr>
+                    <th>Provider time</th>
+                    <th>Reported side</th>
+                    <th>Price USD</th>
+                    <th>Size {selectedMarketTrades.symbol}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedMarketTrades.trades.map((trade, index) => (
+                    <tr key={`${trade.time}-${index}`}>
+                      <td>{clockTime(trade.time)}</td>
+                      <td>
+                        <span
+                          className={`crypto-public-trade-side ${trade.side.toLowerCase()}`}
+                        >
+                          {trade.side}
+                        </span>
+                      </td>
+                      <td>{exactDecimal(trade.price)}</td>
+                      <td>{exactDecimal(trade.size)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+        <footer>
+          Coinbase Advanced Trade public REST · 25 newest ticks · manual
+          refresh. Trade identifiers, per-tick bid/ask copies, cursors, and
+          arbitrary time ranges are discarded. This panel has no streaming or
+          order path.
         </footer>
       </motion.section>
 

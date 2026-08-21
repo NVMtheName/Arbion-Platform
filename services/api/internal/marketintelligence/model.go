@@ -31,6 +31,7 @@ const (
 	CryptoMarkets   Capability = "CRYPTO_MARKETS"
 	CryptoCandles   Capability = "CRYPTO_CANDLES"
 	CryptoLiquidity Capability = "CRYPTO_LIQUIDITY"
+	CryptoTrades    Capability = "CRYPTO_TRADES"
 	InsiderFiling   Capability = "INSIDER_FILING"
 )
 
@@ -158,6 +159,28 @@ type CryptoLiquiditySnapshot struct {
 	Provenance     Provenance        `json:"provenance"`
 }
 
+// CryptoTradeObservation is one public venue tick with provider-reported side.
+// Public trade identity is intentionally omitted from the normalized model.
+type CryptoTradeObservation struct {
+	Price Decimal   `json:"price"`
+	Size  Decimal   `json:"size"`
+	Time  time.Time `json:"time"`
+	Side  string    `json:"side"`
+}
+
+// CryptoTradeTape is a bounded point-in-time public market observation. It is
+// not account execution history, order-flow analysis, or an execution feed.
+type CryptoTradeTape struct {
+	Symbol     string                   `json:"symbol"`
+	Currency   string                   `json:"currency"`
+	ProductID  string                   `json:"product_id"`
+	Limit      int                      `json:"limit"`
+	Trades     []CryptoTradeObservation `json:"trades"`
+	BestBid    Decimal                  `json:"best_bid"`
+	BestAsk    Decimal                  `json:"best_ask"`
+	Provenance Provenance               `json:"provenance"`
+}
+
 type OptionContractObservation struct {
 	Symbol            string    `json:"symbol"`
 	Underlying        string    `json:"underlying"`
@@ -240,6 +263,12 @@ type CryptoCandleProvider interface {
 // preview, placement, replacement, or cancellation method by construction.
 type CryptoLiquidityProvider interface {
 	CryptoLiquidity(context.Context, string, string, int) (CryptoLiquiditySnapshot, error)
+}
+
+// CryptoTradeProvider returns recent public ticks only. It deliberately has no
+// account-order or provider-write method.
+type CryptoTradeProvider interface {
+	RecentCryptoTrades(context.Context, string, string, int) (CryptoTradeTape, error)
 }
 
 type InsiderFilingProvider interface {
@@ -400,6 +429,31 @@ func ValidateCryptoLiquidity(snapshot CryptoLiquiditySnapshot, now time.Time, po
 		return fmt.Errorf("%w: crypto liquidity summary mismatch", ErrInvalidObservation)
 	}
 	return ValidateProvenance(snapshot.Provenance, now, policy)
+}
+
+func ValidateCryptoTradeTape(tape CryptoTradeTape, now time.Time, policy FreshnessPolicy) error {
+	if !boundedText(tape.Symbol, 32) || !boundedText(tape.Currency, 12) || !boundedText(tape.ProductID, 64) ||
+		tape.ProductID != strings.ToUpper(tape.Symbol)+"-"+strings.ToUpper(tape.Currency) || tape.Limit != 25 || len(tape.Trades) == 0 || len(tape.Trades) > tape.Limit ||
+		!positiveDecimal(tape.BestBid) || !positiveDecimal(tape.BestAsk) {
+		return fmt.Errorf("%w: crypto trade tape identity or bounds", ErrInvalidObservation)
+	}
+	bestBid, bidOK := new(big.Rat).SetString(string(tape.BestBid))
+	bestAsk, askOK := new(big.Rat).SetString(string(tape.BestAsk))
+	if !bidOK || !askOK || bestBid.Cmp(bestAsk) >= 0 {
+		return fmt.Errorf("%w: crypto trade tape market", ErrInvalidObservation)
+	}
+	var previous time.Time
+	for _, trade := range tape.Trades {
+		if !positiveDecimal(trade.Price) || !positiveDecimal(trade.Size) || trade.Time.IsZero() || trade.Time.After(now.Add(policy.MaxFutureSkew)) ||
+			(!previous.IsZero() && trade.Time.After(previous)) || (trade.Side != "BUY" && trade.Side != "SELL") {
+			return fmt.Errorf("%w: crypto trade tape tick", ErrInvalidObservation)
+		}
+		previous = trade.Time
+	}
+	if !tape.Provenance.ProviderTimestamp.Equal(tape.Trades[0].Time) {
+		return fmt.Errorf("%w: crypto trade tape timestamp", ErrInvalidObservation)
+	}
+	return ValidateProvenance(tape.Provenance, now, policy)
 }
 
 func positiveDecimal(value Decimal) bool {

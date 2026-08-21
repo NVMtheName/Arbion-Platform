@@ -23,6 +23,7 @@ type MarketIntelligence interface {
 	CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error)
 	RecentCryptoCandles(context.Context, string, string, int, int) (marketintelligence.CryptoCandleSeries, bool, error)
 	CryptoLiquidity(context.Context, string, string, int) (marketintelligence.CryptoLiquiditySnapshot, bool, error)
+	RecentCryptoTrades(context.Context, string, string, int) (marketintelligence.CryptoTradeTape, bool, error)
 	RecentInsiderFilings(context.Context, string, int) ([]marketintelligence.InsiderFilingObservation, bool, error)
 }
 
@@ -386,6 +387,53 @@ func (h *authHandler) connectedCryptoLiquidity(writer stdhttp.ResponseWriter, re
 		"liquidity": snapshot, "cached": cached,
 		"snapshot_semantics": "SINGLE_VENUE_LIQUIDITY_SNAPSHOT", "order_book_streaming": false,
 		"order_actions_available": false, "live_execution_available": false,
+	})
+}
+
+func (h *authHandler) connectedCryptoTrades(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
+	if h.marketFinancial == nil || h.markets == nil {
+		h.marketUnavailable(writer, marketintelligence.ErrNoEligibleSource)
+		return
+	}
+	account, err := h.marketFinancial.GetAccount(request.Context(), principal(request), request.PathValue("id"))
+	if err != nil {
+		h.financialError(writer, err)
+		return
+	}
+	if account.Provider != "coinbase" {
+		writeError(writer, stdhttp.StatusBadRequest, "CRYPTO_TRADES_UNSUPPORTED", "This account does not use the connected public trade-tape view.")
+		return
+	}
+	symbol := strings.ToUpper(strings.TrimSpace(request.PathValue("symbol")))
+	if !validConnectedCryptoSymbol(symbol) {
+		writeError(writer, stdhttp.StatusBadRequest, "INVALID_MARKET_QUERY", "The market query is invalid.")
+		return
+	}
+	positions, err := h.marketFinancial.GetPositions(request.Context(), principal(request), account.ID)
+	if err != nil {
+		h.financialError(writer, err)
+		return
+	}
+	connected := false
+	for _, position := range positions {
+		if strings.EqualFold(position.InstrumentType, "CRYPTO") && strings.EqualFold(strings.TrimSpace(position.Symbol), symbol) {
+			connected = true
+			break
+		}
+	}
+	if !connected {
+		writeError(writer, stdhttp.StatusNotFound, "CONNECTED_ASSET_NOT_FOUND", "This asset is not present in the connected account.")
+		return
+	}
+	tape, cached, err := h.markets.RecentCryptoTrades(request.Context(), symbol, account.BaseCurrency, 25)
+	if err != nil {
+		h.marketUnavailable(writer, err)
+		return
+	}
+	writeJSON(writer, stdhttp.StatusOK, map[string]any{
+		"market_trades": tape, "cached": cached, "snapshot_semantics": "PUBLIC_VENUE_TRADE_TAPE",
+		"trade_streaming": false, "order_flow_inference": false, "order_actions_available": false, "live_execution_available": false,
 	})
 }
 

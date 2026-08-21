@@ -1,9 +1,11 @@
 package coinbase
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,5 +158,35 @@ func TestClientReturnsKeylessBoundedAdvancedTradeBook(t *testing.T) {
 	}
 	if _, err = client.CryptoLiquidity(t.Context(), "BTC", "USD", 50); err == nil {
 		t.Fatal("unbounded book depth accepted")
+	}
+}
+
+func TestClientReturnsKeylessPublicMarketTradeTapeWithoutIdentifiers(t *testing.T) {
+	now := time.Now().UTC()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/api/v3/brokerage/market/products/BTC-USD/ticker" || request.URL.Query().Get("limit") != "25" {
+			t.Fatalf("unexpected trades request: %s %s?%s", request.Method, request.URL.Path, request.URL.RawQuery)
+		}
+		if request.Header.Get("Authorization") != "" || request.Header.Get("Cache-Control") != "no-cache" {
+			t.Fatal("public market trades must be keyless and bypass intermediary cache")
+		}
+		writer.Header().Set("CB-Request-ID", "trades-1")
+		_, _ = writer.Write([]byte(`{"trades":[{"trade_id":"discard-me","product_id":"BTC-USD","price":"70186.90","size":"0.125","time":"` + now.Add(-time.Second).Format(time.RFC3339Nano) + `","side":"SELL","exchange":"coinbase"},{"trade_id":"discard-me-too","product_id":"BTC-USD","price":"70187.123456789","size":"0.00000001","time":"` + now.Format(time.RFC3339Nano) + `","side":"BUY","exchange":"coinbase"}],"best_bid":"70186.90","best_ask":"70187.20"}`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, AdvancedTradeBaseURL: server.URL, Products: []Product{{ID: "BTC-USD", Name: "Bitcoin"}}, Timeout: time.Second, MaxAge: time.Minute, MaxFutureSkew: time.Minute}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tape, err := client.RecentCryptoTrades(t.Context(), "btc", "USD", 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tape.Trades) != 2 || tape.Trades[0].Price != "70187.123456789" || tape.Trades[0].Size != "0.00000001" || tape.Trades[0].Side != "BUY" {
+		t.Fatalf("trade order or precision changed: %+v", tape)
+	}
+	encoded, err := json.Marshal(tape)
+	if err != nil || strings.Contains(string(encoded), "discard-me") || strings.Contains(string(encoded), "trade_id") {
+		t.Fatalf("public trade identity leaked: %s err=%v", encoded, err)
 	}
 }
