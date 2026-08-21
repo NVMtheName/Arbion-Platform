@@ -190,3 +190,32 @@ func TestClientReturnsKeylessPublicMarketTradeTapeWithoutIdentifiers(t *testing.
 		t.Fatalf("public trade identity leaked: %s err=%v", encoded, err)
 	}
 }
+
+func TestClientReturnsKeylessExactVenueStatsWithReceiptSemantics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/products/BTC-USD/stats" || request.URL.RawQuery != "" {
+			t.Fatalf("unexpected stats request: %s %s?%s", request.Method, request.URL.Path, request.URL.RawQuery)
+		}
+		if request.Header.Get("Authorization") != "" || request.Header.Get("Cache-Control") != "no-cache" {
+			t.Fatal("public venue stats must be keyless and bypass intermediary cache")
+		}
+		writer.Header().Set("CB-Request-ID", "stats-1")
+		_, _ = writer.Write([]byte(`{"open":"72715.34000000","high":"79500.00000000","low":"72303.97000000","last":"77522.97000000","volume":"19734.31498542","volume_30day":"189836.08275489","rfq_volume_24hour":"0","rfq_volume_30day":"0"}`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, AdvancedTradeBaseURL: server.URL, Products: []Product{{ID: "BTC-USD", Name: "Bitcoin"}}, Timeout: time.Second, MaxAge: time.Minute, MaxFutureSkew: time.Minute}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err := client.CryptoVenueStats(t.Context(), "btc", "USD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Open != "72715.34000000" || stats.Last != "77522.97000000" || stats.Volume24H != "19734.31498542" || stats.Volume30Day != "189836.08275489" || stats.Receipt.ProviderRequestID != "stats-1" {
+		t.Fatalf("venue stats precision or receipt changed: %+v", stats)
+	}
+	encoded, err := json.Marshal(stats)
+	if err != nil || strings.Contains(string(encoded), "provider_timestamp") || !strings.Contains(string(encoded), `"received_at"`) {
+		t.Fatalf("venue stats timestamp semantics changed: %s err=%v", encoded, err)
+	}
+}

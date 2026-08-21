@@ -161,6 +161,34 @@ func TestValidateCryptoTradeTapePreservesTicksAndRejectsInferenceInputs(t *testi
 	}
 }
 
+func TestValidateCryptoVenueStatsUsesReceiptTimeAndExactWindowRelationships(t *testing.T) {
+	now := time.Date(2026, time.August, 21, 17, 30, 0, 0, time.UTC)
+	stats := CryptoVenueStats{
+		Symbol: "BTC", Currency: "USD", ProductID: "BTC-USD",
+		Open: "72715.34000000", High: "79500.00000000", Low: "72303.97000000", Last: "77522.97000000",
+		Volume24H: "19734.31498542", Volume30Day: "189836.08275489", VolumeUnit: "BTC",
+		Receipt: SourceReceipt{Provider: "coinbase", Role: MarketObservation, Feed: "exchange_public_product_stats", Quality: RealTimeSingleVenue, Venue: "coinbase_exchange", ReceivedAt: now},
+	}
+	if err := ValidateCryptoVenueStats(stats, now, 30*time.Second, time.Second); err != nil {
+		t.Fatalf("valid venue stats rejected: %v", err)
+	}
+	invalid := stats
+	invalid.Last = "80000"
+	if err := ValidateCryptoVenueStats(invalid, now, 30*time.Second, time.Second); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("last outside venue window accepted: %v", err)
+	}
+	invalid = stats
+	invalid.Volume30Day = "100"
+	if err := ValidateCryptoVenueStats(invalid, now, 30*time.Second, time.Second); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("30-day volume below 24-hour volume accepted: %v", err)
+	}
+	invalid = stats
+	invalid.Receipt.ReceivedAt = now.Add(-31 * time.Second)
+	if err := ValidateCryptoVenueStats(invalid, now, 30*time.Second, time.Second); !errors.Is(err, ErrStaleObservation) {
+		t.Fatalf("stale receipt accepted: %v", err)
+	}
+}
+
 func TestSelectSourceNeverSilentlyDowngradesQuality(t *testing.T) {
 	sources := []Source{
 		{ID: "alpaca_iex", Label: "Alpaca IEX", Role: MarketObservation, Feed: "iex", Quality: RealTimeSingleVenue, Capabilities: []Capability{EquityQuote}, Enabled: true, Healthy: true},

@@ -98,6 +98,15 @@ type marketTradesResponse struct {
 	BestAsk string `json:"best_ask"`
 }
 
+type productStatsResponse struct {
+	Open        string `json:"open"`
+	High        string `json:"high"`
+	Low         string `json:"low"`
+	Last        string `json:"last"`
+	Volume      string `json:"volume"`
+	Volume30Day string `json:"volume_30day"`
+}
+
 func DefaultProducts() []Product {
 	return []Product{
 		{ID: "BTC-USD", Name: "Bitcoin"},
@@ -360,6 +369,77 @@ func (client *Client) RecentCryptoTrades(ctx context.Context, symbol, currency s
 		return marketintelligence.CryptoTradeTape{}, err
 	}
 	return tape, nil
+}
+
+// CryptoVenueStats returns exact Coinbase Exchange rolling-window values. The
+// provider contract has no event timestamp, so the normalized response records
+// Arbion receipt time separately and does not manufacture provider provenance.
+func (client *Client) CryptoVenueStats(ctx context.Context, symbol, currency string) (marketintelligence.CryptoVenueStats, error) {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if !validAssetSymbol(symbol) || !strings.EqualFold(strings.TrimSpace(currency), "usd") {
+		return marketintelligence.CryptoVenueStats{}, marketintelligence.ErrInvalidObservation
+	}
+	productID := symbol + "-USD"
+	endpoint := *client.baseURL
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/products/" + url.PathEscape(productID) + "/stats"
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return marketintelligence.CryptoVenueStats{}, ErrUnavailable
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Cache-Control", "no-cache")
+	response, err := client.http.Do(request)
+	if err != nil {
+		return marketintelligence.CryptoVenueStats{}, ErrUnavailable
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		if response.StatusCode == http.StatusTooManyRequests {
+			return marketintelligence.CryptoVenueStats{}, ErrRateLimited
+		}
+		if response.StatusCode == http.StatusNotFound {
+			return marketintelligence.CryptoVenueStats{}, marketintelligence.ErrInstrumentUnavailable
+		}
+		return marketintelligence.CryptoVenueStats{}, ErrUnavailable
+	}
+	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseSize+1))
+	if err != nil || len(payload) > maxResponseSize {
+		return marketintelligence.CryptoVenueStats{}, ErrInvalidResponse
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	var raw productStatsResponse
+	if err = decoder.Decode(&raw); err != nil {
+		return marketintelligence.CryptoVenueStats{}, ErrInvalidResponse
+	}
+	if err = decoder.Decode(&struct{}{}); err != io.EOF {
+		return marketintelligence.CryptoVenueStats{}, ErrInvalidResponse
+	}
+	openValue, openOK := decimal(raw.Open)
+	high, highOK := decimal(raw.High)
+	low, lowOK := decimal(raw.Low)
+	last, lastOK := decimal(raw.Last)
+	volume24H, volumeOK := decimal(raw.Volume)
+	volume30Day, volume30DayOK := decimal(raw.Volume30Day)
+	if !openOK || !highOK || !lowOK || !lastOK || !volumeOK || !volume30DayOK {
+		return marketintelligence.CryptoVenueStats{}, ErrInvalidResponse
+	}
+	now := time.Now().UTC()
+	stats := marketintelligence.CryptoVenueStats{
+		Symbol: symbol, Currency: "USD", ProductID: productID,
+		Open: openValue, High: high, Low: low, Last: last,
+		Volume24H: volume24H, Volume30Day: volume30Day, VolumeUnit: symbol,
+		Receipt: marketintelligence.SourceReceipt{
+			Provider: "coinbase", ProviderRequestID: requestID(response), Role: marketintelligence.MarketObservation,
+			Feed: "exchange_public_product_stats", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_exchange",
+			ReceivedAt: now,
+		},
+	}
+	if err := marketintelligence.ValidateCryptoVenueStats(stats, now, 30*time.Second, client.freshness.MaxFutureSkew); err != nil {
+		return marketintelligence.CryptoVenueStats{}, err
+	}
+	return stats, nil
 }
 
 func (client *Client) TopCryptoMarkets(ctx context.Context, currency string, limit int) ([]marketintelligence.CryptoMarketObservation, error) {

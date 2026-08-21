@@ -76,6 +76,16 @@ func (provider *fakeCryptoProvider) RecentCryptoTrades(_ context.Context, symbol
 	}, nil
 }
 
+func (provider *fakeCryptoProvider) CryptoVenueStats(_ context.Context, symbol, currency string) (CryptoVenueStats, error) {
+	provider.calls++
+	now := time.Now().UTC()
+	return CryptoVenueStats{
+		Symbol: symbol, Currency: currency, ProductID: symbol + "-" + currency,
+		Open: "99", High: "110", Low: "90", Last: "100", Volume24H: "250", Volume30Day: "7500", VolumeUnit: symbol,
+		Receipt: SourceReceipt{Provider: "coinbase", Role: MarketObservation, Feed: "exchange_public_product_stats", Quality: RealTimeSingleVenue, Venue: "coinbase_exchange", ReceivedAt: now},
+	}, nil
+}
+
 type fakeFilingProvider struct{ calls int }
 
 func (provider *fakeFilingProvider) RecentInsiderFilings(_ context.Context, cik string, _ int) ([]InsiderFilingObservation, error) {
@@ -248,6 +258,28 @@ func TestServiceKeepsPublicTradeTapeBoundedAndCloned(t *testing.T) {
 	second, cached, err := service.RecentCryptoTrades(context.Background(), "BTC", "USD", 25)
 	if err != nil || !cached || provider.calls != 1 || second.Trades[0].Size != "0.5" {
 		t.Fatalf("trade cache was not isolated or cloned: cached=%v calls=%d tape=%+v err=%v", cached, provider.calls, second, err)
+	}
+}
+
+func TestServiceCachesCanonicalVenueStats(t *testing.T) {
+	provider := &fakeCryptoProvider{}
+	service, err := NewService(ServiceConfig{
+		CryptoStatsProvider: provider, CryptoStatsSourceID: "coinbase_exchange",
+		CryptoStatsCacheTTL: time.Minute, CryptoStatsInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, cached, err := service.CryptoVenueStats(context.Background(), " btc ", "usd")
+	if err != nil || cached || first.ProductID != "BTC-USD" || first.Volume30Day != "7500" {
+		t.Fatalf("unexpected first venue stats: cached=%v stats=%+v err=%v", cached, first, err)
+	}
+	second, cached, err := service.CryptoVenueStats(context.Background(), "BTC", "USD")
+	if err != nil || !cached || provider.calls != 1 || second.Receipt.Feed != "exchange_public_product_stats" {
+		t.Fatalf("venue stats cache failed: cached=%v calls=%d stats=%+v err=%v", cached, provider.calls, second, err)
+	}
+	if _, _, err = service.CryptoVenueStats(context.Background(), "BTC", "EUR"); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("unsupported quote currency accepted: %v", err)
 	}
 }
 

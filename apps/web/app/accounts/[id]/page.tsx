@@ -12,6 +12,7 @@ import {
   type CryptoLiquiditySnapshot,
   type CryptoPublicTradeTape,
   type CryptoPortfolioSnapshot,
+  type CryptoVenueStats,
 } from "./crypto-portfolio-command-center";
 type Money = { amount: string; currency: string };
 type Account = {
@@ -95,6 +96,8 @@ export default async function AccountPage({
     let initialLiquidityCached = false;
     let initialMarketTrades: CryptoPublicTradeTape | undefined;
     let initialMarketTradesCached = false;
+    let initialVenueStats: CryptoVenueStats | undefined;
+    let initialVenueStatsCached = false;
     let initialActivity: CoinbaseTradeActivity | undefined;
     let initialOrderHistory: CoinbaseOrderHistory | undefined;
     let initialTradingCosts: CoinbaseTradingCostSummary | undefined;
@@ -105,6 +108,7 @@ export default async function AccountPage({
       historyResponse,
       liquidityResponse,
       marketTradesResponse,
+      venueStatsResponse,
     ] = await Promise.all([
       fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/fills`, {
         headers,
@@ -136,6 +140,12 @@ export default async function AccountPage({
       initialSymbol
         ? fetch(
             `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/trades`,
+            { headers, cache: "no-store" },
+          )
+        : Promise.resolve(undefined),
+      initialSymbol
+        ? fetch(
+            `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/stats`,
             { headers, cache: "no-store" },
           )
         : Promise.resolve(undefined),
@@ -182,6 +192,14 @@ export default async function AccountPage({
       initialMarketTrades = marketTradesPayload.market_trades;
       initialMarketTradesCached = Boolean(marketTradesPayload.cached);
     }
+    if (venueStatsResponse?.ok) {
+      const venueStatsPayload = (await venueStatsResponse.json()) as {
+        venue_stats: CryptoVenueStats;
+        cached?: boolean;
+      };
+      initialVenueStats = venueStatsPayload.venue_stats;
+      initialVenueStatsCached = Boolean(venueStatsPayload.cached);
+    }
     return (
       <main className="connections-page crypto-account-page">
         <AppPageHeader backHref="/accounts" backLabel="Accounts" />
@@ -194,6 +212,8 @@ export default async function AccountPage({
           initialLiquidityCached={initialLiquidityCached}
           initialMarketTrades={initialMarketTrades}
           initialMarketTradesCached={initialMarketTradesCached}
+          initialVenueStats={initialVenueStats}
+          initialVenueStatsCached={initialVenueStatsCached}
           initialOrderHistory={initialOrderHistory}
           initialSnapshot={snapshot}
           initialTradingCosts={initialTradingCosts}
