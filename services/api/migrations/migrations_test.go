@@ -182,3 +182,20 @@ func TestMarketSourceHealthHistoryIsBoundedAndContainsNoSubjectDimensions(t *tes
 		}
 	}
 }
+
+func TestMarketWatchlistIsOwnerScopedBoundedAndNonExecutable(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00018_market_watchlist.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"market_watchlist_items", "user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE", "asset_class = 'CRYPTO'", "quote_currency = 'USD'", "UNIQUE (user_id,asset_class,symbol,quote_currency)", "market_watchlist_owner_order_idx"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("market watchlist migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order", "execution", "credential", "private_key", "account_id"} {
+		if strings.Contains(strings.ToLower(string(body)), prohibited) {
+			t.Errorf("market watchlist migration unexpectedly contains %q", prohibited)
+		}
+	}
+}

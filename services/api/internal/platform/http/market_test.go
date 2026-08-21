@@ -13,18 +13,33 @@ import (
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/marketintelligence"
+	"github.com/arbion/platform/services/api/internal/platform/config"
 )
 
 type fakeMarketIntelligence struct {
 	sources    []marketintelligence.Source
 	history    marketintelligence.HealthHistory
+	watchlist  []marketintelligence.WatchlistItem
 	err        error
 	historyErr error
+	watchErr   error
 }
 
 func (fake fakeMarketIntelligence) Sources() []marketintelligence.Source { return fake.sources }
 func (fake fakeMarketIntelligence) SourceHealthHistory(context.Context) (marketintelligence.HealthHistory, error) {
 	return fake.history, fake.historyErr
+}
+func (fake fakeMarketIntelligence) ListWatchlist(context.Context, string) ([]marketintelligence.WatchlistItem, error) {
+	return fake.watchlist, fake.watchErr
+}
+func (fake fakeMarketIntelligence) CreateWatchlistItem(_ context.Context, _ string, symbol string) (marketintelligence.WatchlistItem, error) {
+	if fake.watchErr != nil {
+		return marketintelligence.WatchlistItem{}, fake.watchErr
+	}
+	return marketintelligence.WatchlistItem{ID: "3f6ab43c-8abd-4056-a858-ccb8051a045f", AssetClass: marketintelligence.Crypto, Symbol: symbol, QuoteCurrency: "USD", CreatedAt: time.Now().UTC()}, nil
+}
+func (fake fakeMarketIntelligence) DeleteWatchlistItem(context.Context, string, string) error {
+	return fake.watchErr
 }
 func (fake fakeMarketIntelligence) LatestEquityQuote(_ context.Context, symbol string) (marketintelligence.QuoteObservation, bool, error) {
 	if fake.err != nil {
@@ -237,6 +252,80 @@ func TestMarketSourceHistoryFailsClosedWithoutRawDiagnostics(t *testing.T) {
 	handler.marketSourceHistory(recorder, httptest.NewRequest(stdhttp.MethodGet, "/api/markets/source-history", nil))
 	if recorder.Code != stdhttp.StatusServiceUnavailable || strings.Contains(recorder.Body.String(), "password") {
 		t.Fatalf("history failure did not fail closed: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestMarketWatchlistReturnsSavedItemsWithCurrentVenueEvidence(t *testing.T) {
+	now := time.Now().UTC()
+	handler := &authHandler{markets: fakeMarketIntelligence{watchlist: []marketintelligence.WatchlistItem{{
+		ID: "3f6ab43c-8abd-4056-a858-ccb8051a045f", AssetClass: marketintelligence.Crypto,
+		Symbol: "BTC", QuoteCurrency: "USD", CreatedAt: now,
+	}}}}
+	recorder := httptest.NewRecorder()
+	handler.listMarketWatchlist(recorder, httptest.NewRequest(stdhttp.MethodGet, "/api/markets/watchlist", nil))
+	if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("unexpected watchlist metadata: status=%d cache=%q", recorder.Code, recorder.Header().Get("Cache-Control"))
+	}
+	for _, required := range []string{`"market_state":"READY"`, `"symbol":"BTC"`, `"current_price":"60000"`, `"venue":"coinbase_exchange"`, `"max_items":12`, `"provider_write_available":false`, `"order_actions_available":false`, `"live_execution_available":false`} {
+		if !strings.Contains(recorder.Body.String(), required) {
+			t.Fatalf("watchlist response missing %s: %s", required, recorder.Body.String())
+		}
+	}
+}
+
+func TestMarketWatchlistPreservesSavedItemsWhenProviderFails(t *testing.T) {
+	handler := &authHandler{markets: fakeMarketIntelligence{
+		watchlist: []marketintelligence.WatchlistItem{{ID: "3f6ab43c-8abd-4056-a858-ccb8051a045f", AssetClass: marketintelligence.Crypto, Symbol: "BTC", QuoteCurrency: "USD", CreatedAt: time.Now().UTC()}},
+		err:       errors.New("secret provider diagnostic"),
+	}}
+	recorder := httptest.NewRecorder()
+	handler.listMarketWatchlist(recorder, httptest.NewRequest(stdhttp.MethodGet, "/api/markets/watchlist", nil))
+	if recorder.Code != stdhttp.StatusOK || !strings.Contains(recorder.Body.String(), `"market_state":"UNAVAILABLE"`) || !strings.Contains(recorder.Body.String(), `"symbol":"BTC"`) || strings.Contains(recorder.Body.String(), "secret provider diagnostic") {
+		t.Fatalf("provider failure hid the durable watchlist or leaked diagnostics: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestMarketWatchlistMutationsAreCSRFProtectedAndNonExecutable(t *testing.T) {
+	handler := &authHandler{
+		markets: fakeMarketIntelligence{},
+		cfg:     config.Auth{AllowedOrigins: []string{"https://www.arbion.ai"}},
+	}
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/markets/watchlist", strings.NewReader(`{"symbol":"BTC"}`))
+	recorder := httptest.NewRecorder()
+	handler.createMarketWatchlistItem(recorder, request)
+	if recorder.Code != stdhttp.StatusForbidden {
+		t.Fatalf("watchlist mutation bypassed CSRF: status=%d", recorder.Code)
+	}
+
+	request = httptest.NewRequest(stdhttp.MethodPost, "/api/markets/watchlist", strings.NewReader(`{"symbol":"BTC"}`))
+	request.Header.Set("Origin", "https://www.arbion.ai")
+	recorder = httptest.NewRecorder()
+	handler.createMarketWatchlistItem(recorder, request)
+	if recorder.Code != stdhttp.StatusCreated || !strings.Contains(recorder.Body.String(), `"provider_write_available":false`) || !strings.Contains(recorder.Body.String(), `"live_execution_available":false`) {
+		t.Fatalf("unexpected watchlist creation response: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(stdhttp.MethodDelete, "/api/markets/watchlist/3f6ab43c-8abd-4056-a858-ccb8051a045f", nil)
+	request.SetPathValue("id", "3f6ab43c-8abd-4056-a858-ccb8051a045f")
+	request.Header.Set("Origin", "https://www.arbion.ai")
+	recorder = httptest.NewRecorder()
+	handler.deleteMarketWatchlistItem(recorder, request)
+	if recorder.Code != stdhttp.StatusNoContent {
+		t.Fatalf("unexpected watchlist delete response: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestMarketWatchlistErrorsStayBounded(t *testing.T) {
+	handler := &authHandler{
+		markets: fakeMarketIntelligence{watchErr: marketintelligence.ErrWatchlistConflict},
+		cfg:     config.Auth{AllowedOrigins: []string{"https://www.arbion.ai"}},
+	}
+	request := httptest.NewRequest(stdhttp.MethodPost, "/api/markets/watchlist", strings.NewReader(`{"symbol":"BTC"}`))
+	request.Header.Set("Origin", "https://www.arbion.ai")
+	recorder := httptest.NewRecorder()
+	handler.createMarketWatchlistItem(recorder, request)
+	if recorder.Code != stdhttp.StatusConflict || !strings.Contains(recorder.Body.String(), "WATCHLIST_ITEM_EXISTS") {
+		t.Fatalf("watchlist conflict was not bounded: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

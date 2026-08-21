@@ -18,6 +18,7 @@ const (
 
 type ServiceConfig struct {
 	HealthHistory           HealthHistoryStore
+	Watchlists              WatchlistStore
 	EquityProvider          EquityQuoteProvider
 	EquitySourceID          string
 	CryptoProvider          CryptoMarketProvider
@@ -61,6 +62,7 @@ type Service struct {
 	mu sync.RWMutex
 
 	healthHistory           HealthHistoryStore
+	watchlists              WatchlistStore
 	equityProvider          EquityQuoteProvider
 	equitySourceID          string
 	cryptoProvider          CryptoMarketProvider
@@ -163,6 +165,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 	}
 	service := &Service{
 		healthHistory:           config.HealthHistory,
+		watchlists:              config.Watchlists,
 		equityProvider:          config.EquityProvider,
 		equitySourceID:          config.EquitySourceID,
 		cryptoProvider:          config.CryptoProvider,

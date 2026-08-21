@@ -19,6 +19,9 @@ import (
 type MarketIntelligence interface {
 	Sources() []marketintelligence.Source
 	SourceHealthHistory(context.Context) (marketintelligence.HealthHistory, error)
+	ListWatchlist(context.Context, string) ([]marketintelligence.WatchlistItem, error)
+	CreateWatchlistItem(context.Context, string, string) (marketintelligence.WatchlistItem, error)
+	DeleteWatchlistItem(context.Context, string, string) error
 	LatestEquityQuote(context.Context, string) (marketintelligence.QuoteObservation, bool, error)
 	TopCryptoMarkets(context.Context, string, int) ([]marketintelligence.CryptoMarketObservation, bool, error)
 	CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error)

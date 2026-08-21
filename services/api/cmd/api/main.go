@@ -91,7 +91,7 @@ func main() {
 	strategies := strategy.NewInstanceService(strategyStore, automations, users)
 	evaluations := strategy.NewEvaluationService(strategyStore, automations, financialConnections)
 	breakers := risk.NewBreakerService(risk.NewPostgresBreakerStore(pool), users)
-	markets, err := newMarketIntelligenceService(cfg.MarketData, marketintelligence.NewPostgresHealthStore(pool))
+	markets, err := newMarketIntelligenceService(cfg.MarketData, marketintelligence.NewPostgresHealthStore(pool), marketintelligence.NewPostgresWatchlistStore(pool))
 	if err != nil {
 		slog.Error("market intelligence unavailable", "error", err)
 		os.Exit(1)
@@ -129,7 +129,7 @@ func main() {
 	}
 }
 
-func newMarketIntelligenceService(cfg config.MarketData, healthHistory marketintelligence.HealthHistoryStore) (*marketintelligence.Service, error) {
+func newMarketIntelligenceService(cfg config.MarketData, healthHistory marketintelligence.HealthHistoryStore, watchlists marketintelligence.WatchlistStore) (*marketintelligence.Service, error) {
 	client := &http.Client{}
 	var equity marketintelligence.EquityQuoteProvider
 	var equitySourceID string
@@ -186,6 +186,7 @@ func newMarketIntelligenceService(cfg config.MarketData, healthHistory marketint
 
 	return marketintelligence.NewService(marketintelligence.ServiceConfig{
 		HealthHistory:  healthHistory,
+		Watchlists:     watchlists,
 		EquityProvider: equity, EquitySourceID: equitySourceID, EquityCacheTTL: cfg.EquityCacheTTL, EquityInterval: cfg.EquityRateInterval,
 		CryptoProvider: crypto, CryptoSourceID: cryptoSourceID, CryptoCacheTTL: cryptoCacheTTL, CryptoInterval: cryptoInterval,
 		CryptoAssetProvider: coinbaseProvider, CryptoAssetSourceID: "coinbase_exchange",

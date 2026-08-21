@@ -141,6 +141,7 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.Handle("GET /api/markets/equities/{symbol}/quote", h.require(stdhttp.HandlerFunc(h.latestEquityQuote)))
 	mux.Handle("GET /api/markets/crypto", h.require(stdhttp.HandlerFunc(h.topCryptoMarkets)))
 	mux.Handle("GET /api/markets/insiders/{cik}", h.require(stdhttp.HandlerFunc(h.recentInsiderFilings)))
+	registerMarketWatchlistRoutes(mux, h)
 	if h.financial != nil {
 		mux.Handle("GET /api/connections/financial", h.require(stdhttp.HandlerFunc(h.listFinancialConnections)))
 		mux.Handle("POST /api/connections/financial/schwab/start", h.require(stdhttp.HandlerFunc(h.startSchwab)))
