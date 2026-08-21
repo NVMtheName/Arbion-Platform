@@ -165,6 +165,8 @@ func TestMarketSourcesAreNoStoreReadOnlyMetadata(t *testing.T) {
 		Sources                []marketintelligence.Source `json:"sources"`
 		StatusGeneratedAt      time.Time                   `json:"status_generated_at"`
 		StatusSemantics        string                      `json:"status_semantics"`
+		RequestUsageSemantics  string                      `json:"request_usage_semantics"`
+		ProviderQuotaExposed   bool                        `json:"provider_quota_exposed"`
 		ProviderErrorsExposed  bool                        `json:"provider_errors_exposed"`
 		LiveExecutionAvailable bool                        `json:"live_execution_available"`
 	}
@@ -174,7 +176,7 @@ func TestMarketSourcesAreNoStoreReadOnlyMetadata(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("unexpected response metadata: status=%d cache=%q", recorder.Code, recorder.Header().Get("Cache-Control"))
 	}
-	if len(response.Sources) != 8 || response.LiveExecutionAvailable || response.ProviderErrorsExposed || response.StatusGeneratedAt.IsZero() || response.StatusSemantics != "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT" {
+	if len(response.Sources) != 8 || response.LiveExecutionAvailable || response.ProviderQuotaExposed || response.ProviderErrorsExposed || response.StatusGeneratedAt.IsZero() || response.StatusSemantics != "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT" || response.RequestUsageSemantics != "PROCESS_LOCAL_BOUNDED_AGGREGATES" {
 		t.Fatalf("unexpected market source response: %+v", response)
 	}
 	for _, source := range response.Sources {

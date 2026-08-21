@@ -147,6 +147,33 @@ func TestServiceCachesObservationsAndTracksSourceHealth(t *testing.T) {
 			if status.State != Verified || status.LastAttemptAt == nil || status.LastSuccessAt == nil || status.ConsecutiveFailures != 0 || status.FailureCategory != "" {
 				t.Fatalf("successful capability verification is incomplete: %+v", status)
 			}
+			if status.RequestPolicy == nil || status.RequestPolicy.CacheTTLMilliseconds != 60_000 || status.RequestPolicy.MinimumIntervalMilliseconds != 1 || status.RequestUsage == nil || status.RequestUsage.ProviderAttempts != 1 || status.RequestUsage.CountersSaturated {
+				t.Fatalf("configured capability request telemetry is incomplete: %+v", status)
+			}
+			if source.ID == "alpaca_iex" {
+				if status.RequestUsage.CacheLookups != 2 || status.RequestUsage.CacheHits != 1 {
+					t.Fatalf("equity cache efficiency was not counted: %+v", status.RequestUsage)
+				}
+			} else if status.RequestUsage.CacheLookups != 1 || status.RequestUsage.CacheHits != 0 {
+				t.Fatalf("provider miss was not counted: source=%s usage=%+v", source.ID, status.RequestUsage)
+			}
+		}
+	}
+
+	for index := range sources {
+		if sources[index].ID != "alpaca_iex" {
+			continue
+		}
+		status := &sources[index].CapabilityStatus[0]
+		status.RequestPolicy.CacheTTLMilliseconds = 1
+		status.RequestUsage.CacheHits = 999
+	}
+	for _, source := range service.Sources() {
+		if source.ID == "alpaca_iex" {
+			status := capabilityStatus(t, source, EquityQuote)
+			if status.RequestPolicy.CacheTTLMilliseconds != 60_000 || status.RequestUsage.CacheHits != 1 {
+				t.Fatalf("request telemetry escaped the source snapshot: %+v", status)
+			}
 		}
 	}
 }
@@ -401,6 +428,14 @@ func TestServicePacingHonorsRequestCancellationWithoutCallingProvider(t *testing
 	if provider.calls != 1 {
 		t.Fatalf("provider was called after paced request cancellation: %d", provider.calls)
 	}
+	for _, source := range service.Sources() {
+		if source.ID == "alpaca_iex" {
+			usage := capabilityStatus(t, source, EquityQuote).RequestUsage
+			if usage == nil || usage.CacheLookups != 2 || usage.CacheHits != 0 || usage.ProviderAttempts != 1 {
+				t.Fatalf("paced cancellation telemetry was misleading: %+v", usage)
+			}
+		}
+	}
 }
 
 func TestInvalidQueryDoesNotDegradeAHealthyProvider(t *testing.T) {
@@ -420,9 +455,28 @@ func TestInvalidQueryDoesNotDegradeAHealthyProvider(t *testing.T) {
 		t.Fatalf("invalid query error was not preserved: %v", err)
 	}
 	for _, source := range service.Sources() {
-		if source.ID == "alpaca_iex" && !source.Healthy {
-			t.Fatalf("invalid user query degraded provider health: %+v", source)
+		if source.ID == "alpaca_iex" {
+			if !source.Healthy {
+				t.Fatalf("invalid user query degraded provider health: %+v", source)
+			}
+			usage := capabilityStatus(t, source, EquityQuote).RequestUsage
+			if usage == nil || usage.CacheLookups != 1 || usage.ProviderAttempts != 1 {
+				t.Fatalf("invalid caller input entered request telemetry: %+v", usage)
+			}
 		}
+	}
+}
+
+func TestRequestCountersSaturateAtThePublicBound(t *testing.T) {
+	usage := &RequestUsage{}
+	counter := maxTelemetryCount - 1
+	incrementRequestCounter(&counter, usage)
+	if counter != maxTelemetryCount || usage.CountersSaturated {
+		t.Fatalf("counter saturated early: counter=%d usage=%+v", counter, usage)
+	}
+	incrementRequestCounter(&counter, usage)
+	if counter != maxTelemetryCount || !usage.CountersSaturated {
+		t.Fatalf("counter exceeded its public bound: counter=%d usage=%+v", counter, usage)
 	}
 }
 

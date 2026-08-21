@@ -1401,6 +1401,43 @@ button:disabled {
   overflow-wrap: anywhere;
   font-size: 0.69rem;
 }
+.market-capability-statuses > li > .market-capability-budget {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  justify-content: stretch;
+  gap: 8px;
+  margin-top: 3px;
+  padding-top: 11px;
+  border-top: 1px solid #1c352b;
+}
+.market-capability-budget > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(87, 204, 227, 0.12);
+  border-radius: 8px;
+  color: #789086;
+  background: rgba(87, 204, 227, 0.035);
+  font-size: 0.61rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.35;
+  text-transform: none;
+  white-space: normal;
+}
+.market-capability-budget > span strong {
+  overflow: hidden;
+  color: #ccecf1;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  text-transform: none;
+}
+.market-capability-budget > small {
+  grid-column: 1 / -1;
+}
 .market-source-card > footer {
   margin-top: 16px;
   padding-top: 14px;
@@ -3056,6 +3093,12 @@ button:disabled {
   .market-source-status,
   .market-capability-statuses span {
     white-space: normal;
+  }
+  .market-capability-statuses > li > .market-capability-budget {
+    grid-template-columns: 1fr;
+  }
+  .market-capability-budget > small {
+    grid-column: auto;
   }
   .crypto-venue-stats-grid {
     grid-template-columns: 1fr;

@@ -35,6 +35,16 @@ const sources: MarketSource[] = [
         last_attempt_at: "2026-08-21T17:00:00Z",
         consecutive_failures: 2,
         failure_category: "TIMEOUT",
+        request_policy: {
+          cache_ttl_ms: 60_000,
+          minimum_request_interval_ms: 500,
+        },
+        request_usage: {
+          cache_lookups: 5,
+          cache_hits: 2,
+          provider_attempts: 3,
+          counters_saturated: false,
+        },
       },
     ],
     enabled: true,
@@ -68,6 +78,15 @@ describe("MarketSourceGrid", () => {
     expect(screen.getByText("aggregated reference")).toBeVisible();
     expect(screen.getByText(/timeout · attempted/)).toBeVisible();
     expect(screen.getByText("2 consecutive provider failures")).toBeVisible();
+    const requestBudget = screen.getByLabelText(
+      "crypto markets request budget",
+    );
+    expect(requestBudget).toHaveTextContent(/3\s*provider attempts/);
+    expect(requestBudget).toHaveTextContent(/2\s*cache saves/);
+    expect(screen.getAllByText("40% cache reuse")).toHaveLength(2);
+    expect(
+      screen.getByText(/not a provider quota or remaining-credit balance/),
+    ).toBeVisible();
     expect(screen.getByLabelText("Capability status")).toHaveTextContent(
       "0 verified",
     );
@@ -89,12 +108,24 @@ describe("MarketSourceGrid", () => {
                 last_attempt_at: "2026-08-21T17:01:00Z",
                 last_success_at: "2026-08-21T17:01:00Z",
                 consecutive_failures: 0,
+                request_policy: {
+                  cache_ttl_ms: 30_000,
+                  minimum_request_interval_ms: 250,
+                },
+                request_usage: {
+                  cache_lookups: 8,
+                  cache_hits: 6,
+                  provider_attempts: 2,
+                  counters_saturated: false,
+                },
               },
             ],
           },
         ],
         status_generated_at: "2026-08-21T17:01:01Z",
         status_semantics: "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT",
+        request_usage_semantics: "PROCESS_LOCAL_BOUNDED_AGGREGATES",
+        provider_quota_exposed: false,
         provider_errors_exposed: false,
         live_execution_available: false,
       }),
@@ -110,5 +141,33 @@ describe("MarketSourceGrid", () => {
       cache: "no-store",
     });
     expect(screen.getByText(/Last provider success/)).toBeVisible();
+    expect(screen.getAllByText("75% cache reuse")).toHaveLength(2);
+  });
+
+  it("keeps existing status when request telemetry semantics are unsafe", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        sources: [],
+        status_generated_at: "2026-08-21T17:01:01Z",
+        status_semantics: "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT",
+        request_usage_semantics: "PROVIDER_QUOTA",
+        provider_quota_exposed: true,
+        provider_errors_exposed: false,
+        live_execution_available: false,
+      }),
+    } as Response);
+
+    render(<MarketSourceGrid sources={sources} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh source status" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Source verification is temporarily unavailable/),
+      ).toBeVisible(),
+    );
+    expect(screen.getByRole("heading", { name: "Alpaca IEX" })).toBeVisible();
   });
 });
