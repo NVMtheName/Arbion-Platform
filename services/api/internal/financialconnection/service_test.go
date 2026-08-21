@@ -96,6 +96,7 @@ type coinbaseProviderFake struct {
 	verified int
 	balances int
 	fills    int
+	orders   int
 }
 
 func (provider *coinbaseProviderFake) VerifyConnection(_ context.Context, credentials *financial.Credentials) error {
@@ -128,6 +129,13 @@ func (provider *coinbaseProviderFake) GetTradeFills(_ context.Context, _ *financ
 		return financial.TradeFillPage{}, errors.New("unexpected trade history boundary")
 	}
 	return financial.TradeFillPage{Provider: "coinbase", Feed: "advanced_trade_fills", Fills: []financial.TradeFill{{ProductID: "BTC-USD", Side: "BUY", Price: "1", Size: "1", SizeUnit: "BTC"}}}, nil
+}
+func (provider *coinbaseProviderFake) GetOrderHistory(_ context.Context, _ *financial.Credentials, id string, limit int) (financial.OrderHistoryPage, error) {
+	provider.orders++
+	if id != "portfolio:portfolio-1" || limit != 50 {
+		return financial.OrderHistoryPage{}, errors.New("unexpected order history boundary")
+	}
+	return financial.OrderHistoryPage{Provider: "coinbase", Feed: "advanced_trade_orders", Orders: []financial.OrderObservation{{ProductID: "BTC-USD", Status: "OPEN", Side: "BUY"}}}, nil
 }
 func (*coinbaseProviderFake) GetCapabilities(context.Context, *financial.Credentials, string) (financial.Capabilities, error) {
 	return financial.Capabilities{"crypto_assets": financial.Supported}, nil
@@ -169,6 +177,10 @@ func TestConnectAPIKeyStoresServerOnlyCredentialsAndRoutesAccountReads(t *testin
 	fills, err := service.GetTradeFills(context.Background(), founder(), "account-1")
 	if err != nil || len(fills.Fills) != 1 || fills.Fills[0].ProductID != "BTC-USD" || provider.fills != 1 {
 		t.Fatalf("Coinbase history provider was not used for owner-scoped reads: %#v %v", fills, err)
+	}
+	orders, err := service.GetOrderHistory(context.Background(), founder(), "account-1")
+	if err != nil || len(orders.Orders) != 1 || orders.Orders[0].Status != "OPEN" || provider.orders != 1 {
+		t.Fatalf("Coinbase order history was not used for owner-scoped reads: %#v %v", orders, err)
 	}
 }
 

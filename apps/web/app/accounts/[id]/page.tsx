@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { AppPageHeader } from "../../app-page-header";
 import {
   CryptoPortfolioCommandCenter,
+  type CoinbaseOrderHistory,
   type CoinbaseTradeActivity,
   type CryptoCandleSeries,
   type CryptoPortfolioSnapshot,
@@ -88,23 +89,38 @@ export default async function AccountPage({
     let initialHistory: CryptoCandleSeries | undefined;
     let initialHistoryCached = false;
     let initialActivity: CoinbaseTradeActivity | undefined;
-    const [activityResponse, historyResponse] = await Promise.all([
-      fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/fills`, {
-        headers,
-        cache: "no-store",
-      }),
-      initialSymbol
-        ? fetch(
-            `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/candles`,
-            { headers, cache: "no-store" },
-          )
-        : Promise.resolve(undefined),
-    ]);
+    let initialOrderHistory: CoinbaseOrderHistory | undefined;
+    const [activityResponse, orderResponse, historyResponse] =
+      await Promise.all([
+        fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/fills`, {
+          headers,
+          cache: "no-store",
+        }),
+        fetch(
+          `${base}/api/accounts/${encodeURIComponent(id)}/activity/orders`,
+          {
+            headers,
+            cache: "no-store",
+          },
+        ),
+        initialSymbol
+          ? fetch(
+              `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/candles`,
+              { headers, cache: "no-store" },
+            )
+          : Promise.resolve(undefined),
+      ]);
     if (activityResponse.ok) {
       const activityPayload = (await activityResponse.json()) as {
         activity: CoinbaseTradeActivity;
       };
       initialActivity = activityPayload.activity;
+    }
+    if (orderResponse.ok) {
+      const orderPayload = (await orderResponse.json()) as {
+        orders: CoinbaseOrderHistory;
+      };
+      initialOrderHistory = orderPayload.orders;
     }
     if (historyResponse?.ok) {
       const historyPayload = (await historyResponse.json()) as {
@@ -122,6 +138,7 @@ export default async function AccountPage({
           initialActivity={initialActivity}
           initialHistory={initialHistory}
           initialHistoryCached={initialHistoryCached}
+          initialOrderHistory={initialOrderHistory}
           initialSnapshot={snapshot}
         />
       </main>

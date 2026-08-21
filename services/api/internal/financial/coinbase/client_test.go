@@ -116,7 +116,7 @@ func TestClientConnectsViewOnlyPortfolioAndNormalizesHoldings(t *testing.T) {
 	if err != nil || len(accounts) != 1 || accounts[0].Provider != "coinbase" || accounts[0].ProviderAccountID != "portfolio:portfolio-123" {
 		t.Fatalf("unexpected normalized accounts: %#v %v", accounts, err)
 	}
-	if accounts[0].Capabilities["trade_history"] != financial.Supported || accounts[0].Capabilities["orders"] != financial.Unsupported {
+	if accounts[0].Capabilities["trade_history"] != financial.Supported || accounts[0].Capabilities["order_history"] != financial.Supported || accounts[0].Capabilities["orders"] != financial.Unsupported {
 		t.Fatalf("read history capability weakened the order boundary: %#v", accounts[0].Capabilities)
 	}
 	balances, err := client.GetBalances(context.Background(), &credentials, accounts[0].ProviderAccountID)
@@ -235,6 +235,85 @@ func TestClientRejectsUnsafeFillResponses(t *testing.T) {
 			}
 			client.now = func() time.Time { return time.Date(2026, 8, 21, 15, 0, 0, 0, time.UTC) }
 			_, err = client.GetTradeFills(context.Background(), &credentials, "portfolio:portfolio-123", 50)
+			var providerError *financial.ProviderError
+			if !errors.As(err, &providerError) || (providerError.Code != financial.InvalidProviderResponse && providerError.Code != financial.PermissionDenied) {
+				t.Fatalf("expected safe rejection, got %v", err)
+			}
+		})
+	}
+}
+
+func TestClientListsBoundedViewOnlyOrdersWithoutProviderIdentifiers(t *testing.T) {
+	credentials, key := testCredentials(t)
+	credentials.PortfolioID = "portfolio-123"
+	now := time.Date(2026, 8, 21, 16, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		verifyJWT(t, request, key, request.URL.Path)
+		response.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v3/brokerage/key_permissions":
+			_, _ = response.Write([]byte(`{"can_view":true,"can_trade":false,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+		case "/api/v3/brokerage/orders/historical/batch":
+			query := request.URL.Query()
+			if query.Get("limit") != "50" || query.Get("product_type") != "SPOT" || query.Get("order_placement_source") != "RETAIL_ADVANCED" || query.Get("use_simplified_total_value_calculation") != "true" || len(query) != 4 {
+				t.Fatalf("unexpected bounded order query: %s", request.URL.RawQuery)
+			}
+			_, _ = response.Write([]byte(`{"orders":[{"order_id":"private-order","user_id":"private-user","retail_portfolio_id":"private-portfolio","product_id":"btc-usd","side":"BUY","status":"OPEN","created_time":"2026-08-21T15:50:00Z","completion_percentage":"25.000","average_filled_price":"60123.123456789","number_of_fills":"1","pending_cancel":false,"total_fees":"0.00000001","time_in_force":"GOOD_UNTIL_CANCELLED","filled_size":"0.000000010000","filled_value":"0.00060123123456789","order_type":"LIMIT","reject_reason":"REJECT_REASON_UNSPECIFIED","settled":false,"product_type":"SPOT","is_liquidation":false,"last_fill_time":"2026-08-21T15:55:00Z"},{"order_id":"another-private-order","product_id":"ETH-USD","side":"SELL","status":"CANCELLED","created_time":"2026-08-21T15:30:00Z","completion_percentage":"0","average_filled_price":"0","number_of_fills":"0","pending_cancel":false,"total_fees":"0","time_in_force":"IMMEDIATE_OR_CANCEL","filled_size":"0","filled_value":"0","order_type":"MARKET","reject_reason":"REJECT_REASON_UNSPECIFIED","settled":false,"product_type":"SPOT","is_liquidation":false,"last_fill_time":""}],"has_next":true,"cursor":"private-next-page","proof_token_required":false}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(Config{BaseURL: server.URL}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.now = func() time.Time { return now }
+	page, err := client.GetOrderHistory(context.Background(), &credentials, "portfolio:portfolio-123", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Provider != "coinbase" || page.Feed != "advanced_trade_orders" || !page.HasMore || len(page.Orders) != 2 {
+		t.Fatalf("unexpected order page: %#v", page)
+	}
+	first, second := page.Orders[0], page.Orders[1]
+	if first.ProductID != "BTC-USD" || first.Status != "OPEN" || first.CompletionPercentage != "25.000" || first.FilledSize != "0.000000010000" || first.FilledValue.Amount != "0.00060123123456789" || first.AverageFilledPrice == nil || first.AverageFilledPrice.Amount != "60123.123456789" || first.TotalFees.Amount != "0.00000001" || first.NumberOfFills != 1 || first.TimeInForce != "GOOD_UNTIL_CANCELLED" || first.OutcomeReason != "NONE" {
+		t.Fatalf("open order lost exact normalized state: %#v", first)
+	}
+	if second.Status != "CANCELLED" || second.AverageFilledPrice != nil || second.LastFillAt != nil || second.OrderType != "MARKET" {
+		t.Fatalf("unfilled order was not normalized safely: %#v", second)
+	}
+	encoded, err := json.Marshal(page)
+	if err != nil || strings.Contains(string(encoded), "private-") || strings.Contains(string(encoded), "cursor") || strings.Contains(string(encoded), "order_id") || strings.Contains(string(encoded), "user_id") {
+		t.Fatalf("provider identifiers escaped the normalized order page: %s %v", encoded, err)
+	}
+}
+
+func TestClientRejectsUnsafeOrderResponses(t *testing.T) {
+	for name, body := range map[string]string{
+		"proof required":      `{"orders":[],"proof_token_required":true}`,
+		"missing next cursor": `{"orders":[],"has_next":true,"cursor":""}`,
+		"invalid percentage":  `{"orders":[{"product_id":"BTC-USD","side":"BUY","status":"OPEN","created_time":"2026-08-21T15:50:00Z","completion_percentage":"100.01","number_of_fills":"0","total_fees":"0","filled_size":"0","filled_value":"0","order_type":"LIMIT","time_in_force":"GOOD_UNTIL_CANCELLED","product_type":"SPOT"}]}`,
+		"unknown status":      `{"orders":[{"product_id":"BTC-USD","side":"BUY","status":"MYSTERY","created_time":"2026-08-21T15:50:00Z","completion_percentage":"0","number_of_fills":"0","total_fees":"0","filled_size":"0","filled_value":"0","order_type":"LIMIT","time_in_force":"GOOD_UNTIL_CANCELLED","product_type":"SPOT"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			credentials, _ := testCredentials(t)
+			credentials.PortfolioID = "portfolio-123"
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.URL.Path == "/api/v3/brokerage/key_permissions" {
+					_, _ = response.Write([]byte(`{"can_view":true,"can_trade":false,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+					return
+				}
+				_, _ = response.Write([]byte(body))
+			}))
+			defer server.Close()
+			client, err := New(Config{BaseURL: server.URL}, server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.now = func() time.Time { return time.Date(2026, 8, 21, 16, 0, 0, 0, time.UTC) }
+			_, err = client.GetOrderHistory(context.Background(), &credentials, "portfolio:portfolio-123", 50)
 			var providerError *financial.ProviderError
 			if !errors.As(err, &providerError) || (providerError.Code != financial.InvalidProviderResponse && providerError.Code != financial.PermissionDenied) {
 				t.Fatalf("expected safe rejection, got %v", err)

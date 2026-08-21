@@ -49,6 +49,7 @@ type Client struct {
 }
 
 var _ financial.TradeHistoryProvider = (*Client)(nil)
+var _ financial.OrderHistoryProvider = (*Client)(nil)
 
 func New(cfg Config, client *http.Client) (*Client, error) {
 	baseURL := strings.TrimSpace(cfg.BaseURL)
@@ -138,6 +139,34 @@ type fillPage struct {
 	ProofTokenRequired bool           `json:"proof_token_required"`
 }
 
+type providerOrder struct {
+	ProductID            string      `json:"product_id"`
+	Side                 string      `json:"side"`
+	Status               string      `json:"status"`
+	CreatedTime          time.Time   `json:"created_time"`
+	CompletionPercentage json.Number `json:"completion_percentage"`
+	AverageFilledPrice   json.Number `json:"average_filled_price"`
+	NumberOfFills        json.Number `json:"number_of_fills"`
+	PendingCancel        bool        `json:"pending_cancel"`
+	TotalFees            json.Number `json:"total_fees"`
+	TimeInForce          string      `json:"time_in_force"`
+	FilledSize           json.Number `json:"filled_size"`
+	FilledValue          json.Number `json:"filled_value"`
+	OrderType            string      `json:"order_type"`
+	RejectReason         string      `json:"reject_reason"`
+	Settled              bool        `json:"settled"`
+	ProductType          string      `json:"product_type"`
+	IsLiquidation        bool        `json:"is_liquidation"`
+	LastFillTime         string      `json:"last_fill_time"`
+}
+
+type orderPage struct {
+	Orders             []providerOrder `json:"orders"`
+	HasNext            bool            `json:"has_next"`
+	Cursor             string          `json:"cursor"`
+	ProofTokenRequired bool            `json:"proof_token_required"`
+}
+
 func (c *Client) providerAccounts(ctx context.Context, credentials *financial.Credentials) ([]providerAccount, error) {
 	if err := c.VerifyConnection(ctx, credentials); err != nil {
 		return nil, err
@@ -191,6 +220,7 @@ func portfolioAccount(credentials *financial.Credentials) (financial.FinancialAc
 			"balances":      financial.Supported,
 			"positions":     financial.Supported,
 			"trade_history": financial.Supported,
+			"order_history": financial.Supported,
 			"equities":      financial.Unsupported,
 			"options":       financial.Unsupported,
 			"margin":        financial.Unsupported,
@@ -376,6 +406,92 @@ func (c *Client) GetTradeFills(ctx context.Context, credentials *financial.Crede
 	}, nil
 }
 
+func (c *Client) GetOrderHistory(ctx context.Context, credentials *financial.Credentials, id string, limit int) (financial.OrderHistoryPage, error) {
+	if err := validateAccountID(credentials, id); err != nil {
+		return financial.OrderHistoryPage{}, err
+	}
+	if limit != 50 {
+		return financial.OrderHistoryPage{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	if err := c.VerifyConnection(ctx, credentials); err != nil {
+		return financial.OrderHistoryPage{}, err
+	}
+	query := url.Values{
+		"limit":                                  {"50"},
+		"product_type":                           {"SPOT"},
+		"order_placement_source":                 {"RETAIL_ADVANCED"},
+		"use_simplified_total_value_calculation": {"true"},
+	}
+	var response orderPage
+	if err := c.get(ctx, credentials, "/api/v3/brokerage/orders/historical/batch?"+query.Encode(), &response); err != nil {
+		return financial.OrderHistoryPage{}, err
+	}
+	if response.ProofTokenRequired {
+		return financial.OrderHistoryPage{}, &financial.ProviderError{Code: financial.PermissionDenied}
+	}
+	if len(response.Orders) > limit || len(response.Cursor) > 1024 || !safeCursor(response.Cursor) || (response.HasNext && strings.TrimSpace(response.Cursor) == "") {
+		return financial.OrderHistoryPage{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	now := c.now().UTC()
+	orders := make([]financial.OrderObservation, 0, len(response.Orders))
+	for _, raw := range response.Orders {
+		order, ok := normalizedOrderObservation(raw, now)
+		if !ok {
+			return financial.OrderHistoryPage{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		}
+		orders = append(orders, order)
+	}
+	sort.SliceStable(orders, func(left, right int) bool {
+		return orders[left].CreatedAt.After(orders[right].CreatedAt)
+	})
+	return financial.OrderHistoryPage{
+		Provider: "coinbase", Feed: "advanced_trade_orders", Orders: orders,
+		HasMore: response.HasNext, RetrievedAt: now,
+	}, nil
+}
+
+func normalizedOrderObservation(raw providerOrder, now time.Time) (financial.OrderObservation, bool) {
+	productID := strings.ToUpper(strings.TrimSpace(raw.ProductID))
+	separator := strings.LastIndexByte(productID, '-')
+	if separator < 1 || separator == len(productID)-1 {
+		return financial.OrderObservation{}, false
+	}
+	baseAsset, quoteCurrency := productID[:separator], productID[separator+1:]
+	side := strings.ToUpper(strings.TrimSpace(raw.Side))
+	status, statusOK := normalizedOrderStatus(raw.Status)
+	orderType, orderTypeOK := normalizedOrderType(raw.OrderType)
+	timeInForce, timeInForceOK := normalizedTimeInForce(raw.TimeInForce)
+	completion, completionOK := percentageProviderDecimal(raw.CompletionPercentage)
+	filledSize, filledSizeOK := nonnegativeProviderDecimal(raw.FilledSize)
+	filledValue, filledValueOK := nonnegativeProviderDecimal(raw.FilledValue)
+	totalFees, totalFeesOK := nonnegativeProviderDecimal(raw.TotalFees)
+	numberOfFills, fillsOK := providerCount(raw.NumberOfFills)
+	outcomeReason, reasonOK := normalizedOutcomeReason(raw.RejectReason)
+	lastFillAt, lastFillOK := optionalProviderTime(raw.LastFillTime, now)
+	if !currencyPattern.MatchString(baseAsset) || !currencyPattern.MatchString(quoteCurrency) || (side != "BUY" && side != "SELL") || strings.ToUpper(strings.TrimSpace(raw.ProductType)) != "SPOT" || !statusOK || !orderTypeOK || !timeInForceOK || !completionOK || !filledSizeOK || !filledValueOK || !totalFeesOK || !fillsOK || !reasonOK || !lastFillOK || raw.CreatedTime.IsZero() || raw.CreatedTime.After(now.Add(2*time.Minute)) || (lastFillAt != nil && lastFillAt.Before(raw.CreatedTime.Add(-2*time.Minute))) {
+		return financial.OrderObservation{}, false
+	}
+	var averageFilledPrice *financial.Money
+	if strings.TrimSpace(raw.AverageFilledPrice.String()) != "" {
+		average, averageOK := nonnegativeProviderDecimal(raw.AverageFilledPrice)
+		if !averageOK {
+			return financial.OrderObservation{}, false
+		}
+		if rational, _ := new(big.Rat).SetString(string(average)); rational.Sign() > 0 {
+			averageFilledPrice = &financial.Money{Amount: average, Currency: quoteCurrency}
+		}
+	}
+	return financial.OrderObservation{
+		ProductID: productID, BaseAsset: baseAsset, QuoteCurrency: quoteCurrency,
+		Side: side, Status: status, OrderType: orderType, TimeInForce: timeInForce,
+		CompletionPercentage: completion, FilledSize: filledSize, FilledSizeUnit: baseAsset,
+		FilledValue: financial.Money{Amount: filledValue, Currency: quoteCurrency}, AverageFilledPrice: averageFilledPrice,
+		TotalFees: financial.Money{Amount: totalFees, Currency: quoteCurrency}, NumberOfFills: numberOfFills,
+		PendingCancel: raw.PendingCancel, Settled: raw.Settled, IsLiquidation: raw.IsLiquidation,
+		OutcomeReason: outcomeReason, CreatedAt: raw.CreatedTime.UTC(), LastFillAt: lastFillAt,
+	}, true
+}
+
 func safeCursor(value string) bool {
 	for _, character := range value {
 		if character < 0x21 || character > 0x7e {
@@ -396,6 +512,100 @@ func normalizedLiquidity(value string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func normalizedOrderStatus(value string) (string, bool) {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	switch normalized {
+	case "PENDING", "OPEN", "FILLED", "CANCELLED", "EXPIRED", "FAILED", "QUEUED", "CANCEL_QUEUED", "EDIT_QUEUED":
+		return normalized, true
+	case "UNKNOWN_ORDER_STATUS":
+		return "UNKNOWN", true
+	default:
+		return "", false
+	}
+}
+
+func normalizedOrderType(value string) (string, bool) {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	switch normalized {
+	case "MARKET", "LIMIT", "STOP", "STOP_LIMIT", "BRACKET", "TWAP", "SCALED", "LIQUIDATION", "ROLL_OPEN", "ROLL_CLOSE":
+		return normalized, true
+	case "UNKNOWN_ORDER_TYPE":
+		return "UNKNOWN", true
+	default:
+		return "", false
+	}
+}
+
+func normalizedTimeInForce(value string) (string, bool) {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	switch normalized {
+	case "GOOD_UNTIL_DATE_TIME", "GOOD_UNTIL_CANCELLED", "IMMEDIATE_OR_CANCEL", "FILL_OR_KILL":
+		return normalized, true
+	case "", "UNKNOWN_TIME_IN_FORCE":
+		return "UNKNOWN", true
+	default:
+		return "", false
+	}
+}
+
+func percentageProviderDecimal(value json.Number) (financial.Decimal, bool) {
+	result, ok := nonnegativeProviderDecimal(value)
+	if !ok {
+		return "", false
+	}
+	rational, valid := new(big.Rat).SetString(string(result))
+	return result, valid && rational.Cmp(big.NewRat(100, 1)) <= 0
+}
+
+func providerCount(value json.Number) (int, bool) {
+	text := strings.TrimSpace(value.String())
+	if text == "" {
+		return 0, true
+	}
+	if len(text) > 7 {
+		return 0, false
+	}
+	for _, character := range text {
+		if character < '0' || character > '9' {
+			return 0, false
+		}
+	}
+	integer, ok := new(big.Int).SetString(text, 10)
+	if !ok || integer.Sign() < 0 || integer.Cmp(big.NewInt(1_000_000)) > 0 {
+		return 0, false
+	}
+	return int(integer.Int64()), true
+}
+
+func normalizedOutcomeReason(value string) (string, bool) {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	if normalized == "" || normalized == "REJECT_REASON_UNSPECIFIED" {
+		return "NONE", true
+	}
+	if len(normalized) > 64 {
+		return "", false
+	}
+	for _, character := range normalized {
+		if (character < 'A' || character > 'Z') && (character < '0' || character > '9') && character != '_' {
+			return "", false
+		}
+	}
+	return normalized, true
+}
+
+func optionalProviderTime(value string, now time.Time) (*time.Time, bool) {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return nil, true
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil || parsed.After(now.Add(2*time.Minute)) {
+		return nil, false
+	}
+	utc := parsed.UTC()
+	return &utc, true
 }
 
 func positiveProviderDecimal(value json.Number) (financial.Decimal, bool) {

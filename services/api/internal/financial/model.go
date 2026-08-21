@@ -131,6 +131,40 @@ type TradeFillPage struct {
 	HasMore     bool        `json:"has_more"`
 	RetrievedAt time.Time   `json:"retrieved_at"`
 }
+
+// OrderObservation is provider-reported order state created outside Arbion.
+// Provider identifiers are intentionally excluded and no mutation can be
+// performed through this model.
+type OrderObservation struct {
+	ProductID            string     `json:"product_id"`
+	BaseAsset            string     `json:"base_asset"`
+	QuoteCurrency        string     `json:"quote_currency"`
+	Side                 string     `json:"side"`
+	Status               string     `json:"status"`
+	OrderType            string     `json:"order_type"`
+	TimeInForce          string     `json:"time_in_force"`
+	CompletionPercentage Decimal    `json:"completion_percentage"`
+	FilledSize           Decimal    `json:"filled_size"`
+	FilledSizeUnit       string     `json:"filled_size_unit"`
+	FilledValue          Money      `json:"filled_value"`
+	AverageFilledPrice   *Money     `json:"average_filled_price,omitempty"`
+	TotalFees            Money      `json:"total_fees"`
+	NumberOfFills        int        `json:"number_of_fills"`
+	PendingCancel        bool       `json:"pending_cancel"`
+	Settled              bool       `json:"settled"`
+	IsLiquidation        bool       `json:"is_liquidation"`
+	OutcomeReason        string     `json:"outcome_reason"`
+	CreatedAt            time.Time  `json:"created_at"`
+	LastFillAt           *time.Time `json:"last_fill_at,omitempty"`
+}
+
+type OrderHistoryPage struct {
+	Provider    string             `json:"provider"`
+	Feed        string             `json:"feed"`
+	Orders      []OrderObservation `json:"orders"`
+	HasMore     bool               `json:"has_more"`
+	RetrievedAt time.Time          `json:"retrieved_at"`
+}
 type Quote struct {
 	Symbol, AssetType    string
 	Bid, Ask, Mark, Last *Decimal
@@ -217,4 +251,10 @@ type MarketDataProvider interface {
 // account connector contract.
 type TradeHistoryProvider interface {
 	GetTradeFills(context.Context, *Credentials, string, int) (TradeFillPage, error)
+}
+
+// OrderHistoryProvider is a read-only observation boundary. It deliberately
+// omits preview, create, replace, and cancel operations.
+type OrderHistoryProvider interface {
+	GetOrderHistory(context.Context, *Credentials, string, int) (OrderHistoryPage, error)
 }
