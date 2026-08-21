@@ -17,6 +17,7 @@ const (
 )
 
 type ServiceConfig struct {
+	HealthHistory           HealthHistoryStore
 	EquityProvider          EquityQuoteProvider
 	EquitySourceID          string
 	CryptoProvider          CryptoMarketProvider
@@ -59,6 +60,7 @@ type cacheEntry[T any] struct {
 type Service struct {
 	mu sync.RWMutex
 
+	healthHistory           HealthHistoryStore
 	equityProvider          EquityQuoteProvider
 	equitySourceID          string
 	cryptoProvider          CryptoMarketProvider
@@ -160,6 +162,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 		assetSourceID = config.CryptoSourceID
 	}
 	service := &Service{
+		healthHistory:           config.HealthHistory,
 		equityProvider:          config.EquityProvider,
 		equitySourceID:          config.EquitySourceID,
 		cryptoProvider:          config.CryptoProvider,
@@ -758,9 +761,9 @@ func incrementRequestCounter(counter *uint64, usage *RequestUsage) {
 func (service *Service) recordProviderSuccess(id string, capability Capability) {
 	now := service.now()
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	source, status := findCapabilityStatus(service.sources, id, capability)
 	if status == nil || !status.Enabled {
+		service.mu.Unlock()
 		return
 	}
 	status.State = Verified
@@ -768,22 +771,28 @@ func (service *Service) recordProviderSuccess(id string, capability Capability) 
 	status.ConsecutiveFailures = 0
 	status.FailureCategory = ""
 	refreshSourceHealth(source)
+	service.mu.Unlock()
+	service.persistHealthOutcome(HealthOutcome{SourceID: id, Capability: capability, State: Verified, ObservedAt: now})
 }
 
 func (service *Service) recordProviderError(id string, capability Capability, err error) {
 	if errors.Is(err, ErrInstrumentUnavailable) || errors.Is(err, context.Canceled) {
 		return
 	}
+	now := service.now()
+	category := providerFailureCategory(err)
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	source, status := findCapabilityStatus(service.sources, id, capability)
 	if status == nil || !status.Enabled {
+		service.mu.Unlock()
 		return
 	}
 	status.State = Degraded
 	status.ConsecutiveFailures++
-	status.FailureCategory = providerFailureCategory(err)
+	status.FailureCategory = category
 	refreshSourceHealth(source)
+	service.mu.Unlock()
+	service.persistHealthOutcome(HealthOutcome{SourceID: id, Capability: capability, State: Degraded, FailureCategory: category, ObservedAt: now})
 }
 
 func findCapabilityStatus(sources []Source, id string, capability Capability) (*Source, *CapabilityStatus) {

@@ -7,12 +7,17 @@ import {
   MarketCommandSurface,
   type MarketAccount,
 } from "./market-command-surface";
+import { MarketHealthTimeline } from "./market-health-timeline";
+import {
+  safeMarketHealthHistory,
+  type MarketHealthHistory,
+} from "./market-health-contract";
 import { MarketSourceGrid, type MarketSource } from "./market-source-grid";
 
 type SourcesResponse = {
   sources: MarketSource[];
   status_generated_at?: string;
-  status_semantics?: "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT";
+  status_semantics?: "PROCESS_LOCAL_TIME_BOUNDED_PROVIDER_VERIFICATION";
   provider_errors_exposed?: false;
   live_execution_available: false;
 };
@@ -20,7 +25,7 @@ type SourcesResponse = {
 export default async function MarketsPage() {
   const jar = await cookies();
   const api = process.env.API_BASE_URL ?? "http://localhost:8080";
-  const [response, accountsResponse] = await Promise.all([
+  const [response, accountsResponse, historyResponse] = await Promise.all([
     fetch(`${api}/api/markets/sources`, {
       headers: { cookie: jar.toString() },
       cache: "no-store",
@@ -29,6 +34,10 @@ export default async function MarketsPage() {
       headers: { cookie: jar.toString() },
       cache: "no-store",
     }),
+    fetch(`${api}/api/markets/source-history`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }).catch(() => undefined),
   ]);
   if (response.status === 401) redirect("/login");
   const data: SourcesResponse = response.ok
@@ -42,6 +51,14 @@ export default async function MarketsPage() {
     ? ((await accountsResponse.json()) as { accounts: MarketAccount[] })
         .accounts
     : [];
+  let history: MarketHealthHistory | undefined;
+  if (historyResponse?.ok) {
+    try {
+      history = safeMarketHealthHistory(await historyResponse.json());
+    } catch {
+      history = undefined;
+    }
+  }
   const available = data.sources.filter(
     (source) => source.enabled && source.healthy,
   ).length;
@@ -99,10 +116,16 @@ export default async function MarketsPage() {
           </p>
         </div>
         {data.sources.length > 0 ? (
-          <MarketSourceGrid
-            sources={data.sources}
-            statusGeneratedAt={data.status_generated_at}
-          />
+          <>
+            <MarketHealthTimeline
+              sources={data.sources}
+              initialHistory={history}
+            />
+            <MarketSourceGrid
+              sources={data.sources}
+              statusGeneratedAt={data.status_generated_at}
+            />
+          </>
         ) : (
           <p className="unavailable">
             Source metadata is temporarily unavailable. No market value will be

@@ -165,3 +165,20 @@ func TestPaperOptionsSimulationAttestationIsDatabaseConstrained(t *testing.T) {
 		}
 	}
 }
+
+func TestMarketSourceHealthHistoryIsBoundedAndContainsNoSubjectDimensions(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00017_market_source_health_history.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"market_source_health_buckets", "completed_attempts = successes + failures", "date_bin('5 minutes'", "last_observed_at >= bucket_started_at", "last_state IN ('VERIFIED','DEGRADED')", "bucket_started_at DESC,source_id,capability"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("market source health migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"user_id", "account_id", "instrument", "symbol", "provider_request", "raw_error", "request_url"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("market source health history contains a prohibited subject dimension: %q", prohibited)
+		}
+	}
+}

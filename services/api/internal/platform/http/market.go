@@ -18,6 +18,7 @@ import (
 
 type MarketIntelligence interface {
 	Sources() []marketintelligence.Source
+	SourceHealthHistory(context.Context) (marketintelligence.HealthHistory, error)
 	LatestEquityQuote(context.Context, string) (marketintelligence.QuoteObservation, bool, error)
 	TopCryptoMarkets(context.Context, string, int) ([]marketintelligence.CryptoMarketObservation, bool, error)
 	CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error)
@@ -26,6 +27,30 @@ type MarketIntelligence interface {
 	RecentCryptoTrades(context.Context, string, string, int) (marketintelligence.CryptoTradeTape, bool, error)
 	CryptoVenueStats(context.Context, string, string) (marketintelligence.CryptoVenueStats, bool, error)
 	RecentInsiderFilings(context.Context, string, int) ([]marketintelligence.InsiderFilingObservation, bool, error)
+}
+
+func (h *authHandler) marketSourceHistory(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
+	if h.markets == nil {
+		writeError(writer, stdhttp.StatusServiceUnavailable, "MARKET_HISTORY_UNAVAILABLE", "Durable market-source history is temporarily unavailable.")
+		return
+	}
+	history, err := h.markets.SourceHealthHistory(request.Context())
+	if err != nil {
+		writeError(writer, stdhttp.StatusServiceUnavailable, "MARKET_HISTORY_UNAVAILABLE", "Durable market-source history is temporarily unavailable.")
+		return
+	}
+	writeJSON(writer, stdhttp.StatusOK, map[string]any{
+		"buckets":                     history.Buckets,
+		"window_started_at":           history.WindowStartedAt,
+		"window_ended_at":             history.WindowEndedAt,
+		"window_hours":                history.WindowHours,
+		"interval_minutes":            history.IntervalMinutes,
+		"history_semantics":           "DURABLE_PROVIDER_OUTCOMES_5_MINUTE_STORAGE_HOURLY_VIEW",
+		"subject_dimensions_exposed":  false,
+		"raw_provider_errors_exposed": false,
+		"live_execution_available":    false,
+	})
 }
 
 type BrokerMarketData interface {
