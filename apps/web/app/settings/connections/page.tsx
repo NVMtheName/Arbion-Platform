@@ -22,6 +22,7 @@ export type Provider = {
 type FinancialProvider = {
   id: string;
   label: string;
+  auth_type: string;
   availability: "implemented" | "planned";
   configured: boolean;
 };
@@ -35,6 +36,7 @@ export type FinancialConnection = {
 export type FinancialAccount = {
   id: string;
   provider_connection_id: string;
+  provider: string;
   display_name: string;
   status: string;
 };

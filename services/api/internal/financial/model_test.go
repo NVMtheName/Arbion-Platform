@@ -8,7 +8,7 @@ import (
 
 func TestRegistryIsConservative(t *testing.T) {
 	r := DefaultRegistry()
-	if r["schwab"].Availability != Implemented || r["etrade"].Availability != Planned || r["coinbase"].Availability != Planned {
+	if r["schwab"].Availability != Implemented || r["etrade"].Availability != Planned || r["coinbase"].Availability != Implemented {
 		t.Fatal("unexpected availability")
 	}
 	if r["schwab"].Capabilities.Orders || r["schwab"].Capabilities.Options {
@@ -16,6 +16,9 @@ func TestRegistryIsConservative(t *testing.T) {
 	}
 	if !r["schwab"].Capabilities.MarketData {
 		t.Fatal("implemented read-only market data was not advertised")
+	}
+	if r["coinbase"].AuthType != JWTKeyPair || !r["coinbase"].Capabilities.AccountDiscovery || r["coinbase"].Capabilities.Orders {
+		t.Fatal("Coinbase must advertise a read-only key-pair connection")
 	}
 }
 func TestFinancialModelsHideOpaqueIdentifiers(t *testing.T) {

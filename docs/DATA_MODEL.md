@@ -46,6 +46,10 @@ The normal API model omits `user_id`, opaque provider account identity, and prov
 
 `financial_accounts` stores the owning user and connection, Schwab's server-only account hash, a masked display label, normalized type/currency/status/capabilities, and discovery/sync timestamps. `(provider_connection_id, provider_account_id)` makes repeat discovery idempotent. Ownership is present in every account query and enforced again by the database trigger. Missing accounts become `unavailable`; disconnect retires them as `closed` rather than destroying inventory or audit history. Full account numbers, balances, and positions are not persisted.
 
+## Coinbase connection records
+
+Coinbase reuses the same provider-neutral tables without a schema migration. A financial `provider_connections` row uses provider `coinbase`; its structured Coinbase App key name, ECDSA private key, and verified portfolio ID exist only inside the Vault ciphertext. API connection models expose none of those values. The durable `financial_accounts` row represents the permissioned Coinbase portfolio with a server-only `portfolio:{provider UUID}` identity, a masked label, USD display currency, explicit crypto-holdings capabilities, and unsupported order/transfer capabilities. Individual wallet balances and holdings are fetched on demand and are not persisted.
+
 ## Durable automation authorization records
 
 Migration `00006_automation_mandates.sql` replaces the early placeholder in place: `automation_configs` is renamed and normalized as `automation_mandates`, so there are not two active automation concepts. Stable security fields are columns; validated extensible strategy/risk/universe/condition documents remain structured JSON. Each mandate binds a same-owner `financial_accounts` row and `capital_buckets` row and has a lifecycle status, effective interval, and monotonically increasing current version.

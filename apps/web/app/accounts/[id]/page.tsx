@@ -5,6 +5,7 @@ import { AppPageHeader } from "../../app-page-header";
 type Money = { amount: string; currency: string };
 type Account = {
   id: string;
+  provider: string;
   display_name: string;
   account_type: string;
   status: string;
@@ -60,10 +61,12 @@ export default async function AccountPage({
   const positions = pr.ok
     ? ((await pr.json()) as { positions: Position[] }).positions
     : [];
+  const providerLabel =
+    account.provider === "coinbase" ? "COINBASE" : "CHARLES SCHWAB";
   return (
     <main className="connections-page">
       <AppPageHeader backHref="/accounts" backLabel="Accounts" />
-      <p className="eyebrow">SCHWAB · READ-ONLY</p>
+      <p className="eyebrow">{providerLabel} · CONNECTED ACCOUNT</p>
       <h1>{account.display_name}</h1>
       <section className="dashboard-grid">
         <article>
@@ -97,7 +100,8 @@ export default async function AccountPage({
         </section>
       )}
       <p className="security-note">
-        Broker buying power is information, not authorization to trade.
+        Connected-account data is informational. This page cannot place orders
+        or move assets.
       </p>
     </main>
   );

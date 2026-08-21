@@ -25,6 +25,7 @@ export default async function Accounts() {
           {data.accounts.map((a) => (
             <article key={a.id}>
               <h2>{a.display_name}</h2>
+              <p>{a.provider === "coinbase" ? "Coinbase" : "Charles Schwab"}</p>
               <p>Status: {a.status}</p>
               <Link href={`/accounts/${a.id}`}>
                 View balances and positions

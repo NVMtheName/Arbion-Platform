@@ -72,7 +72,7 @@ The Neural Engine receives only the minimum data and tools authorized for a requ
 
 ### Financial connector layer
 
-Financial connectors live behind narrow provider-independent Go interfaces and adapters. Schwab currently implements delegated authorization plus read-only accounts, balances, positions, quotes, and option chains. Candidate future providers include E\*TRADE, Coinbase, Alpaca, and Interactive Brokers. No connector exposes order preview, placement, cancellation, or another broker-write operation.
+Financial connectors live behind narrow provider-independent Go interfaces and adapters. Schwab implements delegated authorization plus read-only accounts, balances, positions, quotes, and option chains. Coinbase implements a founder-phase encrypted, view-only key-pair connection for portfolio inventory, USD cash, and crypto holdings. Candidate future providers include E\*TRADE, Alpaca brokerage, and Interactive Brokers. No connector exposes order preview, placement, cancellation, transfer, or another provider-write operation.
 
 The connector layer is subordinate to the control plane: it translates approved operations but does not decide whether they are allowed. See [Connectors](CONNECTORS.md).
 
@@ -144,13 +144,13 @@ The following require later design and approval:
 
 ## Read-only financial connection implementation
 
-The Go modular monolith now contains a provider-independent, read-only financial connector foundation and a Schwab Trader API adapter. The trust path is strictly `Next.js -> authenticated Go control plane -> financial Vault class -> selected Go broker adapter -> Schwab`. Financial traffic and secrets never transit the Python service. Redis may hold single-use pending OAuth state; PostgreSQL and the Vault hold durable connections and discovered account inventory, so Redis or browser-session loss cannot disconnect an existing account.
+The Go modular monolith contains a provider-independent financial connector foundation plus Schwab and Coinbase read adapters. The trust path is strictly `Next.js -> authenticated Go control plane -> financial Vault class -> selected Go financial adapter -> provider`. Financial traffic and secrets never transit the Python service. Redis may hold single-use pending Schwab OAuth state; PostgreSQL and the Vault hold durable connections and discovered account inventory, so Redis or browser-session loss cannot disconnect an existing account.
 
-The provider registry is centralized and auth-polymorphic. Schwab is implemented for delegated authorization and read-only account and market-data operations; E*TRADE and Coinbase are visible planned entries with no external calls. Orders and live or automated broker execution remain unimplemented. Mandates, allocations, deterministic strategies, and the PAPER/SHADOW persistence paths are separate internal domains and do not add Schwab write capability.
+The provider registry is centralized and auth-polymorphic. Schwab uses delegated OAuth authorization for read-only account and market-data operations; Coinbase uses a per-user encrypted ECDSA key pair that must report View-only permissions before the connection is accepted. E\*TRADE remains a visible planned entry. Orders and live or automated provider execution remain unimplemented. Mandates, allocations, deterministic strategies, and the PAPER/SHADOW persistence paths are separate internal domains and do not add provider write capability.
 
 **Financial-provider credentials never enter the Neural Engine.**
 
-The financial foundation is now wired as a functional lifecycle: thin authenticated HTTP handlers delegate to `internal/financialconnection`, provider-specific requests remain in the Schwab adapter, Redis stores only pending single-use OAuth state, PostgreSQL stores lifecycle/account inventory and supplies cross-instance refresh locking, and the existing Vault stores encrypted token material. Account list/detail, current balance, current position, quote, and standard option-chain reads are permissioned and read-only. Dashboard summaries report inventory only and do not fabricate unavailable or cross-currency values.
+The financial foundation is wired as a functional multi-provider lifecycle: thin authenticated HTTP handlers delegate to `internal/financialconnection`, provider-specific requests remain in the Schwab and Coinbase adapters, Redis stores only pending single-use OAuth state, PostgreSQL stores lifecycle/account inventory and supplies cross-instance credential locking, and the existing Vault stores encrypted tokens or key material. Account list/detail, current balance, current position, quote, and standard option-chain reads are permissioned. Dashboard summaries report inventory only and do not fabricate unavailable or cross-currency values.
 
 ## Implemented Automation Builder boundary
 

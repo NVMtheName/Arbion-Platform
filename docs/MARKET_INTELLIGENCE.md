@@ -25,15 +25,16 @@ These views inform a user. They do not authorize a trade. Arbion may later creat
 
 Arbion assigns each integration a declared role instead of treating providers as interchangeable.
 
-| Source | Approved role | Initial use | Production restriction |
-| --- | --- | --- | --- |
-| Charles Schwab | Connected-account authority | Account inventory, balances, positions, and the existing read-only quote/option flow | Remains the authority for Schwab account facts; no broker-write operation |
-| Alpaca Market Data | Independent equity and option observations | Latest quotes, snapshots, bars, and later option observations | Use data credentials only. The free equity feed is IEX-only and the free option feed is indicative; neither may be labeled consolidated |
-| CoinGecko | Crypto reference and breadth | Prices, market capitalization, volume, trending assets, global statistics, and asset history | Use an authenticated keyed plan for production. WebSocket data is supplementary while the provider marks it beta and outside its SLA |
-| Coinbase Exchange | Keyless single-venue crypto observation | Current trade, bid, ask, and 24-hour venue volume for a bounded USD board | Public data only; label it single-venue, use short bounded caching, and revalidate redistribution terms before broader customer release |
-| SEC EDGAR | Primary issuer and insider filing source | Filing discovery plus Forms 3, 4, and 5 ownership data | Identify Arbion in the user agent, cache efficiently, preserve accession/source links, and stay below the SEC fair-access ceiling |
-| yfinance | Developer research aid only | Optional local exploration and test-fixture comparison | Never used for a production screen, alert, strategy input, risk input, or fallback; the project states that Yahoo data is intended for personal use |
-| OpenInsider | Optional human research link only | Deep-link from an SEC-derived filing when useful | No automated production dependency without a documented supported API and completed license/availability review; never the authoritative filing record |
+| Source             | Approved role                              | Initial use                                                                                  | Production restriction                                                                                                                                 |
+| ------------------ | ------------------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Charles Schwab     | Connected-account authority                | Account inventory, balances, positions, and the existing read-only quote/option flow         | Remains the authority for Schwab account facts; no broker-write operation                                                                              |
+| Alpaca Market Data | Independent equity and option observations | Latest quotes, snapshots, bars, and later option observations                                | Use data credentials only. The free equity feed is IEX-only and the free option feed is indicative; neither may be labeled consolidated                |
+| CoinGecko          | Crypto reference and breadth               | Prices, market capitalization, volume, trending assets, global statistics, and asset history | Use an authenticated keyed plan for production. WebSocket data is supplementary while the provider marks it beta and outside its SLA                   |
+| Coinbase App       | Connected-account authority                | Permissioned portfolio inventory, USD cash, and exact crypto holdings                        | Per-user encrypted View-only key; separate from public market data and exposes no provider write                                                       |
+| Coinbase Exchange  | Keyless single-venue crypto observation    | Current trade, bid, ask, and 24-hour venue volume for a bounded USD board                    | Public data only; label it single-venue, use short bounded caching, and revalidate redistribution terms before broader customer release                |
+| SEC EDGAR          | Primary issuer and insider filing source   | Filing discovery plus Forms 3, 4, and 5 ownership data                                       | Identify Arbion in the user agent, cache efficiently, preserve accession/source links, and stay below the SEC fair-access ceiling                      |
+| yfinance           | Developer research aid only                | Optional local exploration and test-fixture comparison                                       | Never used for a production screen, alert, strategy input, risk input, or fallback; the project states that Yahoo data is intended for personal use    |
+| OpenInsider        | Optional human research link only          | Deep-link from an SEC-derived filing when useful                                             | No automated production dependency without a documented supported API and completed license/availability review; never the authoritative filing record |
 
 Sources:
 
@@ -120,7 +121,7 @@ The `/markets` experience uses Arbion's existing wordmark, colors, spacing, card
 - a founder watchlist with equity and crypto rows;
 - equity detail with quote, bars, option summary, and SEC insider activity;
 - a crypto board with price, market cap, volume, and trend context;
-- connected-portfolio exposure sourced from Schwab, clearly separated from public market data;
+- connected-portfolio exposure sourced from Schwab or Coinbase, clearly separated from public market data;
 - provider health and degraded-data notices; and
 - links from insider events to the original SEC filing.
 

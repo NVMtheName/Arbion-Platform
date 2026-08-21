@@ -6,7 +6,7 @@ Schwab must register exactly `https://www.arbion.ai/api/connections/financial/sc
 
 ## Role and scope
 
-The financial connector layer translates Arbion's provider-independent financial operations into external provider APIs. Schwab read support is implemented as described below; E\*TRADE, Coinbase, Alpaca, Interactive Brokers, and other providers remain candidates.
+The financial connector layer translates Arbion's provider-independent financial operations into external provider APIs. Schwab delegated reads and a founder-phase Coinbase account/holdings connection are implemented as described below; E\*TRADE, Alpaca brokerage, Interactive Brokers, and other providers remain candidates.
 
 Connectors belong in the Go modular monolith because Go owns the control plane and financial integration boundary. A connector is an adapter, not a source of authorization or risk policy.
 
@@ -14,7 +14,7 @@ Connectors belong in the Go modular monolith because Go owns the control plane a
 
 Platform modules should depend on narrow capability interfaces rather than provider SDKs or wire formats. Provider-specific authentication, endpoints, identifiers, pagination, rate limits, errors, asset conventions, and order semantics stay behind adapters.
 
-Connected-broker reads and independent market-data subscriptions have different identity and credential lifecycles. The existing Schwab market-data capability may use the user's delegated broker authorization. Alpaca, CoinGecko, SEC EDGAR, and another independent source instead belong behind the provider-neutral market-intelligence boundary described in [Market Intelligence and Command Center](MARKET_INTELLIGENCE.md); they must not fabricate a brokerage account or reuse a user's broker token.
+Connected-account reads and independent market-data subscriptions have different identity and credential lifecycles. The existing Schwab market-data capability may use the user's delegated broker authorization. Coinbase portfolio credentials are used only for account inventory and holdings; the public Coinbase Exchange ticker remains a separate keyless observation source. Alpaca, CoinGecko, SEC EDGAR, and another independent source instead belong behind the provider-neutral market-intelligence boundary described in [Market Intelligence and Command Center](MARKET_INTELLIGENCE.md); they must not fabricate a financial account or reuse a user's account credential.
 
 Conceptual capabilities may eventually include:
 
@@ -46,6 +46,16 @@ Financial-provider credentials form a separate trust domain from AI-provider cre
 
 After storage, the platform returns only non-secret connection metadata such as provider name, connection state, scopes, and safe account labels. Production credentials will require managed secret storage or envelope encryption, access auditing, rotation, revocation, and strict network and process access policies.
 
+## Implemented Coinbase account connection
+
+The founder-phase Coinbase connector uses a user-created Coinbase App secret API key because Coinbase currently reserves third-party OAuth client creation for approved partners and directs single-owner server integrations to API keys. Arbion accepts only the full CDP key name plus an ECDSA P-256 private key, generates a unique ES256 request-bound JWT with a two-minute lifetime for every provider call, and sends it only from Go to `https://api.coinbase.com`. The private key is stored only through the authenticated financial Vault class and is never returned, logged, committed, or sent to Next.js or Python.
+
+Connection verification calls Coinbase's key-permission endpoint and requires `can_view=true`, `can_trade=false`, and `can_transfer=false`. A key with trading or asset-transfer authority is rejected instead of merely hiding that authority in the UI. Operators should additionally restrict the key to the intended Coinbase portfolio and the production host IP. Coinbase requires the ECDSA signature option for Coinbase App APIs; Ed25519 keys are rejected by the adapter.
+
+The connector paginates the authenticated Advanced Trade account inventory with bounded pages and normalizes it as one `Coinbase Portfolio` financial account. Individual nonzero asset wallets become exact-decimal holdings under that portfolio; the provider wallet UUIDs and portfolio ID remain server-only. USD available/held balances are represented without inventing a cross-asset portfolio value or cost basis. Sync is duplicate-safe through the existing `(provider_connection_id, provider_account_id)` inventory key. Disable, enable, sync, and disconnect share the existing owner-scoped lifecycle; disconnect deletes Arbion's encrypted key but does not claim to delete the key in Coinbase, so the owner should revoke it in the Coinbase portal when appropriate.
+
+This adapter implements no order, trade, convert, address, transfer, deposit, withdrawal, or transaction endpoint. A later execution milestone must use a separate write-capability interface and permission set rather than adding a write method to this read boundary.
+
 ## OAuth and token lifecycle
 
 Use OAuth or provider-supported delegated token authorization instead of collecting reusable usernames and passwords wherever possible. A future implementation must define:
@@ -71,7 +81,7 @@ Later design must choose the initial providers and capabilities, canonical accou
 
 ## Implemented read-only financial foundation (Schwab)
 
-The first implementation target is the Charles Schwab Trader API. The Go `financial.BrokerProvider` boundary contains only verification, authorization refresh, account discovery, account and balance reads, position reads, capability reads, and disconnect. A separate `financial.MarketDataProvider` boundary contains only quote and option-chain reads. Neither interface has order preview, placement, cancellation, or another trading method. The centralized registry marks `schwab` implemented and `etrade`/`coinbase` planned and unavailable. Auth type is metadata rather than an OAuth assumption, reserving OAuth 1, OAuth 2 authorization code, API key, JWT/key-pair, managed credential, and provider-specific adapters.
+The Go `financial.BrokerProvider` boundary contains only verification, authorization refresh or static-key re-verification, account discovery, account and balance reads, position reads, capability reads, and disconnect. A separate `financial.MarketDataProvider` boundary contains only quote and option-chain reads. Neither interface has order preview, placement, cancellation, or another trading method. The centralized registry marks `schwab` and `coinbase` implemented and `etrade` planned; auth type is provider metadata, with Schwab using OAuth 2 authorization code and Coinbase using a JWT/key-pair credential.
 
 Schwab numeric fields remain exact through `json.Number` and rational validation. Integer-valued market-data fields may use decimal notation such as `100.0`; Arbion accepts them only when they are mathematically whole, nonnegative, and fit the host integer range. Fractional, negative, malformed, or overflowing integer fields fail closed before strategy evaluation. Option expiration values may be an ISO calendar date or a fully validated RFC 3339 timestamp; Arbion preserves the declared calendar date in its provider-independent model and rejects partial or malformed timestamps. Quote responses and option-chain contracts retain their distinct provider field names; required option `bid` and `delta` values are never fabricated when absent.
 

@@ -29,6 +29,7 @@ func TestFinancialProvidersExposeSchwabConfiguration(t *testing.T) {
 				Providers []struct {
 					ID         string `json:"id"`
 					Configured bool   `json:"configured"`
+					AuthType   string `json:"auth_type"`
 				} `json:"providers"`
 			}
 			if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
@@ -36,6 +37,9 @@ func TestFinancialProvidersExposeSchwabConfiguration(t *testing.T) {
 			}
 			if recorder.Code != http.StatusOK || len(response.Providers) == 0 || response.Providers[0].ID != "schwab" || response.Providers[0].Configured != test.configured {
 				t.Fatalf("unexpected provider response: status=%d providers=%+v", recorder.Code, response.Providers)
+			}
+			if len(response.Providers) < 2 || response.Providers[1].ID != "coinbase" || !response.Providers[1].Configured || response.Providers[1].AuthType != "jwt_key_pair" {
+				t.Fatalf("Coinbase connection was not advertised safely: %+v", response.Providers)
 			}
 		})
 	}
