@@ -807,6 +807,256 @@ button:disabled {
   color: #edf7f1;
   font-size: 1.65rem;
 }
+.live-market-surface {
+  margin: 0 0 96px;
+  padding: 34px;
+  border: 1px solid rgba(124, 235, 177, 0.2);
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, rgba(124, 235, 177, 0.055), transparent 38%),
+    rgba(5, 18, 13, 0.88);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.22);
+}
+.live-market-surface > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.65fr);
+  gap: 34px;
+  align-items: end;
+  margin-bottom: 28px;
+}
+.live-market-surface > header h2 {
+  max-width: 680px;
+  margin: 8px 0 0;
+  font-size: clamp(2.4rem, 5vw, 4.4rem);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+}
+.live-market-surface > header > p {
+  margin: 0;
+  color: #8da299;
+  line-height: 1.65;
+}
+.live-market-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.live-market-panel {
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid rgba(139, 181, 163, 0.18);
+  border-radius: 18px;
+  background: rgba(2, 13, 9, 0.72);
+}
+.live-market-panel.filings {
+  grid-column: 1 / -1;
+}
+.live-panel-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  color: #6f897d;
+  font-size: 0.68rem;
+  font-weight: 780;
+  letter-spacing: 0.12em;
+}
+.live-panel-heading strong {
+  color: var(--brand-mint);
+}
+.live-market-panel h3 {
+  margin: 36px 0 8px;
+  font-size: 1.7rem;
+}
+.live-market-panel > p {
+  margin: 0;
+  color: #82988e;
+  line-height: 1.55;
+}
+.market-query {
+  margin-top: 22px;
+}
+.market-query label {
+  display: block;
+  margin-bottom: 8px;
+  color: #91a89d;
+  font-size: 0.72rem;
+  font-weight: 740;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.market-query > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.market-query input {
+  min-width: 0;
+  border-color: rgba(139, 181, 163, 0.22);
+  background: rgba(255, 255, 255, 0.025);
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+}
+.market-query button,
+.market-load-button {
+  width: auto;
+  margin: 0;
+  padding: 12px 17px;
+  border: 1px solid rgba(124, 235, 177, 0.32);
+  border-radius: 9px;
+  color: #03130d;
+  background: linear-gradient(110deg, #7cebb1, #57cce3);
+  font-size: 0.78rem;
+  font-weight: 780;
+}
+.market-load-button {
+  margin-top: 22px;
+}
+.market-query button:disabled,
+.market-load-button:disabled {
+  color: #70837a;
+  border-color: rgba(139, 181, 163, 0.13);
+  background: rgba(255, 255, 255, 0.03);
+}
+.live-source-note,
+.live-market-error {
+  margin-top: 14px !important;
+  padding: 11px 13px;
+  border: 1px solid rgba(139, 181, 163, 0.15);
+  border-radius: 9px;
+  font-size: 0.78rem;
+}
+.live-market-error {
+  color: #f1c7bd !important;
+  border-color: rgba(232, 122, 98, 0.3);
+  background: rgba(232, 122, 98, 0.06);
+}
+.live-quote {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(139, 181, 163, 0.16);
+}
+.live-quote > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.live-quote > div:first-child span {
+  color: #92a79d;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+}
+.live-quote > div:first-child strong {
+  color: #eff9f4;
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+}
+.live-quote dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0 0;
+}
+.live-quote dl div {
+  padding: 11px;
+  border: 1px solid rgba(139, 181, 163, 0.14);
+  border-radius: 9px;
+}
+.live-quote dt {
+  color: #71877c;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+.live-quote dd {
+  margin: 5px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+.crypto-market-list,
+.filing-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+.crypto-market-list > article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(139, 181, 163, 0.12);
+}
+.crypto-market-list article > div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.crypto-market-list article > div:nth-child(2) {
+  justify-content: flex-end;
+}
+.crypto-market-list article span,
+.crypto-market-list article small {
+  color: #71877c;
+  font-size: 0.72rem;
+}
+.crypto-market-list article small {
+  grid-column: 1 / -1;
+}
+.crypto-market-list .positive {
+  color: #7cebb1;
+}
+.crypto-market-list .negative {
+  color: #f29a87;
+}
+.filing-list > article {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(139, 181, 163, 0.12);
+}
+.filing-list article > span {
+  color: var(--brand-mint);
+  font-size: 0.72rem;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+}
+.filing-list article > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.filing-list time {
+  color: #71877c;
+  font-size: 0.72rem;
+}
+.filing-list a,
+.openinsider-research-link {
+  color: var(--brand-cyan);
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+.openinsider-research-link {
+  display: inline-block;
+  margin-top: 18px;
+}
+.live-provenance {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 16px;
+  color: #62776d;
+  font-size: 0.66rem;
+}
+.live-provenance span {
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: rgba(124, 235, 177, 0.07);
+  text-transform: uppercase;
+}
+.live-provenance time {
+  margin-left: auto;
+}
 .market-section > div {
   max-width: 720px;
 }
@@ -936,8 +1186,24 @@ button:disabled {
   }
   .market-summary,
   .market-source-grid,
-  .market-policy-grid {
+  .market-policy-grid,
+  .live-market-grid,
+  .live-market-surface > header {
     grid-template-columns: 1fr;
+  }
+  .live-market-surface {
+    padding: 22px;
+  }
+  .live-market-panel.filings {
+    grid-column: auto;
+  }
+  .filing-list > article {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+  .live-provenance time {
+    width: 100%;
+    margin: 3px 0 0;
   }
   .journal-entry > header,
   .journal-entry > footer {

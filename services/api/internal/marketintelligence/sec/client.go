@@ -160,26 +160,24 @@ func (client *Client) RecentInsiderFilings(ctx context.Context, cik string, limi
 }
 
 func (client *Client) wait(ctx context.Context) error {
-	client.mu.Lock()
-	now := time.Now()
-	reserved := now
-	if client.nextRequest.After(reserved) {
-		reserved = client.nextRequest
-	}
-	client.nextRequest = reserved.Add(client.rateInterval)
-	client.mu.Unlock()
+	for {
+		client.mu.Lock()
+		now := time.Now()
+		delay := client.nextRequest.Sub(now)
+		if delay <= 0 {
+			client.nextRequest = now.Add(client.rateInterval)
+			client.mu.Unlock()
+			return nil
+		}
+		client.mu.Unlock()
 
-	delay := time.Until(reserved)
-	if delay <= 0 {
-		return nil
-	}
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
 	}
 }
 

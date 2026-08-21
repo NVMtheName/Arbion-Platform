@@ -4,7 +4,9 @@
 
 This document defines the read-only market-intelligence architecture for Arbion. It does not enable live trading, add an order endpoint, request a broker trading scope, or place provider credentials in the browser or Neural Engine.
 
-The implemented foundation includes normalized observations and source-selection policy, fixture-tested read-only clients for Alpaca equity quotes, CoinGecko crypto markets, and SEC ownership-filing discovery, an authenticated no-store source catalog, and the branded `/markets` shell. All external sources remain runtime-disabled: deployment configuration, provider credentials, health checks, user-facing data routes, caching, durable watchlists/filing records, and production polling are later milestones. The UI displays no placeholder market values.
+The implemented vertical slice includes normalized observations and source-selection policy; fixture-tested read-only clients for Alpaca equity quotes, CoinGecko crypto markets, and SEC ownership-filing discovery; strict optional runtime configuration; startup source probes; a bounded in-process display cache; authenticated no-store observation routes; runtime source health; and a branded `/markets` query surface. Sources remain disabled unless their complete configuration is present. The UI displays no placeholder market values and provider failure never triggers a substitute value. Durable watchlists, bars, option observations, ownership-transaction parsing, production polling, and Redis-backed coordination remain later milestones.
+
+Current authenticated read routes are `GET /api/markets/equities/{symbol}/quote`, `GET /api/markets/crypto`, and `GET /api/markets/insiders/{cik}`. They return normalized source provenance plus `live_execution_available: false`; credentials remain server-only. yfinance is not a runtime fallback, and OpenInsider is exposed only as an optional human research link.
 
 The first delivery target is a branded, authenticated `/markets` command center for one founder and a small number of test users. Cost can remain low while the product is being validated, but every observation must disclose whether it is consolidated, single-venue, indicative, delayed, or filing-derived. A cheap feed may reduce coverage; it must never make lower-quality data look authoritative.
 
@@ -125,16 +127,17 @@ The page must avoid presenting a single-venue or aggregate reference price as a 
 
 ### 1. Market-data foundation
 
-- Add provider-neutral observation, feed-quality, freshness, and capability models in Go.
-- Add deterministic validation and source-selection policy with tests.
-- Add provider health and source metadata endpoints backed by disabled-by-default configuration.
-- Document configuration without adding real credentials.
+- Implemented: provider-neutral observation, feed-quality, freshness, and capability models in Go.
+- Implemented: deterministic validation and source-selection policy with tests.
+- Implemented: runtime health and source metadata backed by disabled-by-default configuration.
+- Implemented: documented optional configuration without real credentials.
 
 Exit gate: malformed and stale data fail closed; source quality cannot be omitted; no order or trading scope exists.
 
 ### 2. Equity and option observations
 
-- Add an Alpaca data-only adapter for equity snapshots and bars.
+- Implemented: an Alpaca data-only adapter and authenticated latest-equity-quote route with bounded caching.
+- Next: equity bars and richer snapshots.
 - Add option data only after its indicative-versus-OPRA behavior is represented in the contract and UI.
 - Exercise the adapter against provider fixtures and a manually enabled development key.
 
@@ -142,14 +145,16 @@ Exit gate: IEX and indicative data are visibly labeled and cannot satisfy a cons
 
 ### 3. Crypto reference data
 
-- Add a CoinGecko keyed adapter for global overview, markets, and asset history.
-- Add request-credit accounting, cache policy, and identifier mapping by CoinGecko ID and contract address.
+- Implemented: a CoinGecko keyed adapter and authenticated top-markets route.
+- Implemented: a bounded display-cache policy; next add request-credit accounting and Redis coordination.
+- Next: global overview, asset history, and identifier mapping by CoinGecko ID and contract address.
 
 Exit gate: no keyless production polling; no secret in a URL, log, browser bundle, or Neural Engine request.
 
 ### 4. Primary-source insider intelligence
 
-- Ingest SEC submissions and ownership XML for Forms 3, 4, and 5.
+- Implemented: SEC submissions discovery for Forms 3, 4, and 5 with primary-source links and fair-access pacing.
+- Next: parse ownership XML transactions without reducing nuanced codes to generic buy/sell claims.
 - Preserve issuer/reporting-owner identifiers, transaction codes, direct/indirect ownership, accession number, filing time, and source link.
 - Display amendments and derivative transactions without flattening them into misleading buy/sell labels.
 

@@ -37,6 +37,30 @@ func TestNonLiveSchedulerConfigurationIsStrict(t *testing.T) {
 		t.Fatalf("invalid scheduler value was accepted: %v", err)
 	}
 }
+
+func TestMarketDataConfigurationIsOptionalButStrict(t *testing.T) {
+	values := validEnvironment()
+	values["ALPACA_MARKET_DATA_KEY_ID"] = "key"
+	if _, err := load(values); err == nil || !strings.Contains(err.Error(), "both key ID and secret key") {
+		t.Fatalf("partial Alpaca credentials were accepted: %v", err)
+	}
+	values["ALPACA_MARKET_DATA_SECRET_KEY"] = "secret"
+	values["ALPACA_EQUITY_FEED"] = "iex"
+	values["COINGECKO_API_KEY"] = "demo-key"
+	values["COINGECKO_API_TIER"] = "demo"
+	values["SEC_EDGAR_USER_AGENT"] = "Arbion market intelligence admin@arbion.ai"
+	cfg, err := load(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MarketData.AlpacaKeyID == "" || cfg.MarketData.CoinGeckoAPIKey == "" || cfg.MarketData.SECEdgarUserAgent == "" {
+		t.Fatalf("market data configuration was not loaded: %#v", cfg.MarketData)
+	}
+	values["ALPACA_EQUITY_FEED"] = "best"
+	if _, err = load(values); err == nil || !strings.Contains(err.Error(), "ALPACA_EQUITY_FEED") {
+		t.Fatalf("ambiguous Alpaca feed was accepted: %v", err)
+	}
+}
 func TestLoadRejectsProductionWithoutTLS(t *testing.T) {
 	values := validEnvironment()
 	values["ARBION_ENV"] = "production"

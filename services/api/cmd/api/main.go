@@ -17,6 +17,10 @@ import (
 	"github.com/arbion/platform/services/api/internal/financial/schwab"
 	"github.com/arbion/platform/services/api/internal/financialconnection"
 	"github.com/arbion/platform/services/api/internal/mailer"
+	"github.com/arbion/platform/services/api/internal/marketintelligence"
+	marketalpaca "github.com/arbion/platform/services/api/internal/marketintelligence/alpaca"
+	"github.com/arbion/platform/services/api/internal/marketintelligence/coingecko"
+	marketsec "github.com/arbion/platform/services/api/internal/marketintelligence/sec"
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/platform/database"
@@ -80,6 +84,21 @@ func main() {
 	strategies := strategy.NewInstanceService(strategyStore, automations, users)
 	evaluations := strategy.NewEvaluationService(strategyStore, automations, financialConnections)
 	breakers := risk.NewBreakerService(risk.NewPostgresBreakerStore(pool), users)
+	markets, err := newMarketIntelligenceService(cfg.MarketData)
+	if err != nil {
+		slog.Error("market intelligence unavailable", "error", err)
+		os.Exit(1)
+	}
+	probeContext, cancelProbe := context.WithTimeout(context.Background(), cfg.MarketData.RequestTimeout+2*time.Second)
+	markets.Probe(probeContext)
+	cancelProbe()
+	availableSources := 0
+	for _, source := range markets.Sources() {
+		if source.Enabled && source.Healthy {
+			availableSources++
+		}
+	}
+	slog.Info("market intelligence initialized", "available_sources", availableSources)
 	if cfg.Scheduler.Enabled {
 		notifications := automationnotification.NewEmailSender(emailSender, cfg.Email.PublicBaseURL)
 		scheduler := strategy.NewScheduler(strategyStore, evaluations, notifications)
@@ -89,7 +108,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           platformhttp.NewFullApplicationHandlerWithEvaluation(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies, evaluations, breakers),
+		Handler:           platformhttp.NewFullApplicationHandlerWithEvaluationAndMarkets(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies, evaluations, breakers, markets),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      45 * time.Second,
@@ -101,4 +120,52 @@ func main() {
 		slog.Error("API stopped unexpectedly", "error", err)
 		os.Exit(1)
 	}
+}
+
+func newMarketIntelligenceService(cfg config.MarketData) (*marketintelligence.Service, error) {
+	client := &http.Client{}
+	var equity marketintelligence.EquityQuoteProvider
+	var equitySourceID string
+	if cfg.AlpacaKeyID != "" {
+		provider, err := marketalpaca.New(marketalpaca.Config{
+			KeyID: cfg.AlpacaKeyID, SecretKey: cfg.AlpacaSecretKey, BaseURL: cfg.AlpacaBaseURL,
+			EquityFeed: cfg.AlpacaEquityFeed, Timeout: cfg.RequestTimeout,
+			MaxAge: cfg.EquityMaxAge, MaxFutureSkew: cfg.MaxFutureSkew,
+		}, client)
+		if err != nil {
+			return nil, err
+		}
+		equity = provider
+		equitySourceID = "alpaca_" + cfg.AlpacaEquityFeed
+	}
+
+	var crypto marketintelligence.CryptoMarketProvider
+	if cfg.CoinGeckoAPIKey != "" {
+		provider, err := coingecko.New(coingecko.Config{
+			APIKey: cfg.CoinGeckoAPIKey, Tier: cfg.CoinGeckoTier, BaseURL: cfg.CoinGeckoBaseURL,
+			Timeout: cfg.RequestTimeout, MaxAge: cfg.CryptoMaxAge, MaxFutureSkew: cfg.MaxFutureSkew,
+		}, client)
+		if err != nil {
+			return nil, err
+		}
+		crypto = provider
+	}
+
+	var filings marketintelligence.InsiderFilingProvider
+	if cfg.SECEdgarUserAgent != "" {
+		provider, err := marketsec.New(marketsec.Config{
+			UserAgent: cfg.SECEdgarUserAgent, BaseURL: cfg.SECEdgarBaseURL,
+			Timeout: cfg.RequestTimeout, RateInterval: cfg.SECRateInterval, MaxFutureSkew: cfg.MaxFutureSkew,
+		}, client)
+		if err != nil {
+			return nil, err
+		}
+		filings = provider
+	}
+
+	return marketintelligence.NewService(marketintelligence.ServiceConfig{
+		EquityProvider: equity, EquitySourceID: equitySourceID, EquityCacheTTL: cfg.EquityCacheTTL, EquityInterval: cfg.EquityRateInterval,
+		CryptoProvider: crypto, CryptoCacheTTL: cfg.CryptoCacheTTL, CryptoInterval: cfg.CryptoRateInterval,
+		FilingProvider: filings, FilingCacheTTL: cfg.InsiderFilingTTL, FilingInterval: cfg.SECRateInterval,
+	})
 }

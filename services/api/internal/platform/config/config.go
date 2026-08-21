@@ -31,6 +31,7 @@ type Config struct {
 	Email       Email
 	AI          AIService
 	Schwab      Schwab
+	MarketData  MarketData
 	Scheduler   Scheduler
 }
 
@@ -54,6 +55,28 @@ type AIService struct {
 }
 
 type Scheduler struct{ Enabled bool }
+
+type MarketData struct {
+	AlpacaKeyID        string
+	AlpacaSecretKey    string
+	AlpacaBaseURL      string
+	AlpacaEquityFeed   string
+	CoinGeckoAPIKey    string
+	CoinGeckoTier      string
+	CoinGeckoBaseURL   string
+	SECEdgarUserAgent  string
+	SECEdgarBaseURL    string
+	RequestTimeout     time.Duration
+	EquityMaxAge       time.Duration
+	CryptoMaxAge       time.Duration
+	MaxFutureSkew      time.Duration
+	SECRateInterval    time.Duration
+	EquityRateInterval time.Duration
+	CryptoRateInterval time.Duration
+	EquityCacheTTL     time.Duration
+	CryptoCacheTTL     time.Duration
+	InsiderFilingTTL   time.Duration
+}
 
 type CredentialEncryption struct{ Key []byte }
 type Auth struct {
@@ -169,7 +192,39 @@ func LoadFrom(lookup func(string) (string, bool)) (Config, error) {
 			return Config{}, errors.New("production Schwab configuration requires client ID, client secret, and the approved callback URI")
 		}
 	}
-	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins, RegistrationRestricted: registrationRestricted, RegistrationAllowlist: registrationAllowlist}, Email: email, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 40 * time.Second}, Schwab: schwab, Scheduler: Scheduler{Enabled: schedulerEnabled}}, nil
+	marketData, err := marketDataConfiguration(get)
+	if err != nil {
+		return Config{}, err
+	}
+	return Config{Environment: environment, Port: get("PORT", "8080"), Database: Database{URL: databaseURL, MaxConnections: int32(maxConnections), MinConnections: int32(minConnections), ConnectTimeout: 10 * time.Second, ReadinessTimeout: 2 * time.Second}, Redis: Redis{URL: redisURL}, Credential: CredentialEncryption{Key: key}, Auth: Auth{SessionCookie: get("AUTH_SESSION_COOKIE", "arbion_session"), SessionTTL: ttl, CookieSecure: environment == Production, AllowedOrigins: origins, RegistrationRestricted: registrationRestricted, RegistrationAllowlist: registrationAllowlist}, Email: email, AI: AIService{URL: aiURL, InternalToken: internalToken, Timeout: 40 * time.Second}, Schwab: schwab, MarketData: marketData, Scheduler: Scheduler{Enabled: schedulerEnabled}}, nil
+}
+
+func marketDataConfiguration(get func(string, string) string) (MarketData, error) {
+	alpacaKeyID := get("ALPACA_MARKET_DATA_KEY_ID", "")
+	alpacaSecretKey := get("ALPACA_MARKET_DATA_SECRET_KEY", "")
+	if (alpacaKeyID == "") != (alpacaSecretKey == "") {
+		return MarketData{}, errors.New("Alpaca market data configuration requires both key ID and secret key")
+	}
+	alpacaFeed := strings.ToLower(get("ALPACA_EQUITY_FEED", "iex"))
+	if alpacaFeed != "iex" && alpacaFeed != "sip" {
+		return MarketData{}, errors.New("ALPACA_EQUITY_FEED must be iex or sip")
+	}
+
+	coinGeckoKey := get("COINGECKO_API_KEY", "")
+	coinGeckoTier := strings.ToLower(get("COINGECKO_API_TIER", "demo"))
+	if coinGeckoTier != "demo" && coinGeckoTier != "pro" {
+		return MarketData{}, errors.New("COINGECKO_API_TIER must be demo or pro")
+	}
+
+	return MarketData{
+		AlpacaKeyID: alpacaKeyID, AlpacaSecretKey: alpacaSecretKey,
+		AlpacaBaseURL: get("ALPACA_MARKET_DATA_BASE_URL", "https://data.alpaca.markets"), AlpacaEquityFeed: alpacaFeed,
+		CoinGeckoAPIKey: coinGeckoKey, CoinGeckoTier: coinGeckoTier, CoinGeckoBaseURL: get("COINGECKO_BASE_URL", ""),
+		SECEdgarUserAgent: get("SEC_EDGAR_USER_AGENT", ""), SECEdgarBaseURL: get("SEC_EDGAR_BASE_URL", "https://data.sec.gov"),
+		RequestTimeout: 8 * time.Second, EquityMaxAge: 120 * time.Hour, CryptoMaxAge: 10 * time.Minute, MaxFutureSkew: 2 * time.Minute,
+		SECRateInterval: 150 * time.Millisecond, EquityRateInterval: 350 * time.Millisecond, CryptoRateInterval: 2100 * time.Millisecond,
+		EquityCacheTTL: 15 * time.Second, CryptoCacheTTL: time.Minute, InsiderFilingTTL: 5 * time.Minute,
+	}, nil
 }
 
 func emailConfiguration(get func(string, string) string, environment Environment) (Email, error) {

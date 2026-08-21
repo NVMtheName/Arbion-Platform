@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../app-page-header";
+import { MarketCommandSurface } from "./market-command-surface";
 import { MarketSourceGrid, type MarketSource } from "./market-source-grid";
 
 type SourcesResponse = {
@@ -64,6 +65,8 @@ export default async function MarketsPage() {
           </small>
         </article>
       </section>
+
+      <MarketCommandSurface sources={data.sources} />
 
       <section className="market-section">
         <div>
