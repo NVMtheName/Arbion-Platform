@@ -22,16 +22,20 @@ type ServiceConfig struct {
 	CryptoCandleSourceID    string
 	CryptoLiquidityProvider CryptoLiquidityProvider
 	CryptoLiquiditySourceID string
+	CryptoTradeProvider     CryptoTradeProvider
+	CryptoTradeSourceID     string
 	FilingProvider          InsiderFilingProvider
 	EquityCacheTTL          time.Duration
 	CryptoCacheTTL          time.Duration
 	CryptoCandleCacheTTL    time.Duration
 	CryptoLiquidityCacheTTL time.Duration
+	CryptoTradeCacheTTL     time.Duration
 	FilingCacheTTL          time.Duration
 	EquityInterval          time.Duration
 	CryptoInterval          time.Duration
 	CryptoCandleInterval    time.Duration
 	CryptoLiquidityInterval time.Duration
+	CryptoTradeInterval     time.Duration
 	FilingInterval          time.Duration
 }
 
@@ -52,21 +56,25 @@ type Service struct {
 	cryptoAssets            CryptoAssetMarketProvider
 	cryptoCandles           CryptoCandleProvider
 	cryptoLiquidity         CryptoLiquidityProvider
+	cryptoTrades            CryptoTradeProvider
 	cryptoSourceID          string
 	cryptoAssetSourceID     string
 	cryptoCandleSourceID    string
 	cryptoLiquiditySourceID string
+	cryptoTradeSourceID     string
 	filingProvider          InsiderFilingProvider
 
 	equityCacheTTL          time.Duration
 	cryptoCacheTTL          time.Duration
 	cryptoCandleCacheTTL    time.Duration
 	cryptoLiquidityCacheTTL time.Duration
+	cryptoTradeCacheTTL     time.Duration
 	filingCacheTTL          time.Duration
 	equityPacer             requestPacer
 	cryptoPacer             requestPacer
 	cryptoCandlePacer       requestPacer
 	cryptoLiquidityPacer    requestPacer
+	cryptoTradePacer        requestPacer
 	filingPacer             requestPacer
 
 	sources        []Source
@@ -75,6 +83,7 @@ type Service struct {
 	assetCache     map[string]cacheEntry[CryptoMarketBatch]
 	candleCache    map[string]cacheEntry[CryptoCandleSeries]
 	liquidityCache map[string]cacheEntry[CryptoLiquiditySnapshot]
+	tradeCache     map[string]cacheEntry[CryptoTradeTape]
 	filingCache    map[string]cacheEntry[[]InsiderFilingObservation]
 	now            func() time.Time
 }
@@ -115,6 +124,12 @@ func NewService(config ServiceConfig) (*Service, error) {
 	if config.CryptoLiquidityProvider != nil && (config.CryptoLiquidityCacheTTL <= 0 || config.CryptoLiquidityInterval <= 0) {
 		return nil, errors.New("crypto liquidity cache and request policies must be positive")
 	}
+	if config.CryptoTradeProvider != nil && config.CryptoTradeSourceID != "coinbase_exchange" {
+		return nil, errors.New("unsupported crypto trade source")
+	}
+	if config.CryptoTradeProvider != nil && (config.CryptoTradeCacheTTL <= 0 || config.CryptoTradeInterval <= 0) {
+		return nil, errors.New("crypto trade cache and request policies must be positive")
+	}
 	if config.FilingProvider != nil && (config.FilingCacheTTL <= 0 || config.FilingInterval <= 0) {
 		return nil, errors.New("filing cache and request policies must be positive")
 	}
@@ -131,20 +146,24 @@ func NewService(config ServiceConfig) (*Service, error) {
 		cryptoAssets:            assetProvider,
 		cryptoCandles:           config.CryptoCandleProvider,
 		cryptoLiquidity:         config.CryptoLiquidityProvider,
+		cryptoTrades:            config.CryptoTradeProvider,
 		cryptoSourceID:          config.CryptoSourceID,
 		cryptoAssetSourceID:     assetSourceID,
 		cryptoCandleSourceID:    config.CryptoCandleSourceID,
 		cryptoLiquiditySourceID: config.CryptoLiquiditySourceID,
+		cryptoTradeSourceID:     config.CryptoTradeSourceID,
 		filingProvider:          config.FilingProvider,
 		equityCacheTTL:          config.EquityCacheTTL,
 		cryptoCacheTTL:          config.CryptoCacheTTL,
 		cryptoCandleCacheTTL:    config.CryptoCandleCacheTTL,
 		cryptoLiquidityCacheTTL: config.CryptoLiquidityCacheTTL,
+		cryptoTradeCacheTTL:     config.CryptoTradeCacheTTL,
 		filingCacheTTL:          config.FilingCacheTTL,
 		equityPacer:             requestPacer{interval: config.EquityInterval},
 		cryptoPacer:             requestPacer{interval: config.CryptoInterval},
 		cryptoCandlePacer:       requestPacer{interval: config.CryptoCandleInterval},
 		cryptoLiquidityPacer:    requestPacer{interval: config.CryptoLiquidityInterval},
+		cryptoTradePacer:        requestPacer{interval: config.CryptoTradeInterval},
 		filingPacer:             requestPacer{interval: config.FilingInterval},
 		sources:                 DefaultSources(),
 		equityCache:             make(map[string]cacheEntry[QuoteObservation]),
@@ -152,6 +171,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 		assetCache:              make(map[string]cacheEntry[CryptoMarketBatch]),
 		candleCache:             make(map[string]cacheEntry[CryptoCandleSeries]),
 		liquidityCache:          make(map[string]cacheEntry[CryptoLiquiditySnapshot]),
+		tradeCache:              make(map[string]cacheEntry[CryptoTradeTape]),
 		filingCache:             make(map[string]cacheEntry[[]InsiderFilingObservation]),
 		now:                     func() time.Time { return time.Now().UTC() },
 	}
@@ -160,6 +180,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 	service.setEnabled(assetSourceID, assetProvider != nil)
 	service.setEnabled(config.CryptoCandleSourceID, config.CryptoCandleProvider != nil)
 	service.setEnabled(config.CryptoLiquiditySourceID, config.CryptoLiquidityProvider != nil)
+	service.setEnabled(config.CryptoTradeSourceID, config.CryptoTradeProvider != nil)
 	service.setEnabled("sec_edgar", config.FilingProvider != nil)
 	return service, nil
 }
@@ -354,6 +375,37 @@ func cloneCryptoLiquidity(snapshot CryptoLiquiditySnapshot) CryptoLiquiditySnaps
 	return snapshot
 }
 
+func (service *Service) RecentCryptoTrades(ctx context.Context, symbol, currency string, limit int) (CryptoTradeTape, bool, error) {
+	if service.cryptoTrades == nil {
+		return CryptoTradeTape{}, false, ErrNoEligibleSource
+	}
+	canonical, ok := canonicalCryptoSymbols(currency, []string{symbol})
+	if !ok || len(canonical) != 1 || limit != 25 {
+		return CryptoTradeTape{}, false, ErrInvalidObservation
+	}
+	key := "trades:" + canonical[0] + ":usd:25"
+	if value, cached := cacheValue(service, service.tradeCache, key); cached {
+		return cloneCryptoTradeTape(value), true, nil
+	}
+	if err := service.cryptoTradePacer.wait(ctx); err != nil {
+		return CryptoTradeTape{}, false, err
+	}
+	tape, err := service.cryptoTrades.RecentCryptoTrades(ctx, canonical[0], "USD", limit)
+	if err != nil {
+		service.recordProviderError(service.cryptoTradeSourceID, err)
+		return CryptoTradeTape{}, false, err
+	}
+	service.setHealthy(service.cryptoTradeSourceID, true)
+	tape = cloneCryptoTradeTape(tape)
+	service.storeCryptoTradeTape(key, tape)
+	return cloneCryptoTradeTape(tape), false, nil
+}
+
+func cloneCryptoTradeTape(tape CryptoTradeTape) CryptoTradeTape {
+	tape.Trades = append([]CryptoTradeObservation(nil), tape.Trades...)
+	return tape
+}
+
 func (service *Service) RecentInsiderFilings(ctx context.Context, cik string, limit int) ([]InsiderFilingObservation, bool, error) {
 	if service.filingProvider == nil {
 		return nil, false, ErrNoEligibleSource
@@ -471,6 +523,13 @@ func (service *Service) storeCryptoLiquidity(key string, value CryptoLiquiditySn
 	defer service.mu.Unlock()
 	pruneCache(service.liquidityCache, service.now())
 	service.liquidityCache[key] = cacheEntry[CryptoLiquiditySnapshot]{value: cloneCryptoLiquidity(value), expiresAt: service.now().Add(service.cryptoLiquidityCacheTTL)}
+}
+
+func (service *Service) storeCryptoTradeTape(key string, value CryptoTradeTape) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	pruneCache(service.tradeCache, service.now())
+	service.tradeCache[key] = cacheEntry[CryptoTradeTape]{value: cloneCryptoTradeTape(value), expiresAt: service.now().Add(service.cryptoTradeCacheTTL)}
 }
 
 func (service *Service) storeFilings(key string, value []InsiderFilingObservation) {

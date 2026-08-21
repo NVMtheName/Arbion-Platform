@@ -85,6 +85,19 @@ type productBookResponse struct {
 	SpreadAbsolute string `json:"spread_absolute"`
 }
 
+type marketTradesResponse struct {
+	Trades []struct {
+		ProductID string    `json:"product_id"`
+		Price     string    `json:"price"`
+		Size      string    `json:"size"`
+		Time      time.Time `json:"time"`
+		Side      string    `json:"side"`
+		Exchange  string    `json:"exchange"`
+	} `json:"trades"`
+	BestBid string `json:"best_bid"`
+	BestAsk string `json:"best_ask"`
+}
+
 func DefaultProducts() []Product {
 	return []Product{
 		{ID: "BTC-USD", Name: "Bitcoin"},
@@ -264,6 +277,89 @@ func normalizeBookLevels(raw []bookLevelResponse, descending bool) ([]marketinte
 		return leftValue.Cmp(rightValue) < 0
 	})
 	return levels, true
+}
+
+// RecentCryptoTrades returns a fixed-size, credential-free public tape. Trade
+// IDs and provider bid/ask copies are discarded during normalization.
+func (client *Client) RecentCryptoTrades(ctx context.Context, symbol, currency string, limit int) (marketintelligence.CryptoTradeTape, error) {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if !validAssetSymbol(symbol) || !strings.EqualFold(strings.TrimSpace(currency), "usd") || limit != 25 {
+		return marketintelligence.CryptoTradeTape{}, marketintelligence.ErrInvalidObservation
+	}
+	productID := symbol + "-USD"
+	endpoint := *client.advancedTradeBaseURL
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/api/v3/brokerage/market/products/" + url.PathEscape(productID) + "/ticker"
+	query := endpoint.Query()
+	query.Set("limit", strconv.Itoa(limit))
+	endpoint.RawQuery = query.Encode()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return marketintelligence.CryptoTradeTape{}, ErrUnavailable
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Cache-Control", "no-cache")
+	response, err := client.http.Do(request)
+	if err != nil {
+		return marketintelligence.CryptoTradeTape{}, ErrUnavailable
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		if response.StatusCode == http.StatusTooManyRequests {
+			return marketintelligence.CryptoTradeTape{}, ErrRateLimited
+		}
+		if response.StatusCode == http.StatusNotFound {
+			return marketintelligence.CryptoTradeTape{}, marketintelligence.ErrInstrumentUnavailable
+		}
+		return marketintelligence.CryptoTradeTape{}, ErrUnavailable
+	}
+	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseSize+1))
+	if err != nil || len(payload) > maxResponseSize {
+		return marketintelligence.CryptoTradeTape{}, ErrInvalidResponse
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	var raw marketTradesResponse
+	if err = decoder.Decode(&raw); err != nil || len(raw.Trades) == 0 || len(raw.Trades) > limit {
+		return marketintelligence.CryptoTradeTape{}, ErrInvalidResponse
+	}
+	if err = decoder.Decode(&struct{}{}); err != io.EOF {
+		return marketintelligence.CryptoTradeTape{}, ErrInvalidResponse
+	}
+	bestBid, bidOK := decimal(raw.BestBid)
+	bestAsk, askOK := decimal(raw.BestAsk)
+	if !bidOK || !askOK {
+		return marketintelligence.CryptoTradeTape{}, ErrInvalidResponse
+	}
+	trades := make([]marketintelligence.CryptoTradeObservation, 0, len(raw.Trades))
+	for _, value := range raw.Trades {
+		price, priceOK := decimal(value.Price)
+		size, sizeOK := decimal(value.Size)
+		side := strings.ToUpper(strings.TrimSpace(value.Side))
+		if !priceOK || !sizeOK || value.Time.IsZero() || strings.ToUpper(strings.TrimSpace(value.ProductID)) != productID ||
+			(side != "BUY" && side != "SELL") || !strings.EqualFold(strings.TrimSpace(value.Exchange), "coinbase") {
+			return marketintelligence.CryptoTradeTape{}, ErrInvalidResponse
+		}
+		trades = append(trades, marketintelligence.CryptoTradeObservation{Price: price, Size: size, Time: value.Time.UTC(), Side: side})
+	}
+	sort.SliceStable(trades, func(left, right int) bool { return trades[left].Time.After(trades[right].Time) })
+	now := time.Now().UTC()
+	tape := marketintelligence.CryptoTradeTape{
+		Symbol: symbol, Currency: "USD", ProductID: productID, Limit: limit, Trades: trades, BestBid: bestBid, BestAsk: bestAsk,
+		Provenance: marketintelligence.Provenance{
+			Provider: "coinbase", ProviderRequestID: requestID(response), Role: marketintelligence.MarketObservation,
+			Feed: "advanced_trade_public_market_trades", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_advanced_trade",
+			ProviderTimestamp: trades[0].Time, ReceivedAt: now,
+		},
+	}
+	tradeFreshness := client.freshness
+	if tradeFreshness.MaxAge > 30*time.Second {
+		tradeFreshness.MaxAge = 30 * time.Second
+	}
+	if err := marketintelligence.ValidateCryptoTradeTape(tape, now, tradeFreshness); err != nil {
+		return marketintelligence.CryptoTradeTape{}, err
+	}
+	return tape, nil
 }
 
 func (client *Client) TopCryptoMarkets(ctx context.Context, currency string, limit int) ([]marketintelligence.CryptoMarketObservation, error) {
@@ -622,3 +718,4 @@ var _ marketintelligence.CryptoMarketProvider = (*Client)(nil)
 var _ marketintelligence.CryptoAssetMarketProvider = (*Client)(nil)
 var _ marketintelligence.CryptoCandleProvider = (*Client)(nil)
 var _ marketintelligence.CryptoLiquidityProvider = (*Client)(nil)
+var _ marketintelligence.CryptoTradeProvider = (*Client)(nil)

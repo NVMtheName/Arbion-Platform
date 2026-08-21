@@ -62,6 +62,8 @@ Connected Coinbase trading costs are another ephemeral owner-scoped projection. 
 
 Connected Coinbase liquidity is an ephemeral keyless market observation rather than a financial-account record. A snapshot contains the canonical symbol/USD product, a fixed maximum depth of ten, exact positive bid/ask price and base-size pairs, exact provider last/mid/spread fields, and source provenance. It is held only in a one-second process cache and is never persisted, joined to account authority, converted into an order, or treated as consolidated, streaming, or executable market truth.
 
+Connected Coinbase public trade tape is another ephemeral keyless market observation. It contains only the canonical symbol/USD product, at most 25 newest exact price/size/time/side ticks, current best bid/ask, and provenance. Public trade IDs, per-tick quote copies, cursors, and arbitrary time ranges are omitted. The tape is not persisted, joined to account executions, or used to derive aggressor flow, sentiment, performance, cost basis, P&L, or execution instructions.
+
 ## Durable automation authorization records
 
 Migration `00006_automation_mandates.sql` replaces the early placeholder in place: `automation_configs` is renamed and normalized as `automation_mandates`, so there are not two active automation concepts. Stable security fields are columns; validated extensible strategy/risk/universe/condition documents remain structured JSON. Each mandate binds a same-owner `financial_accounts` row and `capital_buckets` row and has a lifecycle status, effective interval, and monotonically increasing current version.

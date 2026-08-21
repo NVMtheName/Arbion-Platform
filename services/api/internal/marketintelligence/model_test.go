@@ -132,6 +132,35 @@ func TestValidateCryptoLiquidityPreservesExactOrderedLevelsAndRejectsCrossedBook
 	}
 }
 
+func TestValidateCryptoTradeTapePreservesTicksAndRejectsInferenceInputs(t *testing.T) {
+	now := time.Date(2026, time.August, 21, 17, 0, 0, 0, time.UTC)
+	tape := CryptoTradeTape{
+		Symbol: "BTC", Currency: "USD", ProductID: "BTC-USD", Limit: 25,
+		Trades: []CryptoTradeObservation{
+			{Price: "70187.123456789", Size: "0.00000001", Time: now.Add(-time.Second), Side: "BUY"},
+			{Price: "70186.90", Size: "0.125", Time: now.Add(-2 * time.Second), Side: "SELL"},
+		},
+		BestBid: "70186.90", BestAsk: "70187.20",
+		Provenance: Provenance{Provider: "coinbase", Role: MarketObservation, Feed: "advanced_trade_public_market_trades", Quality: RealTimeSingleVenue, Venue: "coinbase_advanced_trade", ProviderTimestamp: now.Add(-time.Second), ReceivedAt: now},
+	}
+	policy := FreshnessPolicy{MaxAge: 30 * time.Second, MaxFutureSkew: time.Second}
+	if err := ValidateCryptoTradeTape(tape, now, policy); err != nil {
+		t.Fatalf("valid trade tape rejected: %v", err)
+	}
+	invalid := tape
+	invalid.Trades = append([]CryptoTradeObservation(nil), tape.Trades...)
+	invalid.Trades[1].Side = "UNKNOWN"
+	if err := ValidateCryptoTradeTape(invalid, now, policy); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("unknown trade side accepted: %v", err)
+	}
+	invalid = tape
+	invalid.Trades = append([]CryptoTradeObservation(nil), tape.Trades...)
+	invalid.Trades[1].Time = now
+	if err := ValidateCryptoTradeTape(invalid, now, policy); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("out-of-order trade accepted: %v", err)
+	}
+}
+
 func TestSelectSourceNeverSilentlyDowngradesQuality(t *testing.T) {
 	sources := []Source{
 		{ID: "alpaca_iex", Label: "Alpaca IEX", Role: MarketObservation, Feed: "iex", Quality: RealTimeSingleVenue, Capabilities: []Capability{EquityQuote}, Enabled: true, Healthy: true},

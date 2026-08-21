@@ -10,6 +10,7 @@ import {
   type CoinbaseTradingCostSummary,
   type CryptoCandleSeries,
   type CryptoLiquiditySnapshot,
+  type CryptoPublicTradeTape,
   type CryptoPortfolioSnapshot,
 } from "./crypto-portfolio-command-center";
 type Money = { amount: string; currency: string };
@@ -92,6 +93,8 @@ export default async function AccountPage({
     let initialHistoryCached = false;
     let initialLiquidity: CryptoLiquiditySnapshot | undefined;
     let initialLiquidityCached = false;
+    let initialMarketTrades: CryptoPublicTradeTape | undefined;
+    let initialMarketTradesCached = false;
     let initialActivity: CoinbaseTradeActivity | undefined;
     let initialOrderHistory: CoinbaseOrderHistory | undefined;
     let initialTradingCosts: CoinbaseTradingCostSummary | undefined;
@@ -101,6 +104,7 @@ export default async function AccountPage({
       costsResponse,
       historyResponse,
       liquidityResponse,
+      marketTradesResponse,
     ] = await Promise.all([
       fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/fills`, {
         headers,
@@ -126,6 +130,12 @@ export default async function AccountPage({
       initialSymbol
         ? fetch(
             `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/liquidity`,
+            { headers, cache: "no-store" },
+          )
+        : Promise.resolve(undefined),
+      initialSymbol
+        ? fetch(
+            `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/trades`,
             { headers, cache: "no-store" },
           )
         : Promise.resolve(undefined),
@@ -164,6 +174,14 @@ export default async function AccountPage({
       initialLiquidity = liquidityPayload.liquidity;
       initialLiquidityCached = Boolean(liquidityPayload.cached);
     }
+    if (marketTradesResponse?.ok) {
+      const marketTradesPayload = (await marketTradesResponse.json()) as {
+        market_trades: CryptoPublicTradeTape;
+        cached?: boolean;
+      };
+      initialMarketTrades = marketTradesPayload.market_trades;
+      initialMarketTradesCached = Boolean(marketTradesPayload.cached);
+    }
     return (
       <main className="connections-page crypto-account-page">
         <AppPageHeader backHref="/accounts" backLabel="Accounts" />
@@ -174,6 +192,8 @@ export default async function AccountPage({
           initialHistoryCached={initialHistoryCached}
           initialLiquidity={initialLiquidity}
           initialLiquidityCached={initialLiquidityCached}
+          initialMarketTrades={initialMarketTrades}
+          initialMarketTradesCached={initialMarketTradesCached}
           initialOrderHistory={initialOrderHistory}
           initialSnapshot={snapshot}
           initialTradingCosts={initialTradingCosts}
