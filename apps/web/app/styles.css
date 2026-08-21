@@ -837,6 +837,309 @@ button:disabled {
   color: #edf7f1;
   font-size: 1.65rem;
 }
+.market-watchlist {
+  position: relative;
+  overflow: hidden;
+  margin: 0 0 26px;
+  padding: 34px;
+  border: 1px solid rgba(87, 204, 227, 0.25);
+  border-radius: 24px;
+  background:
+    radial-gradient(
+      circle at 82% 0%,
+      rgba(87, 204, 227, 0.12),
+      transparent 34%
+    ),
+    linear-gradient(145deg, rgba(124, 235, 177, 0.065), transparent 42%),
+    rgba(5, 18, 13, 0.92);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.24);
+}
+.market-watchlist::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background-image: linear-gradient(
+    90deg,
+    transparent 49.7%,
+    rgba(124, 235, 177, 0.022) 50%,
+    transparent 50.3%
+  );
+  background-size: 42px 100%;
+}
+.market-watchlist > * {
+  position: relative;
+}
+.market-watchlist-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 28px;
+  align-items: end;
+}
+.market-watchlist-header h2 {
+  margin: 8px 0 10px;
+  color: #eff9f4;
+  font-size: clamp(2.35rem, 5vw, 4.3rem);
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+}
+.market-watchlist-header p:last-child {
+  max-width: 680px;
+  margin: 0;
+  color: #8da299;
+  line-height: 1.65;
+}
+.market-watchlist-actions {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+.market-watchlist-actions button,
+.market-watchlist-form button {
+  width: auto;
+  margin: 0;
+  padding: 11px 16px;
+  border: 1px solid rgba(124, 235, 177, 0.32);
+  border-radius: 9px;
+  color: #03130d;
+  background: linear-gradient(110deg, #7cebb1, #57cce3);
+  font-size: 0.76rem;
+  font-weight: 780;
+}
+.market-watchlist-actions button:disabled,
+.market-watchlist-form button:disabled {
+  color: #70837a;
+  border-color: rgba(139, 181, 163, 0.13);
+  background: rgba(255, 255, 255, 0.03);
+}
+.market-watchlist-state {
+  padding: 6px 9px;
+  border: 1px solid rgba(124, 235, 177, 0.24);
+  border-radius: 999px;
+  color: var(--brand-mint);
+  background: rgba(124, 235, 177, 0.07);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+.market-watchlist-state.partial,
+.market-watchlist-state.unavailable {
+  color: #f4c47c;
+  border-color: rgba(244, 196, 124, 0.28);
+  background: rgba(244, 196, 124, 0.07);
+}
+.market-watchlist-state.empty {
+  color: #8da299;
+  border-color: rgba(139, 162, 153, 0.2);
+  background: rgba(139, 162, 153, 0.05);
+}
+.market-watchlist-rail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 28px;
+  border: 1px solid rgba(139, 181, 163, 0.16);
+  border-radius: 14px;
+  background: rgba(2, 13, 9, 0.65);
+}
+.market-watchlist-rail article {
+  display: grid;
+  gap: 6px;
+  padding: 18px 20px;
+  border-right: 1px solid rgba(139, 181, 163, 0.13);
+}
+.market-watchlist-rail article:last-child {
+  border-right: 0;
+}
+.market-watchlist-rail span,
+.market-watchlist-rail small {
+  color: #71877c;
+  font-size: 0.7rem;
+}
+.market-watchlist-rail strong {
+  color: #edf7f1;
+  font-size: 1.18rem;
+}
+.market-watchlist-form {
+  max-width: 540px;
+  margin-top: 24px;
+}
+.market-watchlist-form label {
+  display: block;
+  margin-bottom: 8px;
+  color: #91a89d;
+  font-size: 0.7rem;
+  font-weight: 760;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.market-watchlist-form > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.market-watchlist-form input {
+  min-width: 0;
+  border-color: rgba(139, 181, 163, 0.22);
+  background: rgba(255, 255, 255, 0.025);
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+}
+.market-watchlist-message {
+  margin: 18px 0 0;
+  color: #82988e;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.market-watchlist-error,
+.market-watchlist-unavailable {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(232, 122, 98, 0.27);
+  border-radius: 9px;
+  color: #f1c7bd;
+  background: rgba(232, 122, 98, 0.055);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+.market-watchlist-empty {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  margin-top: 22px;
+  padding: 38px 20px;
+  border: 1px dashed rgba(139, 181, 163, 0.2);
+  border-radius: 16px;
+  color: #8da299;
+  text-align: center;
+}
+.market-watchlist-empty > span {
+  color: var(--brand-cyan);
+  font-size: 2rem;
+}
+.market-watchlist-empty strong {
+  color: #dcece4;
+}
+.market-watchlist-empty p {
+  margin: 0;
+}
+.market-watchlist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 22px;
+}
+.market-watchlist-grid > article {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid rgba(139, 181, 163, 0.16);
+  border-radius: 15px;
+  background: rgba(2, 13, 9, 0.76);
+}
+.market-watchlist-grid > article > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.market-watchlist-grid > article > header div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.market-watchlist-grid > article > header strong {
+  color: #eff9f4;
+  font-size: 1.08rem;
+  letter-spacing: 0.04em;
+}
+.market-watchlist-grid > article > header span {
+  overflow: hidden;
+  color: #71877c;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.market-watchlist-grid > article > header button {
+  width: auto;
+  margin: 0;
+  padding: 5px 7px;
+  border: 0;
+  color: #7e9589;
+  background: transparent;
+  font-size: 0.66rem;
+}
+.market-watchlist-grid > article > header button:hover {
+  color: #f1c7bd;
+}
+.market-watchlist-price {
+  display: grid;
+  gap: 4px;
+  margin-top: 28px;
+}
+.market-watchlist-price span,
+.market-watchlist-grid dt {
+  color: #71877c;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.market-watchlist-price strong {
+  color: var(--brand-mint);
+  font-size: 1.65rem;
+  font-variant-numeric: tabular-nums;
+}
+.market-watchlist-grid dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0 0;
+}
+.market-watchlist-grid dl div {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(139, 181, 163, 0.11);
+  border-radius: 8px;
+}
+.market-watchlist-grid dd {
+  overflow: hidden;
+  margin: 4px 0 0;
+  color: #dcece4;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+}
+.market-watchlist-grid > article > footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 14px;
+  color: #62776d;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+}
+.market-watchlist-grid > article > footer span {
+  padding: 3px 5px;
+  border-radius: 4px;
+  background: rgba(124, 235, 177, 0.055);
+}
+.market-watchlist-grid > article > footer time {
+  width: 100%;
+  margin-top: 2px;
+}
+.market-watchlist-safety {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(139, 181, 163, 0.14);
+  color: #71877c;
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+.market-watchlist-safety strong {
+  color: var(--brand-mint);
+  white-space: nowrap;
+}
 .live-market-surface {
   margin: 0 0 96px;
   padding: 34px;
@@ -3026,6 +3329,44 @@ button:disabled {
   .live-market-grid,
   .live-market-surface > header {
     grid-template-columns: 1fr;
+  }
+  .market-watchlist {
+    padding: 24px;
+  }
+  .market-watchlist-header {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+  .market-watchlist-actions {
+    width: 100%;
+    justify-items: stretch;
+  }
+  .market-watchlist-actions .market-watchlist-state {
+    justify-self: start;
+  }
+  .market-watchlist-actions button {
+    width: 100%;
+  }
+  .market-watchlist-rail,
+  .market-watchlist-grid {
+    grid-template-columns: 1fr;
+  }
+  .market-watchlist-rail article {
+    border-right: 0;
+    border-bottom: 1px solid rgba(139, 181, 163, 0.13);
+  }
+  .market-watchlist-rail article:last-child {
+    border-bottom: 0;
+  }
+  .market-watchlist-form > div {
+    grid-template-columns: 1fr;
+  }
+  .market-watchlist-form button {
+    width: 100%;
+  }
+  .market-watchlist-safety {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .market-source-monitor-header {
     align-items: stretch;
