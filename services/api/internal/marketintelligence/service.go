@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	maxCacheEntries   = 256
-	maxTelemetryCount = uint64(1_000_000_000)
+	maxCacheEntries       = 256
+	maxTelemetryCount     = uint64(1_000_000_000)
+	minVerificationWindow = 5 * time.Minute
+	maxVerificationWindow = time.Hour
 )
 
 type ServiceConfig struct {
@@ -217,13 +219,28 @@ func cryptoAssetProvider(provider CryptoMarketProvider) CryptoAssetMarketProvide
 func (service *Service) Sources() []Source {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
+	now := service.now()
 	result := make([]Source, len(service.sources))
 	for index, source := range service.sources {
 		result[index] = source
 		result[index].Capabilities = append([]Capability(nil), source.Capabilities...)
 		result[index].CapabilityStatus = cloneCapabilityStatuses(source.CapabilityStatus)
+		for statusIndex := range result[index].CapabilityStatus {
+			ageCapabilityVerification(&result[index].CapabilityStatus[statusIndex], now)
+		}
+		refreshSourceHealth(&result[index])
 	}
 	return result
+}
+
+func ageCapabilityVerification(status *CapabilityStatus, now time.Time) {
+	if status == nil || status.State != Verified || status.LastSuccessAt == nil || status.RequestPolicy == nil || status.RequestPolicy.VerificationWindowMilliseconds <= 0 {
+		return
+	}
+	window := time.Duration(status.RequestPolicy.VerificationWindowMilliseconds) * time.Millisecond
+	if !now.Before(status.LastSuccessAt.Add(window)) {
+		status.State = VerificationExpired
+	}
 }
 
 func cloneCapabilityStatuses(statuses []CapabilityStatus) []CapabilityStatus {
@@ -675,8 +692,9 @@ func (service *Service) setCapabilityEnabled(id string, capability Capability, e
 				status.Enabled = true
 				status.State = AwaitingObservation
 				status.RequestPolicy = &RequestPolicy{
-					CacheTTLMilliseconds:        cacheTTL.Milliseconds(),
-					MinimumIntervalMilliseconds: minimumInterval.Milliseconds(),
+					CacheTTLMilliseconds:           cacheTTL.Milliseconds(),
+					MinimumIntervalMilliseconds:    minimumInterval.Milliseconds(),
+					VerificationWindowMilliseconds: verificationWindow(cacheTTL).Milliseconds(),
 				}
 				if status.RequestUsage == nil {
 					status.RequestUsage = &RequestUsage{}
@@ -686,6 +704,17 @@ func (service *Service) setCapabilityEnabled(id string, capability Capability, e
 			}
 		}
 	}
+}
+
+func verificationWindow(cacheTTL time.Duration) time.Duration {
+	if cacheTTL >= maxVerificationWindow/3 {
+		return maxVerificationWindow
+	}
+	window := cacheTTL * 3
+	if window < minVerificationWindow {
+		return minVerificationWindow
+	}
+	return window
 }
 
 func (service *Service) recordProviderAttempt(id string, capability Capability) {

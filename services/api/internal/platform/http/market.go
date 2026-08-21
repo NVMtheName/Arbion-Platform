@@ -93,7 +93,7 @@ func (h *authHandler) listMarketSources(writer stdhttp.ResponseWriter, request *
 	writeJSON(writer, stdhttp.StatusOK, map[string]any{
 		"sources":                  sources,
 		"status_generated_at":      time.Now().UTC(),
-		"status_semantics":         "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT",
+		"status_semantics":         "PROCESS_LOCAL_TIME_BOUNDED_PROVIDER_VERIFICATION",
 		"request_usage_semantics":  "PROCESS_LOCAL_BOUNDED_AGGREGATES",
 		"provider_quota_exposed":   false,
 		"provider_errors_exposed":  false,

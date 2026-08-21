@@ -1269,6 +1269,10 @@ button:disabled {
   color: #f3d79a;
   border-color: #7c6540;
 }
+.market-source-totals .aged {
+  color: #b9c7ef;
+  border-color: #506493;
+}
 .market-source-totals time {
   margin-left: auto;
 }
@@ -1319,6 +1323,10 @@ button:disabled {
   border-color: #7c6540;
 }
 .market-source-status.awaiting {
+  color: #b9c7ef;
+  border-color: #506493;
+}
+.market-source-status.aged {
   color: #b9c7ef;
   border-color: #506493;
 }
@@ -1390,6 +1398,9 @@ button:disabled {
   color: #f3d79a;
 }
 .market-capability-statuses span.awaiting_observation {
+  color: #b9c7ef;
+}
+.market-capability-statuses span.verification_expired {
   color: #b9c7ef;
 }
 .market-capability-statuses small,
