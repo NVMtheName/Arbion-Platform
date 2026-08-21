@@ -13,6 +13,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/automation"
 	"github.com/arbion/platform/services/api/internal/automationnotification"
 	"github.com/arbion/platform/services/api/internal/credential"
+	financialcoinbase "github.com/arbion/platform/services/api/internal/financial/coinbase"
 	"github.com/arbion/platform/services/api/internal/financial/oauthstate"
 	"github.com/arbion/platform/services/api/internal/financial/schwab"
 	"github.com/arbion/platform/services/api/internal/financialconnection"
@@ -79,7 +80,12 @@ func main() {
 	aiConnections := aiconnection.NewService(aiconnection.NewPostgresStore(pool, registry), vault, users, registry, neuralClient, sessions)
 	states := oauthstate.New(oauthstate.NewRedisStore(redisClient), 10*time.Minute)
 	schwabClient := schwab.New(schwab.Config{ClientID: cfg.Schwab.ClientID, ClientSecret: cfg.Schwab.ClientSecret, RedirectURI: cfg.Schwab.RedirectURI, AuthorizationURL: cfg.Schwab.AuthorizationURL, TokenURL: cfg.Schwab.TokenURL, TraderBaseURL: cfg.Schwab.TraderBaseURL, MarketDataBaseURL: cfg.Schwab.MarketDataBaseURL}, &http.Client{Timeout: cfg.Schwab.Timeout})
-	financialConnections := financialconnection.NewService(financialconnection.NewPostgresStore(pool), vault, states, schwabClient, users)
+	coinbaseClient, err := financialcoinbase.New(financialcoinbase.Config{Timeout: 10 * time.Second}, nil)
+	if err != nil {
+		slog.Error("Coinbase financial connection unavailable", "error", err)
+		os.Exit(1)
+	}
+	financialConnections := financialconnection.NewService(financialconnection.NewPostgresStore(pool), vault, states, schwabClient, users, financialconnection.NamedProvider{ID: "coinbase", Provider: coinbaseClient})
 	automations := automation.NewService(automation.NewPostgresStore(pool), users)
 	strategyStore := strategy.NewPostgresStore(pool)
 	strategies := strategy.NewInstanceService(strategyStore, automations, users)

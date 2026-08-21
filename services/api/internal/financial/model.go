@@ -50,11 +50,11 @@ func DefaultRegistry() Registry {
 	return Registry{
 		"schwab":   {ID: "schwab", Label: "Charles Schwab", AuthType: OAuth2AuthorizationCode, Availability: Implemented, Capabilities: ProviderCapabilities{AccountDiscovery: true, Balances: true, Positions: true, MarketData: true, TokenRefresh: true}},
 		"etrade":   {ID: "etrade", Label: "E*TRADE", AuthType: OAuth1, Availability: Planned},
-		"coinbase": {ID: "coinbase", Label: "Coinbase", AuthType: OAuth2AuthorizationCode, Availability: Planned},
+		"coinbase": {ID: "coinbase", Label: "Coinbase", AuthType: JWTKeyPair, Availability: Implemented, Capabilities: ProviderCapabilities{AccountDiscovery: true, Balances: true, Positions: true}},
 	}
 }
 func (r Registry) List() []ProviderDefinition {
-	return []ProviderDefinition{r["schwab"], r["etrade"], r["coinbase"]}
+	return []ProviderDefinition{r["schwab"], r["coinbase"], r["etrade"]}
 }
 
 type CapabilityState string
@@ -139,6 +139,9 @@ type Credentials struct {
 	TokenType        string     `json:"token_type"`
 	AccessExpiresAt  time.Time  `json:"access_expires_at"`
 	RefreshExpiresAt *time.Time `json:"refresh_expires_at,omitempty"`
+	APIKeyName       string     `json:"api_key_name,omitempty"`
+	APIPrivateKey    string     `json:"api_private_key,omitempty"`
+	PortfolioID      string     `json:"portfolio_id,omitempty"`
 }
 
 func (c Credentials) Bytes() ([]byte, error) { return json.Marshal(c) }

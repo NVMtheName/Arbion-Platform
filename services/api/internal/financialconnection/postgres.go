@@ -41,8 +41,8 @@ func (s *PostgresStore) ListConnections(ctx context.Context, user string) ([]Con
 	}
 	return out, rows.Err()
 }
-func (s *PostgresStore) UpsertConnection(ctx context.Context, user, provider string, expires *time.Time) (Connection, error) {
-	return scanConnection(s.db.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status,token_expires_at) VALUES($1,'financial',$2,'Charles Schwab','pending',$3) ON CONFLICT(user_id,provider_category,provider_name,display_name) DO UPDATE SET status='pending',token_expires_at=excluded.token_expires_at,updated_at=now() RETURNING `+connectionColumns, user, provider, expires))
+func (s *PostgresStore) UpsertConnection(ctx context.Context, user, provider, displayName string, expires *time.Time) (Connection, error) {
+	return scanConnection(s.db.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status,token_expires_at) VALUES($1,'financial',$2,$3,'pending',$4) ON CONFLICT(user_id,provider_category,provider_name,display_name) DO UPDATE SET status='pending',token_expires_at=excluded.token_expires_at,updated_at=now() RETURNING `+connectionColumns, user, provider, displayName, expires))
 }
 func (s *PostgresStore) GetConnection(ctx context.Context, user, id string) (Connection, error) {
 	return scanConnection(s.db.QueryRow(ctx, `SELECT `+connectionColumns+` FROM provider_connections WHERE id=$1 AND user_id=$2 AND provider_category='financial'`, id, user))

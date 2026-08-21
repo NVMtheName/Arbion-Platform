@@ -2,7 +2,7 @@
 
 ## Status, topology, and safety boundary
 
-This repository is prepared for operation; it does **not** claim Arbion is deployed. Existing PAPER simulation, SHADOW intent recording, read-only real Schwab data, and an opt-in guarded non-live scheduler may be served. There is no broker-write interface, order-submission adapter, live-trading implementation, or live feature flag.
+This repository supports PAPER simulation, SHADOW intent recording, read-only real Schwab data, view-only Coinbase portfolio holdings, and an opt-in guarded non-live scheduler. There is no provider-write interface, order-submission adapter, live-trading implementation, or live feature flag.
 
 ```text
 Internet :80/:443 -> Caddy (only published service)
@@ -11,7 +11,7 @@ Internet :80/:443 -> Caddy (only published service)
 Private Docker network: Go, Neural Engine :8000, PostgreSQL :5432, Redis :6379
 ```
 
-API, AI, PostgreSQL, and Redis have no host port mappings. Outbound provider access remains possible. Financial credentials flow only through Go/Vault to Schwab, never Python.
+API, AI, PostgreSQL, and Redis have no host port mappings. Outbound provider access remains possible. Financial credentials flow only through Go/Vault to the selected Schwab or Coinbase adapter, never Python.
 
 ## DNS and host prerequisites
 
@@ -155,6 +155,14 @@ Manual Schwab test (never place an order):
 6. Run **Sync** and confirm there is no duplicate account inventory.
 7. During an open market session, configure a bounded PAPER or SHADOW strategy and manually evaluate it; confirm quote/standard option-chain reads succeed, the response says no broker order was sent, and no Schwab order appears.
 8. Confirm stale/closed-market data fails closed and the UI distinctions among PAPER, SHADOW, and real read-only Schwab data remain clear.
+
+Manual Coinbase connection test (never enable Trade or Transfer):
+
+1. In Coinbase Developer Platform, create a Secret API Key restricted to the intended portfolio and production host IP, select ECDSA, enable View only, and leave Trade and Transfer off.
+2. Sign into Arbion, open **Settings → Connections → Coinbase**, and enter the full `organizations/.../apiKeys/...` key name and EC private key.
+3. Confirm Arbion accepts the connection, creates one masked Coinbase portfolio account, and never redisplays the key.
+4. Confirm USD cash and nonzero crypto holdings load, then run **Sync** and confirm no duplicate portfolio record appears.
+5. Disable and re-enable the connection to confirm re-verification; disconnect it and separately revoke the key in Coinbase.
 
 Guarded scheduler activation (never place an order):
 

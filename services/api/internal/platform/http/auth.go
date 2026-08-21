@@ -144,6 +144,7 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 		mux.Handle("GET /api/connections/financial", h.require(stdhttp.HandlerFunc(h.listFinancialConnections)))
 		mux.Handle("POST /api/connections/financial/schwab/start", h.require(stdhttp.HandlerFunc(h.startSchwab)))
 		mux.HandleFunc("GET /api/connections/financial/schwab/callback", h.callbackSchwab)
+		mux.Handle("POST /api/connections/financial/coinbase", h.require(stdhttp.HandlerFunc(h.connectCoinbase)))
 		mux.Handle("POST /api/connections/financial/{id}/sync", h.require(stdhttp.HandlerFunc(h.syncFinancial)))
 		mux.Handle("POST /api/connections/financial/{id}/disable", h.require(stdhttp.HandlerFunc(h.disableFinancial)))
 		mux.Handle("POST /api/connections/financial/{id}/enable", h.require(stdhttp.HandlerFunc(h.enableFinancial)))
@@ -216,13 +217,30 @@ func (h *authHandler) financialError(w stdhttp.ResponseWriter, e error) {
 		status = 409
 		code = "CONNECTION_DISABLED"
 		message = "The connection is disabled."
+	} else if errors.Is(e, financialconnection.ErrInvalidInput) {
+		status = 400
+		code = "INVALID_CREDENTIAL_INPUT"
+		message = "The credential format is invalid."
 	} else {
 		var pe *financial.ProviderError
 		if errors.As(e, &pe) {
 			code = string(pe.Code)
 			status = 502
-			if pe.Code == financial.AccountNotFound {
+			switch pe.Code {
+			case financial.AuthorizationFailed:
+				status = 400
+				message = "The provider did not accept these credentials."
+			case financial.PermissionDenied:
+				status = 403
+				message = "The provider permissions do not meet Arbion's safety requirements."
+			case financial.AccountNotFound:
 				status = 404
+			case financial.RateLimited:
+				status = 429
+			case financial.Timeout:
+				status = 504
+			case financial.ProviderUnavailable:
+				status = 503
 			}
 		}
 	}
@@ -272,6 +290,27 @@ func (h *authHandler) callbackSchwab(w stdhttp.ResponseWriter, r *stdhttp.Reques
 		target += "connected"
 	}
 	stdhttp.Redirect(w, r, target, stdhttp.StatusSeeOther)
+}
+func (h *authHandler) connectCoinbase(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input struct {
+		KeyName    string `json:"key_name"`
+		PrivateKey string `json:"private_key"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	connection, err := h.financial.ConnectAPIKey(r.Context(), principal(r), "coinbase", input.KeyName, input.PrivateKey)
+	input.KeyName = ""
+	input.PrivateKey = ""
+	if err != nil {
+		h.financialError(w, err)
+		return
+	}
+	writeJSON(w, 201, map[string]any{"connection": connection})
 }
 func (h *authHandler) syncFinancial(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	h.mutationOK(w, r, func() error { return h.financial.Sync(r.Context(), principal(r), r.PathValue("id")) })
