@@ -112,6 +112,7 @@ type Quote struct {
 	Symbol, AssetType    string
 	Bid, Ask, Mark, Last *Decimal
 	ProviderTimestamp    time.Time
+	Realtime             *bool
 }
 type OptionContract struct {
 	Symbol, Underlying, PutCall, Expiration  string
@@ -129,6 +130,7 @@ type OptionChain struct {
 	Symbol            string
 	UnderlyingPrice   *Decimal
 	ProviderTimestamp time.Time
+	Delayed           *bool
 	Contracts         []OptionContract
 }
 type Credentials struct {

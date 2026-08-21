@@ -4,9 +4,9 @@
 
 This document defines the read-only market-intelligence architecture for Arbion. It does not enable live trading, add an order endpoint, request a broker trading scope, or place provider credentials in the browser or Neural Engine.
 
-The implemented vertical slice includes normalized observations and source-selection policy; fixture-tested read-only clients for Alpaca equity quotes, CoinGecko crypto markets, and SEC ownership-filing discovery; strict optional runtime configuration; startup source probes; a bounded in-process display cache; authenticated no-store observation routes; runtime source health; and a branded `/markets` query surface. Sources remain disabled unless their complete configuration is present. The UI displays no placeholder market values and provider failure never triggers a substitute value. Durable watchlists, bars, option observations, ownership-transaction parsing, production polling, and Redis-backed coordination remain later milestones.
+The implemented vertical slice includes normalized observations and source-selection policy; fixture-tested read-only clients for Alpaca equity quotes, CoinGecko crypto markets, keyless Coinbase Exchange venue tickers, delegated Schwab quotes/options, and SEC ownership-filing discovery; strict runtime configuration; startup source probes; bounded display caches; authenticated no-store observation routes; runtime source health; and a branded `/markets` query surface. The UI displays no placeholder market values and provider failure never triggers a substitute value. Durable watchlists, bars, ownership-transaction parsing, and Redis-backed coordination remain later milestones.
 
-Current authenticated read routes are `GET /api/markets/equities/{symbol}/quote`, `GET /api/markets/crypto`, and `GET /api/markets/insiders/{cik}`. They return normalized source provenance plus `live_execution_available: false`; credentials remain server-only. yfinance is not a runtime fallback, and OpenInsider is exposed only as an optional human research link.
+Current authenticated read routes are `GET /api/markets/equities/{symbol}/quote`, `GET /api/markets/crypto`, `GET /api/markets/insiders/{cik}`, `GET /api/accounts/{id}/markets/equities/{symbol}/quote`, and `GET /api/accounts/{id}/markets/options`. They return normalized source provenance plus `live_execution_available: false`; credentials remain server-only. Account-scoped routes authorize ownership before using the current user's encrypted Schwab connection. yfinance is not a runtime fallback, and OpenInsider is exposed only as an optional human research link.
 
 The first delivery target is a branded, authenticated `/markets` command center for one founder and a small number of test users. Cost can remain low while the product is being validated, but every observation must disclose whether it is consolidated, single-venue, indicative, delayed, or filing-derived. A cheap feed may reduce coverage; it must never make lower-quality data look authoritative.
 
@@ -30,6 +30,7 @@ Arbion assigns each integration a declared role instead of treating providers as
 | Charles Schwab | Connected-account authority | Account inventory, balances, positions, and the existing read-only quote/option flow | Remains the authority for Schwab account facts; no broker-write operation |
 | Alpaca Market Data | Independent equity and option observations | Latest quotes, snapshots, bars, and later option observations | Use data credentials only. The free equity feed is IEX-only and the free option feed is indicative; neither may be labeled consolidated |
 | CoinGecko | Crypto reference and breadth | Prices, market capitalization, volume, trending assets, global statistics, and asset history | Use an authenticated keyed plan for production. WebSocket data is supplementary while the provider marks it beta and outside its SLA |
+| Coinbase Exchange | Keyless single-venue crypto observation | Current trade, bid, ask, and 24-hour venue volume for a bounded USD board | Public data only; label it single-venue, use short bounded caching, and revalidate redistribution terms before broader customer release |
 | SEC EDGAR | Primary issuer and insider filing source | Filing discovery plus Forms 3, 4, and 5 ownership data | Identify Arbion in the user agent, cache efficiently, preserve accession/source links, and stay below the SEC fair-access ceiling |
 | yfinance | Developer research aid only | Optional local exploration and test-fixture comparison | Never used for a production screen, alert, strategy input, risk input, or fallback; the project states that Yahoo data is intended for personal use |
 | OpenInsider | Optional human research link only | Deep-link from an SEC-derived filing when useful | No automated production dependency without a documented supported API and completed license/availability review; never the authoritative filing record |
@@ -41,6 +42,8 @@ Sources:
 - [CoinGecko Pro authentication](https://docs.coingecko.com/reference/authentication)
 - [CoinGecko keyless API limits](https://docs.coingecko.com/docs/keyless-public-api)
 - [CoinGecko WebSocket status](https://docs.coingecko.com/websocket)
+- [Coinbase public ticker](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-ticker)
+- [Coinbase public real-time WebSocket](https://docs.cdp.coinbase.com/coinbase-app/advanced-trade-apis/websocket/websocket-overview)
 - [SEC EDGAR data APIs](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
 - [SEC developer resources and fair access](https://www.sec.gov/about/developer-resources)
 - [yfinance project notice](https://github.com/ranaroussi/yfinance#readme)
@@ -49,7 +52,7 @@ Provider terms, entitlement, pricing, feeds, and redistribution rules must be re
 
 ## Normalized observation contract
 
-Independent market data must not be forced through a connected brokerage account or reuse a broker token. A new provider-neutral market-data module belongs in the Go control plane and should expose narrow read capabilities such as equity quotes, bars, option observations, crypto markets, and filings.
+Independent market data must not be forced through a connected brokerage account or reuse a broker token. Delegated Schwab observations are a separate, explicitly broker-authorized source: every request is account-scoped and ownership-checked, and its provenance role is `BROKER_AUTHORITY`. The provider-neutral market-data module remains in the Go control plane and exposes narrow read capabilities such as equity quotes, bars, option observations, crypto markets, and filings.
 
 Every normalized observation carries at least:
 
@@ -83,8 +86,8 @@ Authenticated UI / future bounded AI tool
         provider-neutral capabilities
          /            |             \
         v             v              v
-  Alpaca adapter  CoinGecko adapter  SEC adapter
-   equities/options    crypto        filings
+ Schwab/Alpaca     Coinbase/CoinGecko     SEC
+ equities/options       crypto           filings
 ```
 
 Provider adapters own URL construction, authentication headers, pagination, provider rate limits, response-schema validation, and safe error translation. They may make read-only requests only. Transport handlers do not know provider wire formats and cannot choose an arbitrary upstream URL.
@@ -107,7 +110,7 @@ Each adapter must implement:
 - no-store browser responses for user-specific or licensed data; and
 - metrics for latency, error class, cache age, feed quality, and quota consumption.
 
-For the initial founder deployment, use Alpaca Basic and CoinGecko's authenticated development tier to validate the experience. Alpaca Basic must show `IEX` for equities and `INDICATIVE` for options. CoinGecko's keyless endpoint is acceptable only for local manual prototyping, not scheduled or production traffic. A production gate decides whether consolidated Alpaca SIP/OPRA access or a paid CoinGecko plan is justified by actual usage.
+For the initial founder deployment, use the founder's delegated Schwab market-data entitlement for account-scoped equities/options and Coinbase Exchange public tickers for a bounded crypto venue board. Coinbase values must show `REAL_TIME_SINGLE_VENUE`; Schwab responses must preserve the provider's real-time/delayed entitlement flag and use `INDICATIVE` when that flag is absent. A production gate decides whether independent consolidated SIP/OPRA access, aggregated crypto breadth, or paid historical data is justified by actual usage.
 
 ## Branded command-center experience
 
@@ -137,6 +140,7 @@ Exit gate: malformed and stale data fail closed; source quality cannot be omitte
 ### 2. Equity and option observations
 
 - Implemented: an Alpaca data-only adapter and authenticated latest-equity-quote route with bounded caching.
+- Implemented: account-owned Schwab quote and standard option-chain routes with explicit entitlement provenance.
 - Next: equity bars and richer snapshots.
 - Add option data only after its indicative-versus-OPRA behavior is represented in the contract and UI.
 - Exercise the adapter against provider fixtures and a manually enabled development key.
@@ -146,10 +150,11 @@ Exit gate: IEX and indicative data are visibly labeled and cannot satisfy a cons
 ### 3. Crypto reference data
 
 - Implemented: a CoinGecko keyed adapter and authenticated top-markets route.
+- Implemented: a keyless Coinbase Exchange ticker adapter for bounded single-venue production snapshots.
 - Implemented: a bounded display-cache policy; next add request-credit accounting and Redis coordination.
 - Next: global overview, asset history, and identifier mapping by CoinGecko ID and contract address.
 
-Exit gate: no keyless production polling; no secret in a URL, log, browser bundle, or Neural Engine request.
+Exit gate: keyless traffic is bounded and visibly single-venue; no secret enters a URL, log, browser bundle, or Neural Engine request.
 
 ### 4. Primary-source insider intelligence
 

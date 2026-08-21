@@ -41,7 +41,7 @@ func TestServiceCachesObservationsAndTracksSourceHealth(t *testing.T) {
 	filings := &fakeFilingProvider{}
 	service, err := NewService(ServiceConfig{
 		EquityProvider: equity, EquitySourceID: "alpaca_iex", EquityCacheTTL: time.Minute, EquityInterval: time.Millisecond,
-		CryptoProvider: crypto, CryptoCacheTTL: time.Minute, CryptoInterval: time.Millisecond,
+		CryptoProvider: crypto, CryptoSourceID: "coingecko_rest", CryptoCacheTTL: time.Minute, CryptoInterval: time.Millisecond,
 		FilingProvider: filings, FilingCacheTTL: time.Minute, FilingInterval: time.Millisecond,
 	})
 	if err != nil {

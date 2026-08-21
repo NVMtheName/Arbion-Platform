@@ -94,11 +94,37 @@ type CryptoMarketObservation struct {
 	Name             string     `json:"name"`
 	Currency         string     `json:"currency"`
 	CurrentPrice     Decimal    `json:"current_price"`
+	Bid              *Decimal   `json:"bid,omitempty"`
+	Ask              *Decimal   `json:"ask,omitempty"`
 	MarketCap        *Decimal   `json:"market_cap,omitempty"`
 	MarketCapRank    *int       `json:"market_cap_rank,omitempty"`
 	Volume24H        *Decimal   `json:"volume_24h,omitempty"`
+	Volume24HUnit    string     `json:"volume_24h_unit,omitempty"`
 	ChangePercent24H *Decimal   `json:"change_percent_24h,omitempty"`
 	Provenance       Provenance `json:"provenance"`
+}
+
+type OptionContractObservation struct {
+	Symbol            string    `json:"symbol"`
+	Underlying        string    `json:"underlying"`
+	PutCall           string    `json:"put_call"`
+	Expiration        string    `json:"expiration"`
+	Strike            Decimal   `json:"strike"`
+	Bid               *Decimal  `json:"bid,omitempty"`
+	Ask               *Decimal  `json:"ask,omitempty"`
+	Mark              *Decimal  `json:"mark,omitempty"`
+	Delta             *Decimal  `json:"delta,omitempty"`
+	ImpliedVolatility *Decimal  `json:"implied_volatility,omitempty"`
+	OpenInterest      *int      `json:"open_interest,omitempty"`
+	Volume            *int      `json:"volume,omitempty"`
+	ProviderTimestamp time.Time `json:"provider_timestamp"`
+}
+
+type OptionChainObservation struct {
+	Symbol          string                      `json:"symbol"`
+	UnderlyingPrice *Decimal                    `json:"underlying_price,omitempty"`
+	Contracts       []OptionContractObservation `json:"contracts"`
+	Provenance      Provenance                  `json:"provenance"`
 }
 
 type InsiderFilingObservation struct {
@@ -230,8 +256,11 @@ func ValidateCryptoMarket(observation CryptoMarketObservation, now time.Time, po
 	if !boundedText(observation.ID, 128) || !boundedText(observation.Symbol, 32) || !boundedText(observation.Name, 256) || !boundedText(observation.Currency, 12) {
 		return fmt.Errorf("%w: crypto market identity", ErrInvalidObservation)
 	}
-	if !validDecimal(&observation.CurrentPrice) || !validDecimal(observation.MarketCap) || !validDecimal(observation.Volume24H) || !validSignedDecimal(observation.ChangePercent24H) {
+	if !validDecimal(&observation.CurrentPrice) || !validDecimal(observation.Bid) || !validDecimal(observation.Ask) || !validDecimal(observation.MarketCap) || !validDecimal(observation.Volume24H) || !validSignedDecimal(observation.ChangePercent24H) {
 		return fmt.Errorf("%w: crypto market value", ErrInvalidObservation)
+	}
+	if observation.Volume24H != nil && observation.Volume24HUnit != "" && !boundedText(observation.Volume24HUnit, 12) {
+		return fmt.Errorf("%w: crypto volume unit", ErrInvalidObservation)
 	}
 	if observation.MarketCapRank != nil && *observation.MarketCapRank <= 0 {
 		return fmt.Errorf("%w: crypto market rank", ErrInvalidObservation)

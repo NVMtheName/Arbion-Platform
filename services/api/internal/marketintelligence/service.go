@@ -14,6 +14,7 @@ type ServiceConfig struct {
 	EquityProvider EquityQuoteProvider
 	EquitySourceID string
 	CryptoProvider CryptoMarketProvider
+	CryptoSourceID string
 	FilingProvider InsiderFilingProvider
 	EquityCacheTTL time.Duration
 	CryptoCacheTTL time.Duration
@@ -37,6 +38,7 @@ type Service struct {
 	equityProvider EquityQuoteProvider
 	equitySourceID string
 	cryptoProvider CryptoMarketProvider
+	cryptoSourceID string
 	filingProvider InsiderFilingProvider
 
 	equityCacheTTL time.Duration
@@ -71,6 +73,9 @@ func NewService(config ServiceConfig) (*Service, error) {
 	if config.CryptoProvider != nil && (config.CryptoCacheTTL <= 0 || config.CryptoInterval <= 0) {
 		return nil, errors.New("crypto cache and request policies must be positive")
 	}
+	if config.CryptoProvider != nil && config.CryptoSourceID != "coingecko_rest" && config.CryptoSourceID != "coinbase_exchange" {
+		return nil, errors.New("unsupported crypto source")
+	}
 	if config.FilingProvider != nil && (config.FilingCacheTTL <= 0 || config.FilingInterval <= 0) {
 		return nil, errors.New("filing cache and request policies must be positive")
 	}
@@ -79,6 +84,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 		equityProvider: config.EquityProvider,
 		equitySourceID: config.EquitySourceID,
 		cryptoProvider: config.CryptoProvider,
+		cryptoSourceID: config.CryptoSourceID,
 		filingProvider: config.FilingProvider,
 		equityCacheTTL: config.EquityCacheTTL,
 		cryptoCacheTTL: config.CryptoCacheTTL,
@@ -93,7 +99,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 		now:            func() time.Time { return time.Now().UTC() },
 	}
 	service.setEnabled(config.EquitySourceID, config.EquityProvider != nil)
-	service.setEnabled("coingecko_rest", config.CryptoProvider != nil)
+	service.setEnabled(config.CryptoSourceID, config.CryptoProvider != nil)
 	service.setEnabled("sec_edgar", config.FilingProvider != nil)
 	return service, nil
 }
@@ -143,10 +149,10 @@ func (service *Service) TopCryptoMarkets(ctx context.Context, currency string, l
 	}
 	observations, err := service.cryptoProvider.TopCryptoMarkets(ctx, currency, limit)
 	if err != nil {
-		service.recordProviderError("coingecko_rest", err)
+		service.recordProviderError(service.cryptoSourceID, err)
 		return nil, false, err
 	}
-	service.setHealthy("coingecko_rest", true)
+	service.setHealthy(service.cryptoSourceID, true)
 	copyValue := append([]CryptoMarketObservation(nil), observations...)
 	service.storeCrypto(key, copyValue)
 	return append([]CryptoMarketObservation(nil), copyValue...), false, nil

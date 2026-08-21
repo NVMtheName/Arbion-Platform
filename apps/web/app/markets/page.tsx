@@ -3,7 +3,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../app-page-header";
-import { MarketCommandSurface } from "./market-command-surface";
+import {
+  MarketCommandSurface,
+  type MarketAccount,
+} from "./market-command-surface";
 import { MarketSourceGrid, type MarketSource } from "./market-source-grid";
 
 type SourcesResponse = {
@@ -14,14 +17,24 @@ type SourcesResponse = {
 export default async function MarketsPage() {
   const jar = await cookies();
   const api = process.env.API_BASE_URL ?? "http://localhost:8080";
-  const response = await fetch(`${api}/api/markets/sources`, {
-    headers: { cookie: jar.toString() },
-    cache: "no-store",
-  });
+  const [response, accountsResponse] = await Promise.all([
+    fetch(`${api}/api/markets/sources`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+    fetch(`${api}/api/accounts`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+  ]);
   if (response.status === 401) redirect("/login");
   const data: SourcesResponse = response.ok
     ? ((await response.json()) as SourcesResponse)
     : { sources: [], live_execution_available: false };
+  const accounts = accountsResponse.ok
+    ? ((await accountsResponse.json()) as { accounts: MarketAccount[] })
+        .accounts
+    : [];
   const available = data.sources.filter(
     (source) => source.enabled && source.healthy,
   ).length;
@@ -50,7 +63,7 @@ export default async function MarketsPage() {
           <strong>
             {available}/{data.sources.length}
           </strong>
-          <small>Adapters remain off until configured and verified.</small>
+          <small>Every available source is verified before display.</small>
         </article>
         <article>
           <span>Execution path</span>
@@ -66,16 +79,16 @@ export default async function MarketsPage() {
         </article>
       </section>
 
-      <MarketCommandSurface sources={data.sources} />
+      <MarketCommandSurface accounts={accounts} sources={data.sources} />
 
       <section className="market-section">
         <div>
           <p className="eyebrow">SOURCE CONTROL</p>
           <h2>Production-approved boundaries</h2>
           <p>
-            Alpaca covers equity and option observations, CoinGecko provides
-            aggregate crypto reference data, and SEC EDGAR is the primary
-            insider-filing record.
+            Connected Schwab authorization covers account-scoped equities and
+            options, Coinbase supplies keyless single-venue crypto snapshots,
+            and SEC EDGAR remains the primary insider-filing record.
           </p>
         </div>
         {data.sources.length > 0 ? (
@@ -93,8 +106,9 @@ export default async function MarketsPage() {
           <span className="icon">◎</span>
           <h2>Portfolio truth stays separate</h2>
           <p>
-            Connected Schwab accounts remain the authority for balances and
-            positions. Public market feeds never impersonate a broker account.
+            Connected Schwab accounts remain the authority for balances,
+            positions, and their delegated market-data entitlement. Coinbase
+            never impersonates a brokerage account.
           </p>
           <Link href="/accounts">Review connected accounts</Link>
         </article>

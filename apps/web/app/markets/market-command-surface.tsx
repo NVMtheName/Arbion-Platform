@@ -2,7 +2,7 @@
 
 import { motion } from "motion/react";
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import type { MarketSource } from "./market-source-grid";
 
@@ -33,10 +33,43 @@ type CryptoMarketObservation = {
   name: string;
   currency: string;
   current_price: string;
+  bid?: string;
+  ask?: string;
   market_cap?: string;
   market_cap_rank?: number;
   volume_24h?: string;
+  volume_24h_unit?: string;
   change_percent_24h?: string;
+  provenance: Provenance;
+};
+
+export type MarketAccount = {
+  id: string;
+  provider: string;
+  display_name: string;
+  base_currency: string;
+  status: string;
+};
+
+type OptionContractObservation = {
+  symbol: string;
+  underlying: string;
+  put_call: "PUT" | "CALL";
+  expiration: string;
+  strike: string;
+  bid?: string;
+  ask?: string;
+  mark?: string;
+  delta?: string;
+  implied_volatility?: string;
+  open_interest?: number;
+  volume?: number;
+};
+
+type OptionChainObservation = {
+  symbol: string;
+  underlying_price?: string;
+  contracts: OptionContractObservation[];
   provenance: Provenance;
 };
 
@@ -90,6 +123,16 @@ function compact(value: string | undefined, currency = "USD") {
   }).format(parsed);
 }
 
+function compactNumber(value: string | undefined) {
+  if (value === undefined) return "—";
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 2,
+  }).format(parsed);
+}
+
 function providerError(body: APIError) {
   if (body.error?.code === "MARKET_SOURCE_UNAVAILABLE") {
     return "This source is not configured yet.";
@@ -114,10 +157,27 @@ function ProvenanceLine({ provenance }: { provenance: Provenance }) {
   );
 }
 
-export function MarketCommandSurface({ sources }: { sources: MarketSource[] }) {
-  const equityEnabled = sources.some(
-    (source) => source.enabled && source.capabilities.includes("EQUITY_QUOTE"),
+export function MarketCommandSurface({
+  sources,
+  accounts = [],
+}: {
+  sources: MarketSource[];
+  accounts?: MarketAccount[];
+}) {
+  const independentEquityEnabled = sources.some(
+    (source) =>
+      source.id !== "schwab_broker_market_data" &&
+      source.enabled &&
+      source.capabilities.includes("EQUITY_QUOTE"),
   );
+  const schwabSourceEnabled = sources.some(
+    (source) => source.id === "schwab_broker_market_data" && source.enabled,
+  );
+  const schwabAccounts = accounts.filter(
+    (account) => account.provider === "schwab" && account.status === "active",
+  );
+  const brokerEquityEnabled = schwabSourceEnabled && schwabAccounts.length > 0;
+  const equityEnabled = brokerEquityEnabled || independentEquityEnabled;
   const cryptoEnabled = sources.some(
     (source) =>
       source.enabled && source.capabilities.includes("CRYPTO_MARKETS"),
@@ -128,9 +188,16 @@ export function MarketCommandSurface({ sources }: { sources: MarketSource[] }) {
   );
 
   const [symbol, setSymbol] = useState("SPY");
+  const [accountID, setAccountID] = useState(schwabAccounts[0]?.id ?? "");
   const [quote, setQuote] = useState<QuoteObservation | null>(null);
   const [quoteError, setQuoteError] = useState("");
   const [quoteLoading, setQuoteLoading] = useState(false);
+  const [contractType, setContractType] = useState<"PUT" | "CALL">("PUT");
+  const [optionChain, setOptionChain] = useState<OptionChainObservation | null>(
+    null,
+  );
+  const [optionError, setOptionError] = useState("");
+  const [optionLoading, setOptionLoading] = useState(false);
   const [crypto, setCrypto] = useState<CryptoMarketObservation[]>([]);
   const [cryptoError, setCryptoError] = useState("");
   const [cryptoLoading, setCryptoLoading] = useState(false);
@@ -147,10 +214,10 @@ export function MarketCommandSurface({ sources }: { sources: MarketSource[] }) {
     setQuoteError("");
     setQuote(null);
     try {
-      const response = await fetch(
-        `/api/markets/equities/${encodeURIComponent(normalized)}/quote`,
-        { cache: "no-store" },
-      );
+      const endpoint = brokerEquityEnabled
+        ? `/api/accounts/${encodeURIComponent(accountID)}/markets/equities/${encodeURIComponent(normalized)}/quote`
+        : `/api/markets/equities/${encodeURIComponent(normalized)}/quote`;
+      const response = await fetch(endpoint, { cache: "no-store" });
       const body = (await response.json()) as APIError & {
         quote?: QuoteObservation;
       };
@@ -166,11 +233,41 @@ export function MarketCommandSurface({ sources }: { sources: MarketSource[] }) {
     }
   }
 
-  async function loadCrypto() {
+  async function loadOptions() {
+    const normalized = symbol.trim().toUpperCase();
+    if (!normalized || !brokerEquityEnabled || !accountID) return;
+    setOptionLoading(true);
+    setOptionError("");
+    setOptionChain(null);
+    try {
+      const query = new URLSearchParams({
+        symbol: normalized,
+        contract_type: contractType,
+        strike_count: "12",
+      });
+      const response = await fetch(
+        `/api/accounts/${encodeURIComponent(accountID)}/markets/options?${query.toString()}`,
+        { cache: "no-store" },
+      );
+      const body = (await response.json()) as APIError & {
+        chain?: OptionChainObservation;
+      };
+      if (!response.ok || !body.chain) {
+        setOptionError(providerError(body));
+        return;
+      }
+      setOptionChain(body.chain);
+    } catch {
+      setOptionError("Schwab option data is temporarily unavailable.");
+    } finally {
+      setOptionLoading(false);
+    }
+  }
+
+  const loadCrypto = useCallback(async () => {
     if (!cryptoEnabled) return;
     setCryptoLoading(true);
     setCryptoError("");
-    setCrypto([]);
     try {
       const response = await fetch("/api/markets/crypto?currency=usd&limit=8", {
         cache: "no-store",
@@ -188,7 +285,23 @@ export function MarketCommandSurface({ sources }: { sources: MarketSource[] }) {
     } finally {
       setCryptoLoading(false);
     }
-  }
+  }, [cryptoEnabled]);
+
+  useEffect(() => {
+    if (!cryptoEnabled) return;
+    let cancelled = false;
+    let refresh: number | undefined;
+    const run = async () => {
+      await loadCrypto();
+      if (!cancelled) refresh = window.setTimeout(() => void run(), 5000);
+    };
+    const initial = window.setTimeout(() => void run(), 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(initial);
+      if (refresh !== undefined) window.clearTimeout(refresh);
+    };
+  }, [cryptoEnabled, loadCrypto]);
 
   async function loadFilings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -242,12 +355,35 @@ export function MarketCommandSurface({ sources }: { sources: MarketSource[] }) {
         >
           <div className="live-panel-heading">
             <span>01 · EQUITIES</span>
-            <strong>{equityEnabled ? "ALPACA" : "STANDBY"}</strong>
+            <strong>
+              {brokerEquityEnabled
+                ? "SCHWAB"
+                : independentEquityEnabled
+                  ? "ALPACA"
+                  : "STANDBY"}
+            </strong>
           </div>
-          <h3>Latest quote</h3>
+          <h3>Equity and options desk</h3>
           <p>
-            Independent bid/ask context—not a broker balance or order price.
+            Broker-entitled observations stay read-only and account-scoped. Feed
+            quality is taken from Schwab&apos;s response.
           </p>
+          {brokerEquityEnabled && (
+            <label className="broker-account-select" htmlFor="market-account">
+              <span>Market-data authorization</span>
+              <select
+                id="market-account"
+                onChange={(event) => setAccountID(event.target.value)}
+                value={accountID}
+              >
+                {schwabAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.display_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <form className="market-query" onSubmit={loadQuote}>
             <label htmlFor="equity-symbol">Ticker symbol</label>
             <div>
@@ -266,7 +402,7 @@ export function MarketCommandSurface({ sources }: { sources: MarketSource[] }) {
           </form>
           {!equityEnabled && (
             <p className="live-source-note">
-              Add Alpaca data credentials to activate.
+              Connect a Schwab account to activate equity and option data.
             </p>
           )}
           {quoteError && (
@@ -299,6 +435,83 @@ export function MarketCommandSurface({ sources }: { sources: MarketSource[] }) {
               <ProvenanceLine provenance={quote.provenance} />
             </motion.div>
           )}
+          {brokerEquityEnabled && (
+            <section className="option-chain-desk" aria-label="Option chain">
+              <header>
+                <div>
+                  <span>OPTION CHAIN</span>
+                  <strong>{symbol.trim().toUpperCase() || "SPY"}</strong>
+                </div>
+                <div className="option-chain-controls">
+                  <label htmlFor="contract-type">Contract</label>
+                  <select
+                    id="contract-type"
+                    onChange={(event) =>
+                      setContractType(event.target.value as "PUT" | "CALL")
+                    }
+                    value={contractType}
+                  >
+                    <option value="PUT">Puts</option>
+                    <option value="CALL">Calls</option>
+                  </select>
+                  <button
+                    disabled={optionLoading}
+                    onClick={loadOptions}
+                    type="button"
+                  >
+                    {optionLoading ? "Loading…" : "Load chain"}
+                  </button>
+                </div>
+              </header>
+              {optionError && (
+                <p className="live-market-error" role="alert">
+                  {optionError}
+                </p>
+              )}
+              {optionChain && (
+                <div className="option-chain-result">
+                  <div className="option-chain-summary">
+                    <span>Underlying</span>
+                    <strong>
+                      {money(optionChain.underlying_price, "USD")}
+                    </strong>
+                    <small>{optionChain.contracts.length} contracts</small>
+                  </div>
+                  <div
+                    className="option-chain-table"
+                    role="region"
+                    tabIndex={0}
+                  >
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Expiry</th>
+                          <th>Strike</th>
+                          <th>Bid</th>
+                          <th>Ask</th>
+                          <th>Delta</th>
+                          <th>OI</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {optionChain.contracts.map((contract) => (
+                          <tr key={contract.symbol}>
+                            <td>{contract.expiration}</td>
+                            <td>{money(contract.strike, "USD")}</td>
+                            <td>{money(contract.bid, "USD")}</td>
+                            <td>{money(contract.ask, "USD")}</td>
+                            <td>{contract.delta ?? "—"}</td>
+                            <td>{contract.open_interest ?? "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <ProvenanceLine provenance={optionChain.provenance} />
+                </div>
+              )}
+            </section>
+          )}
         </motion.article>
 
         <motion.article
@@ -310,21 +523,24 @@ export function MarketCommandSurface({ sources }: { sources: MarketSource[] }) {
         >
           <div className="live-panel-heading">
             <span>02 · CRYPTO</span>
-            <strong>{cryptoEnabled ? "COINGECKO" : "STANDBY"}</strong>
+            <strong>{cryptoEnabled ? "COINBASE LIVE" : "STANDBY"}</strong>
           </div>
-          <h3>Market breadth</h3>
-          <p>Aggregated reference context, never an executable venue quote.</p>
+          <h3>Live venue board</h3>
+          <p>
+            Keyless Coinbase Exchange snapshots refresh every five seconds. They
+            describe one venue and never represent an executable Arbion order.
+          </p>
           <button
             className="market-load-button"
             disabled={!cryptoEnabled || cryptoLoading}
             onClick={loadCrypto}
             type="button"
           >
-            {cryptoLoading ? "Loading…" : "Load crypto market"}
+            {cryptoLoading ? "Refreshing…" : "Refresh now"}
           </button>
           {!cryptoEnabled && (
             <p className="live-source-note">
-              Add a CoinGecko keyed plan to activate.
+              Coinbase public market data is temporarily unavailable.
             </p>
           )}
           {cryptoError && (
@@ -344,18 +560,22 @@ export function MarketCommandSurface({ sources }: { sources: MarketSource[] }) {
                     <strong>
                       {money(asset.current_price, asset.currency)}
                     </strong>
-                    <span
-                      className={
-                        Number(asset.change_percent_24h ?? 0) < 0
-                          ? "negative"
-                          : "positive"
-                      }
-                    >
-                      {asset.change_percent_24h ?? "—"}%
-                    </span>
+                    {asset.change_percent_24h && (
+                      <span
+                        className={
+                          Number(asset.change_percent_24h) < 0
+                            ? "negative"
+                            : "positive"
+                        }
+                      >
+                        {asset.change_percent_24h}%
+                      </span>
+                    )}
                   </div>
                   <small>
-                    {compact(asset.market_cap, asset.currency)} market cap
+                    {asset.market_cap
+                      ? `${compact(asset.market_cap, asset.currency)} market cap`
+                      : `${compactNumber(asset.volume_24h)} ${asset.volume_24h_unit ?? asset.symbol} 24h volume · ${money(asset.bid, asset.currency)} bid · ${money(asset.ask, asset.currency)} ask`}
                   </small>
                 </article>
               ))}

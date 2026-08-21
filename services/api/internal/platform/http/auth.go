@@ -31,6 +31,7 @@ type authHandler struct {
 	financialProviders     financial.Registry
 	marketSources          []marketintelligence.Source
 	markets                MarketIntelligence
+	marketFinancial        BrokerMarketData
 	schwabConfigured       bool
 	financial              *financialconnection.Service
 	automation             *automation.Service
@@ -97,7 +98,7 @@ func NewFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 }
 
 func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, markets MarketIntelligence) stdhttp.Handler {
-	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), marketSources: marketintelligence.DefaultSources(), markets: markets, schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp", financial: finances}
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), marketSources: marketintelligence.DefaultSources(), markets: markets, marketFinancial: finances, schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp", financial: finances}
 	mux := stdhttp.NewServeMux()
 	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("GET /readyz", readiness(database, cfg.Database.ReadinessTimeout))
@@ -151,6 +152,8 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 		mux.Handle("GET /api/accounts/{id}", h.require(stdhttp.HandlerFunc(h.getAccount)))
 		mux.Handle("GET /api/accounts/{id}/balances", h.require(stdhttp.HandlerFunc(h.getBalances)))
 		mux.Handle("GET /api/accounts/{id}/positions", h.require(stdhttp.HandlerFunc(h.getPositions)))
+		mux.Handle("GET /api/accounts/{id}/markets/equities/{symbol}/quote", h.require(stdhttp.HandlerFunc(h.brokerEquityQuote)))
+		mux.Handle("GET /api/accounts/{id}/markets/options", h.require(stdhttp.HandlerFunc(h.brokerOptionChain)))
 	}
 	registerAutomationRoutes(mux, h)
 	return securityHeaders(mux)
@@ -180,7 +183,7 @@ func firstStrategy(strategies []*strategy.InstanceService) *strategy.InstanceSer
 }
 
 func newFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService, breakers breakerController, markets MarketIntelligence) stdhttp.Handler {
-	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), marketSources: marketintelligence.DefaultSources(), markets: markets, schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp", financial: finances, automation: automations}
+	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), marketSources: marketintelligence.DefaultSources(), markets: markets, marketFinancial: finances, schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp", financial: finances, automation: automations}
 	h.strategies = strategies
 	h.evaluations = evaluations
 	h.breakers = breakers

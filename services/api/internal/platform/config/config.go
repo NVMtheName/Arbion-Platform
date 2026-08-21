@@ -64,6 +64,7 @@ type MarketData struct {
 	CoinGeckoAPIKey    string
 	CoinGeckoTier      string
 	CoinGeckoBaseURL   string
+	CoinbaseBaseURL    string
 	SECEdgarUserAgent  string
 	SECEdgarBaseURL    string
 	RequestTimeout     time.Duration
@@ -220,6 +221,7 @@ func marketDataConfiguration(get func(string, string) string) (MarketData, error
 		AlpacaKeyID: alpacaKeyID, AlpacaSecretKey: alpacaSecretKey,
 		AlpacaBaseURL: get("ALPACA_MARKET_DATA_BASE_URL", "https://data.alpaca.markets"), AlpacaEquityFeed: alpacaFeed,
 		CoinGeckoAPIKey: coinGeckoKey, CoinGeckoTier: coinGeckoTier, CoinGeckoBaseURL: get("COINGECKO_BASE_URL", ""),
+		CoinbaseBaseURL:   get("COINBASE_MARKET_DATA_BASE_URL", "https://api.exchange.coinbase.com"),
 		SECEdgarUserAgent: get("SEC_EDGAR_USER_AGENT", ""), SECEdgarBaseURL: get("SEC_EDGAR_BASE_URL", "https://data.sec.gov"),
 		RequestTimeout: 8 * time.Second, EquityMaxAge: 120 * time.Hour, CryptoMaxAge: 10 * time.Minute, MaxFutureSkew: 2 * time.Minute,
 		SECRateInterval: 150 * time.Millisecond, EquityRateInterval: 350 * time.Millisecond, CryptoRateInterval: 2100 * time.Millisecond,

@@ -83,7 +83,7 @@ Account discovery first obtains Schwab's opaque account hash identifiers, then u
 
 Balances and positions use JSON decimal strings at transport boundaries and are never converted to binary floating point. Missing Schwab fields remain absent rather than being synthesized. Instrument types are preserved instead of assuming equity. Capability values are `SUPPORTED`, `UNSUPPORTED`, or `UNKNOWN`; unknown is the default unless Schwab supplies a reliable fact (for example, an account type explicitly reported as margin).
 
-Quotes and option chains also preserve exact decimal strings and provider timestamps. The adapter performs only authenticated GET requests against the configurable Market Data base URL, requests quote/reference fields and single-leg chains, and normalizes only standard non-mini 100-share contracts. Missing or malformed required data fails closed; the manual strategy service additionally rejects stale, missing, or implausibly future-dated market observations.
+Quotes and option chains also preserve exact decimal strings, provider timestamps, and Schwab's reported real-time/delayed entitlement state. The adapter performs only authenticated GET requests against the configurable Market Data base URL, requests quote/reference fields and single-leg chains, and normalizes only standard non-mini 100-share contracts. The `/markets` UI reaches these observations only through account-owned authenticated routes. Missing or malformed required data fails closed; the manual strategy service additionally rejects stale, missing, or implausibly future-dated market observations.
 
 **Buying power is information, not trading permission.**
 
