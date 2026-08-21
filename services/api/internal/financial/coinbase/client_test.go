@@ -116,6 +116,9 @@ func TestClientConnectsViewOnlyPortfolioAndNormalizesHoldings(t *testing.T) {
 	if err != nil || len(accounts) != 1 || accounts[0].Provider != "coinbase" || accounts[0].ProviderAccountID != "portfolio:portfolio-123" {
 		t.Fatalf("unexpected normalized accounts: %#v %v", accounts, err)
 	}
+	if accounts[0].Capabilities["trade_history"] != financial.Supported || accounts[0].Capabilities["orders"] != financial.Unsupported {
+		t.Fatalf("read history capability weakened the order boundary: %#v", accounts[0].Capabilities)
+	}
 	balances, err := client.GetBalances(context.Background(), &credentials, accounts[0].ProviderAccountID)
 	if err != nil || balances.Cash == nil || balances.Cash.Amount != "130.00" || balances.AvailableCash.Amount != "125.25" {
 		t.Fatalf("unexpected balances: %#v %v", balances, err)
@@ -159,5 +162,83 @@ func TestClientRejectsMalformedCredentialsBeforeNetworkCall(t *testing.T) {
 	var providerError *financial.ProviderError
 	if !errors.As(err, &providerError) || providerError.Code != financial.AuthorizationFailed {
 		t.Fatalf("expected authorization failure, got %v", err)
+	}
+}
+
+func TestClientListsBoundedViewOnlyFillsWithoutProviderIdentifiers(t *testing.T) {
+	credentials, key := testCredentials(t)
+	credentials.PortfolioID = "portfolio-123"
+	now := time.Date(2026, 8, 21, 15, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		verifyJWT(t, request, key, request.URL.Path)
+		response.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v3/brokerage/key_permissions":
+			_, _ = response.Write([]byte(`{"can_view":true,"can_trade":false,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+		case "/api/v3/brokerage/orders/historical/fills":
+			query := request.URL.Query()
+			if query.Get("limit") != "50" || query.Get("product_types") != "SPOT" || query.Get("sort_by") != "TRADE_TIME" || len(query) != 3 {
+				t.Fatalf("unexpected bounded fill query: %s", request.URL.RawQuery)
+			}
+			_, _ = response.Write([]byte(`{"fills":[{"entry_id":"private-entry","trade_id":"private-trade","order_id":"private-order","trade_time":"2026-08-21T14:59:00Z","trade_type":"FILL","price":"60123.123456789","size":"0.000000010000","commission":"0.00000001","product_id":"btc-usd","sequence_timestamp":"2026-08-21T14:59:01Z","liquidity_indicator":"MAKER","size_in_quote":false,"side":"BUY"},{"trade_time":"2026-08-21T14:58:00Z","trade_type":"FILL","price":"4200.25","size":"1.25","commission":"0","product_id":"ETH-USD","sequence_timestamp":"2026-08-21T14:58:01Z","liquidity_indicator":"TAKER","size_in_quote":true,"side":"SELL"}],"cursor":"next-private-page","proof_token_required":false}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(Config{BaseURL: server.URL}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.now = func() time.Time { return now }
+	page, err := client.GetTradeFills(context.Background(), &credentials, "portfolio:portfolio-123", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Provider != "coinbase" || page.Feed != "advanced_trade_fills" || !page.HasMore || len(page.Fills) != 2 {
+		t.Fatalf("unexpected fill page: %#v", page)
+	}
+	first, second := page.Fills[0], page.Fills[1]
+	if first.ProductID != "BTC-USD" || first.Price != "60123.123456789" || first.Size != "0.000000010000" || first.SizeUnit != "BTC" || first.Commission.Amount != "0.00000001" || first.Side != "BUY" || first.Liquidity != "MAKER" {
+		t.Fatalf("first fill lost exact normalized evidence: %#v", first)
+	}
+	if second.SizeUnit != "USD" || second.Side != "SELL" || second.Liquidity != "TAKER" || second.Commission.Amount != "0" {
+		t.Fatalf("quote-sized fill was not explicit: %#v", second)
+	}
+	encoded, err := json.Marshal(page)
+	if err != nil || strings.Contains(string(encoded), "private-") || strings.Contains(string(encoded), "cursor") {
+		t.Fatalf("provider identifiers escaped the normalized page: %s %v", encoded, err)
+	}
+}
+
+func TestClientRejectsUnsafeFillResponses(t *testing.T) {
+	for name, body := range map[string]string{
+		"proof required":      `{"fills":[],"proof_token_required":true}`,
+		"negative commission": `{"fills":[{"trade_time":"2026-08-21T14:59:00Z","trade_type":"FILL","price":"1","size":"1","commission":"-0.01","product_id":"BTC-USD","sequence_timestamp":"2026-08-21T14:59:01Z","side":"BUY"}]}`,
+		"not a fill":          `{"fills":[{"trade_time":"2026-08-21T14:59:00Z","trade_type":"ORDER","price":"1","size":"1","commission":"0","product_id":"BTC-USD","sequence_timestamp":"2026-08-21T14:59:01Z","side":"BUY"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			credentials, _ := testCredentials(t)
+			credentials.PortfolioID = "portfolio-123"
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.URL.Path == "/api/v3/brokerage/key_permissions" {
+					_, _ = response.Write([]byte(`{"can_view":true,"can_trade":false,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+					return
+				}
+				_, _ = response.Write([]byte(body))
+			}))
+			defer server.Close()
+			client, err := New(Config{BaseURL: server.URL}, server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.now = func() time.Time { return time.Date(2026, 8, 21, 15, 0, 0, 0, time.UTC) }
+			_, err = client.GetTradeFills(context.Background(), &credentials, "portfolio:portfolio-123", 50)
+			var providerError *financial.ProviderError
+			if !errors.As(err, &providerError) || (providerError.Code != financial.InvalidProviderResponse && providerError.Code != financial.PermissionDenied) {
+				t.Fatalf("expected safe rejection, got %v", err)
+			}
+		})
 	}
 }

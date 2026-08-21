@@ -30,6 +30,7 @@ type BrokerMarketData interface {
 	GetAccount(context.Context, authorization.Principal, string) (financial.FinancialAccount, error)
 	GetBalances(context.Context, authorization.Principal, string) (financial.Balances, error)
 	GetPositions(context.Context, authorization.Principal, string) ([]financial.Position, error)
+	GetTradeFills(context.Context, authorization.Principal, string) (financial.TradeFillPage, error)
 	GetQuote(context.Context, authorization.Principal, string, string) (financial.Quote, error)
 	GetOptionChain(context.Context, authorization.Principal, string, financial.OptionChainRequest) (financial.OptionChain, error)
 }
@@ -334,6 +335,31 @@ func (h *authHandler) connectedCryptoCandles(writer stdhttp.ResponseWriter, requ
 	writeJSON(writer, stdhttp.StatusOK, map[string]any{
 		"history": series, "cached": cached,
 		"chart_semantics": "VENUE_PRICE_MOVEMENT", "live_execution_available": false,
+	})
+}
+
+func (h *authHandler) connectedTradeFills(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
+	if h.marketFinancial == nil {
+		h.marketUnavailable(writer, marketintelligence.ErrNoEligibleSource)
+		return
+	}
+	account, err := h.marketFinancial.GetAccount(request.Context(), principal(request), request.PathValue("id"))
+	if err != nil {
+		h.financialError(writer, err)
+		return
+	}
+	if account.Provider != "coinbase" {
+		writeError(writer, stdhttp.StatusBadRequest, "TRADE_HISTORY_UNSUPPORTED", "This account does not use the connected execution history view.")
+		return
+	}
+	activity, err := h.marketFinancial.GetTradeFills(request.Context(), principal(request), account.ID)
+	if err != nil {
+		h.financialError(writer, err)
+		return
+	}
+	writeJSON(writer, stdhttp.StatusOK, map[string]any{
+		"activity": activity, "history_semantics": "EXTERNAL_EXECUTION_EVIDENCE", "live_execution_available": false,
 	})
 }
 

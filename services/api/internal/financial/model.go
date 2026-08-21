@@ -108,6 +108,29 @@ type Position struct {
 	CostBasis            *Money  `json:"cost_basis,omitempty"`
 	ProviderInstrumentID string  `json:"-"`
 }
+
+// TradeFill is normalized historical evidence for an execution that occurred
+// outside Arbion. It cannot be used to create, replace, or cancel an order.
+type TradeFill struct {
+	ProductID     string    `json:"product_id"`
+	BaseAsset     string    `json:"base_asset"`
+	QuoteCurrency string    `json:"quote_currency"`
+	Side          string    `json:"side"`
+	Price         Decimal   `json:"price"`
+	Size          Decimal   `json:"size"`
+	SizeUnit      string    `json:"size_unit"`
+	Commission    Money     `json:"commission"`
+	TradeTime     time.Time `json:"trade_time"`
+	Liquidity     string    `json:"liquidity"`
+}
+
+type TradeFillPage struct {
+	Provider    string      `json:"provider"`
+	Feed        string      `json:"feed"`
+	Fills       []TradeFill `json:"fills"`
+	HasMore     bool        `json:"has_more"`
+	RetrievedAt time.Time   `json:"retrieved_at"`
+}
 type Quote struct {
 	Symbol, AssetType    string
 	Bid, Ask, Mark, Last *Decimal
@@ -187,4 +210,11 @@ type BrokerProvider interface {
 type MarketDataProvider interface {
 	GetQuote(context.Context, *Credentials, string) (Quote, error)
 	GetOptionChain(context.Context, *Credentials, OptionChainRequest) (OptionChain, error)
+}
+
+// TradeHistoryProvider is an optional read-only extension. Keeping it separate
+// from BrokerProvider prevents execution capability from entering the base
+// account connector contract.
+type TradeHistoryProvider interface {
+	GetTradeFills(context.Context, *Credentials, string, int) (TradeFillPage, error)
 }

@@ -79,6 +79,34 @@ type HistoryResponse = {
   error?: { message?: string };
 };
 
+export type CoinbaseTradeFill = {
+  product_id: string;
+  base_asset: string;
+  quote_currency: string;
+  side: "BUY" | "SELL";
+  price: string;
+  size: string;
+  size_unit: string;
+  commission: Money;
+  trade_time: string;
+  liquidity: "MAKER" | "TAKER" | "UNKNOWN";
+};
+
+export type CoinbaseTradeActivity = {
+  provider: "coinbase";
+  feed: "advanced_trade_fills";
+  fills: CoinbaseTradeFill[];
+  has_more: boolean;
+  retrieved_at: string;
+};
+
+type ActivityResponse = {
+  activity?: CoinbaseTradeActivity;
+  history_semantics?: "EXTERNAL_EXECUTION_EVIDENCE";
+  live_execution_available: false;
+  error?: { message?: string };
+};
+
 function money(value?: Money, compact = false) {
   if (!value) return "—";
   const parsed = Number(value.amount);
@@ -97,6 +125,17 @@ function quantity(value: string) {
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 8,
   }).format(parsed);
+}
+
+function exactDecimal(value: string) {
+  const match = value.match(/^(-?)(\d+)(?:\.(\d+))?$/);
+  if (!match) return value;
+  const grouped = match[2].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${match[1]}${grouped}${match[3] === undefined ? "" : `.${match[3]}`}`;
+}
+
+function exactMoney(value: Money) {
+  return `${exactDecimal(value.amount)} ${value.currency}`;
 }
 
 function timestamp(value?: string) {
@@ -193,11 +232,13 @@ export function CryptoPortfolioCommandCenter({
   initialSnapshot,
   initialHistory,
   initialHistoryCached = false,
+  initialActivity,
 }: {
   accountID: string;
   initialSnapshot: CryptoPortfolioSnapshot;
   initialHistory?: CryptoCandleSeries;
   initialHistoryCached?: boolean;
+  initialActivity?: CoinbaseTradeActivity;
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [refreshing, setRefreshing] = useState(false);
@@ -218,6 +259,9 @@ export function CryptoPortfolioCommandCenter({
   );
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
+  const [activity, setActivity] = useState(initialActivity);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState("");
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -316,6 +360,40 @@ export function CryptoPortfolioCommandCenter({
     },
     [accountID, histories],
   );
+
+  const refreshActivity = useCallback(async () => {
+    setActivityLoading(true);
+    setActivityError("");
+    try {
+      const response = await fetch(
+        `/api/accounts/${encodeURIComponent(accountID)}/activity/fills`,
+        { cache: "no-store" },
+      );
+      const body = (await response.json()) as ActivityResponse;
+      if (
+        !response.ok ||
+        !body.activity ||
+        body.history_semantics !== "EXTERNAL_EXECUTION_EVIDENCE" ||
+        body.live_execution_available !== false ||
+        body.activity.provider !== "coinbase" ||
+        body.activity.feed !== "advanced_trade_fills" ||
+        body.activity.fills.length > 50
+      ) {
+        setActivityError(
+          body.error?.message ??
+            "Coinbase execution history is temporarily unavailable. No activity was inferred or substituted.",
+        );
+        return;
+      }
+      setActivity(body.activity);
+    } catch {
+      setActivityError(
+        "Coinbase execution history is temporarily unavailable. No activity was inferred or substituted.",
+      );
+    } finally {
+      setActivityLoading(false);
+    }
+  }, [accountID]);
 
   return (
     <section className="crypto-command" aria-labelledby="crypto-command-title">
@@ -672,6 +750,126 @@ export function CryptoPortfolioCommandCenter({
             </aside>
           </div>
         )}
+      </motion.section>
+
+      <motion.section
+        className="crypto-activity-panel"
+        aria-labelledby="crypto-activity-title"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25 }}
+      >
+        <header>
+          <div>
+            <p className="eyebrow">COINBASE EXECUTION EVIDENCE</p>
+            <h2 id="crypto-activity-title">Recent external fills</h2>
+            <p>
+              Historical trades reported by Coinbase. Arbion did not place these
+              orders, and this is not cost basis, performance, or P&amp;L.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={activityLoading}
+            onClick={() => void refreshActivity()}
+          >
+            {activityLoading ? "Refreshing…" : "Refresh activity"}
+          </button>
+        </header>
+
+        {activity && (
+          <div
+            className="crypto-activity-summary"
+            aria-label="Activity evidence"
+          >
+            <div>
+              <span>Latest execution</span>
+              <strong>{timestamp(activity.fills[0]?.trade_time)}</strong>
+            </div>
+            <div>
+              <span>Entries shown</span>
+              <strong>{activity.fills.length}/50 maximum</strong>
+            </div>
+            <div>
+              <span>History window</span>
+              <strong>
+                {activity.has_more
+                  ? "More remains at Coinbase"
+                  : "First page complete"}
+              </strong>
+            </div>
+            <div>
+              <span>Source permission</span>
+              <strong>Advanced Trade · View</strong>
+            </div>
+          </div>
+        )}
+
+        {activityError ? (
+          <p className="crypto-activity-unavailable" role="alert">
+            {activityError}
+          </p>
+        ) : !activity ? (
+          <p className="crypto-activity-unavailable">
+            Coinbase execution evidence is not available yet. Refresh to try the
+            protected view-only connection.
+          </p>
+        ) : activity.fills.length === 0 ? (
+          <p className="crypto-activity-unavailable">
+            Coinbase reported no recent spot fills for this connected portfolio.
+          </p>
+        ) : (
+          <div
+            className="crypto-activity-table"
+            role="region"
+            aria-label="Recent Coinbase execution evidence"
+            tabIndex={0}
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th>Executed</th>
+                  <th>Market</th>
+                  <th>Side</th>
+                  <th>Provider price</th>
+                  <th>Provider size</th>
+                  <th>Commission</th>
+                  <th>Liquidity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activity.fills.map((fill, index) => (
+                  <tr key={`${fill.trade_time}-${fill.product_id}-${index}`}>
+                    <td>{timestamp(fill.trade_time)}</td>
+                    <td>
+                      <strong>{fill.product_id}</strong>
+                      <small>Executed outside Arbion</small>
+                    </td>
+                    <td>
+                      <span
+                        className={`crypto-activity-side ${fill.side.toLowerCase()}`}
+                      >
+                        {fill.side}
+                      </span>
+                    </td>
+                    <td>
+                      {exactDecimal(fill.price)} {fill.quote_currency}
+                    </td>
+                    <td>
+                      {exactDecimal(fill.size)} {fill.size_unit}
+                    </td>
+                    <td>{exactMoney(fill.commission)}</td>
+                    <td>{fill.liquidity.toLowerCase()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <footer>
+          Arbion requests only the first 50 spot fills and never exposes
+          Coinbase order IDs, trade IDs, entry IDs, or pagination tokens.
+        </footer>
       </motion.section>
 
       <section
