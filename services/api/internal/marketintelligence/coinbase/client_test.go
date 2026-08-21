@@ -56,3 +56,38 @@ func TestClientRejectsInvalidConfigurationAndQueries(t *testing.T) {
 		t.Fatal("unsupported quote currency accepted")
 	}
 }
+
+func TestClientReturnsPortfolioTickersWithExplicitPartialCoverage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/products/BTC-USD/ticker":
+			_, _ = writer.Write([]byte(`{"price":"70187.12","bid":"70186.90","ask":"70187.20","volume":"12.5","time":"` + time.Now().UTC().Format(time.RFC3339Nano) + `"}`))
+		case "/products/RARE-USD/ticker":
+			writer.WriteHeader(http.StatusNotFound)
+		default:
+			t.Fatalf("unexpected request path: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(Config{
+		BaseURL: server.URL, Products: []Product{{ID: "BTC-USD", Name: "Bitcoin"}},
+		Timeout: time.Second, MaxAge: time.Hour, MaxFutureSkew: time.Minute,
+	}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, err := client.CryptoMarkets(t.Context(), "USD", []string{"BTC", "RARE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Markets) != 1 || batch.Markets[0].Name != "Bitcoin" || batch.Markets[0].CurrentPrice != "70187.12" {
+		t.Fatalf("portfolio ticker was not normalized: %+v", batch)
+	}
+	if len(batch.UnavailableSymbols) != 1 || batch.UnavailableSymbols[0] != "RARE" {
+		t.Fatalf("missing product coverage was hidden: %+v", batch)
+	}
+	if _, err = client.CryptoMarkets(t.Context(), "USD", []string{"BTC-USD"}); err == nil {
+		t.Fatal("invalid portfolio symbol accepted")
+	}
+}

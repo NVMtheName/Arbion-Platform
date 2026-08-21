@@ -1,7 +1,12 @@
 import { cookies } from "next/headers";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { AppPageHeader } from "../../app-page-header";
+import {
+  CryptoPortfolioCommandCenter,
+  type CryptoPortfolioSnapshot,
+} from "./crypto-portfolio-command-center";
 type Money = { amount: string; currency: string };
 type Account = {
   id: string;
@@ -40,8 +45,53 @@ export default async function AccountPage({
   const jar = await cookies();
   const base = process.env.API_BASE_URL ?? "http://localhost:8080";
   const headers = { cookie: jar.toString() };
-  const [ar, br, pr] = await Promise.all([
-    fetch(`${base}/api/accounts/${id}`, { headers, cache: "no-store" }),
+  const ar = await fetch(`${base}/api/accounts/${id}`, {
+    headers,
+    cache: "no-store",
+  });
+  if (ar.status === 401) redirect("/login");
+  if (ar.status === 404) notFound();
+  if (!ar.ok) throw new Error("Unable to load account");
+  const account = ((await ar.json()) as { account: Account }).account;
+
+  if (account.provider === "coinbase") {
+    const portfolioResponse = await fetch(
+      `${base}/api/accounts/${id}/portfolio/crypto`,
+      { headers, cache: "no-store" },
+    );
+    if (portfolioResponse.status === 401) redirect("/login");
+    if (portfolioResponse.status === 404) notFound();
+    if (!portfolioResponse.ok) {
+      return (
+        <main className="connections-page crypto-account-page">
+          <AppPageHeader backHref="/accounts" backLabel="Accounts" />
+          <p className="eyebrow">COINBASE · READ-ONLY CONNECTION</p>
+          <h1>{account.display_name}</h1>
+          <p className="unavailable">
+            Coinbase holdings could not be refreshed. Arbion has not substituted
+            cached balances or estimated values.
+          </p>
+          <Link href="/settings/connections">Review connection settings</Link>
+        </main>
+      );
+    }
+    const snapshot = (
+      (await portfolioResponse.json()) as {
+        portfolio: CryptoPortfolioSnapshot;
+      }
+    ).portfolio;
+    return (
+      <main className="connections-page crypto-account-page">
+        <AppPageHeader backHref="/accounts" backLabel="Accounts" />
+        <CryptoPortfolioCommandCenter
+          accountID={account.id}
+          initialSnapshot={snapshot}
+        />
+      </main>
+    );
+  }
+
+  const [br, pr] = await Promise.all([
     fetch(`${base}/api/accounts/${id}/balances`, {
       headers,
       cache: "no-store",
@@ -51,22 +101,16 @@ export default async function AccountPage({
       cache: "no-store",
     }),
   ]);
-  if (ar.status === 401) redirect("/login");
-  if (ar.status === 404) notFound();
-  if (!ar.ok) throw new Error("Unable to load account");
-  const account = ((await ar.json()) as { account: Account }).account;
   const balances = br.ok
     ? ((await br.json()) as { balances: Balances }).balances
     : {};
   const positions = pr.ok
     ? ((await pr.json()) as { positions: Position[] }).positions
     : [];
-  const providerLabel =
-    account.provider === "coinbase" ? "COINBASE" : "CHARLES SCHWAB";
   return (
     <main className="connections-page">
       <AppPageHeader backHref="/accounts" backLabel="Accounts" />
-      <p className="eyebrow">{providerLabel} · CONNECTED ACCOUNT</p>
+      <p className="eyebrow">CHARLES SCHWAB · CONNECTED ACCOUNT</p>
       <h1>{account.display_name}</h1>
       <section className="dashboard-grid">
         <article>

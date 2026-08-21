@@ -28,6 +28,7 @@ var (
 	ErrInvalidConfiguration = errors.New("invalid Coinbase configuration")
 	ErrRateLimited          = errors.New("Coinbase rate limited")
 	ErrUnavailable          = errors.New("Coinbase unavailable")
+	ErrProductUnavailable   = errors.New("Coinbase USD product unavailable")
 	ErrInvalidResponse      = errors.New("invalid Coinbase response")
 	productPattern          = regexp.MustCompile(`^[A-Z0-9]{2,12}-USD$`)
 	unsignedDecimalPattern  = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.[0-9]+)?$`)
@@ -170,6 +171,104 @@ func (client *Client) TopCryptoMarkets(ctx context.Context, currency string, lim
 	}
 }
 
+func (client *Client) CryptoMarkets(ctx context.Context, currency string, symbols []string) (marketintelligence.CryptoMarketBatch, error) {
+	if !strings.EqualFold(strings.TrimSpace(currency), "usd") || len(symbols) == 0 || len(symbols) > 32 {
+		return marketintelligence.CryptoMarketBatch{}, marketintelligence.ErrInvalidObservation
+	}
+	products := make([]Product, 0, len(symbols))
+	seen := make(map[string]struct{}, len(symbols))
+	for _, value := range symbols {
+		symbol := strings.ToUpper(strings.TrimSpace(value))
+		if !validAssetSymbol(symbol) {
+			return marketintelligence.CryptoMarketBatch{}, marketintelligence.ErrInvalidObservation
+		}
+		if _, exists := seen[symbol]; exists {
+			continue
+		}
+		seen[symbol] = struct{}{}
+		products = append(products, Product{ID: symbol + "-USD", Name: client.productName(symbol)})
+	}
+	if len(products) == 0 {
+		return marketintelligence.CryptoMarketBatch{}, marketintelligence.ErrInvalidObservation
+	}
+
+	type result struct {
+		observation marketintelligence.CryptoMarketObservation
+		unavailable bool
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make([]result, len(products))
+	errorsFound := make(chan error, len(products))
+	semaphore := make(chan struct{}, 4)
+	var wait sync.WaitGroup
+	for index, product := range products {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-ctx.Done():
+				return
+			}
+			observation, err := client.fetchTicker(ctx, product)
+			if errors.Is(err, ErrProductUnavailable) {
+				results[index].unavailable = true
+				return
+			}
+			if err != nil {
+				select {
+				case errorsFound <- err:
+				default:
+				}
+				cancel()
+				return
+			}
+			results[index].observation = observation
+		}()
+	}
+	wait.Wait()
+	select {
+	case err := <-errorsFound:
+		return marketintelligence.CryptoMarketBatch{}, err
+	default:
+	}
+	batch := marketintelligence.CryptoMarketBatch{
+		Markets:            make([]marketintelligence.CryptoMarketObservation, 0, len(results)),
+		UnavailableSymbols: make([]string, 0),
+	}
+	for index, value := range results {
+		if value.unavailable {
+			batch.UnavailableSymbols = append(batch.UnavailableSymbols, strings.TrimSuffix(products[index].ID, "-USD"))
+			continue
+		}
+		batch.Markets = append(batch.Markets, value.observation)
+	}
+	return batch, nil
+}
+
+func validAssetSymbol(symbol string) bool {
+	if len(symbol) == 0 || len(symbol) > 12 {
+		return false
+	}
+	for _, character := range symbol {
+		if (character < 'A' || character > 'Z') && (character < '0' || character > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func (client *Client) productName(symbol string) string {
+	for _, product := range client.products {
+		if strings.TrimSuffix(product.ID, "-USD") == symbol {
+			return product.Name
+		}
+	}
+	return symbol
+}
+
 func (client *Client) fetchTicker(ctx context.Context, product Product) (marketintelligence.CryptoMarketObservation, error) {
 	endpoint := *client.baseURL
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/products/" + url.PathEscape(product.ID) + "/ticker"
@@ -185,8 +284,12 @@ func (client *Client) fetchTicker(ctx context.Context, product Product) (marketi
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
 		if response.StatusCode == http.StatusTooManyRequests {
 			return marketintelligence.CryptoMarketObservation{}, ErrRateLimited
+		}
+		if response.StatusCode == http.StatusNotFound {
+			return marketintelligence.CryptoMarketObservation{}, ErrProductUnavailable
 		}
 		return marketintelligence.CryptoMarketObservation{}, ErrUnavailable
 	}
