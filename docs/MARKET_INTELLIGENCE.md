@@ -8,6 +8,8 @@ The implemented vertical slice includes normalized observations and source-selec
 
 Current authenticated read routes are `GET /api/markets/equities/{symbol}/quote`, `GET /api/markets/crypto`, `GET /api/markets/insiders/{cik}`, `GET /api/accounts/{id}/markets/equities/{symbol}/quote`, `GET /api/accounts/{id}/markets/options`, `GET /api/accounts/{id}/portfolio/crypto`, `GET /api/accounts/{id}/markets/crypto/{symbol}/candles`, `GET /api/accounts/{id}/markets/crypto/{symbol}/liquidity`, `GET /api/accounts/{id}/markets/crypto/{symbol}/trades`, and `GET /api/accounts/{id}/markets/crypto/{symbol}/stats`. They return normalized source evidence plus `live_execution_available: false`; credentials remain server-only. Account-scoped routes authorize ownership before using the current user's encrypted broker connection or exposing history, liquidity, public ticks, or rolling venue statistics for a connected holding. yfinance is not a runtime fallback, and OpenInsider is exposed only as an optional human research link.
 
+The authenticated `GET /api/markets/sources` route exposes process-local verification independently for every configured capability. A successful Coinbase ticker call cannot mark candles, liquidity, public trades, or rolling statistics verified. Each capability reports `NOT_CONFIGURED`, `AWAITING_OBSERVATION`, `VERIFIED`, or `DEGRADED`, plus last-attempt/last-success times, consecutive failures, and a bounded failure category. Raw provider errors are never returned. Cache hits do not create a new provider success, status resets with the API process, and runtime verification is not a quote, freshness guarantee, consolidated-market claim, or execution guarantee. The `/markets` monitor refreshes this no-store metadata every 30 seconds and on demand.
+
 The first delivery target is a branded, authenticated `/markets` command center for one founder and a small number of test users. Cost can remain low while the product is being validated, but every observation must disclose whether it is consolidated, single-venue, indicative, delayed, or filing-derived. A cheap feed may reduce coverage; it must never make lower-quality data look authoritative.
 
 ## Product boundary
@@ -114,6 +116,8 @@ Each adapter must implement:
 - no-store browser responses for user-specific or licensed data; and
 - metrics for latency, error class, cache age, feed quality, and quota consumption.
 
+The current founder deployment implements in-process, per-capability last-attempt and last-success telemetry with safe failure categories. Durable health history, latency percentiles, quota accounting, and cross-instance aggregation remain later operational work; the UI does not imply that current process memory is durable monitoring.
+
 For the initial founder deployment, use the founder's delegated Schwab market-data entitlement for account-scoped equities/options and Coinbase Exchange public tickers for a bounded crypto venue board. Coinbase values must show `REAL_TIME_SINGLE_VENUE`; Schwab responses must preserve the provider's real-time/delayed entitlement flag and use `INDICATIVE` when that flag is absent. A production gate decides whether independent consolidated SIP/OPRA access, aggregated crypto breadth, or paid historical data is justified by actual usage.
 
 ## Branded command-center experience
@@ -137,6 +141,7 @@ The page must avoid presenting a single-venue or aggregate reference price as a 
 - Implemented: provider-neutral observation, feed-quality, freshness, and capability models in Go.
 - Implemented: deterministic validation and source-selection policy with tests.
 - Implemented: runtime health and source metadata backed by disabled-by-default configuration.
+- Implemented: independent per-capability verification timestamps and safe failure categories; raw provider diagnostics are excluded.
 - Implemented: documented optional configuration without real credentials.
 
 Exit gate: malformed and stale data fail closed; source quality cannot be omitted; no order or trading scope exists.
@@ -175,7 +180,8 @@ Exit gate: all displayed events link to SEC evidence and the importer complies w
 ### 5. Arbion command center
 
 - Implemented: the branded `/markets` overview plus a motion-enhanced Coinbase portfolio command surface with observed value, cash, coverage, priced allocation, source-stamped 24-hour connected-asset charts, a position ledger, and evidence controls.
-- Next: watchlists, dedicated equity detail, and richer source-health timelines.
+- Implemented: responsive per-capability source status with explicit process-local and non-executable semantics.
+- Next: watchlists, dedicated equity detail, and durable source-health timelines.
 - Keep broker account truth visually distinct from public/reference data.
 - Add responsive, loading, empty, degraded, stale, and provider-outage states with browser tests.
 

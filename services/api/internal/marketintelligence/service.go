@@ -195,14 +195,14 @@ func NewService(config ServiceConfig) (*Service, error) {
 		filingCache:             make(map[string]cacheEntry[[]InsiderFilingObservation]),
 		now:                     func() time.Time { return time.Now().UTC() },
 	}
-	service.setEnabled(config.EquitySourceID, config.EquityProvider != nil)
-	service.setEnabled(config.CryptoSourceID, config.CryptoProvider != nil)
-	service.setEnabled(assetSourceID, assetProvider != nil)
-	service.setEnabled(config.CryptoCandleSourceID, config.CryptoCandleProvider != nil)
-	service.setEnabled(config.CryptoLiquiditySourceID, config.CryptoLiquidityProvider != nil)
-	service.setEnabled(config.CryptoTradeSourceID, config.CryptoTradeProvider != nil)
-	service.setEnabled(config.CryptoStatsSourceID, config.CryptoStatsProvider != nil)
-	service.setEnabled("sec_edgar", config.FilingProvider != nil)
+	service.setCapabilityEnabled(config.EquitySourceID, EquityQuote, config.EquityProvider != nil)
+	service.setCapabilityEnabled(config.CryptoSourceID, CryptoMarkets, config.CryptoProvider != nil)
+	service.setCapabilityEnabled(assetSourceID, CryptoMarkets, assetProvider != nil)
+	service.setCapabilityEnabled(config.CryptoCandleSourceID, CryptoCandles, config.CryptoCandleProvider != nil)
+	service.setCapabilityEnabled(config.CryptoLiquiditySourceID, CryptoLiquidity, config.CryptoLiquidityProvider != nil)
+	service.setCapabilityEnabled(config.CryptoTradeSourceID, CryptoTrades, config.CryptoTradeProvider != nil)
+	service.setCapabilityEnabled(config.CryptoStatsSourceID, CryptoStats, config.CryptoStatsProvider != nil)
+	service.setCapabilityEnabled("sec_edgar", InsiderFiling, config.FilingProvider != nil)
 	return service, nil
 }
 
@@ -218,6 +218,22 @@ func (service *Service) Sources() []Source {
 	for index, source := range service.sources {
 		result[index] = source
 		result[index].Capabilities = append([]Capability(nil), source.Capabilities...)
+		result[index].CapabilityStatus = cloneCapabilityStatuses(source.CapabilityStatus)
+	}
+	return result
+}
+
+func cloneCapabilityStatuses(statuses []CapabilityStatus) []CapabilityStatus {
+	result := append([]CapabilityStatus(nil), statuses...)
+	for index := range result {
+		if result[index].LastAttemptAt != nil {
+			value := *result[index].LastAttemptAt
+			result[index].LastAttemptAt = &value
+		}
+		if result[index].LastSuccessAt != nil {
+			value := *result[index].LastSuccessAt
+			result[index].LastSuccessAt = &value
+		}
 	}
 	return result
 }
@@ -227,18 +243,22 @@ func (service *Service) LatestEquityQuote(ctx context.Context, symbol string) (Q
 		return QuoteObservation{}, false, ErrNoEligibleSource
 	}
 	key := strings.ToUpper(strings.TrimSpace(symbol))
+	if !validEquitySymbol(key) {
+		return QuoteObservation{}, false, ErrInvalidObservation
+	}
 	if value, ok := cacheValue(service, service.equityCache, key); ok {
 		return value, true, nil
 	}
 	if err := service.equityPacer.wait(ctx); err != nil {
 		return QuoteObservation{}, false, err
 	}
+	service.recordProviderAttempt(service.equitySourceID, EquityQuote)
 	observation, err := service.equityProvider.LatestEquityQuote(ctx, key)
 	if err != nil {
-		service.recordProviderError(service.equitySourceID, err)
+		service.recordProviderError(service.equitySourceID, EquityQuote, err)
 		return QuoteObservation{}, false, err
 	}
-	service.setHealthy(service.equitySourceID, true)
+	service.recordProviderSuccess(service.equitySourceID, EquityQuote)
 	service.storeEquity(key, observation)
 	return observation, false, nil
 }
@@ -247,19 +267,24 @@ func (service *Service) TopCryptoMarkets(ctx context.Context, currency string, l
 	if service.cryptoProvider == nil {
 		return nil, false, ErrNoEligibleSource
 	}
-	key := strings.ToLower(strings.TrimSpace(currency)) + ":" + decimalKey(limit)
+	currency = strings.ToLower(strings.TrimSpace(currency))
+	if !validReferenceCurrency(currency) || limit < 1 || limit > 100 {
+		return nil, false, ErrInvalidObservation
+	}
+	key := currency + ":" + decimalKey(limit)
 	if value, ok := cacheValue(service, service.cryptoCache, key); ok {
 		return append([]CryptoMarketObservation(nil), value...), true, nil
 	}
 	if err := service.cryptoPacer.wait(ctx); err != nil {
 		return nil, false, err
 	}
+	service.recordProviderAttempt(service.cryptoSourceID, CryptoMarkets)
 	observations, err := service.cryptoProvider.TopCryptoMarkets(ctx, currency, limit)
 	if err != nil {
-		service.recordProviderError(service.cryptoSourceID, err)
+		service.recordProviderError(service.cryptoSourceID, CryptoMarkets, err)
 		return nil, false, err
 	}
-	service.setHealthy(service.cryptoSourceID, true)
+	service.recordProviderSuccess(service.cryptoSourceID, CryptoMarkets)
 	copyValue := append([]CryptoMarketObservation(nil), observations...)
 	service.storeCrypto(key, copyValue)
 	return append([]CryptoMarketObservation(nil), copyValue...), false, nil
@@ -282,12 +307,13 @@ func (service *Service) CryptoMarkets(ctx context.Context, currency string, symb
 	if err := service.cryptoPacer.wait(ctx); err != nil {
 		return CryptoMarketBatch{}, false, err
 	}
+	service.recordProviderAttempt(service.cryptoAssetSourceID, CryptoMarkets)
 	batch, err := service.cryptoAssets.CryptoMarkets(ctx, "USD", canonical)
 	if err != nil {
-		service.recordProviderError(service.cryptoAssetSourceID, err)
+		service.recordProviderError(service.cryptoAssetSourceID, CryptoMarkets, err)
 		return CryptoMarketBatch{}, false, err
 	}
-	service.setHealthy(service.cryptoAssetSourceID, true)
+	service.recordProviderSuccess(service.cryptoAssetSourceID, CryptoMarkets)
 	batch = cloneCryptoBatch(batch)
 	service.storeCryptoAssets(key, batch)
 	return cloneCryptoBatch(batch), false, nil
@@ -346,12 +372,13 @@ func (service *Service) RecentCryptoCandles(ctx context.Context, symbol, currenc
 	if err := service.cryptoCandlePacer.wait(ctx); err != nil {
 		return CryptoCandleSeries{}, false, err
 	}
+	service.recordProviderAttempt(service.cryptoCandleSourceID, CryptoCandles)
 	series, err := service.cryptoCandles.RecentCryptoCandles(ctx, canonical[0], "USD", granularitySeconds, limit)
 	if err != nil {
-		service.recordProviderError(service.cryptoCandleSourceID, err)
+		service.recordProviderError(service.cryptoCandleSourceID, CryptoCandles, err)
 		return CryptoCandleSeries{}, false, err
 	}
-	service.setHealthy(service.cryptoCandleSourceID, true)
+	service.recordProviderSuccess(service.cryptoCandleSourceID, CryptoCandles)
 	series = cloneCryptoCandleSeries(series)
 	service.storeCryptoCandles(key, series)
 	return cloneCryptoCandleSeries(series), false, nil
@@ -379,12 +406,13 @@ func (service *Service) CryptoLiquidity(ctx context.Context, symbol, currency st
 	if err := service.cryptoLiquidityPacer.wait(ctx); err != nil {
 		return CryptoLiquiditySnapshot{}, false, err
 	}
+	service.recordProviderAttempt(service.cryptoLiquiditySourceID, CryptoLiquidity)
 	snapshot, err := service.cryptoLiquidity.CryptoLiquidity(ctx, canonical[0], "USD", depth)
 	if err != nil {
-		service.recordProviderError(service.cryptoLiquiditySourceID, err)
+		service.recordProviderError(service.cryptoLiquiditySourceID, CryptoLiquidity, err)
 		return CryptoLiquiditySnapshot{}, false, err
 	}
-	service.setHealthy(service.cryptoLiquiditySourceID, true)
+	service.recordProviderSuccess(service.cryptoLiquiditySourceID, CryptoLiquidity)
 	snapshot = cloneCryptoLiquidity(snapshot)
 	service.storeCryptoLiquidity(key, snapshot)
 	return cloneCryptoLiquidity(snapshot), false, nil
@@ -411,12 +439,13 @@ func (service *Service) RecentCryptoTrades(ctx context.Context, symbol, currency
 	if err := service.cryptoTradePacer.wait(ctx); err != nil {
 		return CryptoTradeTape{}, false, err
 	}
+	service.recordProviderAttempt(service.cryptoTradeSourceID, CryptoTrades)
 	tape, err := service.cryptoTrades.RecentCryptoTrades(ctx, canonical[0], "USD", limit)
 	if err != nil {
-		service.recordProviderError(service.cryptoTradeSourceID, err)
+		service.recordProviderError(service.cryptoTradeSourceID, CryptoTrades, err)
 		return CryptoTradeTape{}, false, err
 	}
-	service.setHealthy(service.cryptoTradeSourceID, true)
+	service.recordProviderSuccess(service.cryptoTradeSourceID, CryptoTrades)
 	tape = cloneCryptoTradeTape(tape)
 	service.storeCryptoTradeTape(key, tape)
 	return cloneCryptoTradeTape(tape), false, nil
@@ -442,12 +471,13 @@ func (service *Service) CryptoVenueStats(ctx context.Context, symbol, currency s
 	if err := service.cryptoStatsPacer.wait(ctx); err != nil {
 		return CryptoVenueStats{}, false, err
 	}
+	service.recordProviderAttempt(service.cryptoStatsSourceID, CryptoStats)
 	stats, err := service.cryptoStats.CryptoVenueStats(ctx, canonical[0], "USD")
 	if err != nil {
-		service.recordProviderError(service.cryptoStatsSourceID, err)
+		service.recordProviderError(service.cryptoStatsSourceID, CryptoStats, err)
 		return CryptoVenueStats{}, false, err
 	}
-	service.setHealthy(service.cryptoStatsSourceID, true)
+	service.recordProviderSuccess(service.cryptoStatsSourceID, CryptoStats)
 	service.storeCryptoVenueStats(key, stats)
 	return stats, false, nil
 }
@@ -456,19 +486,24 @@ func (service *Service) RecentInsiderFilings(ctx context.Context, cik string, li
 	if service.filingProvider == nil {
 		return nil, false, ErrNoEligibleSource
 	}
-	key := strings.TrimSpace(cik) + ":" + decimalKey(limit)
+	cik = strings.TrimSpace(cik)
+	if !validCIKQuery(cik) || limit < 1 || limit > 100 {
+		return nil, false, ErrInvalidObservation
+	}
+	key := cik + ":" + decimalKey(limit)
 	if value, ok := cacheValue(service, service.filingCache, key); ok {
 		return append([]InsiderFilingObservation(nil), value...), true, nil
 	}
 	if err := service.filingPacer.wait(ctx); err != nil {
 		return nil, false, err
 	}
+	service.recordProviderAttempt("sec_edgar", InsiderFiling)
 	observations, err := service.filingProvider.RecentInsiderFilings(ctx, cik, limit)
 	if err != nil {
-		service.recordProviderError("sec_edgar", err)
+		service.recordProviderError("sec_edgar", InsiderFiling, err)
 		return nil, false, err
 	}
-	service.setHealthy("sec_edgar", true)
+	service.recordProviderSuccess("sec_edgar", InsiderFiling)
 	copyValue := append([]InsiderFilingObservation(nil), observations...)
 	service.storeFilings(key, copyValue)
 	return append([]InsiderFilingObservation(nil), copyValue...), false, nil
@@ -611,36 +646,161 @@ func pruneCache[T any](cache map[string]cacheEntry[T], now time.Time) {
 	delete(cache, oldestKey)
 }
 
-func (service *Service) setEnabled(id string, enabled bool) {
-	if id == "" || !enabled {
+func (service *Service) setCapabilityEnabled(id string, capability Capability, enabled bool) {
+	if id == "" || capability == "" || !enabled {
 		return
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	for index := range service.sources {
-		if service.sources[index].ID == id {
-			service.sources[index].Enabled = true
-			return
+		if service.sources[index].ID != id {
+			continue
+		}
+		for statusIndex := range service.sources[index].CapabilityStatus {
+			status := &service.sources[index].CapabilityStatus[statusIndex]
+			if status.Capability == capability {
+				status.Enabled = true
+				status.State = AwaitingObservation
+				refreshSourceHealth(&service.sources[index])
+				return
+			}
 		}
 	}
 }
 
-func (service *Service) setHealthy(id string, healthy bool) {
+func (service *Service) recordProviderAttempt(id string, capability Capability) {
+	now := service.now()
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	for index := range service.sources {
-		if service.sources[index].ID == id {
-			service.sources[index].Healthy = healthy
-			return
+	_, status := findCapabilityStatus(service.sources, id, capability)
+	if status == nil || !status.Enabled {
+		return
+	}
+	status.LastAttemptAt = timePointer(now)
+}
+
+func (service *Service) recordProviderSuccess(id string, capability Capability) {
+	now := service.now()
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	source, status := findCapabilityStatus(service.sources, id, capability)
+	if status == nil || !status.Enabled {
+		return
+	}
+	status.State = Verified
+	status.LastSuccessAt = timePointer(now)
+	status.ConsecutiveFailures = 0
+	status.FailureCategory = ""
+	refreshSourceHealth(source)
+}
+
+func (service *Service) recordProviderError(id string, capability Capability, err error) {
+	if errors.Is(err, ErrInstrumentUnavailable) || errors.Is(err, context.Canceled) {
+		return
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	source, status := findCapabilityStatus(service.sources, id, capability)
+	if status == nil || !status.Enabled {
+		return
+	}
+	status.State = Degraded
+	status.ConsecutiveFailures++
+	status.FailureCategory = providerFailureCategory(err)
+	refreshSourceHealth(source)
+}
+
+func findCapabilityStatus(sources []Source, id string, capability Capability) (*Source, *CapabilityStatus) {
+	for sourceIndex := range sources {
+		if sources[sourceIndex].ID != id {
+			continue
 		}
+		for statusIndex := range sources[sourceIndex].CapabilityStatus {
+			if sources[sourceIndex].CapabilityStatus[statusIndex].Capability == capability {
+				return &sources[sourceIndex], &sources[sourceIndex].CapabilityStatus[statusIndex]
+			}
+		}
+	}
+	return nil, nil
+}
+
+func refreshSourceHealth(source *Source) {
+	if source == nil {
+		return
+	}
+	enabled, verified, degraded := false, false, false
+	for _, status := range source.CapabilityStatus {
+		if !status.Enabled {
+			continue
+		}
+		enabled = true
+		verified = verified || status.State == Verified
+		degraded = degraded || status.State == Degraded
+	}
+	source.Enabled = enabled
+	source.Healthy = enabled && verified && !degraded
+}
+
+func providerFailureCategory(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "TIMEOUT"
+	case errors.Is(err, ErrStaleObservation):
+		return "STALE_DATA"
+	case errors.Is(err, ErrFutureObservation):
+		return "FUTURE_DATED_DATA"
+	case errors.Is(err, ErrMissingProvenance):
+		return "MISSING_PROVENANCE"
+	case errors.Is(err, ErrInvalidObservation):
+		return "INVALID_DATA"
+	default:
+		return "UPSTREAM_FAILURE"
 	}
 }
 
-func (service *Service) recordProviderError(id string, err error) {
-	if errors.Is(err, ErrInvalidObservation) || errors.Is(err, ErrInstrumentUnavailable) {
-		return
+func validEquitySymbol(value string) bool {
+	if len(value) < 1 || len(value) > 15 || value[0] < 'A' || value[0] > 'Z' {
+		return false
 	}
-	service.setHealthy(id, false)
+	for index := 1; index < len(value); index++ {
+		character := value[index]
+		if (character < 'A' || character > 'Z') && (character < '0' || character > '9') && character != '.' && character != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func validReferenceCurrency(value string) bool {
+	if len(value) < 2 || len(value) > 12 || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for index := 1; index < len(value); index++ {
+		character := value[index]
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func validCIKQuery(value string) bool {
+	if len(value) < 1 || len(value) > 10 {
+		return false
+	}
+	nonzero := false
+	for index := range len(value) {
+		if value[index] < '0' || value[index] > '9' {
+			return false
+		}
+		nonzero = nonzero || value[index] != '0'
+	}
+	return nonzero
+}
+
+func timePointer(value time.Time) *time.Time {
+	value = value.UTC()
+	return &value
 }
 
 func decimalKey(value int) string {

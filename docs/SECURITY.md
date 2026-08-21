@@ -56,6 +56,8 @@ The implemented Arbion Insight flow is intentionally data-isolated. An authentic
 
 Financial providers are external systems. Their data and callbacks require authentication, schema validation, provenance, freshness checks, and replay defenses. Go connector adapters receive financial credentials only when needed and only after control-plane authorization. A provider's acceptance of a request does not replace Arbion audit and reconciliation.
 
+Market-source status responses contain only declared source metadata, per-capability process-local attempt/success timestamps, consecutive-failure counts, and bounded categories such as timeout or stale data. They never expose raw provider errors, response bodies, request URLs, headers, correlation values not already approved as observation provenance, or credentials. A cache hit does not create a provider-success event, and status metadata is never presented as an executable quote or provider event timestamp.
+
 ### Data infrastructure
 
 PostgreSQL is the durable system of record. Redis is ephemeral and must not be the sole store for authorization, approvals, credential state, or audit facts. Production infrastructure requires encrypted transport, encryption at rest, backups, least-privilege identities, network restrictions, and monitored access.

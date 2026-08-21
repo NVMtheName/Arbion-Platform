@@ -253,6 +253,14 @@ func TestDefaultSourcesAreSafeAndDisabled(t *testing.T) {
 		if source.Enabled || source.Healthy {
 			t.Fatalf("source enabled before adapter wiring: %+v", source)
 		}
+		if len(source.CapabilityStatus) != len(source.Capabilities) {
+			t.Fatalf("source capability status is incomplete: %+v", source)
+		}
+		for _, status := range source.CapabilityStatus {
+			if status.Enabled || status.State != NotConfigured || status.LastAttemptAt != nil || status.LastSuccessAt != nil || status.ConsecutiveFailures != 0 || status.FailureCategory != "" {
+				t.Fatalf("source capability verified before adapter wiring: %+v", status)
+			}
+		}
 	}
 	encoded, err := json.Marshal(sources)
 	if err != nil {
