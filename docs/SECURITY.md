@@ -144,6 +144,8 @@ Pending OAuth state is random, expiring, user-bound, and single-use. A mismatche
 
 Coinbase API-key enrollment is authenticated and CSRF-protected. Go validates the ECDSA key, generates a request-specific ES256 JWT, and calls Coinbase's permission endpoint before writing any connection material. Enrollment fails closed unless View is present and both Trade and Transfer are absent. The key is never interpolated into a URL or provider error, and provider response bodies are bounded and discarded on failure.
 
+The Coinbase portfolio command endpoint is an authenticated, owner-scoped `GET` with `Cache-Control: no-store`. It reuses the financial read boundary, which re-verifies View-only permissions before current balance and holding reads, and combines only normalized symbols and quantities with the separate public market adapter. Pricing is bounded to 32 assets per refresh and uses exact decimal arithmetic. Missing products and provider failures remain explicit coverage gaps; no credential, wallet UUID, portfolio UUID, raw provider body, order method, or transfer method enters the response.
+
 Disable preserves authorization and inventory while preventing use. Disconnect removes Vault material and retires the Arbion connection while preserving audit history. Logout only revokes an ephemeral browser session: it does not delete tokens, accounts, or provider authorization.
 
 **Financial-provider credentials never enter the Neural Engine.** Financial credentials flow `Go/Vault -> broker only`; AI credentials flow `Go/Vault -> Neural Engine -> selected AI provider only`. Neither credential class may cross into the other provider domain.

@@ -34,6 +34,23 @@ func (fake fakeMarketIntelligence) TopCryptoMarkets(_ context.Context, currency 
 	}
 	return []marketintelligence.CryptoMarketObservation{{ID: "bitcoin", Symbol: "BTC", Currency: currency, CurrentPrice: marketintelligence.Decimal("60000")}}, false, nil
 }
+func (fake fakeMarketIntelligence) CryptoMarkets(_ context.Context, currency string, symbols []string) (marketintelligence.CryptoMarketBatch, bool, error) {
+	if fake.err != nil {
+		return marketintelligence.CryptoMarketBatch{}, false, fake.err
+	}
+	markets := make([]marketintelligence.CryptoMarketObservation, 0, len(symbols))
+	for _, symbol := range symbols {
+		price := marketintelligence.Decimal("100")
+		if symbol == "BTC" {
+			price = "60000"
+		}
+		markets = append(markets, marketintelligence.CryptoMarketObservation{
+			ID: symbol + "-USD", Symbol: symbol, Name: symbol, Currency: currency, CurrentPrice: price,
+			Provenance: marketintelligence.Provenance{Provider: "coinbase", Role: marketintelligence.MarketObservation, Feed: "rest_ticker", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_exchange", ProviderTimestamp: time.Now().UTC(), ReceivedAt: time.Now().UTC()},
+		})
+	}
+	return marketintelligence.CryptoMarketBatch{Markets: markets}, false, nil
+}
 func (fake fakeMarketIntelligence) RecentInsiderFilings(_ context.Context, cik string, _ int) ([]marketintelligence.InsiderFilingObservation, bool, error) {
 	if fake.err != nil {
 		return nil, false, fake.err
@@ -59,6 +76,14 @@ func (fake *fakeBrokerMarketData) GetAccount(_ context.Context, _ authorization.
 		}
 	}
 	return financial.FinancialAccount{}, errors.New("not found")
+}
+
+func (fake *fakeBrokerMarketData) GetBalances(context.Context, authorization.Principal, string) (financial.Balances, error) {
+	return financial.Balances{Cash: &financial.Money{Amount: "25", Currency: "USD"}, AvailableCash: &financial.Money{Amount: "20", Currency: "USD"}}, nil
+}
+
+func (fake *fakeBrokerMarketData) GetPositions(context.Context, authorization.Principal, string) ([]financial.Position, error) {
+	return []financial.Position{{InstrumentType: "CRYPTO", Symbol: "BTC", Quantity: "0.5", Direction: "long"}}, nil
 }
 
 func (fake *fakeBrokerMarketData) GetQuote(context.Context, authorization.Principal, string, string) (financial.Quote, error) {
@@ -137,6 +162,55 @@ func TestBrokerMarketRoutesNormalizeReadOnlyAccountScopedObservations(t *testing
 	handler.brokerOptionChain(optionRecorder, optionRequest)
 	if optionRecorder.Code != stdhttp.StatusOK || broker.query.Symbol != "SPY" || broker.query.StrikeCount != 12 || !strings.Contains(optionRecorder.Body.String(), `"quality":"REAL_TIME_CONSOLIDATED"`) {
 		t.Fatalf("broker option chain was not normalized safely: status=%d query=%+v body=%s", optionRecorder.Code, broker.query, optionRecorder.Body.String())
+	}
+}
+
+func TestCryptoPortfolioCombinesHoldingsWithExplicitReadOnlyVenueObservations(t *testing.T) {
+	broker := &fakeBrokerMarketData{accounts: []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", BaseCurrency: "USD", Status: "active"}}}
+	handler := &authHandler{marketFinancial: broker, markets: fakeMarketIntelligence{}}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/portfolio/crypto", nil)
+	request.SetPathValue("id", "coinbase-1")
+	recorder := httptest.NewRecorder()
+
+	handler.cryptoPortfolio(recorder, request)
+
+	body := recorder.Body.String()
+	if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("unexpected portfolio response: status=%d cache=%q body=%s", recorder.Code, recorder.Header().Get("Cache-Control"), body)
+	}
+	for _, expected := range []string{`"observed_value":{"amount":"30025"`, `"digital_asset_value":{"amount":"30000"`, `"pricing_state":"READY"`, `"pricing_basis":"LAST_TRADE"`, `"venue":"coinbase_exchange"`, `"live_execution_available":false`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("portfolio evidence missing %s: %s", expected, body)
+		}
+	}
+}
+
+func TestCryptoPortfolioPreservesHoldingsWhenPricingIsUnavailable(t *testing.T) {
+	broker := &fakeBrokerMarketData{accounts: []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", BaseCurrency: "USD", Status: "active"}}}
+	handler := &authHandler{marketFinancial: broker, markets: fakeMarketIntelligence{err: errors.New("provider failed")}}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/portfolio/crypto", nil)
+	request.SetPathValue("id", "coinbase-1")
+	recorder := httptest.NewRecorder()
+
+	handler.cryptoPortfolio(recorder, request)
+
+	body := recorder.Body.String()
+	if recorder.Code != stdhttp.StatusOK || !strings.Contains(body, `"pricing_state":"UNAVAILABLE"`) || !strings.Contains(body, `"pricing_status":"UNAVAILABLE"`) || !strings.Contains(body, `"quantity":"0.5"`) {
+		t.Fatalf("pricing failure hid holdings or fabricated value: status=%d body=%s", recorder.Code, body)
+	}
+}
+
+func TestCryptoPortfolioRejectsNonCoinbaseAccounts(t *testing.T) {
+	broker := &fakeBrokerMarketData{accounts: []financial.FinancialAccount{{ID: "schwab-1", Provider: "schwab", BaseCurrency: "USD", Status: "active"}}}
+	handler := &authHandler{marketFinancial: broker, markets: fakeMarketIntelligence{}}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/schwab-1/portfolio/crypto", nil)
+	request.SetPathValue("id", "schwab-1")
+	recorder := httptest.NewRecorder()
+
+	handler.cryptoPortfolio(recorder, request)
+
+	if recorder.Code != stdhttp.StatusBadRequest || !strings.Contains(recorder.Body.String(), "PORTFOLIO_PRICING_UNSUPPORTED") {
+		t.Fatalf("non-Coinbase account entered crypto view: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

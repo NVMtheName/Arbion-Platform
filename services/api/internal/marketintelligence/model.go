@@ -104,6 +104,13 @@ type CryptoMarketObservation struct {
 	Provenance       Provenance `json:"provenance"`
 }
 
+// CryptoMarketBatch preserves partial coverage without inventing prices for
+// assets that do not have an approved quote-currency product.
+type CryptoMarketBatch struct {
+	Markets            []CryptoMarketObservation `json:"markets"`
+	UnavailableSymbols []string                  `json:"unavailable_symbols"`
+}
+
 type OptionContractObservation struct {
 	Symbol            string    `json:"symbol"`
 	Underlying        string    `json:"underlying"`
@@ -167,6 +174,13 @@ type EquityQuoteProvider interface {
 // imply that any returned value is executable on a particular venue.
 type CryptoMarketProvider interface {
 	TopCryptoMarkets(context.Context, string, int) ([]CryptoMarketObservation, error)
+}
+
+// CryptoAssetMarketProvider is an optional, read-only extension for valuing a
+// bounded set of connected portfolio assets. The returned observations remain
+// market evidence, not executable prices.
+type CryptoAssetMarketProvider interface {
+	CryptoMarkets(context.Context, string, []string) (CryptoMarketBatch, error)
 }
 
 type InsiderFilingProvider interface {

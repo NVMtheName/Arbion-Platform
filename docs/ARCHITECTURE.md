@@ -150,7 +150,7 @@ The provider registry is centralized and auth-polymorphic. Schwab uses delegated
 
 **Financial-provider credentials never enter the Neural Engine.**
 
-The financial foundation is wired as a functional multi-provider lifecycle: thin authenticated HTTP handlers delegate to `internal/financialconnection`, provider-specific requests remain in the Schwab and Coinbase adapters, Redis stores only pending single-use OAuth state, PostgreSQL stores lifecycle/account inventory and supplies cross-instance credential locking, and the existing Vault stores encrypted tokens or key material. Account list/detail, current balance, current position, quote, and standard option-chain reads are permissioned. Dashboard summaries report inventory only and do not fabricate unavailable or cross-currency values.
+The financial foundation is wired as a functional multi-provider lifecycle: thin authenticated HTTP handlers delegate to `internal/financialconnection`, provider-specific requests remain in the Schwab and Coinbase adapters, Redis stores only pending single-use OAuth state, PostgreSQL stores lifecycle/account inventory and supplies cross-instance credential locking, and the existing Vault stores encrypted tokens or key material. Account list/detail, current balance, current position, quote, and standard option-chain reads are permissioned. The Coinbase portfolio read model composes current view-only holdings with separately keyless, venue-stamped Exchange tickers; it labels last-trade-based observed values and incomplete pricing coverage instead of treating them as executable or consolidated truth. Dashboard summaries do not fabricate unavailable or cross-currency values.
 
 ## Implemented Automation Builder boundary
 

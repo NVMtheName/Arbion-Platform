@@ -3,6 +3,7 @@ package marketintelligence
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -11,17 +12,19 @@ import (
 const maxCacheEntries = 256
 
 type ServiceConfig struct {
-	EquityProvider EquityQuoteProvider
-	EquitySourceID string
-	CryptoProvider CryptoMarketProvider
-	CryptoSourceID string
-	FilingProvider InsiderFilingProvider
-	EquityCacheTTL time.Duration
-	CryptoCacheTTL time.Duration
-	FilingCacheTTL time.Duration
-	EquityInterval time.Duration
-	CryptoInterval time.Duration
-	FilingInterval time.Duration
+	EquityProvider      EquityQuoteProvider
+	EquitySourceID      string
+	CryptoProvider      CryptoMarketProvider
+	CryptoSourceID      string
+	CryptoAssetProvider CryptoAssetMarketProvider
+	CryptoAssetSourceID string
+	FilingProvider      InsiderFilingProvider
+	EquityCacheTTL      time.Duration
+	CryptoCacheTTL      time.Duration
+	FilingCacheTTL      time.Duration
+	EquityInterval      time.Duration
+	CryptoInterval      time.Duration
+	FilingInterval      time.Duration
 }
 
 type cacheEntry[T any] struct {
@@ -35,11 +38,13 @@ type cacheEntry[T any] struct {
 type Service struct {
 	mu sync.RWMutex
 
-	equityProvider EquityQuoteProvider
-	equitySourceID string
-	cryptoProvider CryptoMarketProvider
-	cryptoSourceID string
-	filingProvider InsiderFilingProvider
+	equityProvider      EquityQuoteProvider
+	equitySourceID      string
+	cryptoProvider      CryptoMarketProvider
+	cryptoAssets        CryptoAssetMarketProvider
+	cryptoSourceID      string
+	cryptoAssetSourceID string
+	filingProvider      InsiderFilingProvider
 
 	equityCacheTTL time.Duration
 	cryptoCacheTTL time.Duration
@@ -51,6 +56,7 @@ type Service struct {
 	sources     []Source
 	equityCache map[string]cacheEntry[QuoteObservation]
 	cryptoCache map[string]cacheEntry[[]CryptoMarketObservation]
+	assetCache  map[string]cacheEntry[CryptoMarketBatch]
 	filingCache map[string]cacheEntry[[]InsiderFilingObservation]
 	now         func() time.Time
 }
@@ -70,38 +76,55 @@ func NewService(config ServiceConfig) (*Service, error) {
 			return nil, errors.New("equity cache and request policies must be positive")
 		}
 	}
-	if config.CryptoProvider != nil && (config.CryptoCacheTTL <= 0 || config.CryptoInterval <= 0) {
+	if (config.CryptoProvider != nil || config.CryptoAssetProvider != nil) && (config.CryptoCacheTTL <= 0 || config.CryptoInterval <= 0) {
 		return nil, errors.New("crypto cache and request policies must be positive")
 	}
 	if config.CryptoProvider != nil && config.CryptoSourceID != "coingecko_rest" && config.CryptoSourceID != "coinbase_exchange" {
 		return nil, errors.New("unsupported crypto source")
 	}
+	if config.CryptoAssetProvider != nil && config.CryptoAssetSourceID != "coinbase_exchange" {
+		return nil, errors.New("unsupported crypto asset source")
+	}
 	if config.FilingProvider != nil && (config.FilingCacheTTL <= 0 || config.FilingInterval <= 0) {
 		return nil, errors.New("filing cache and request policies must be positive")
 	}
 
+	assetProvider, assetSourceID := config.CryptoAssetProvider, config.CryptoAssetSourceID
+	if assetProvider == nil {
+		assetProvider = cryptoAssetProvider(config.CryptoProvider)
+		assetSourceID = config.CryptoSourceID
+	}
 	service := &Service{
-		equityProvider: config.EquityProvider,
-		equitySourceID: config.EquitySourceID,
-		cryptoProvider: config.CryptoProvider,
-		cryptoSourceID: config.CryptoSourceID,
-		filingProvider: config.FilingProvider,
-		equityCacheTTL: config.EquityCacheTTL,
-		cryptoCacheTTL: config.CryptoCacheTTL,
-		filingCacheTTL: config.FilingCacheTTL,
-		equityPacer:    requestPacer{interval: config.EquityInterval},
-		cryptoPacer:    requestPacer{interval: config.CryptoInterval},
-		filingPacer:    requestPacer{interval: config.FilingInterval},
-		sources:        DefaultSources(),
-		equityCache:    make(map[string]cacheEntry[QuoteObservation]),
-		cryptoCache:    make(map[string]cacheEntry[[]CryptoMarketObservation]),
-		filingCache:    make(map[string]cacheEntry[[]InsiderFilingObservation]),
-		now:            func() time.Time { return time.Now().UTC() },
+		equityProvider:      config.EquityProvider,
+		equitySourceID:      config.EquitySourceID,
+		cryptoProvider:      config.CryptoProvider,
+		cryptoAssets:        assetProvider,
+		cryptoSourceID:      config.CryptoSourceID,
+		cryptoAssetSourceID: assetSourceID,
+		filingProvider:      config.FilingProvider,
+		equityCacheTTL:      config.EquityCacheTTL,
+		cryptoCacheTTL:      config.CryptoCacheTTL,
+		filingCacheTTL:      config.FilingCacheTTL,
+		equityPacer:         requestPacer{interval: config.EquityInterval},
+		cryptoPacer:         requestPacer{interval: config.CryptoInterval},
+		filingPacer:         requestPacer{interval: config.FilingInterval},
+		sources:             DefaultSources(),
+		equityCache:         make(map[string]cacheEntry[QuoteObservation]),
+		cryptoCache:         make(map[string]cacheEntry[[]CryptoMarketObservation]),
+		assetCache:          make(map[string]cacheEntry[CryptoMarketBatch]),
+		filingCache:         make(map[string]cacheEntry[[]InsiderFilingObservation]),
+		now:                 func() time.Time { return time.Now().UTC() },
 	}
 	service.setEnabled(config.EquitySourceID, config.EquityProvider != nil)
 	service.setEnabled(config.CryptoSourceID, config.CryptoProvider != nil)
+	service.setEnabled(assetSourceID, assetProvider != nil)
 	service.setEnabled("sec_edgar", config.FilingProvider != nil)
 	return service, nil
+}
+
+func cryptoAssetProvider(provider CryptoMarketProvider) CryptoAssetMarketProvider {
+	assets, _ := provider.(CryptoAssetMarketProvider)
+	return assets
 }
 
 func (service *Service) Sources() []Source {
@@ -156,6 +179,70 @@ func (service *Service) TopCryptoMarkets(ctx context.Context, currency string, l
 	copyValue := append([]CryptoMarketObservation(nil), observations...)
 	service.storeCrypto(key, copyValue)
 	return append([]CryptoMarketObservation(nil), copyValue...), false, nil
+}
+
+// CryptoMarkets returns last-trade observations for a bounded, canonical set
+// of portfolio symbols. Unsupported USD products remain explicit in the batch.
+func (service *Service) CryptoMarkets(ctx context.Context, currency string, symbols []string) (CryptoMarketBatch, bool, error) {
+	if service.cryptoAssets == nil {
+		return CryptoMarketBatch{}, false, ErrNoEligibleSource
+	}
+	canonical, ok := canonicalCryptoSymbols(currency, symbols)
+	if !ok {
+		return CryptoMarketBatch{}, false, ErrInvalidObservation
+	}
+	key := "assets:usd:" + strings.Join(canonical, ",")
+	if value, cached := cacheValue(service, service.assetCache, key); cached {
+		return cloneCryptoBatch(value), true, nil
+	}
+	if err := service.cryptoPacer.wait(ctx); err != nil {
+		return CryptoMarketBatch{}, false, err
+	}
+	batch, err := service.cryptoAssets.CryptoMarkets(ctx, "USD", canonical)
+	if err != nil {
+		service.recordProviderError(service.cryptoAssetSourceID, err)
+		return CryptoMarketBatch{}, false, err
+	}
+	service.setHealthy(service.cryptoAssetSourceID, true)
+	batch = cloneCryptoBatch(batch)
+	service.storeCryptoAssets(key, batch)
+	return cloneCryptoBatch(batch), false, nil
+}
+
+func canonicalCryptoSymbols(currency string, symbols []string) ([]string, bool) {
+	if !strings.EqualFold(strings.TrimSpace(currency), "usd") || len(symbols) == 0 || len(symbols) > 32 {
+		return nil, false
+	}
+	seen := make(map[string]struct{}, len(symbols))
+	canonical := make([]string, 0, len(symbols))
+	for _, value := range symbols {
+		symbol := strings.ToUpper(strings.TrimSpace(value))
+		if len(symbol) == 0 || len(symbol) > 12 {
+			return nil, false
+		}
+		for _, character := range symbol {
+			if (character < 'A' || character > 'Z') && (character < '0' || character > '9') {
+				return nil, false
+			}
+		}
+		if _, exists := seen[symbol]; exists {
+			continue
+		}
+		seen[symbol] = struct{}{}
+		canonical = append(canonical, symbol)
+	}
+	if len(canonical) == 0 {
+		return nil, false
+	}
+	sort.Strings(canonical)
+	return canonical, true
+}
+
+func cloneCryptoBatch(batch CryptoMarketBatch) CryptoMarketBatch {
+	return CryptoMarketBatch{
+		Markets:            append([]CryptoMarketObservation(nil), batch.Markets...),
+		UnavailableSymbols: append([]string(nil), batch.UnavailableSymbols...),
+	}
 }
 
 func (service *Service) RecentInsiderFilings(ctx context.Context, cik string, limit int) ([]InsiderFilingObservation, bool, error) {
@@ -254,6 +341,13 @@ func (service *Service) storeCrypto(key string, value []CryptoMarketObservation)
 	defer service.mu.Unlock()
 	pruneCache(service.cryptoCache, service.now())
 	service.cryptoCache[key] = cacheEntry[[]CryptoMarketObservation]{value: value, expiresAt: service.now().Add(service.cryptoCacheTTL)}
+}
+
+func (service *Service) storeCryptoAssets(key string, value CryptoMarketBatch) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	pruneCache(service.assetCache, service.now())
+	service.assetCache[key] = cacheEntry[CryptoMarketBatch]{value: cloneCryptoBatch(value), expiresAt: service.now().Add(service.cryptoCacheTTL)}
 }
 
 func (service *Service) storeFilings(key string, value []InsiderFilingObservation) {

@@ -152,6 +152,7 @@ Exit gate: IEX and indicative data are visibly labeled and cannot satisfy a cons
 
 - Implemented: a CoinGecko keyed adapter and authenticated top-markets route.
 - Implemented: a keyless Coinbase Exchange ticker adapter for bounded single-venue production snapshots.
+- Implemented: owner-scoped Coinbase portfolio observations that price up to 32 exact holdings against approved USD tickers, preserve per-position venue/time evidence, and expose partial coverage without estimates.
 - Implemented: a bounded display-cache policy; next add request-credit accounting and Redis coordination.
 - Next: global overview, asset history, and identifier mapping by CoinGecko ID and contract address.
 
@@ -168,7 +169,8 @@ Exit gate: all displayed events link to SEC evidence and the importer complies w
 
 ### 5. Arbion command center
 
-- Deliver the branded `/markets` overview, watchlist, equity detail, crypto board, source health, and freshness states.
+- Implemented: the branded `/markets` overview plus a motion-enhanced Coinbase portfolio command surface with observed value, cash, coverage, priced allocation, a position ledger, and evidence controls.
+- Next: watchlists, dedicated equity/crypto detail, history, and richer source-health timelines.
 - Keep broker account truth visually distinct from public/reference data.
 - Add responsive, loading, empty, degraded, stale, and provider-outage states with browser tests.
 

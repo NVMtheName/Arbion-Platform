@@ -23,9 +23,25 @@ func (provider *fakeEquityProvider) LatestEquityQuote(_ context.Context, symbol 
 
 type fakeCryptoProvider struct{ calls int }
 
+type fakeTopOnlyCryptoProvider struct{ calls int }
+
+func (provider *fakeTopOnlyCryptoProvider) TopCryptoMarkets(_ context.Context, currency string, _ int) ([]CryptoMarketObservation, error) {
+	provider.calls++
+	return []CryptoMarketObservation{{ID: "bitcoin", Symbol: "BTC", Name: "Bitcoin", Currency: currency, CurrentPrice: Decimal("60000")}}, nil
+}
+
 func (provider *fakeCryptoProvider) TopCryptoMarkets(_ context.Context, currency string, _ int) ([]CryptoMarketObservation, error) {
 	provider.calls++
 	return []CryptoMarketObservation{{ID: "bitcoin", Symbol: "BTC", Name: "Bitcoin", Currency: currency, CurrentPrice: Decimal("60000")}}, nil
+}
+
+func (provider *fakeCryptoProvider) CryptoMarkets(_ context.Context, currency string, symbols []string) (CryptoMarketBatch, error) {
+	provider.calls++
+	markets := make([]CryptoMarketObservation, 0, len(symbols))
+	for _, symbol := range symbols {
+		markets = append(markets, CryptoMarketObservation{ID: symbol + "-USD", Symbol: symbol, Name: symbol, Currency: currency, CurrentPrice: Decimal("100")})
+	}
+	return CryptoMarketBatch{Markets: markets}, nil
 }
 
 type fakeFilingProvider struct{ calls int }
@@ -66,6 +82,69 @@ func TestServiceCachesObservationsAndTracksSourceHealth(t *testing.T) {
 			if !source.Enabled || !source.Healthy {
 				t.Fatalf("configured source did not become healthy: %+v", source)
 			}
+		}
+	}
+}
+
+func TestServiceCanonicalizesAndCachesPortfolioCryptoMarkets(t *testing.T) {
+	crypto := &fakeCryptoProvider{}
+	service, err := NewService(ServiceConfig{
+		CryptoProvider: crypto, CryptoSourceID: "coinbase_exchange",
+		CryptoCacheTTL: time.Minute, CryptoInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, cached, err := service.CryptoMarkets(context.Background(), " usd ", []string{"eth", "BTC", "ETH"})
+	if err != nil || cached || len(batch.Markets) != 2 || batch.Markets[0].Symbol != "BTC" || batch.Markets[1].Symbol != "ETH" {
+		t.Fatalf("unexpected first portfolio batch: cached=%v batch=%+v err=%v", cached, batch, err)
+	}
+	if _, cached, err = service.CryptoMarkets(context.Background(), "USD", []string{"ETH", "BTC"}); err != nil || !cached || crypto.calls != 1 {
+		t.Fatalf("portfolio crypto cache was not canonical: cached=%v calls=%d err=%v", cached, crypto.calls, err)
+	}
+	if _, _, err = service.CryptoMarkets(context.Background(), "USD", []string{"BTC-USD"}); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("invalid portfolio symbol was accepted: %v", err)
+	}
+}
+
+func TestServiceKeepsPortfolioVenueSeparateFromGlobalCryptoProvider(t *testing.T) {
+	global := &fakeTopOnlyCryptoProvider{}
+	portfolio := &fakeCryptoProvider{}
+	service, err := NewService(ServiceConfig{
+		CryptoProvider: global, CryptoSourceID: "coingecko_rest",
+		CryptoAssetProvider: portfolio, CryptoAssetSourceID: "coinbase_exchange",
+		CryptoCacheTTL: time.Minute, CryptoInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = service.TopCryptoMarkets(context.Background(), "USD", 1); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range service.Sources() {
+		if source.ID == "coingecko_rest" && (!source.Enabled || !source.Healthy) {
+			t.Fatalf("global crypto source health was not isolated: %+v", source)
+		}
+		if source.ID == "coinbase_exchange" && (!source.Enabled || source.Healthy) {
+			t.Fatalf("portfolio source became healthy before it was called: %+v", source)
+		}
+	}
+	if _, _, err = service.CryptoMarkets(context.Background(), "USD", []string{"BTC"}); err != nil {
+		t.Fatal(err)
+	}
+	if global.calls != 1 || portfolio.calls != 1 {
+		t.Fatalf("crypto provider boundaries crossed: global=%d portfolio=%d", global.calls, portfolio.calls)
+	}
+	sources := service.Sources()
+	for _, sourceID := range []string{"coingecko_rest", "coinbase_exchange"} {
+		found := false
+		for _, source := range sources {
+			if source.ID == sourceID {
+				found = source.Enabled && source.Healthy
+			}
+		}
+		if !found {
+			t.Fatalf("configured crypto source was not independently healthy: %s %+v", sourceID, sources)
 		}
 	}
 }
