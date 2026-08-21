@@ -176,7 +176,7 @@ func TestMarketSourcesAreNoStoreReadOnlyMetadata(t *testing.T) {
 	if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("unexpected response metadata: status=%d cache=%q", recorder.Code, recorder.Header().Get("Cache-Control"))
 	}
-	if len(response.Sources) != 8 || response.LiveExecutionAvailable || response.ProviderQuotaExposed || response.ProviderErrorsExposed || response.StatusGeneratedAt.IsZero() || response.StatusSemantics != "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT" || response.RequestUsageSemantics != "PROCESS_LOCAL_BOUNDED_AGGREGATES" {
+	if len(response.Sources) != 8 || response.LiveExecutionAvailable || response.ProviderQuotaExposed || response.ProviderErrorsExposed || response.StatusGeneratedAt.IsZero() || response.StatusSemantics != "PROCESS_LOCAL_TIME_BOUNDED_PROVIDER_VERIFICATION" || response.RequestUsageSemantics != "PROCESS_LOCAL_BOUNDED_AGGREGATES" {
 		t.Fatalf("unexpected market source response: %+v", response)
 	}
 	for _, source := range response.Sources {

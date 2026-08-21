@@ -38,11 +38,43 @@ const sources: MarketSource[] = [
         request_policy: {
           cache_ttl_ms: 60_000,
           minimum_request_interval_ms: 500,
+          verification_window_ms: 300_000,
         },
         request_usage: {
           cache_lookups: 5,
           cache_hits: 2,
           provider_attempts: 3,
+          counters_saturated: false,
+        },
+      },
+    ],
+    enabled: true,
+    healthy: false,
+  },
+  {
+    id: "sec_edgar",
+    label: "SEC EDGAR",
+    role: "PRIMARY_FILING",
+    feed: "submissions",
+    quality: "FILING",
+    capabilities: ["INSIDER_FILING"],
+    capability_status: [
+      {
+        capability: "INSIDER_FILING",
+        enabled: true,
+        state: "VERIFICATION_EXPIRED",
+        last_attempt_at: "2026-08-21T16:55:00Z",
+        last_success_at: "2026-08-21T16:55:00Z",
+        consecutive_failures: 0,
+        request_policy: {
+          cache_ttl_ms: 60_000,
+          minimum_request_interval_ms: 150,
+          verification_window_ms: 300_000,
+        },
+        request_usage: {
+          cache_lookups: 1,
+          cache_hits: 0,
+          provider_attempts: 1,
           counters_saturated: false,
         },
       },
@@ -78,17 +110,24 @@ describe("MarketSourceGrid", () => {
     expect(screen.getByText("aggregated reference")).toBeVisible();
     expect(screen.getByText(/timeout · attempted/)).toBeVisible();
     expect(screen.getByText("2 consecutive provider failures")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "SEC EDGAR" })).toBeVisible();
+    expect(screen.getAllByText("Verification aged").length).toBeGreaterThan(0);
+    expect(screen.getByText(/verification aged after 5 min/)).toBeVisible();
     const requestBudget = screen.getByLabelText(
       "crypto markets request budget",
     );
     expect(requestBudget).toHaveTextContent(/3\s*provider attempts/);
     expect(requestBudget).toHaveTextContent(/2\s*cache saves/);
-    expect(screen.getAllByText("40% cache reuse")).toHaveLength(2);
+    expect(requestBudget).toHaveTextContent("40% cache reuse");
     expect(
-      screen.getByText(/not a provider quota or remaining-credit balance/),
-    ).toBeVisible();
+      screen.getAllByText(/not a provider quota or remaining-credit balance/)
+        .length,
+    ).toBeGreaterThan(0);
     expect(screen.getByLabelText("Capability status")).toHaveTextContent(
       "0 verified",
+    );
+    expect(screen.getByLabelText("Capability status")).toHaveTextContent(
+      "1 verification aged",
     );
   });
 
@@ -111,6 +150,7 @@ describe("MarketSourceGrid", () => {
                 request_policy: {
                   cache_ttl_ms: 30_000,
                   minimum_request_interval_ms: 250,
+                  verification_window_ms: 300_000,
                 },
                 request_usage: {
                   cache_lookups: 8,
@@ -123,7 +163,7 @@ describe("MarketSourceGrid", () => {
           },
         ],
         status_generated_at: "2026-08-21T17:01:01Z",
-        status_semantics: "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT",
+        status_semantics: "PROCESS_LOCAL_TIME_BOUNDED_PROVIDER_VERIFICATION",
         request_usage_semantics: "PROCESS_LOCAL_BOUNDED_AGGREGATES",
         provider_quota_exposed: false,
         provider_errors_exposed: false,
@@ -150,7 +190,7 @@ describe("MarketSourceGrid", () => {
       json: async () => ({
         sources: [],
         status_generated_at: "2026-08-21T17:01:01Z",
-        status_semantics: "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT",
+        status_semantics: "PROCESS_LOCAL_TIME_BOUNDED_PROVIDER_VERIFICATION",
         request_usage_semantics: "PROVIDER_QUOTA",
         provider_quota_exposed: true,
         provider_errors_exposed: false,

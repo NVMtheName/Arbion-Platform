@@ -65,6 +65,7 @@ const (
 	NotConfigured       VerificationState = "NOT_CONFIGURED"
 	AwaitingObservation VerificationState = "AWAITING_OBSERVATION"
 	Verified            VerificationState = "VERIFIED"
+	VerificationExpired VerificationState = "VERIFICATION_EXPIRED"
 	Degraded            VerificationState = "DEGRADED"
 )
 
@@ -86,8 +87,9 @@ type CapabilityStatus struct {
 // RequestPolicy is Arbion's process-local protection around a capability. It
 // is not a provider-published quota, allowance, or remaining-credit balance.
 type RequestPolicy struct {
-	CacheTTLMilliseconds        int64 `json:"cache_ttl_ms"`
-	MinimumIntervalMilliseconds int64 `json:"minimum_request_interval_ms"`
+	CacheTTLMilliseconds           int64 `json:"cache_ttl_ms"`
+	MinimumIntervalMilliseconds    int64 `json:"minimum_request_interval_ms"`
+	VerificationWindowMilliseconds int64 `json:"verification_window_ms"`
 }
 
 // RequestUsage contains bounded, process-local aggregate counters. It carries

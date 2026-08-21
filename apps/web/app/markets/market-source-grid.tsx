@@ -5,7 +5,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 export type CapabilityStatus = {
   capability: string;
   enabled: boolean;
-  state: "NOT_CONFIGURED" | "AWAITING_OBSERVATION" | "VERIFIED" | "DEGRADED";
+  state:
+    | "NOT_CONFIGURED"
+    | "AWAITING_OBSERVATION"
+    | "VERIFIED"
+    | "VERIFICATION_EXPIRED"
+    | "DEGRADED";
   last_attempt_at?: string;
   last_success_at?: string;
   consecutive_failures: number;
@@ -13,6 +18,7 @@ export type CapabilityStatus = {
   request_policy?: {
     cache_ttl_ms: number;
     minimum_request_interval_ms: number;
+    verification_window_ms: number;
   };
   request_usage?: {
     cache_lookups: number;
@@ -89,6 +95,11 @@ function sourceStatus(source: MarketSource) {
   if (statuses(source).some((status) => status.state === "DEGRADED")) {
     return "Degraded";
   }
+  if (
+    statuses(source).some((status) => status.state === "VERIFICATION_EXPIRED")
+  ) {
+    return source.healthy ? "Partially current" : "Verification aged";
+  }
   if (source.healthy) return "Available";
   return "Awaiting data";
 }
@@ -97,6 +108,11 @@ function sourceStatusClass(source: MarketSource) {
   if (!source.enabled) return "disabled";
   if (statuses(source).some((status) => status.state === "DEGRADED")) {
     return "degraded";
+  }
+  if (
+    statuses(source).some((status) => status.state === "VERIFICATION_EXPIRED")
+  ) {
+    return "aged";
   }
   return source.healthy ? "available" : "awaiting";
 }
@@ -107,6 +123,8 @@ function capabilityLabel(status: CapabilityStatus) {
       return "Verified";
     case "DEGRADED":
       return "Degraded";
+    case "VERIFICATION_EXPIRED":
+      return "Verification aged";
     case "AWAITING_OBSERVATION":
       return "Awaiting observation";
     default:
@@ -126,6 +144,15 @@ function capabilityDetail(status: CapabilityStatus) {
       ? ` · attempted ${timestamp(status.last_attempt_at)} UTC`
       : "";
     return `${category}${attempted}`;
+  }
+  if (status.state === "VERIFICATION_EXPIRED") {
+    const lastSuccess = status.last_success_at
+      ? `Last provider success ${timestamp(status.last_success_at)} UTC`
+      : "Prior provider success retained";
+    const verificationWindow = status.request_policy
+      ? duration(status.request_policy.verification_window_ms)
+      : "the configured window";
+    return `${lastSuccess} · verification aged after ${verificationWindow} without a fresh provider success.`;
   }
   if (status.state === "AWAITING_OBSERVATION") {
     return "Configured; no provider attempt has completed in this API process.";
@@ -158,7 +185,8 @@ export function MarketSourceGrid({
       if (
         !response.ok ||
         !Array.isArray(body.sources) ||
-        body.status_semantics !== "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT" ||
+        body.status_semantics !==
+          "PROCESS_LOCAL_TIME_BOUNDED_PROVIDER_VERIFICATION" ||
         body.request_usage_semantics !== "PROCESS_LOCAL_BOUNDED_AGGREGATES" ||
         body.provider_quota_exposed !== false ||
         body.live_execution_available !== false ||
@@ -208,6 +236,9 @@ export function MarketSourceGrid({
       awaiting: capabilityStatuses.filter(
         (status) => status.state === "AWAITING_OBSERVATION",
       ).length,
+      aged: capabilityStatuses.filter(
+        (status) => status.state === "VERIFICATION_EXPIRED",
+      ).length,
       providerAttempts: requestUsage.reduce(
         (total, usage) => total + usage.provider_attempts,
         0,
@@ -225,8 +256,9 @@ export function MarketSourceGrid({
           <h3>Every feed earns its own status.</h3>
           <p>
             One healthy Coinbase request cannot mask a failure in another public
-            feed. Status and bounded request counters reset with the API
-            process; cache hits do not invent a new provider success.
+            feed. Old successes age out of current verification, status and
+            bounded request counters reset with the API process, and cache hits
+            do not invent a new provider success.
           </p>
         </div>
         <button
@@ -248,6 +280,9 @@ export function MarketSourceGrid({
         </span>
         <span className={summary.degraded > 0 ? "degraded" : ""}>
           <strong>{summary.degraded}</strong> degraded
+        </span>
+        <span className={summary.aged > 0 ? "aged" : ""}>
+          <strong>{summary.aged}</strong> verification aged
         </span>
         <span>
           <strong>{summary.providerAttempts}</strong> provider attempts
@@ -348,6 +383,8 @@ export function MarketSourceGrid({
                         {duration(
                           status.request_policy.minimum_request_interval_ms,
                         )}
+                        {" · "}verification window{" "}
+                        {duration(status.request_policy.verification_window_ms)}
                         . These are Arbion process protections, not a provider
                         quota or remaining-credit balance.
                       </small>

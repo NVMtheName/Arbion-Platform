@@ -147,7 +147,7 @@ func TestServiceCachesObservationsAndTracksSourceHealth(t *testing.T) {
 			if status.State != Verified || status.LastAttemptAt == nil || status.LastSuccessAt == nil || status.ConsecutiveFailures != 0 || status.FailureCategory != "" {
 				t.Fatalf("successful capability verification is incomplete: %+v", status)
 			}
-			if status.RequestPolicy == nil || status.RequestPolicy.CacheTTLMilliseconds != 60_000 || status.RequestPolicy.MinimumIntervalMilliseconds != 1 || status.RequestUsage == nil || status.RequestUsage.ProviderAttempts != 1 || status.RequestUsage.CountersSaturated {
+			if status.RequestPolicy == nil || status.RequestPolicy.CacheTTLMilliseconds != 60_000 || status.RequestPolicy.MinimumIntervalMilliseconds != 1 || status.RequestPolicy.VerificationWindowMilliseconds != 300_000 || status.RequestUsage == nil || status.RequestUsage.ProviderAttempts != 1 || status.RequestUsage.CountersSaturated {
 				t.Fatalf("configured capability request telemetry is incomplete: %+v", status)
 			}
 			if source.ID == "alpaca_iex" {
@@ -166,14 +166,80 @@ func TestServiceCachesObservationsAndTracksSourceHealth(t *testing.T) {
 		}
 		status := &sources[index].CapabilityStatus[0]
 		status.RequestPolicy.CacheTTLMilliseconds = 1
+		status.RequestPolicy.VerificationWindowMilliseconds = 1
 		status.RequestUsage.CacheHits = 999
 	}
 	for _, source := range service.Sources() {
 		if source.ID == "alpaca_iex" {
 			status := capabilityStatus(t, source, EquityQuote)
-			if status.RequestPolicy.CacheTTLMilliseconds != 60_000 || status.RequestUsage.CacheHits != 1 {
+			if status.RequestPolicy.CacheTTLMilliseconds != 60_000 || status.RequestPolicy.VerificationWindowMilliseconds != 300_000 || status.RequestUsage.CacheHits != 1 {
 				t.Fatalf("request telemetry escaped the source snapshot: %+v", status)
 			}
+		}
+	}
+}
+
+func TestServiceAgesVerificationWithoutClassifyingProviderFailure(t *testing.T) {
+	provider := &fakeEquityProvider{}
+	service, err := NewService(ServiceConfig{
+		EquityProvider: provider, EquitySourceID: "alpaca_iex",
+		EquityCacheTTL: time.Minute, EquityInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Date(2026, time.August, 21, 19, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return clock }
+	if _, _, err = service.LatestEquityQuote(context.Background(), "SPY"); err != nil {
+		t.Fatal(err)
+	}
+
+	assertState := func(want VerificationState, healthy bool) CapabilityStatus {
+		t.Helper()
+		for _, source := range service.Sources() {
+			if source.ID != "alpaca_iex" {
+				continue
+			}
+			status := capabilityStatus(t, source, EquityQuote)
+			if source.Healthy != healthy || status.State != want {
+				t.Fatalf("unexpected aged verification state: healthy=%v status=%+v", source.Healthy, status)
+			}
+			return status
+		}
+		t.Fatal("Alpaca source missing")
+		return CapabilityStatus{}
+	}
+
+	assertState(Verified, true)
+	clock = clock.Add(5*time.Minute - time.Millisecond)
+	assertState(Verified, true)
+	clock = clock.Add(time.Millisecond)
+	expired := assertState(VerificationExpired, false)
+	if expired.ConsecutiveFailures != 0 || expired.FailureCategory != "" || expired.LastSuccessAt == nil || expired.RequestUsage == nil || expired.RequestUsage.ProviderAttempts != 1 {
+		t.Fatalf("verification expiry was mislabeled as a provider failure: %+v", expired)
+	}
+
+	if _, _, err = service.LatestEquityQuote(context.Background(), "AAPL"); err != nil {
+		t.Fatal(err)
+	}
+	refreshed := assertState(Verified, true)
+	if refreshed.RequestUsage.ProviderAttempts != 2 || refreshed.ConsecutiveFailures != 0 {
+		t.Fatalf("fresh provider success did not restore verification: %+v", refreshed)
+	}
+}
+
+func TestVerificationWindowIsBoundedByCachePolicy(t *testing.T) {
+	for _, test := range []struct {
+		cacheTTL time.Duration
+		want     time.Duration
+	}{
+		{cacheTTL: time.Second, want: 5 * time.Minute},
+		{cacheTTL: 10 * time.Minute, want: 30 * time.Minute},
+		{cacheTTL: 30 * time.Minute, want: time.Hour},
+		{cacheTTL: time.Duration(1<<63 - 1), want: time.Hour},
+	} {
+		if got := verificationWindow(test.cacheTTL); got != test.want {
+			t.Fatalf("unexpected verification window for %s: got=%s want=%s", test.cacheTTL, got, test.want)
 		}
 	}
 }
