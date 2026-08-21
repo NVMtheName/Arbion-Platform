@@ -21,6 +21,7 @@ type MarketIntelligence interface {
 	LatestEquityQuote(context.Context, string) (marketintelligence.QuoteObservation, bool, error)
 	TopCryptoMarkets(context.Context, string, int) ([]marketintelligence.CryptoMarketObservation, bool, error)
 	CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error)
+	RecentCryptoCandles(context.Context, string, string, int, int) (marketintelligence.CryptoCandleSeries, bool, error)
 	RecentInsiderFilings(context.Context, string, int) ([]marketintelligence.InsiderFilingObservation, bool, error)
 }
 
@@ -289,6 +290,65 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 	writeJSON(writer, stdhttp.StatusOK, map[string]any{"portfolio": snapshot, "live_execution_available": false})
 }
 
+func (h *authHandler) connectedCryptoCandles(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
+	if h.marketFinancial == nil || h.markets == nil {
+		h.marketUnavailable(writer, marketintelligence.ErrNoEligibleSource)
+		return
+	}
+	account, err := h.marketFinancial.GetAccount(request.Context(), principal(request), request.PathValue("id"))
+	if err != nil {
+		h.financialError(writer, err)
+		return
+	}
+	if account.Provider != "coinbase" {
+		writeError(writer, stdhttp.StatusBadRequest, "CRYPTO_HISTORY_UNSUPPORTED", "This account does not use the connected crypto history view.")
+		return
+	}
+	symbol := strings.ToUpper(strings.TrimSpace(request.PathValue("symbol")))
+	if !validConnectedCryptoSymbol(symbol) {
+		writeError(writer, stdhttp.StatusBadRequest, "INVALID_MARKET_QUERY", "The market query is invalid.")
+		return
+	}
+	positions, err := h.marketFinancial.GetPositions(request.Context(), principal(request), account.ID)
+	if err != nil {
+		h.financialError(writer, err)
+		return
+	}
+	connected := false
+	for _, position := range positions {
+		if strings.EqualFold(position.InstrumentType, "CRYPTO") && strings.EqualFold(strings.TrimSpace(position.Symbol), symbol) {
+			connected = true
+			break
+		}
+	}
+	if !connected {
+		writeError(writer, stdhttp.StatusNotFound, "CONNECTED_ASSET_NOT_FOUND", "This asset is not present in the connected account.")
+		return
+	}
+	series, cached, err := h.markets.RecentCryptoCandles(request.Context(), symbol, account.BaseCurrency, 900, 96)
+	if err != nil {
+		h.marketUnavailable(writer, err)
+		return
+	}
+	writeJSON(writer, stdhttp.StatusOK, map[string]any{
+		"history": series, "cached": cached,
+		"chart_semantics": "VENUE_PRICE_MOVEMENT", "live_execution_available": false,
+	})
+}
+
+func validConnectedCryptoSymbol(symbol string) bool {
+	if len(symbol) == 0 || len(symbol) > 12 {
+		return false
+	}
+	for _, character := range symbol {
+		if (character < 'A' || character > 'Z') && (character < '0' || character > '9') {
+			return false
+		}
+	}
+	return true
+}
+
 func marketMoney(value marketintelligence.Decimal, currency string) *financial.Money {
 	return &financial.Money{Amount: financial.Decimal(value), Currency: strings.ToUpper(currency)}
 }
@@ -444,6 +504,10 @@ func brokerFreshnessPolicy() marketintelligence.FreshnessPolicy {
 }
 
 func (h *authHandler) marketUnavailable(writer stdhttp.ResponseWriter, err error) {
+	if errors.Is(err, marketintelligence.ErrInstrumentUnavailable) {
+		writeError(writer, stdhttp.StatusNotFound, "MARKET_INSTRUMENT_UNAVAILABLE", "No approved market history is available for this asset.")
+		return
+	}
 	if errors.Is(err, marketintelligence.ErrInvalidObservation) {
 		writeError(writer, stdhttp.StatusBadRequest, "INVALID_MARKET_QUERY", "The market query is invalid.")
 		return

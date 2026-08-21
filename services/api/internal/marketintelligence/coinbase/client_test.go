@@ -3,6 +3,7 @@ package coinbase
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -89,5 +90,39 @@ func TestClientReturnsPortfolioTickersWithExplicitPartialCoverage(t *testing.T) 
 	}
 	if _, err = client.CryptoMarkets(t.Context(), "USD", []string{"BTC-USD"}); err == nil {
 		t.Fatal("invalid portfolio symbol accepted")
+	}
+}
+
+func TestClientReturnsBoundedCandlesInAscendingOrderAndPreservesGaps(t *testing.T) {
+	now := time.Now().UTC().Truncate(15 * time.Minute)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/products/BTC-USD/candles" || request.URL.Query().Get("granularity") != "900" {
+			t.Fatalf("unexpected candle request: %s %s?%s", request.Method, request.URL.Path, request.URL.RawQuery)
+		}
+		if request.Header.Get("Authorization") != "" || request.Header.Get("Cache-Control") != "no-cache" {
+			t.Fatal("public candles must not send credentials and must bypass intermediary cache")
+		}
+		writer.Header().Set("CB-Request-ID", "candles-1")
+		_, _ = writer.Write([]byte(`[[` +
+			strconv.FormatInt(now.Add(-15*time.Minute).Unix(), 10) + `,70100,70300,70180,70250,2.5],[` +
+			strconv.FormatInt(now.Add(-45*time.Minute).Unix(), 10) + `,70000.000000000000000001,70200,70025,70180,1.234567890123456789]]`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, Products: []Product{{ID: "BTC-USD", Name: "Bitcoin"}}, Timeout: time.Second, MaxAge: time.Hour, MaxFutureSkew: time.Minute}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	series, err := client.RecentCryptoCandles(t.Context(), "btc", "USD", 900, 96)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(series.Candles) != 2 || !series.Candles[0].Start.Equal(now.Add(-45*time.Minute)) || series.Candles[0].Low != "70000.000000000000000001" || series.Candles[0].Volume != "1.234567890123456789" {
+		t.Fatalf("candle ordering, gap, or precision changed: %+v", series)
+	}
+	if series.Provenance.Feed != "rest_candles" || series.Provenance.ProviderRequestID != "candles-1" || series.ExpectedIntervals != 96 {
+		t.Fatalf("candle provenance or bounds missing: %+v", series)
+	}
+	if _, err = client.RecentCryptoCandles(t.Context(), "BTC-USD", "USD", 900, 96); err == nil {
+		t.Fatal("invalid candle symbol accepted")
 	}
 }

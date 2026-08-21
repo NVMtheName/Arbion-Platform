@@ -4,9 +4,9 @@
 
 This document defines the read-only market-intelligence architecture for Arbion. It does not enable live trading, add an order endpoint, request a broker trading scope, or place provider credentials in the browser or Neural Engine.
 
-The implemented vertical slice includes normalized observations and source-selection policy; fixture-tested read-only clients for Alpaca equity quotes, CoinGecko crypto markets, keyless Coinbase Exchange venue tickers, delegated Schwab quotes/options, and SEC ownership-filing discovery; strict runtime configuration; startup source probes; bounded display caches; authenticated no-store observation routes; runtime source health; and a branded `/markets` query surface. The UI displays no placeholder market values and provider failure never triggers a substitute value. Durable watchlists, bars, ownership-transaction parsing, and Redis-backed coordination remain later milestones.
+The implemented vertical slice includes normalized observations and source-selection policy; fixture-tested read-only clients for Alpaca equity quotes, CoinGecko crypto markets, keyless Coinbase Exchange venue tickers and bounded candles, delegated Schwab quotes/options, and SEC ownership-filing discovery; strict runtime configuration; startup source probes; bounded display caches; authenticated no-store observation routes; runtime source health; and branded market and connected-portfolio surfaces. The UI displays no placeholder market values and provider failure never triggers a substitute value. Durable watchlists, equity bars, ownership-transaction parsing, and Redis-backed coordination remain later milestones.
 
-Current authenticated read routes are `GET /api/markets/equities/{symbol}/quote`, `GET /api/markets/crypto`, `GET /api/markets/insiders/{cik}`, `GET /api/accounts/{id}/markets/equities/{symbol}/quote`, and `GET /api/accounts/{id}/markets/options`. They return normalized source provenance plus `live_execution_available: false`; credentials remain server-only. Account-scoped routes authorize ownership before using the current user's encrypted Schwab connection. yfinance is not a runtime fallback, and OpenInsider is exposed only as an optional human research link.
+Current authenticated read routes are `GET /api/markets/equities/{symbol}/quote`, `GET /api/markets/crypto`, `GET /api/markets/insiders/{cik}`, `GET /api/accounts/{id}/markets/equities/{symbol}/quote`, `GET /api/accounts/{id}/markets/options`, `GET /api/accounts/{id}/portfolio/crypto`, and `GET /api/accounts/{id}/markets/crypto/{symbol}/candles`. They return normalized source provenance plus `live_execution_available: false`; credentials remain server-only. Account-scoped routes authorize ownership before using the current user's encrypted broker connection or exposing history for a connected holding. yfinance is not a runtime fallback, and OpenInsider is exposed only as an optional human research link.
 
 The first delivery target is a branded, authenticated `/markets` command center for one founder and a small number of test users. Cost can remain low while the product is being validated, but every observation must disclose whether it is consolidated, single-venue, indicative, delayed, or filing-derived. A cheap feed may reduce coverage; it must never make lower-quality data look authoritative.
 
@@ -153,8 +153,9 @@ Exit gate: IEX and indicative data are visibly labeled and cannot satisfy a cons
 - Implemented: a CoinGecko keyed adapter and authenticated top-markets route.
 - Implemented: a keyless Coinbase Exchange ticker adapter for bounded single-venue production snapshots.
 - Implemented: owner-scoped Coinbase portfolio observations that price up to 32 exact holdings against approved USD tickers, preserve per-position venue/time evidence, and expose partial coverage without estimates.
+- Implemented: owner-scoped Coinbase Exchange 24-hour asset history using exactly 96 requested fifteen-minute intervals, exact decimal validation, one-minute caching, explicit single-venue provenance, and provider gaps that remain unfilled.
 - Implemented: a bounded display-cache policy; next add request-credit accounting and Redis coordination.
-- Next: global overview, asset history, and identifier mapping by CoinGecko ID and contract address.
+- Next: global overview and identifier mapping by CoinGecko ID and contract address.
 
 Exit gate: keyless traffic is bounded and visibly single-venue; no secret enters a URL, log, browser bundle, or Neural Engine request.
 
@@ -169,8 +170,8 @@ Exit gate: all displayed events link to SEC evidence and the importer complies w
 
 ### 5. Arbion command center
 
-- Implemented: the branded `/markets` overview plus a motion-enhanced Coinbase portfolio command surface with observed value, cash, coverage, priced allocation, a position ledger, and evidence controls.
-- Next: watchlists, dedicated equity/crypto detail, history, and richer source-health timelines.
+- Implemented: the branded `/markets` overview plus a motion-enhanced Coinbase portfolio command surface with observed value, cash, coverage, priced allocation, source-stamped 24-hour connected-asset charts, a position ledger, and evidence controls.
+- Next: watchlists, dedicated equity detail, and richer source-health timelines.
 - Keep broker account truth visually distinct from public/reference data.
 - Add responsive, loading, empty, degraded, stale, and provider-outage states with browser tests.
 

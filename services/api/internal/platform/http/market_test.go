@@ -51,6 +51,17 @@ func (fake fakeMarketIntelligence) CryptoMarkets(_ context.Context, currency str
 	}
 	return marketintelligence.CryptoMarketBatch{Markets: markets}, false, nil
 }
+func (fake fakeMarketIntelligence) RecentCryptoCandles(_ context.Context, symbol, currency string, granularity, limit int) (marketintelligence.CryptoCandleSeries, bool, error) {
+	if fake.err != nil {
+		return marketintelligence.CryptoCandleSeries{}, false, fake.err
+	}
+	now := time.Now().UTC().Truncate(time.Minute)
+	return marketintelligence.CryptoCandleSeries{
+		Symbol: symbol, Currency: currency, GranularitySeconds: granularity, ExpectedIntervals: limit,
+		Candles:    []marketintelligence.CryptoCandle{{Start: now.Add(-15 * time.Minute), Low: "59000", High: "61000", Open: "60000", Close: "60500", Volume: "10"}},
+		Provenance: marketintelligence.Provenance{Provider: "coinbase", Role: marketintelligence.MarketObservation, Feed: "rest_candles", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_exchange", ProviderTimestamp: now.Add(-15 * time.Minute), ReceivedAt: now},
+	}, false, nil
+}
 func (fake fakeMarketIntelligence) RecentInsiderFilings(_ context.Context, cik string, _ int) ([]marketintelligence.InsiderFilingObservation, bool, error) {
 	if fake.err != nil {
 		return nil, false, fake.err
@@ -211,6 +222,31 @@ func TestCryptoPortfolioRejectsNonCoinbaseAccounts(t *testing.T) {
 
 	if recorder.Code != stdhttp.StatusBadRequest || !strings.Contains(recorder.Body.String(), "PORTFOLIO_PRICING_UNSUPPORTED") {
 		t.Fatalf("non-Coinbase account entered crypto view: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestConnectedCryptoCandlesAreOwnerScopedBoundedAndReadOnly(t *testing.T) {
+	broker := &fakeBrokerMarketData{accounts: []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", BaseCurrency: "USD", Status: "active"}}}
+	handler := &authHandler{marketFinancial: broker, markets: fakeMarketIntelligence{}}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/markets/crypto/BTC/candles", nil)
+	request.SetPathValue("id", "coinbase-1")
+	request.SetPathValue("symbol", "BTC")
+	recorder := httptest.NewRecorder()
+	handler.connectedCryptoCandles(recorder, request)
+	body := recorder.Body.String()
+	for _, expected := range []string{`"granularity_seconds":900`, `"expected_intervals":96`, `"feed":"rest_candles"`, `"chart_semantics":"VENUE_PRICE_MOVEMENT"`, `"live_execution_available":false`} {
+		if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(body, expected) {
+			t.Fatalf("connected candle boundary missing %s: status=%d body=%s", expected, recorder.Code, body)
+		}
+	}
+
+	request = httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/markets/crypto/ETH/candles", nil)
+	request.SetPathValue("id", "coinbase-1")
+	request.SetPathValue("symbol", "ETH")
+	recorder = httptest.NewRecorder()
+	handler.connectedCryptoCandles(recorder, request)
+	if recorder.Code != stdhttp.StatusNotFound || !strings.Contains(recorder.Body.String(), "CONNECTED_ASSET_NOT_FOUND") {
+		t.Fatalf("unconnected asset history was exposed: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

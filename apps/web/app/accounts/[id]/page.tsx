@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { AppPageHeader } from "../../app-page-header";
 import {
   CryptoPortfolioCommandCenter,
+  type CryptoCandleSeries,
   type CryptoPortfolioSnapshot,
 } from "./crypto-portfolio-command-center";
 type Money = { amount: string; currency: string };
@@ -80,11 +81,32 @@ export default async function AccountPage({
         portfolio: CryptoPortfolioSnapshot;
       }
     ).portfolio;
+    const initialSymbol = snapshot.positions.find(
+      (position) => position.market_value,
+    )?.symbol;
+    let initialHistory: CryptoCandleSeries | undefined;
+    let initialHistoryCached = false;
+    if (initialSymbol) {
+      const historyResponse = await fetch(
+        `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/candles`,
+        { headers, cache: "no-store" },
+      );
+      if (historyResponse.ok) {
+        const historyPayload = (await historyResponse.json()) as {
+          history: CryptoCandleSeries;
+          cached?: boolean;
+        };
+        initialHistory = historyPayload.history;
+        initialHistoryCached = Boolean(historyPayload.cached);
+      }
+    }
     return (
       <main className="connections-page crypto-account-page">
         <AppPageHeader backHref="/accounts" backLabel="Accounts" />
         <CryptoPortfolioCommandCenter
           accountID={account.id}
+          initialHistory={initialHistory}
+          initialHistoryCached={initialHistoryCached}
           initialSnapshot={snapshot}
         />
       </main>

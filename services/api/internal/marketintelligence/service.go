@@ -12,19 +12,23 @@ import (
 const maxCacheEntries = 256
 
 type ServiceConfig struct {
-	EquityProvider      EquityQuoteProvider
-	EquitySourceID      string
-	CryptoProvider      CryptoMarketProvider
-	CryptoSourceID      string
-	CryptoAssetProvider CryptoAssetMarketProvider
-	CryptoAssetSourceID string
-	FilingProvider      InsiderFilingProvider
-	EquityCacheTTL      time.Duration
-	CryptoCacheTTL      time.Duration
-	FilingCacheTTL      time.Duration
-	EquityInterval      time.Duration
-	CryptoInterval      time.Duration
-	FilingInterval      time.Duration
+	EquityProvider       EquityQuoteProvider
+	EquitySourceID       string
+	CryptoProvider       CryptoMarketProvider
+	CryptoSourceID       string
+	CryptoAssetProvider  CryptoAssetMarketProvider
+	CryptoAssetSourceID  string
+	CryptoCandleProvider CryptoCandleProvider
+	CryptoCandleSourceID string
+	FilingProvider       InsiderFilingProvider
+	EquityCacheTTL       time.Duration
+	CryptoCacheTTL       time.Duration
+	CryptoCandleCacheTTL time.Duration
+	FilingCacheTTL       time.Duration
+	EquityInterval       time.Duration
+	CryptoInterval       time.Duration
+	CryptoCandleInterval time.Duration
+	FilingInterval       time.Duration
 }
 
 type cacheEntry[T any] struct {
@@ -38,25 +42,30 @@ type cacheEntry[T any] struct {
 type Service struct {
 	mu sync.RWMutex
 
-	equityProvider      EquityQuoteProvider
-	equitySourceID      string
-	cryptoProvider      CryptoMarketProvider
-	cryptoAssets        CryptoAssetMarketProvider
-	cryptoSourceID      string
-	cryptoAssetSourceID string
-	filingProvider      InsiderFilingProvider
+	equityProvider       EquityQuoteProvider
+	equitySourceID       string
+	cryptoProvider       CryptoMarketProvider
+	cryptoAssets         CryptoAssetMarketProvider
+	cryptoCandles        CryptoCandleProvider
+	cryptoSourceID       string
+	cryptoAssetSourceID  string
+	cryptoCandleSourceID string
+	filingProvider       InsiderFilingProvider
 
-	equityCacheTTL time.Duration
-	cryptoCacheTTL time.Duration
-	filingCacheTTL time.Duration
-	equityPacer    requestPacer
-	cryptoPacer    requestPacer
-	filingPacer    requestPacer
+	equityCacheTTL       time.Duration
+	cryptoCacheTTL       time.Duration
+	cryptoCandleCacheTTL time.Duration
+	filingCacheTTL       time.Duration
+	equityPacer          requestPacer
+	cryptoPacer          requestPacer
+	cryptoCandlePacer    requestPacer
+	filingPacer          requestPacer
 
 	sources     []Source
 	equityCache map[string]cacheEntry[QuoteObservation]
 	cryptoCache map[string]cacheEntry[[]CryptoMarketObservation]
 	assetCache  map[string]cacheEntry[CryptoMarketBatch]
+	candleCache map[string]cacheEntry[CryptoCandleSeries]
 	filingCache map[string]cacheEntry[[]InsiderFilingObservation]
 	now         func() time.Time
 }
@@ -85,6 +94,12 @@ func NewService(config ServiceConfig) (*Service, error) {
 	if config.CryptoAssetProvider != nil && config.CryptoAssetSourceID != "coinbase_exchange" {
 		return nil, errors.New("unsupported crypto asset source")
 	}
+	if config.CryptoCandleProvider != nil && config.CryptoCandleSourceID != "coinbase_exchange" {
+		return nil, errors.New("unsupported crypto candle source")
+	}
+	if config.CryptoCandleProvider != nil && (config.CryptoCandleCacheTTL <= 0 || config.CryptoCandleInterval <= 0) {
+		return nil, errors.New("crypto candle cache and request policies must be positive")
+	}
 	if config.FilingProvider != nil && (config.FilingCacheTTL <= 0 || config.FilingInterval <= 0) {
 		return nil, errors.New("filing cache and request policies must be positive")
 	}
@@ -95,29 +110,35 @@ func NewService(config ServiceConfig) (*Service, error) {
 		assetSourceID = config.CryptoSourceID
 	}
 	service := &Service{
-		equityProvider:      config.EquityProvider,
-		equitySourceID:      config.EquitySourceID,
-		cryptoProvider:      config.CryptoProvider,
-		cryptoAssets:        assetProvider,
-		cryptoSourceID:      config.CryptoSourceID,
-		cryptoAssetSourceID: assetSourceID,
-		filingProvider:      config.FilingProvider,
-		equityCacheTTL:      config.EquityCacheTTL,
-		cryptoCacheTTL:      config.CryptoCacheTTL,
-		filingCacheTTL:      config.FilingCacheTTL,
-		equityPacer:         requestPacer{interval: config.EquityInterval},
-		cryptoPacer:         requestPacer{interval: config.CryptoInterval},
-		filingPacer:         requestPacer{interval: config.FilingInterval},
-		sources:             DefaultSources(),
-		equityCache:         make(map[string]cacheEntry[QuoteObservation]),
-		cryptoCache:         make(map[string]cacheEntry[[]CryptoMarketObservation]),
-		assetCache:          make(map[string]cacheEntry[CryptoMarketBatch]),
-		filingCache:         make(map[string]cacheEntry[[]InsiderFilingObservation]),
-		now:                 func() time.Time { return time.Now().UTC() },
+		equityProvider:       config.EquityProvider,
+		equitySourceID:       config.EquitySourceID,
+		cryptoProvider:       config.CryptoProvider,
+		cryptoAssets:         assetProvider,
+		cryptoCandles:        config.CryptoCandleProvider,
+		cryptoSourceID:       config.CryptoSourceID,
+		cryptoAssetSourceID:  assetSourceID,
+		cryptoCandleSourceID: config.CryptoCandleSourceID,
+		filingProvider:       config.FilingProvider,
+		equityCacheTTL:       config.EquityCacheTTL,
+		cryptoCacheTTL:       config.CryptoCacheTTL,
+		cryptoCandleCacheTTL: config.CryptoCandleCacheTTL,
+		filingCacheTTL:       config.FilingCacheTTL,
+		equityPacer:          requestPacer{interval: config.EquityInterval},
+		cryptoPacer:          requestPacer{interval: config.CryptoInterval},
+		cryptoCandlePacer:    requestPacer{interval: config.CryptoCandleInterval},
+		filingPacer:          requestPacer{interval: config.FilingInterval},
+		sources:              DefaultSources(),
+		equityCache:          make(map[string]cacheEntry[QuoteObservation]),
+		cryptoCache:          make(map[string]cacheEntry[[]CryptoMarketObservation]),
+		assetCache:           make(map[string]cacheEntry[CryptoMarketBatch]),
+		candleCache:          make(map[string]cacheEntry[CryptoCandleSeries]),
+		filingCache:          make(map[string]cacheEntry[[]InsiderFilingObservation]),
+		now:                  func() time.Time { return time.Now().UTC() },
 	}
 	service.setEnabled(config.EquitySourceID, config.EquityProvider != nil)
 	service.setEnabled(config.CryptoSourceID, config.CryptoProvider != nil)
 	service.setEnabled(assetSourceID, assetProvider != nil)
+	service.setEnabled(config.CryptoCandleSourceID, config.CryptoCandleProvider != nil)
 	service.setEnabled("sec_edgar", config.FilingProvider != nil)
 	return service, nil
 }
@@ -245,6 +266,39 @@ func cloneCryptoBatch(batch CryptoMarketBatch) CryptoMarketBatch {
 	}
 }
 
+// RecentCryptoCandles returns one canonical, bounded venue series. The cache
+// reduces provider polling without changing the response's observation times.
+func (service *Service) RecentCryptoCandles(ctx context.Context, symbol, currency string, granularitySeconds, limit int) (CryptoCandleSeries, bool, error) {
+	if service.cryptoCandles == nil {
+		return CryptoCandleSeries{}, false, ErrNoEligibleSource
+	}
+	canonical, ok := canonicalCryptoSymbols(currency, []string{symbol})
+	if !ok || len(canonical) != 1 || granularitySeconds != 900 || limit != 96 {
+		return CryptoCandleSeries{}, false, ErrInvalidObservation
+	}
+	key := "candles:" + canonical[0] + ":usd:900:96"
+	if value, cached := cacheValue(service, service.candleCache, key); cached {
+		return cloneCryptoCandleSeries(value), true, nil
+	}
+	if err := service.cryptoCandlePacer.wait(ctx); err != nil {
+		return CryptoCandleSeries{}, false, err
+	}
+	series, err := service.cryptoCandles.RecentCryptoCandles(ctx, canonical[0], "USD", granularitySeconds, limit)
+	if err != nil {
+		service.recordProviderError(service.cryptoCandleSourceID, err)
+		return CryptoCandleSeries{}, false, err
+	}
+	service.setHealthy(service.cryptoCandleSourceID, true)
+	series = cloneCryptoCandleSeries(series)
+	service.storeCryptoCandles(key, series)
+	return cloneCryptoCandleSeries(series), false, nil
+}
+
+func cloneCryptoCandleSeries(series CryptoCandleSeries) CryptoCandleSeries {
+	series.Candles = append([]CryptoCandle(nil), series.Candles...)
+	return series
+}
+
 func (service *Service) RecentInsiderFilings(ctx context.Context, cik string, limit int) ([]InsiderFilingObservation, bool, error) {
 	if service.filingProvider == nil {
 		return nil, false, ErrNoEligibleSource
@@ -350,6 +404,13 @@ func (service *Service) storeCryptoAssets(key string, value CryptoMarketBatch) {
 	service.assetCache[key] = cacheEntry[CryptoMarketBatch]{value: cloneCryptoBatch(value), expiresAt: service.now().Add(service.cryptoCacheTTL)}
 }
 
+func (service *Service) storeCryptoCandles(key string, value CryptoCandleSeries) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	pruneCache(service.candleCache, service.now())
+	service.candleCache[key] = cacheEntry[CryptoCandleSeries]{value: cloneCryptoCandleSeries(value), expiresAt: service.now().Add(service.cryptoCandleCacheTTL)}
+}
+
 func (service *Service) storeFilings(key string, value []InsiderFilingObservation) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -402,7 +463,7 @@ func (service *Service) setHealthy(id string, healthy bool) {
 }
 
 func (service *Service) recordProviderError(id string, err error) {
-	if errors.Is(err, ErrInvalidObservation) {
+	if errors.Is(err, ErrInvalidObservation) || errors.Is(err, ErrInstrumentUnavailable) {
 		return
 	}
 	service.setHealthy(id, false)

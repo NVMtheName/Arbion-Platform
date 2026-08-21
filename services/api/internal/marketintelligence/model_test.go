@@ -68,6 +68,33 @@ func TestValidateQuoteFailsClosedForMalformedOrMissingData(t *testing.T) {
 	}
 }
 
+func TestValidateCryptoCandlesPreservesExactValuesAndRejectsInventedRanges(t *testing.T) {
+	now := time.Date(2026, time.August, 21, 15, 0, 0, 0, time.UTC)
+	series := CryptoCandleSeries{
+		Symbol: "BTC", Currency: "USD", GranularitySeconds: 900, ExpectedIntervals: 96,
+		Candles: []CryptoCandle{
+			{Start: now.Add(-30 * time.Minute), Low: "70000.000000000000000001", High: "70200", Open: "70025", Close: "70180", Volume: "1.234567890123456789"},
+			{Start: now.Add(-15 * time.Minute), Low: "70100", High: "70300", Open: "70180", Close: "70250", Volume: "2.5"},
+		},
+		Provenance: Provenance{Provider: "coinbase", Role: MarketObservation, Feed: "rest_candles", Quality: RealTimeSingleVenue, Venue: "coinbase_exchange", ProviderTimestamp: now.Add(-15 * time.Minute), ReceivedAt: now},
+	}
+	if err := ValidateCryptoCandleSeries(series, now, FreshnessPolicy{MaxAge: 25 * time.Hour, MaxFutureSkew: time.Minute}); err != nil {
+		t.Fatalf("valid candle series rejected: %v", err)
+	}
+	invalid := series
+	invalid.Candles = append([]CryptoCandle(nil), series.Candles...)
+	invalid.Candles[1].Close = "70301"
+	if err := ValidateCryptoCandleSeries(invalid, now, FreshnessPolicy{MaxAge: 25 * time.Hour, MaxFutureSkew: time.Minute}); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("out-of-range close accepted: %v", err)
+	}
+	invalid = series
+	invalid.Candles = append([]CryptoCandle(nil), series.Candles...)
+	invalid.Candles[1].Volume = "2e1"
+	if err := ValidateCryptoCandleSeries(invalid, now, FreshnessPolicy{MaxAge: 25 * time.Hour, MaxFutureSkew: time.Minute}); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("exponent volume accepted: %v", err)
+	}
+}
+
 func TestSelectSourceNeverSilentlyDowngradesQuality(t *testing.T) {
 	sources := []Source{
 		{ID: "alpaca_iex", Label: "Alpaca IEX", Role: MarketObservation, Feed: "iex", Quality: RealTimeSingleVenue, Capabilities: []Capability{EquityQuote}, Enabled: true, Healthy: true},

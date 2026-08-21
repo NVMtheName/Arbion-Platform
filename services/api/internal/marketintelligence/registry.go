@@ -12,7 +12,7 @@ func DefaultSources() []Source {
 		{ID: "alpaca_options_indicative", Label: "Alpaca Options Indicative", Role: MarketObservation, Feed: "indicative", Quality: Indicative, Capabilities: []Capability{OptionData}},
 		{ID: "alpaca_opra", Label: "Alpaca OPRA", Role: MarketObservation, Feed: "opra", Quality: RealTimeConsolidated, Capabilities: []Capability{OptionData}},
 		{ID: "coingecko_rest", Label: "CoinGecko", Role: ReferenceData, Feed: "rest", Quality: AggregatedReference, Capabilities: []Capability{CryptoMarkets}},
-		{ID: "coinbase_exchange", Label: "Coinbase Exchange", Role: MarketObservation, Feed: "rest_ticker", Quality: RealTimeSingleVenue, Capabilities: []Capability{CryptoMarkets}},
+		{ID: "coinbase_exchange", Label: "Coinbase Exchange", Role: MarketObservation, Feed: "rest_ticker_and_candles", Quality: RealTimeSingleVenue, Capabilities: []Capability{CryptoMarkets, CryptoCandles}},
 		{ID: "sec_edgar", Label: "SEC EDGAR", Role: PrimaryFiling, Feed: "submissions", Quality: Filing, Capabilities: []Capability{InsiderFiling}},
 	}
 }

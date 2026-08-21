@@ -29,6 +29,7 @@ const (
 	EquityBars    Capability = "EQUITY_BARS"
 	OptionData    Capability = "OPTION_DATA"
 	CryptoMarkets Capability = "CRYPTO_MARKETS"
+	CryptoCandles Capability = "CRYPTO_CANDLES"
 	InsiderFiling Capability = "INSIDER_FILING"
 )
 
@@ -111,6 +112,28 @@ type CryptoMarketBatch struct {
 	UnavailableSymbols []string                  `json:"unavailable_symbols"`
 }
 
+// CryptoCandle is one provider-reported interval. Missing intervals are not
+// synthesized, because an absent Coinbase bucket means no ticks were recorded.
+type CryptoCandle struct {
+	Start  time.Time `json:"start"`
+	Low    Decimal   `json:"low"`
+	High   Decimal   `json:"high"`
+	Open   Decimal   `json:"open"`
+	Close  Decimal   `json:"close"`
+	Volume Decimal   `json:"volume"`
+}
+
+// CryptoCandleSeries is bounded historical venue evidence. It is not a
+// portfolio return, cost-basis, or executable-price record.
+type CryptoCandleSeries struct {
+	Symbol             string         `json:"symbol"`
+	Currency           string         `json:"currency"`
+	GranularitySeconds int            `json:"granularity_seconds"`
+	ExpectedIntervals  int            `json:"expected_intervals"`
+	Candles            []CryptoCandle `json:"candles"`
+	Provenance         Provenance     `json:"provenance"`
+}
+
 type OptionContractObservation struct {
 	Symbol            string    `json:"symbol"`
 	Underlying        string    `json:"underlying"`
@@ -183,16 +206,23 @@ type CryptoAssetMarketProvider interface {
 	CryptoMarkets(context.Context, string, []string) (CryptoMarketBatch, error)
 }
 
+// CryptoCandleProvider returns bounded, read-only historical observations for
+// one venue product. Implementations must preserve provider-reported gaps.
+type CryptoCandleProvider interface {
+	RecentCryptoCandles(context.Context, string, string, int, int) (CryptoCandleSeries, error)
+}
+
 type InsiderFilingProvider interface {
 	RecentInsiderFilings(context.Context, string, int) ([]InsiderFilingObservation, error)
 }
 
 var (
-	ErrInvalidObservation = errors.New("invalid market observation")
-	ErrMissingProvenance  = errors.New("market observation provenance is incomplete")
-	ErrFutureObservation  = errors.New("market observation is future-dated")
-	ErrStaleObservation   = errors.New("market observation is stale")
-	ErrNoEligibleSource   = errors.New("no eligible market data source")
+	ErrInvalidObservation    = errors.New("invalid market observation")
+	ErrMissingProvenance     = errors.New("market observation provenance is incomplete")
+	ErrFutureObservation     = errors.New("market observation is future-dated")
+	ErrStaleObservation      = errors.New("market observation is stale")
+	ErrNoEligibleSource      = errors.New("no eligible market data source")
+	ErrInstrumentUnavailable = errors.New("market instrument unavailable")
 )
 
 var (
@@ -280,6 +310,36 @@ func ValidateCryptoMarket(observation CryptoMarketObservation, now time.Time, po
 		return fmt.Errorf("%w: crypto market rank", ErrInvalidObservation)
 	}
 	return ValidateProvenance(observation.Provenance, now, policy)
+}
+
+func ValidateCryptoCandleSeries(series CryptoCandleSeries, now time.Time, policy FreshnessPolicy) error {
+	if !boundedText(series.Symbol, 32) || !boundedText(series.Currency, 12) || series.ExpectedIntervals < 1 || series.ExpectedIntervals > 300 || len(series.Candles) == 0 || len(series.Candles) > series.ExpectedIntervals {
+		return fmt.Errorf("%w: crypto candle identity or bounds", ErrInvalidObservation)
+	}
+	switch series.GranularitySeconds {
+	case 60, 300, 900, 3600, 21600, 86400:
+	default:
+		return fmt.Errorf("%w: crypto candle granularity", ErrInvalidObservation)
+	}
+	var previous time.Time
+	for _, candle := range series.Candles {
+		if candle.Start.IsZero() || candle.Start.Unix()%int64(series.GranularitySeconds) != 0 || !previous.IsZero() && !candle.Start.After(previous) || candle.Start.After(now.Add(policy.MaxFutureSkew)) ||
+			!validDecimal(&candle.Low) || !validDecimal(&candle.High) || !validDecimal(&candle.Open) || !validDecimal(&candle.Close) || !validDecimal(&candle.Volume) {
+			return fmt.Errorf("%w: crypto candle value", ErrInvalidObservation)
+		}
+		low, lowOK := new(big.Rat).SetString(string(candle.Low))
+		high, highOK := new(big.Rat).SetString(string(candle.High))
+		open, openOK := new(big.Rat).SetString(string(candle.Open))
+		closeValue, closeOK := new(big.Rat).SetString(string(candle.Close))
+		if !lowOK || !highOK || !openOK || !closeOK || low.Cmp(high) > 0 || open.Cmp(low) < 0 || open.Cmp(high) > 0 || closeValue.Cmp(low) < 0 || closeValue.Cmp(high) > 0 {
+			return fmt.Errorf("%w: crypto candle OHLC range", ErrInvalidObservation)
+		}
+		previous = candle.Start
+	}
+	if !series.Provenance.ProviderTimestamp.Equal(series.Candles[len(series.Candles)-1].Start) {
+		return fmt.Errorf("%w: crypto candle timestamp", ErrInvalidObservation)
+	}
+	return ValidateProvenance(series.Provenance, now, policy)
 }
 
 func ValidateInsiderFiling(observation InsiderFilingObservation, now time.Time, maxFutureSkew time.Duration) error {
