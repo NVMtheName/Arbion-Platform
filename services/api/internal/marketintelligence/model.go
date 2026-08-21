@@ -32,6 +32,7 @@ const (
 	CryptoCandles   Capability = "CRYPTO_CANDLES"
 	CryptoLiquidity Capability = "CRYPTO_LIQUIDITY"
 	CryptoTrades    Capability = "CRYPTO_TRADES"
+	CryptoStats     Capability = "CRYPTO_VENUE_STATS"
 	InsiderFiling   Capability = "INSIDER_FILING"
 )
 
@@ -181,6 +182,36 @@ type CryptoTradeTape struct {
 	Provenance Provenance               `json:"provenance"`
 }
 
+// SourceReceipt records when Arbion received a provider response whose
+// contract does not include an event timestamp. It must not be presented as a
+// provider observation time.
+type SourceReceipt struct {
+	Provider          string      `json:"provider"`
+	ProviderRequestID string      `json:"provider_request_id,omitempty"`
+	Role              SourceRole  `json:"role"`
+	Feed              string      `json:"feed"`
+	Quality           FeedQuality `json:"quality"`
+	Venue             string      `json:"venue,omitempty"`
+	ReceivedAt        time.Time   `json:"received_at"`
+}
+
+// CryptoVenueStats is one exact rolling-window response from a single venue.
+// Coinbase does not timestamp this response, so Receipt is intentionally
+// separate from event-time Provenance.
+type CryptoVenueStats struct {
+	Symbol      string        `json:"symbol"`
+	Currency    string        `json:"currency"`
+	ProductID   string        `json:"product_id"`
+	Open        Decimal       `json:"open"`
+	High        Decimal       `json:"high"`
+	Low         Decimal       `json:"low"`
+	Last        Decimal       `json:"last"`
+	Volume24H   Decimal       `json:"volume_24h"`
+	Volume30Day Decimal       `json:"volume_30day"`
+	VolumeUnit  string        `json:"volume_unit"`
+	Receipt     SourceReceipt `json:"receipt"`
+}
+
 type OptionContractObservation struct {
 	Symbol            string    `json:"symbol"`
 	Underlying        string    `json:"underlying"`
@@ -269,6 +300,12 @@ type CryptoLiquidityProvider interface {
 // account-order or provider-write method.
 type CryptoTradeProvider interface {
 	RecentCryptoTrades(context.Context, string, string, int) (CryptoTradeTape, error)
+}
+
+// CryptoVenueStatsProvider returns rolling public venue statistics. Its
+// receipt time is not interchangeable with a provider event timestamp.
+type CryptoVenueStatsProvider interface {
+	CryptoVenueStats(context.Context, string, string) (CryptoVenueStats, error)
 }
 
 type InsiderFilingProvider interface {
@@ -454,6 +491,43 @@ func ValidateCryptoTradeTape(tape CryptoTradeTape, now time.Time, policy Freshne
 		return fmt.Errorf("%w: crypto trade tape timestamp", ErrInvalidObservation)
 	}
 	return ValidateProvenance(tape.Provenance, now, policy)
+}
+
+func ValidateCryptoVenueStats(stats CryptoVenueStats, now time.Time, maxReceiptAge, maxFutureSkew time.Duration) error {
+	if !boundedText(stats.Symbol, 32) || !boundedText(stats.Currency, 12) || stats.ProductID != stats.Symbol+"-"+stats.Currency || stats.VolumeUnit != stats.Symbol {
+		return fmt.Errorf("%w: venue stats identity", ErrInvalidObservation)
+	}
+	for _, value := range []*Decimal{&stats.Volume24H, &stats.Volume30Day} {
+		if !validDecimal(value) {
+			return fmt.Errorf("%w: venue stats decimal", ErrInvalidObservation)
+		}
+	}
+	if !positiveDecimal(stats.Open) || !positiveDecimal(stats.High) || !positiveDecimal(stats.Low) || !positiveDecimal(stats.Last) {
+		return fmt.Errorf("%w: venue stats price", ErrInvalidObservation)
+	}
+	openValue, _ := new(big.Rat).SetString(string(stats.Open))
+	highValue, _ := new(big.Rat).SetString(string(stats.High))
+	lowValue, _ := new(big.Rat).SetString(string(stats.Low))
+	lastValue, _ := new(big.Rat).SetString(string(stats.Last))
+	volume24H, _ := new(big.Rat).SetString(string(stats.Volume24H))
+	volume30Day, _ := new(big.Rat).SetString(string(stats.Volume30Day))
+	if highValue.Cmp(lowValue) < 0 || openValue.Cmp(lowValue) < 0 || openValue.Cmp(highValue) > 0 || lastValue.Cmp(lowValue) < 0 || lastValue.Cmp(highValue) > 0 || volume30Day.Cmp(volume24H) < 0 {
+		return fmt.Errorf("%w: venue stats relationship", ErrInvalidObservation)
+	}
+	return ValidateSourceReceipt(stats.Receipt, now, maxReceiptAge, maxFutureSkew)
+}
+
+func ValidateSourceReceipt(receipt SourceReceipt, now time.Time, maxAge, maxFutureSkew time.Duration) error {
+	if !boundedText(receipt.Provider, 128) || !boundedText(receipt.Feed, 128) || !validRole(receipt.Role) || !validQuality(receipt.Quality) || receipt.ReceivedAt.IsZero() || maxAge <= 0 || maxFutureSkew < 0 {
+		return fmt.Errorf("%w: source receipt", ErrMissingProvenance)
+	}
+	if receipt.ReceivedAt.After(now.Add(maxFutureSkew)) {
+		return ErrFutureObservation
+	}
+	if now.Sub(receipt.ReceivedAt) > maxAge {
+		return ErrStaleObservation
+	}
+	return nil
 }
 
 func positiveDecimal(value Decimal) bool {

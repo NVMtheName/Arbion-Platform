@@ -137,6 +137,40 @@ type MarketTradesResponse = {
   error?: { message?: string };
 };
 
+type SourceReceipt = {
+  provider: string;
+  feed: string;
+  quality: string;
+  venue?: string;
+  received_at: string;
+};
+
+export type CryptoVenueStats = {
+  symbol: string;
+  currency: string;
+  product_id: string;
+  open: string;
+  high: string;
+  low: string;
+  last: string;
+  volume_24h: string;
+  volume_30day: string;
+  volume_unit: string;
+  receipt: SourceReceipt;
+};
+
+type VenueStatsResponse = {
+  venue_stats?: CryptoVenueStats;
+  cached?: boolean;
+  summary_semantics?: "ROLLING_SINGLE_VENUE_STATS";
+  provider_event_time_available: false;
+  timestamp_semantics?: "ARBION_RECEIPT_TIME";
+  performance_claim: false;
+  order_actions_available: false;
+  live_execution_available: false;
+  error?: { message?: string };
+};
+
 export type CoinbaseTradeFill = {
   product_id: string;
   base_asset: string;
@@ -394,6 +428,8 @@ export function CryptoPortfolioCommandCenter({
   initialLiquidityCached = false,
   initialMarketTrades,
   initialMarketTradesCached = false,
+  initialVenueStats,
+  initialVenueStatsCached = false,
   initialActivity,
   initialOrderHistory,
   initialTradingCosts,
@@ -406,6 +442,8 @@ export function CryptoPortfolioCommandCenter({
   initialLiquidityCached?: boolean;
   initialMarketTrades?: CryptoPublicTradeTape;
   initialMarketTradesCached?: boolean;
+  initialVenueStats?: CryptoVenueStats;
+  initialVenueStatsCached?: boolean;
   initialActivity?: CoinbaseTradeActivity;
   initialOrderHistory?: CoinbaseOrderHistory;
   initialTradingCosts?: CoinbaseTradingCostSummary;
@@ -457,6 +495,18 @@ export function CryptoPortfolioCommandCenter({
   );
   const [marketTradesLoading, setMarketTradesLoading] = useState(false);
   const [marketTradesError, setMarketTradesError] = useState("");
+  const [venueStatsBySymbol, setVenueStatsBySymbol] = useState<
+    Record<string, CryptoVenueStats>
+  >(initialVenueStats ? { [initialVenueStats.symbol]: initialVenueStats } : {});
+  const [venueStatsCached, setVenueStatsCached] = useState<
+    Record<string, boolean>
+  >(
+    initialVenueStats
+      ? { [initialVenueStats.symbol]: initialVenueStatsCached }
+      : {},
+  );
+  const [venueStatsLoading, setVenueStatsLoading] = useState(false);
+  const [venueStatsError, setVenueStatsError] = useState("");
   const [activity, setActivity] = useState(initialActivity);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState("");
@@ -519,6 +569,7 @@ export function CryptoPortfolioCommandCenter({
   const selectedHistory = histories[selectedSymbol];
   const selectedLiquidity = liquidities[selectedSymbol];
   const selectedMarketTrades = marketTradeTapes[selectedSymbol];
+  const selectedVenueStats = venueStatsBySymbol[selectedSymbol];
   const chart = useMemo(() => historyChart(selectedHistory), [selectedHistory]);
 
   const loadHistory = useCallback(
@@ -665,6 +716,56 @@ export function CryptoPortfolioCommandCenter({
       }
     },
     [accountID, marketTradeTapes],
+  );
+
+  const loadVenueStats = useCallback(
+    async (symbol: string, force = false) => {
+      if (!symbol || (!force && venueStatsBySymbol[symbol])) return;
+      setVenueStatsLoading(true);
+      setVenueStatsError("");
+      try {
+        const response = await fetch(
+          `/api/accounts/${encodeURIComponent(accountID)}/markets/crypto/${encodeURIComponent(symbol)}/stats`,
+          { cache: "no-store" },
+        );
+        const body = (await response.json()) as VenueStatsResponse;
+        if (
+          !response.ok ||
+          !body.venue_stats ||
+          body.summary_semantics !== "ROLLING_SINGLE_VENUE_STATS" ||
+          body.provider_event_time_available !== false ||
+          body.timestamp_semantics !== "ARBION_RECEIPT_TIME" ||
+          body.performance_claim !== false ||
+          body.order_actions_available !== false ||
+          body.live_execution_available !== false ||
+          body.venue_stats.symbol !== symbol ||
+          body.venue_stats.currency !== "USD" ||
+          body.venue_stats.product_id !== `${symbol}-USD` ||
+          body.venue_stats.volume_unit !== symbol
+        ) {
+          setVenueStatsError(
+            body.error?.message ??
+              "Coinbase rolling venue statistics are temporarily unavailable. No window values were estimated.",
+          );
+          return;
+        }
+        setVenueStatsBySymbol((current) => ({
+          ...current,
+          [symbol]: body.venue_stats as CryptoVenueStats,
+        }));
+        setVenueStatsCached((current) => ({
+          ...current,
+          [symbol]: Boolean(body.cached),
+        }));
+      } catch {
+        setVenueStatsError(
+          "Coinbase rolling venue statistics are temporarily unavailable. No window values were estimated.",
+        );
+      } finally {
+        setVenueStatsLoading(false);
+      }
+    },
+    [accountID, venueStatsBySymbol],
   );
 
   const refreshActivity = useCallback(async () => {
@@ -996,9 +1097,11 @@ export function CryptoPortfolioCommandCenter({
                   setHistoryError("");
                   setLiquidityError("");
                   setMarketTradesError("");
+                  setVenueStatsError("");
                   void loadHistory(position.symbol);
                   void loadLiquidity(position.symbol);
                   void loadMarketTrades(position.symbol);
+                  void loadVenueStats(position.symbol);
                 }}
               >
                 {position.symbol}
@@ -1141,6 +1244,117 @@ export function CryptoPortfolioCommandCenter({
             </aside>
           </div>
         )}
+      </motion.section>
+
+      <motion.section
+        className="crypto-venue-stats-panel"
+        aria-labelledby="crypto-venue-stats-title"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.225 }}
+      >
+        <header>
+          <div>
+            <p className="eyebrow">ROLLING VENUE WINDOW</p>
+            <h2 id="crypto-venue-stats-title">Coinbase range &amp; volume</h2>
+            <p>
+              Exact public Coinbase Exchange window values for the selected held
+              asset—not portfolio return, performance, liquidity, or an
+              executable market.
+            </p>
+          </div>
+          <div className="crypto-venue-stats-actions">
+            <span>
+              {selectedSymbol ? `${selectedSymbol} / USD` : "No priced asset"}
+            </span>
+            <button
+              type="button"
+              disabled={!selectedSymbol || venueStatsLoading}
+              onClick={() => void loadVenueStats(selectedSymbol, true)}
+            >
+              {venueStatsLoading ? "Refreshing…" : "Refresh venue window"}
+            </button>
+          </div>
+        </header>
+
+        {venueStatsError ? (
+          <p className="crypto-venue-stats-unavailable" role="alert">
+            {venueStatsError}
+          </p>
+        ) : !selectedVenueStats ? (
+          <p className="crypto-venue-stats-unavailable">
+            {venueStatsLoading
+              ? "Loading provider-reported rolling values…"
+              : "No Coinbase rolling venue statistics are available for this connected asset."}
+          </p>
+        ) : (
+          <>
+            <div className="crypto-venue-stats-grid">
+              <article>
+                <span>Window open</span>
+                <strong>
+                  {price(selectedVenueStats.open, selectedVenueStats.currency)}
+                </strong>
+                <small>{exactDecimal(selectedVenueStats.open)} USD</small>
+              </article>
+              <article>
+                <span>Window high</span>
+                <strong>
+                  {price(selectedVenueStats.high, selectedVenueStats.currency)}
+                </strong>
+                <small>{exactDecimal(selectedVenueStats.high)} USD</small>
+              </article>
+              <article>
+                <span>Window low</span>
+                <strong>
+                  {price(selectedVenueStats.low, selectedVenueStats.currency)}
+                </strong>
+                <small>{exactDecimal(selectedVenueStats.low)} USD</small>
+              </article>
+              <article>
+                <span>Latest venue value</span>
+                <strong>
+                  {price(selectedVenueStats.last, selectedVenueStats.currency)}
+                </strong>
+                <small>{exactDecimal(selectedVenueStats.last)} USD</small>
+              </article>
+              <article>
+                <span>24h base volume</span>
+                <strong>{quantity(selectedVenueStats.volume_24h)}</strong>
+                <small>
+                  {exactDecimal(selectedVenueStats.volume_24h)}{" "}
+                  {selectedVenueStats.volume_unit}
+                </small>
+              </article>
+              <article>
+                <span>30d base volume</span>
+                <strong>{quantity(selectedVenueStats.volume_30day)}</strong>
+                <small>
+                  {exactDecimal(selectedVenueStats.volume_30day)}{" "}
+                  {selectedVenueStats.volume_unit}
+                </small>
+              </article>
+            </div>
+            <div className="crypto-venue-stats-receipt">
+              <span>Coinbase Exchange · public product stats</span>
+              <span>
+                Received by Arbion{" "}
+                {timestamp(selectedVenueStats.receipt.received_at)}
+              </span>
+              <span>
+                {venueStatsCached[selectedSymbol]
+                  ? "30-second display cache"
+                  : "Provider response"}
+              </span>
+            </div>
+          </>
+        )}
+        <footer>
+          Coinbase publishes these rolling values without an event timestamp.
+          Arbion shows its receipt time only and does not relabel it as provider
+          observation time. No change percentage, return, or trading signal is
+          inferred here.
+        </footer>
       </motion.section>
 
       <motion.section

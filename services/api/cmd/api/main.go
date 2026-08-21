@@ -191,6 +191,7 @@ func newMarketIntelligenceService(cfg config.MarketData) (*marketintelligence.Se
 		CryptoCandleProvider: coinbaseProvider, CryptoCandleSourceID: "coinbase_exchange", CryptoCandleCacheTTL: time.Minute, CryptoCandleInterval: 500 * time.Millisecond,
 		CryptoLiquidityProvider: coinbaseProvider, CryptoLiquiditySourceID: "coinbase_exchange", CryptoLiquidityCacheTTL: time.Second, CryptoLiquidityInterval: 250 * time.Millisecond,
 		CryptoTradeProvider: coinbaseProvider, CryptoTradeSourceID: "coinbase_exchange", CryptoTradeCacheTTL: time.Second, CryptoTradeInterval: 250 * time.Millisecond,
+		CryptoStatsProvider: coinbaseProvider, CryptoStatsSourceID: "coinbase_exchange", CryptoStatsCacheTTL: 30 * time.Second, CryptoStatsInterval: 250 * time.Millisecond,
 		FilingProvider: filings, FilingCacheTTL: cfg.InsiderFilingTTL, FilingInterval: cfg.SECRateInterval,
 	})
 }

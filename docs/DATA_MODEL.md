@@ -64,6 +64,8 @@ Connected Coinbase liquidity is an ephemeral keyless market observation rather t
 
 Connected Coinbase public trade tape is another ephemeral keyless market observation. It contains only the canonical symbol/USD product, at most 25 newest exact price/size/time/side ticks, current best bid/ask, and provenance. Public trade IDs, per-tick quote copies, cursors, and arbitrary time ranges are omitted. The tape is not persisted, joined to account executions, or used to derive aggressor flow, sentiment, performance, cost basis, P&L, or execution instructions.
 
+Connected Coinbase rolling venue statistics are an ephemeral keyless aggregate record. The model contains only the canonical symbol/USD product, exact provider open/high/low/last, exact 24-hour and 30-day base-unit volume, volume unit, and a source receipt. It deliberately uses `SourceReceipt` rather than event-time `Provenance`, because the provider contract does not timestamp the aggregate. The 30-second cached record is never persisted, joined to account execution, or used to infer return, performance, liquidity, sentiment, or a trading signal.
+
 ## Durable automation authorization records
 
 Migration `00006_automation_mandates.sql` replaces the early placeholder in place: `automation_configs` is renamed and normalized as `automation_mandates`, so there are not two active automation concepts. Stable security fields are columns; validated extensible strategy/risk/universe/condition documents remain structured JSON. Each mandate binds a same-owner `financial_accounts` row and `capital_buckets` row and has a lifecycle status, effective interval, and monotonically increasing current version.

@@ -16,6 +16,7 @@ import {
   type CryptoLiquiditySnapshot,
   type CryptoPublicTradeTape,
   type CryptoPortfolioSnapshot,
+  type CryptoVenueStats,
 } from "./crypto-portfolio-command-center";
 
 const observedAt = "2026-08-21T14:30:00Z";
@@ -224,6 +225,26 @@ const marketTrades: CryptoPublicTradeTape = {
   },
 };
 
+const venueStats: CryptoVenueStats = {
+  symbol: "BTC",
+  currency: "USD",
+  product_id: "BTC-USD",
+  open: "59000.00000000",
+  high: "61000.00000000",
+  low: "58000.00000000",
+  last: "60123.123456789",
+  volume_24h: "19734.31498542",
+  volume_30day: "189836.08275489",
+  volume_unit: "BTC",
+  receipt: {
+    provider: "coinbase",
+    feed: "exchange_public_product_stats",
+    quality: "REAL_TIME_SINGLE_VENUE",
+    venue: "coinbase_exchange",
+    received_at: observedAt,
+  },
+};
+
 describe("CryptoPortfolioCommandCenter", () => {
   afterEach(() => {
     cleanup();
@@ -238,6 +259,7 @@ describe("CryptoPortfolioCommandCenter", () => {
         initialHistory={history}
         initialLiquidity={liquidity}
         initialMarketTrades={marketTrades}
+        initialVenueStats={venueStats}
         initialOrderHistory={orderHistory}
         initialSnapshot={snapshot}
         initialTradingCosts={tradingCosts}
@@ -272,6 +294,13 @@ describe("CryptoPortfolioCommandCenter", () => {
     expect(screen.getByText("2/25")).toBeInTheDocument();
     expect(
       screen.getByText(/does not infer aggressor flow/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Coinbase range & volume" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("189,836.08275489 BTC")).toBeInTheDocument();
+    expect(
+      screen.getByText(/does not relabel it as provider observation time/),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Recent external fills" }),
@@ -464,6 +493,56 @@ describe("CryptoPortfolioCommandCenter", () => {
       { cache: "no-store" },
     );
     expect(screen.queryByText(/trade_id|sentiment score/i)).toBeNull();
+  });
+
+  it("refreshes exact rolling venue stats without inventing event time or performance", async () => {
+    const updatedStats = {
+      ...venueStats,
+      last: "60200.123456789",
+      volume_24h: "20000.00000001",
+    };
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        venue_stats: updatedStats,
+        cached: true,
+        summary_semantics: "ROLLING_SINGLE_VENUE_STATS",
+        provider_event_time_available: false,
+        timestamp_semantics: "ARBION_RECEIPT_TIME",
+        performance_claim: false,
+        order_actions_available: false,
+        live_execution_available: false,
+      }),
+    });
+    vi.stubGlobal("fetch", request);
+    render(
+      <CryptoPortfolioCommandCenter
+        accountID="coinbase-1"
+        initialHistory={history}
+        initialSnapshot={snapshot}
+        initialVenueStats={venueStats}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh venue window" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("60,200.123456789 USD")).toBeVisible(),
+    );
+    expect(request).toHaveBeenCalledWith(
+      "/api/accounts/coinbase-1/markets/crypto/BTC/stats",
+      { cache: "no-store" },
+    );
+    expect(
+      screen.queryByText(/provider event time|performance score/i),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: /^(buy|sell|trade|place order|cancel order)$/i,
+      }),
+    ).toBeNull();
   });
 
   it("refreshes only normalized external execution evidence", async () => {

@@ -87,6 +87,16 @@ func (fake fakeMarketIntelligence) RecentCryptoTrades(_ context.Context, symbol,
 		Provenance: marketintelligence.Provenance{Provider: "coinbase", Role: marketintelligence.MarketObservation, Feed: "advanced_trade_public_market_trades", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_advanced_trade", ProviderTimestamp: now, ReceivedAt: now},
 	}, false, nil
 }
+func (fake fakeMarketIntelligence) CryptoVenueStats(_ context.Context, symbol, currency string) (marketintelligence.CryptoVenueStats, bool, error) {
+	if fake.err != nil {
+		return marketintelligence.CryptoVenueStats{}, false, fake.err
+	}
+	return marketintelligence.CryptoVenueStats{
+		Symbol: symbol, Currency: currency, ProductID: symbol + "-" + currency,
+		Open: "72715.34", High: "79500", Low: "72303.97", Last: "77522.97", Volume24H: "19734.31498542", Volume30Day: "189836.08275489", VolumeUnit: symbol,
+		Receipt: marketintelligence.SourceReceipt{Provider: "coinbase", Role: marketintelligence.MarketObservation, Feed: "exchange_public_product_stats", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_exchange", ReceivedAt: time.Now().UTC()},
+	}, false, nil
+}
 func (fake fakeMarketIntelligence) RecentInsiderFilings(_ context.Context, cik string, _ int) ([]marketintelligence.InsiderFilingObservation, bool, error) {
 	if fake.err != nil {
 		return nil, false, fake.err
@@ -328,6 +338,31 @@ func TestConnectedCryptoTradesAreOwnerScopedBoundedAndInferenceFree(t *testing.T
 		if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(body, expected) {
 			t.Fatalf("connected trade tape missing %s: status=%d body=%s", expected, recorder.Code, body)
 		}
+	}
+}
+
+func TestConnectedCryptoVenueStatsAreOwnerScopedAndReceiptTimed(t *testing.T) {
+	broker := &fakeBrokerMarketData{accounts: []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", BaseCurrency: "USD", Status: "active"}}}
+	handler := &authHandler{marketFinancial: broker, markets: fakeMarketIntelligence{}}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/markets/crypto/BTC/stats", nil)
+	request.SetPathValue("id", "coinbase-1")
+	request.SetPathValue("symbol", "BTC")
+	recorder := httptest.NewRecorder()
+	handler.connectedCryptoVenueStats(recorder, request)
+	body := recorder.Body.String()
+	for _, expected := range []string{`"open":"72715.34"`, `"volume_30day":"189836.08275489"`, `"feed":"exchange_public_product_stats"`, `"summary_semantics":"ROLLING_SINGLE_VENUE_STATS"`, `"provider_event_time_available":false`, `"timestamp_semantics":"ARBION_RECEIPT_TIME"`, `"performance_claim":false`, `"order_actions_available":false`, `"live_execution_available":false`} {
+		if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(body, expected) || strings.Contains(body, "provider_timestamp") {
+			t.Fatalf("connected venue stats boundary missing %s: status=%d body=%s", expected, recorder.Code, body)
+		}
+	}
+
+	request = httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/markets/crypto/ETH/stats", nil)
+	request.SetPathValue("id", "coinbase-1")
+	request.SetPathValue("symbol", "ETH")
+	recorder = httptest.NewRecorder()
+	handler.connectedCryptoVenueStats(recorder, request)
+	if recorder.Code != stdhttp.StatusNotFound || !strings.Contains(recorder.Body.String(), "CONNECTED_ASSET_NOT_FOUND") {
+		t.Fatalf("unconnected venue stats were exposed: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
