@@ -10,6 +10,16 @@ export type CapabilityStatus = {
   last_success_at?: string;
   consecutive_failures: number;
   failure_category?: string;
+  request_policy?: {
+    cache_ttl_ms: number;
+    minimum_request_interval_ms: number;
+  };
+  request_usage?: {
+    cache_lookups: number;
+    cache_hits: number;
+    provider_attempts: number;
+    counters_saturated: boolean;
+  };
 };
 
 export type MarketSource = {
@@ -28,6 +38,8 @@ type SourcesResponse = {
   sources?: MarketSource[];
   status_generated_at?: string;
   status_semantics?: string;
+  request_usage_semantics?: string;
+  provider_quota_exposed?: boolean;
   provider_errors_exposed?: boolean;
   live_execution_available?: boolean;
 };
@@ -45,6 +57,17 @@ function timestamp(value: string | undefined) {
     timeStyle: "medium",
     timeZone: "UTC",
   }).format(parsed);
+}
+
+function duration(milliseconds: number) {
+  if (milliseconds < 1_000) return `${milliseconds} ms`;
+  if (milliseconds < 60_000) return `${milliseconds / 1_000} sec`;
+  return `${milliseconds / 60_000} min`;
+}
+
+function cacheEfficiency(hits: number, lookups: number) {
+  if (lookups === 0) return "No cache observations";
+  return `${Math.round((hits / lookups) * 100)}% cache reuse`;
 }
 
 function statuses(source: MarketSource): CapabilityStatus[] {
@@ -135,6 +158,9 @@ export function MarketSourceGrid({
       if (
         !response.ok ||
         !Array.isArray(body.sources) ||
+        body.status_semantics !== "PROCESS_LOCAL_LAST_PROVIDER_ATTEMPT" ||
+        body.request_usage_semantics !== "PROCESS_LOCAL_BOUNDED_AGGREGATES" ||
+        body.provider_quota_exposed !== false ||
         body.live_execution_available !== false ||
         body.provider_errors_exposed !== false
       ) {
@@ -161,6 +187,17 @@ export function MarketSourceGrid({
 
   const summary = useMemo(() => {
     const capabilityStatuses = sources.flatMap(statuses);
+    const requestUsage = capabilityStatuses.flatMap((status) =>
+      status.request_usage ? [status.request_usage] : [],
+    );
+    const cacheLookups = requestUsage.reduce(
+      (total, usage) => total + usage.cache_lookups,
+      0,
+    );
+    const cacheHits = requestUsage.reduce(
+      (total, usage) => total + usage.cache_hits,
+      0,
+    );
     return {
       verified: capabilityStatuses.filter(
         (status) => status.state === "VERIFIED",
@@ -171,6 +208,12 @@ export function MarketSourceGrid({
       awaiting: capabilityStatuses.filter(
         (status) => status.state === "AWAITING_OBSERVATION",
       ).length,
+      providerAttempts: requestUsage.reduce(
+        (total, usage) => total + usage.provider_attempts,
+        0,
+      ),
+      cacheLookups,
+      cacheHits,
     };
   }, [sources]);
 
@@ -182,8 +225,8 @@ export function MarketSourceGrid({
           <h3>Every feed earns its own status.</h3>
           <p>
             One healthy Coinbase request cannot mask a failure in another public
-            feed. Status resets with the API process and cache hits do not
-            invent a new provider success.
+            feed. Status and bounded request counters reset with the API
+            process; cache hits do not invent a new provider success.
           </p>
         </div>
         <button
@@ -205,6 +248,17 @@ export function MarketSourceGrid({
         </span>
         <span className={summary.degraded > 0 ? "degraded" : ""}>
           <strong>{summary.degraded}</strong> degraded
+        </span>
+        <span>
+          <strong>{summary.providerAttempts}</strong> provider attempts
+        </span>
+        <span>
+          <strong>{summary.cacheHits}</strong> cache saves
+        </span>
+        <span>
+          <strong>
+            {cacheEfficiency(summary.cacheHits, summary.cacheLookups)}
+          </strong>
         </span>
         {statusGeneratedAt && (
           <time dateTime={statusGeneratedAt}>
@@ -263,6 +317,47 @@ export function MarketSourceGrid({
                         ? " failure"
                         : " failures"}
                     </small>
+                  )}
+                  {status.request_policy && status.request_usage && (
+                    <div
+                      className="market-capability-budget"
+                      aria-label={`${readable(status.capability)} request budget`}
+                    >
+                      <span>
+                        <strong>
+                          {status.request_usage.provider_attempts}
+                        </strong>
+                        provider attempts
+                      </span>
+                      <span>
+                        <strong>{status.request_usage.cache_hits}</strong>
+                        cache saves
+                      </span>
+                      <span>
+                        <strong>
+                          {cacheEfficiency(
+                            status.request_usage.cache_hits,
+                            status.request_usage.cache_lookups,
+                          )}
+                        </strong>
+                      </span>
+                      <small>
+                        Cache lifetime{" "}
+                        {duration(status.request_policy.cache_ttl_ms)}
+                        {" · "}minimum provider interval{" "}
+                        {duration(
+                          status.request_policy.minimum_request_interval_ms,
+                        )}
+                        . These are Arbion process protections, not a provider
+                        quota or remaining-credit balance.
+                      </small>
+                      {status.request_usage.counters_saturated && (
+                        <small>
+                          Counters reached their display ceiling; provider
+                          protection remains active.
+                        </small>
+                      )}
+                    </div>
                   )}
                 </li>
               ))}

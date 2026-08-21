@@ -9,7 +9,10 @@ import (
 	"time"
 )
 
-const maxCacheEntries = 256
+const (
+	maxCacheEntries   = 256
+	maxTelemetryCount = uint64(1_000_000_000)
+)
 
 type ServiceConfig struct {
 	EquityProvider          EquityQuoteProvider
@@ -195,14 +198,14 @@ func NewService(config ServiceConfig) (*Service, error) {
 		filingCache:             make(map[string]cacheEntry[[]InsiderFilingObservation]),
 		now:                     func() time.Time { return time.Now().UTC() },
 	}
-	service.setCapabilityEnabled(config.EquitySourceID, EquityQuote, config.EquityProvider != nil)
-	service.setCapabilityEnabled(config.CryptoSourceID, CryptoMarkets, config.CryptoProvider != nil)
-	service.setCapabilityEnabled(assetSourceID, CryptoMarkets, assetProvider != nil)
-	service.setCapabilityEnabled(config.CryptoCandleSourceID, CryptoCandles, config.CryptoCandleProvider != nil)
-	service.setCapabilityEnabled(config.CryptoLiquiditySourceID, CryptoLiquidity, config.CryptoLiquidityProvider != nil)
-	service.setCapabilityEnabled(config.CryptoTradeSourceID, CryptoTrades, config.CryptoTradeProvider != nil)
-	service.setCapabilityEnabled(config.CryptoStatsSourceID, CryptoStats, config.CryptoStatsProvider != nil)
-	service.setCapabilityEnabled("sec_edgar", InsiderFiling, config.FilingProvider != nil)
+	service.setCapabilityEnabled(config.EquitySourceID, EquityQuote, config.EquityProvider != nil, config.EquityCacheTTL, config.EquityInterval)
+	service.setCapabilityEnabled(config.CryptoSourceID, CryptoMarkets, config.CryptoProvider != nil, config.CryptoCacheTTL, config.CryptoInterval)
+	service.setCapabilityEnabled(assetSourceID, CryptoMarkets, assetProvider != nil, config.CryptoCacheTTL, config.CryptoInterval)
+	service.setCapabilityEnabled(config.CryptoCandleSourceID, CryptoCandles, config.CryptoCandleProvider != nil, config.CryptoCandleCacheTTL, config.CryptoCandleInterval)
+	service.setCapabilityEnabled(config.CryptoLiquiditySourceID, CryptoLiquidity, config.CryptoLiquidityProvider != nil, config.CryptoLiquidityCacheTTL, config.CryptoLiquidityInterval)
+	service.setCapabilityEnabled(config.CryptoTradeSourceID, CryptoTrades, config.CryptoTradeProvider != nil, config.CryptoTradeCacheTTL, config.CryptoTradeInterval)
+	service.setCapabilityEnabled(config.CryptoStatsSourceID, CryptoStats, config.CryptoStatsProvider != nil, config.CryptoStatsCacheTTL, config.CryptoStatsInterval)
+	service.setCapabilityEnabled("sec_edgar", InsiderFiling, config.FilingProvider != nil, config.FilingCacheTTL, config.FilingInterval)
 	return service, nil
 }
 
@@ -234,6 +237,14 @@ func cloneCapabilityStatuses(statuses []CapabilityStatus) []CapabilityStatus {
 			value := *result[index].LastSuccessAt
 			result[index].LastSuccessAt = &value
 		}
+		if result[index].RequestPolicy != nil {
+			value := *result[index].RequestPolicy
+			result[index].RequestPolicy = &value
+		}
+		if result[index].RequestUsage != nil {
+			value := *result[index].RequestUsage
+			result[index].RequestUsage = &value
+		}
 	}
 	return result
 }
@@ -246,7 +257,7 @@ func (service *Service) LatestEquityQuote(ctx context.Context, symbol string) (Q
 	if !validEquitySymbol(key) {
 		return QuoteObservation{}, false, ErrInvalidObservation
 	}
-	if value, ok := cacheValue(service, service.equityCache, key); ok {
+	if value, ok := cacheValue(service, service.equityCache, key, service.equitySourceID, EquityQuote); ok {
 		return value, true, nil
 	}
 	if err := service.equityPacer.wait(ctx); err != nil {
@@ -272,7 +283,7 @@ func (service *Service) TopCryptoMarkets(ctx context.Context, currency string, l
 		return nil, false, ErrInvalidObservation
 	}
 	key := currency + ":" + decimalKey(limit)
-	if value, ok := cacheValue(service, service.cryptoCache, key); ok {
+	if value, ok := cacheValue(service, service.cryptoCache, key, service.cryptoSourceID, CryptoMarkets); ok {
 		return append([]CryptoMarketObservation(nil), value...), true, nil
 	}
 	if err := service.cryptoPacer.wait(ctx); err != nil {
@@ -301,7 +312,7 @@ func (service *Service) CryptoMarkets(ctx context.Context, currency string, symb
 		return CryptoMarketBatch{}, false, ErrInvalidObservation
 	}
 	key := "assets:usd:" + strings.Join(canonical, ",")
-	if value, cached := cacheValue(service, service.assetCache, key); cached {
+	if value, cached := cacheValue(service, service.assetCache, key, service.cryptoAssetSourceID, CryptoMarkets); cached {
 		return cloneCryptoBatch(value), true, nil
 	}
 	if err := service.cryptoPacer.wait(ctx); err != nil {
@@ -366,7 +377,7 @@ func (service *Service) RecentCryptoCandles(ctx context.Context, symbol, currenc
 		return CryptoCandleSeries{}, false, ErrInvalidObservation
 	}
 	key := "candles:" + canonical[0] + ":usd:900:96"
-	if value, cached := cacheValue(service, service.candleCache, key); cached {
+	if value, cached := cacheValue(service, service.candleCache, key, service.cryptoCandleSourceID, CryptoCandles); cached {
 		return cloneCryptoCandleSeries(value), true, nil
 	}
 	if err := service.cryptoCandlePacer.wait(ctx); err != nil {
@@ -400,7 +411,7 @@ func (service *Service) CryptoLiquidity(ctx context.Context, symbol, currency st
 		return CryptoLiquiditySnapshot{}, false, ErrInvalidObservation
 	}
 	key := "liquidity:" + canonical[0] + ":usd:10"
-	if value, cached := cacheValue(service, service.liquidityCache, key); cached {
+	if value, cached := cacheValue(service, service.liquidityCache, key, service.cryptoLiquiditySourceID, CryptoLiquidity); cached {
 		return cloneCryptoLiquidity(value), true, nil
 	}
 	if err := service.cryptoLiquidityPacer.wait(ctx); err != nil {
@@ -433,7 +444,7 @@ func (service *Service) RecentCryptoTrades(ctx context.Context, symbol, currency
 		return CryptoTradeTape{}, false, ErrInvalidObservation
 	}
 	key := "trades:" + canonical[0] + ":usd:25"
-	if value, cached := cacheValue(service, service.tradeCache, key); cached {
+	if value, cached := cacheValue(service, service.tradeCache, key, service.cryptoTradeSourceID, CryptoTrades); cached {
 		return cloneCryptoTradeTape(value), true, nil
 	}
 	if err := service.cryptoTradePacer.wait(ctx); err != nil {
@@ -465,7 +476,7 @@ func (service *Service) CryptoVenueStats(ctx context.Context, symbol, currency s
 		return CryptoVenueStats{}, false, ErrInvalidObservation
 	}
 	key := "venue-stats:" + canonical[0] + ":usd"
-	if value, cached := cacheValue(service, service.statsCache, key); cached {
+	if value, cached := cacheValue(service, service.statsCache, key, service.cryptoStatsSourceID, CryptoStats); cached {
 		return value, true, nil
 	}
 	if err := service.cryptoStatsPacer.wait(ctx); err != nil {
@@ -491,7 +502,7 @@ func (service *Service) RecentInsiderFilings(ctx context.Context, cik string, li
 		return nil, false, ErrInvalidObservation
 	}
 	key := cik + ":" + decimalKey(limit)
-	if value, ok := cacheValue(service, service.filingCache, key); ok {
+	if value, ok := cacheValue(service, service.filingCache, key, "sec_edgar", InsiderFiling); ok {
 		return append([]InsiderFilingObservation(nil), value...), true, nil
 	}
 	if err := service.filingPacer.wait(ctx); err != nil {
@@ -559,12 +570,14 @@ func (service *Service) Probe(ctx context.Context) {
 	wait.Wait()
 }
 
-func cacheValue[T any](service *Service, cache map[string]cacheEntry[T], key string) (T, bool) {
+func cacheValue[T any](service *Service, cache map[string]cacheEntry[T], key, sourceID string, capability Capability) (T, bool) {
 	service.mu.RLock()
 	entry, ok := cache[key]
 	now := service.now()
 	service.mu.RUnlock()
-	if ok && now.Before(entry.expiresAt) {
+	hit := ok && now.Before(entry.expiresAt)
+	service.recordCacheLookup(sourceID, capability, hit)
+	if hit {
 		return entry.value, true
 	}
 	var zero T
@@ -646,7 +659,7 @@ func pruneCache[T any](cache map[string]cacheEntry[T], now time.Time) {
 	delete(cache, oldestKey)
 }
 
-func (service *Service) setCapabilityEnabled(id string, capability Capability, enabled bool) {
+func (service *Service) setCapabilityEnabled(id string, capability Capability, enabled bool, cacheTTL, minimumInterval time.Duration) {
 	if id == "" || capability == "" || !enabled {
 		return
 	}
@@ -661,6 +674,13 @@ func (service *Service) setCapabilityEnabled(id string, capability Capability, e
 			if status.Capability == capability {
 				status.Enabled = true
 				status.State = AwaitingObservation
+				status.RequestPolicy = &RequestPolicy{
+					CacheTTLMilliseconds:        cacheTTL.Milliseconds(),
+					MinimumIntervalMilliseconds: minimumInterval.Milliseconds(),
+				}
+				if status.RequestUsage == nil {
+					status.RequestUsage = &RequestUsage{}
+				}
 				refreshSourceHealth(&service.sources[index])
 				return
 			}
@@ -677,6 +697,33 @@ func (service *Service) recordProviderAttempt(id string, capability Capability) 
 		return
 	}
 	status.LastAttemptAt = timePointer(now)
+	if status.RequestUsage != nil {
+		incrementRequestCounter(&status.RequestUsage.ProviderAttempts, status.RequestUsage)
+	}
+}
+
+func (service *Service) recordCacheLookup(id string, capability Capability, hit bool) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	_, status := findCapabilityStatus(service.sources, id, capability)
+	if status == nil || !status.Enabled || status.RequestUsage == nil {
+		return
+	}
+	incrementRequestCounter(&status.RequestUsage.CacheLookups, status.RequestUsage)
+	if hit {
+		incrementRequestCounter(&status.RequestUsage.CacheHits, status.RequestUsage)
+	}
+}
+
+func incrementRequestCounter(counter *uint64, usage *RequestUsage) {
+	if counter == nil || usage == nil {
+		return
+	}
+	if *counter >= maxTelemetryCount {
+		usage.CountersSaturated = true
+		return
+	}
+	*counter++
 }
 
 func (service *Service) recordProviderSuccess(id string, capability Capability) {

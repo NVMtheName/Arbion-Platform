@@ -8,7 +8,7 @@ The implemented vertical slice includes normalized observations and source-selec
 
 Current authenticated read routes are `GET /api/markets/equities/{symbol}/quote`, `GET /api/markets/crypto`, `GET /api/markets/insiders/{cik}`, `GET /api/accounts/{id}/markets/equities/{symbol}/quote`, `GET /api/accounts/{id}/markets/options`, `GET /api/accounts/{id}/portfolio/crypto`, `GET /api/accounts/{id}/markets/crypto/{symbol}/candles`, `GET /api/accounts/{id}/markets/crypto/{symbol}/liquidity`, `GET /api/accounts/{id}/markets/crypto/{symbol}/trades`, and `GET /api/accounts/{id}/markets/crypto/{symbol}/stats`. They return normalized source evidence plus `live_execution_available: false`; credentials remain server-only. Account-scoped routes authorize ownership before using the current user's encrypted broker connection or exposing history, liquidity, public ticks, or rolling venue statistics for a connected holding. yfinance is not a runtime fallback, and OpenInsider is exposed only as an optional human research link.
 
-The authenticated `GET /api/markets/sources` route exposes process-local verification independently for every configured capability. A successful Coinbase ticker call cannot mark candles, liquidity, public trades, or rolling statistics verified. Each capability reports `NOT_CONFIGURED`, `AWAITING_OBSERVATION`, `VERIFIED`, or `DEGRADED`, plus last-attempt/last-success times, consecutive failures, and a bounded failure category. Raw provider errors are never returned. Cache hits do not create a new provider success, status resets with the API process, and runtime verification is not a quote, freshness guarantee, consolidated-market claim, or execution guarantee. The `/markets` monitor refreshes this no-store metadata every 30 seconds and on demand.
+The authenticated `GET /api/markets/sources` route exposes process-local verification independently for every configured capability. A successful Coinbase ticker call cannot mark candles, liquidity, public trades, or rolling statistics verified. Each capability reports `NOT_CONFIGURED`, `AWAITING_OBSERVATION`, `VERIFIED`, or `DEGRADED`, plus last-attempt/last-success times, consecutive failures, and a bounded failure category. Configured capabilities also report their Arbion cache lifetime, minimum provider-request interval, and capped aggregate counts of valid cache lookups, cache hits, and provider attempts. These counters carry no user, account, or instrument dimension and are explicitly not a provider quota or remaining-credit balance. Raw provider errors are never returned. Cache hits do not create a new provider success, status and usage counters reset with the API process, and runtime verification is not a quote, freshness guarantee, consolidated-market claim, or execution guarantee. The `/markets` monitor refreshes this no-store metadata every 30 seconds and on demand.
 
 The first delivery target is a branded, authenticated `/markets` command center for one founder and a small number of test users. Cost can remain low while the product is being validated, but every observation must disclose whether it is consolidated, single-venue, indicative, delayed, or filing-derived. A cheap feed may reduce coverage; it must never make lower-quality data look authoritative.
 
@@ -110,13 +110,13 @@ Each adapter must implement:
 
 - explicit deadlines and response-size bounds;
 - bounded retry with jitter for safe idempotent reads only;
-- provider-aware rate limiting and a per-provider request budget;
+- provider-aware rate limiting and a separately verified provider-quota budget;
 - circuit state and health telemetry without secret values;
 - schema and decimal validation before normalization;
 - no-store browser responses for user-specific or licensed data; and
 - metrics for latency, error class, cache age, feed quality, and quota consumption.
 
-The current founder deployment implements in-process, per-capability last-attempt and last-success telemetry with safe failure categories. Durable health history, latency percentiles, quota accounting, and cross-instance aggregation remain later operational work; the UI does not imply that current process memory is durable monitoring.
+The current founder deployment implements in-process, per-capability last-attempt and last-success telemetry with safe failure categories. It also reports capped cache-lookup, cache-hit, and provider-attempt counters beside the configured cache lifetime and minimum request interval. This makes Arbion's request protection and cache reuse visible without claiming knowledge of an upstream quota. Durable health history, latency percentiles, provider-published quota accounting, and cross-instance aggregation remain later operational work; the UI does not imply that current process memory is durable monitoring.
 
 For the initial founder deployment, use the founder's delegated Schwab market-data entitlement for account-scoped equities/options and Coinbase Exchange public tickers for a bounded crypto venue board. Coinbase values must show `REAL_TIME_SINGLE_VENUE`; Schwab responses must preserve the provider's real-time/delayed entitlement flag and use `INDICATIVE` when that flag is absent. A production gate decides whether independent consolidated SIP/OPRA access, aggregated crypto breadth, or paid historical data is justified by actual usage.
 
@@ -163,7 +163,8 @@ Exit gate: IEX and indicative data are visibly labeled and cannot satisfy a cons
 - Implemented: owner-scoped Coinbase portfolio observations that price up to 32 exact holdings against approved USD tickers, preserve per-position venue/time evidence, and expose partial coverage without estimates.
 - Implemented: owner-scoped Coinbase Exchange 24-hour asset history using exactly 96 requested fifteen-minute intervals, exact decimal validation, one-minute caching, explicit single-venue provenance, and provider gaps that remain unfilled.
 - Implemented: owner-scoped Coinbase Exchange rolling product statistics with exact open/high/low/last, 24-hour base volume, 30-day base volume, a 30-second cache, and explicit Arbion-receipt-time semantics because the provider response has no event timestamp.
-- Implemented: a bounded display-cache policy; next add request-credit accounting and Redis coordination.
+- Implemented: a bounded display-cache policy with per-capability cache/pacing configuration, capped process-local usage counters, and responsive cache-efficiency visibility.
+- Next: add Redis coordination and provider-published quota accounting only where an approved provider contract supplies reliable quota facts.
 - Next: global overview and identifier mapping by CoinGecko ID and contract address.
 
 Exit gate: keyless traffic is bounded and visibly single-venue; no secret enters a URL, log, browser bundle, or Neural Engine request.

@@ -79,6 +79,24 @@ type CapabilityStatus struct {
 	LastSuccessAt       *time.Time        `json:"last_success_at,omitempty"`
 	ConsecutiveFailures int               `json:"consecutive_failures"`
 	FailureCategory     string            `json:"failure_category,omitempty"`
+	RequestPolicy       *RequestPolicy    `json:"request_policy,omitempty"`
+	RequestUsage        *RequestUsage     `json:"request_usage,omitempty"`
+}
+
+// RequestPolicy is Arbion's process-local protection around a capability. It
+// is not a provider-published quota, allowance, or remaining-credit balance.
+type RequestPolicy struct {
+	CacheTTLMilliseconds        int64 `json:"cache_ttl_ms"`
+	MinimumIntervalMilliseconds int64 `json:"minimum_request_interval_ms"`
+}
+
+// RequestUsage contains bounded, process-local aggregate counters. It carries
+// no user, account, instrument, request, or provider-correlation dimensions.
+type RequestUsage struct {
+	CacheLookups      uint64 `json:"cache_lookups"`
+	CacheHits         uint64 `json:"cache_hits"`
+	ProviderAttempts  uint64 `json:"provider_attempts"`
+	CountersSaturated bool   `json:"counters_saturated"`
 }
 
 type Source struct {

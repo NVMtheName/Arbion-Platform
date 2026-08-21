@@ -257,7 +257,7 @@ func TestDefaultSourcesAreSafeAndDisabled(t *testing.T) {
 			t.Fatalf("source capability status is incomplete: %+v", source)
 		}
 		for _, status := range source.CapabilityStatus {
-			if status.Enabled || status.State != NotConfigured || status.LastAttemptAt != nil || status.LastSuccessAt != nil || status.ConsecutiveFailures != 0 || status.FailureCategory != "" {
+			if status.Enabled || status.State != NotConfigured || status.LastAttemptAt != nil || status.LastSuccessAt != nil || status.ConsecutiveFailures != 0 || status.FailureCategory != "" || status.RequestPolicy != nil || status.RequestUsage != nil {
 				t.Fatalf("source capability verified before adapter wiring: %+v", status)
 			}
 		}
