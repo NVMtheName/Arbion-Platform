@@ -7,6 +7,7 @@ import {
   CryptoPortfolioCommandCenter,
   type CoinbaseOrderHistory,
   type CoinbaseTradeActivity,
+  type CoinbaseTradingCostSummary,
   type CryptoCandleSeries,
   type CryptoPortfolioSnapshot,
 } from "./crypto-portfolio-command-center";
@@ -90,7 +91,8 @@ export default async function AccountPage({
     let initialHistoryCached = false;
     let initialActivity: CoinbaseTradeActivity | undefined;
     let initialOrderHistory: CoinbaseOrderHistory | undefined;
-    const [activityResponse, orderResponse, historyResponse] =
+    let initialTradingCosts: CoinbaseTradingCostSummary | undefined;
+    const [activityResponse, orderResponse, costsResponse, historyResponse] =
       await Promise.all([
         fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/fills`, {
           headers,
@@ -98,6 +100,13 @@ export default async function AccountPage({
         }),
         fetch(
           `${base}/api/accounts/${encodeURIComponent(id)}/activity/orders`,
+          {
+            headers,
+            cache: "no-store",
+          },
+        ),
+        fetch(
+          `${base}/api/accounts/${encodeURIComponent(id)}/activity/trading-costs`,
           {
             headers,
             cache: "no-store",
@@ -122,6 +131,12 @@ export default async function AccountPage({
       };
       initialOrderHistory = orderPayload.orders;
     }
+    if (costsResponse.ok) {
+      const costsPayload = (await costsResponse.json()) as {
+        trading_costs: CoinbaseTradingCostSummary;
+      };
+      initialTradingCosts = costsPayload.trading_costs;
+    }
     if (historyResponse?.ok) {
       const historyPayload = (await historyResponse.json()) as {
         history: CryptoCandleSeries;
@@ -140,6 +155,7 @@ export default async function AccountPage({
           initialHistoryCached={initialHistoryCached}
           initialOrderHistory={initialOrderHistory}
           initialSnapshot={snapshot}
+          initialTradingCosts={initialTradingCosts}
         />
       </main>
     );

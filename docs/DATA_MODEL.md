@@ -58,6 +58,8 @@ Connected Coinbase execution history is an ephemeral owner-scoped projection, no
 
 Connected Coinbase order history is a separate ephemeral observation model. Each row contains external provider status and safe classification plus exact normalized fill progress/value/fee evidence and timestamps, but no identity that can address an order at Coinbase. Only a `has_more` boolean survives pagination. The projection is neither persisted nor joined to Arbion strategies, fills, mandates, journals, tax lots, or positions; it cannot authorize a state transition or mutate the provider.
 
+Connected Coinbase trading costs are another ephemeral owner-scoped projection. The normalized snapshot contains only spot scope, a bounded provider tier label, exact maker/taker rates, exact USD Advanced Trade volume and fees, exact provider total fees, the provider pricing-model flag, and retrieval time. It is never persisted or joined to orders, strategies, positions, fills, tax lots, or journal records. Arbion does not infer the provider's reporting window, calculate next-tier progress, forecast an order fee, or turn the summary into an order preview.
+
 ## Durable automation authorization records
 
 Migration `00006_automation_mandates.sql` replaces the early placeholder in place: `automation_configs` is renamed and normalized as `automation_mandates`, so there are not two active automation concepts. Stable security fields are columns; validated extensible strategy/risk/universe/condition documents remain structured JSON. Each mandate binds a same-owner `financial_accounts` row and `capital_buckets` row and has a lifecycle status, effective interval, and monotonically increasing current version.

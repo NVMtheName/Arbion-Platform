@@ -32,6 +32,7 @@ type BrokerMarketData interface {
 	GetPositions(context.Context, authorization.Principal, string) ([]financial.Position, error)
 	GetTradeFills(context.Context, authorization.Principal, string) (financial.TradeFillPage, error)
 	GetOrderHistory(context.Context, authorization.Principal, string) (financial.OrderHistoryPage, error)
+	GetTradingCostSummary(context.Context, authorization.Principal, string) (financial.TradingCostSummary, error)
 	GetQuote(context.Context, authorization.Principal, string, string) (financial.Quote, error)
 	GetOptionChain(context.Context, authorization.Principal, string, financial.OptionChainRequest) (financial.OptionChain, error)
 }
@@ -386,6 +387,32 @@ func (h *authHandler) connectedOrderHistory(writer stdhttp.ResponseWriter, reque
 	}
 	writeJSON(writer, stdhttp.StatusOK, map[string]any{
 		"orders": history, "history_semantics": "EXTERNAL_ORDER_STATUS", "order_actions_available": false, "live_execution_available": false,
+	})
+}
+
+func (h *authHandler) connectedTradingCosts(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
+	if h.marketFinancial == nil {
+		h.marketUnavailable(writer, marketintelligence.ErrNoEligibleSource)
+		return
+	}
+	account, err := h.marketFinancial.GetAccount(request.Context(), principal(request), request.PathValue("id"))
+	if err != nil {
+		h.financialError(writer, err)
+		return
+	}
+	if account.Provider != "coinbase" {
+		writeError(writer, stdhttp.StatusBadRequest, "TRADING_COSTS_UNSUPPORTED", "This account does not use the connected trading-cost view.")
+		return
+	}
+	summary, err := h.marketFinancial.GetTradingCostSummary(request.Context(), principal(request), account.ID)
+	if err != nil {
+		h.financialError(writer, err)
+		return
+	}
+	writeJSON(writer, stdhttp.StatusOK, map[string]any{
+		"trading_costs": summary, "summary_semantics": "PROVIDER_FEE_TIER_SNAPSHOT",
+		"order_preview_available": false, "order_actions_available": false, "live_execution_available": false,
 	})
 }
 

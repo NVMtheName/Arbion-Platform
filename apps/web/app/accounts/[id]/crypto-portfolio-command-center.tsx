@@ -156,6 +156,29 @@ type OrderHistoryResponse = {
   error?: { message?: string };
 };
 
+export type CoinbaseTradingCostSummary = {
+  provider: "coinbase";
+  feed: "advanced_trade_transaction_summary";
+  product_type: "SPOT";
+  pricing_tier: string;
+  maker_fee_rate: string;
+  taker_fee_rate: string;
+  advanced_trade_volume: Money;
+  advanced_trade_fees: Money;
+  total_fees: Money;
+  cost_plus_commission: boolean;
+  retrieved_at: string;
+};
+
+type TradingCostResponse = {
+  trading_costs?: CoinbaseTradingCostSummary;
+  summary_semantics?: "PROVIDER_FEE_TIER_SNAPSHOT";
+  order_preview_available: false;
+  order_actions_available: false;
+  live_execution_available: false;
+  error?: { message?: string };
+};
+
 function money(value?: Money, compact = false) {
   if (!value) return "—";
   const parsed = Number(value.amount);
@@ -185,6 +208,15 @@ function exactDecimal(value: string) {
 
 function exactMoney(value: Money) {
   return `${exactDecimal(value.amount)} ${value.currency}`;
+}
+
+function feeRate(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  return `${new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6,
+  }).format(parsed * 100)}%`;
 }
 
 function timestamp(value?: string) {
@@ -283,6 +315,7 @@ export function CryptoPortfolioCommandCenter({
   initialHistoryCached = false,
   initialActivity,
   initialOrderHistory,
+  initialTradingCosts,
 }: {
   accountID: string;
   initialSnapshot: CryptoPortfolioSnapshot;
@@ -290,6 +323,7 @@ export function CryptoPortfolioCommandCenter({
   initialHistoryCached?: boolean;
   initialActivity?: CoinbaseTradeActivity;
   initialOrderHistory?: CoinbaseOrderHistory;
+  initialTradingCosts?: CoinbaseTradingCostSummary;
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [refreshing, setRefreshing] = useState(false);
@@ -316,6 +350,9 @@ export function CryptoPortfolioCommandCenter({
   const [orderHistory, setOrderHistory] = useState(initialOrderHistory);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState("");
+  const [tradingCosts, setTradingCosts] = useState(initialTradingCosts);
+  const [costsLoading, setCostsLoading] = useState(false);
+  const [costsError, setCostsError] = useState("");
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -481,6 +518,45 @@ export function CryptoPortfolioCommandCenter({
       );
     } finally {
       setOrdersLoading(false);
+    }
+  }, [accountID]);
+
+  const refreshTradingCosts = useCallback(async () => {
+    setCostsLoading(true);
+    setCostsError("");
+    try {
+      const response = await fetch(
+        `/api/accounts/${encodeURIComponent(accountID)}/activity/trading-costs`,
+        { cache: "no-store" },
+      );
+      const body = (await response.json()) as TradingCostResponse;
+      if (
+        !response.ok ||
+        !body.trading_costs ||
+        body.summary_semantics !== "PROVIDER_FEE_TIER_SNAPSHOT" ||
+        body.order_preview_available !== false ||
+        body.order_actions_available !== false ||
+        body.live_execution_available !== false ||
+        body.trading_costs.provider !== "coinbase" ||
+        body.trading_costs.feed !== "advanced_trade_transaction_summary" ||
+        body.trading_costs.product_type !== "SPOT" ||
+        body.trading_costs.advanced_trade_volume.currency !== "USD" ||
+        body.trading_costs.advanced_trade_fees.currency !== "USD" ||
+        body.trading_costs.total_fees.currency !== "USD"
+      ) {
+        setCostsError(
+          body.error?.message ??
+            "Coinbase trading-cost evidence is temporarily unavailable. No fee tier or cost estimate was inferred.",
+        );
+        return;
+      }
+      setTradingCosts(body.trading_costs);
+    } catch {
+      setCostsError(
+        "Coinbase trading-cost evidence is temporarily unavailable. No fee tier or cost estimate was inferred.",
+      );
+    } finally {
+      setCostsLoading(false);
     }
   }, [accountID]);
 
@@ -846,6 +922,108 @@ export function CryptoPortfolioCommandCenter({
             </aside>
           </div>
         )}
+      </motion.section>
+
+      <motion.section
+        className="crypto-cost-panel"
+        aria-labelledby="crypto-cost-title"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.23 }}
+      >
+        <header>
+          <div>
+            <p className="eyebrow">TRADING COST INTELLIGENCE</p>
+            <h2 id="crypto-cost-title">Current Coinbase fee tier</h2>
+            <p>
+              Provider-reported spot volume, fees, and maker/taker rates. This
+              snapshot is not an order preview, quote, tax record, cost basis,
+              or performance calculation.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={costsLoading}
+            onClick={() => void refreshTradingCosts()}
+          >
+            {costsLoading ? "Refreshing…" : "Refresh cost evidence"}
+          </button>
+        </header>
+
+        {costsError ? (
+          <p className="crypto-cost-unavailable" role="alert">
+            {costsError}
+          </p>
+        ) : !tradingCosts ? (
+          <p className="crypto-cost-unavailable">
+            Coinbase fee-tier evidence is not available yet. Refresh to try the
+            protected View-only connection.
+          </p>
+        ) : (
+          <div className="crypto-cost-workspace">
+            <article className="crypto-cost-tier">
+              <span>Current pricing tier</span>
+              <strong>{tradingCosts.pricing_tier}</strong>
+              <small>Spot · Coinbase Advanced Trade</small>
+              <dl>
+                <div>
+                  <dt>Pricing model</dt>
+                  <dd>
+                    {tradingCosts.cost_plus_commission
+                      ? "Cost plus commission"
+                      : "Standard tier"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Retrieved</dt>
+                  <dd>{timestamp(tradingCosts.retrieved_at)}</dd>
+                </div>
+                <div>
+                  <dt>Arbion order preview</dt>
+                  <dd>Unavailable</dd>
+                </div>
+              </dl>
+            </article>
+            <div className="crypto-cost-metrics">
+              <article>
+                <span>Maker fee rate</span>
+                <strong>{feeRate(tradingCosts.maker_fee_rate)}</strong>
+                <small>
+                  Exact provider rate{" "}
+                  {exactDecimal(tradingCosts.maker_fee_rate)}
+                </small>
+              </article>
+              <article>
+                <span>Taker fee rate</span>
+                <strong>{feeRate(tradingCosts.taker_fee_rate)}</strong>
+                <small>
+                  Exact provider rate{" "}
+                  {exactDecimal(tradingCosts.taker_fee_rate)}
+                </small>
+              </article>
+              <article>
+                <span>Advanced Trade volume</span>
+                <strong>{money(tradingCosts.advanced_trade_volume)}</strong>
+                <small>{exactMoney(tradingCosts.advanced_trade_volume)}</small>
+              </article>
+              <article>
+                <span>Advanced Trade fees</span>
+                <strong>{money(tradingCosts.advanced_trade_fees)}</strong>
+                <small>{exactMoney(tradingCosts.advanced_trade_fees)}</small>
+              </article>
+              <article className="crypto-cost-total">
+                <span>Provider total fees</span>
+                <strong>{money(tradingCosts.total_fees)}</strong>
+                <small>{exactMoney(tradingCosts.total_fees)}</small>
+              </article>
+            </div>
+          </div>
+        )}
+        <footer>
+          Coinbase defines the applicable tier and volume basis. Arbion does not
+          infer next-tier progress, forecast fees, or submit a preview or order
+          from this evidence.
+        </footer>
       </motion.section>
 
       <motion.section

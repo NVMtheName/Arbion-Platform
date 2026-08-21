@@ -165,6 +165,22 @@ type OrderHistoryPage struct {
 	HasMore     bool               `json:"has_more"`
 	RetrievedAt time.Time          `json:"retrieved_at"`
 }
+
+// TradingCostSummary is a provider-reported fee-tier snapshot. It is not an
+// order preview, quote, tax record, cost-basis calculation, or execution path.
+type TradingCostSummary struct {
+	Provider            string    `json:"provider"`
+	Feed                string    `json:"feed"`
+	ProductType         string    `json:"product_type"`
+	PricingTier         string    `json:"pricing_tier"`
+	MakerFeeRate        Decimal   `json:"maker_fee_rate"`
+	TakerFeeRate        Decimal   `json:"taker_fee_rate"`
+	AdvancedTradeVolume Money     `json:"advanced_trade_volume"`
+	AdvancedTradeFees   Money     `json:"advanced_trade_fees"`
+	TotalFees           Money     `json:"total_fees"`
+	CostPlusCommission  bool      `json:"cost_plus_commission"`
+	RetrievedAt         time.Time `json:"retrieved_at"`
+}
 type Quote struct {
 	Symbol, AssetType    string
 	Bid, Ask, Mark, Last *Decimal
@@ -257,4 +273,10 @@ type TradeHistoryProvider interface {
 // omits preview, create, replace, and cancel operations.
 type OrderHistoryProvider interface {
 	GetOrderHistory(context.Context, *Credentials, string, int) (OrderHistoryPage, error)
+}
+
+// TradingCostProvider exposes only the provider's current fee-tier evidence.
+// It deliberately has no preview, order, transfer, or tax-reporting method.
+type TradingCostProvider interface {
+	GetTradingCostSummary(context.Context, *Credentials, string) (TradingCostSummary, error)
 }

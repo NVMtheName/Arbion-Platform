@@ -50,6 +50,7 @@ type Client struct {
 
 var _ financial.TradeHistoryProvider = (*Client)(nil)
 var _ financial.OrderHistoryProvider = (*Client)(nil)
+var _ financial.TradingCostProvider = (*Client)(nil)
 
 func New(cfg Config, client *http.Client) (*Client, error) {
 	baseURL := strings.TrimSpace(cfg.BaseURL)
@@ -167,6 +168,20 @@ type orderPage struct {
 	ProofTokenRequired bool            `json:"proof_token_required"`
 }
 
+type providerFeeTier struct {
+	PricingTier  string `json:"pricing_tier"`
+	TakerFeeRate string `json:"taker_fee_rate"`
+	MakerFeeRate string `json:"maker_fee_rate"`
+}
+
+type transactionSummary struct {
+	TotalFees               json.Number     `json:"total_fees"`
+	FeeTier                 providerFeeTier `json:"fee_tier"`
+	AdvancedTradeOnlyVolume json.Number     `json:"advanced_trade_only_volume"`
+	AdvancedTradeOnlyFees   json.Number     `json:"advanced_trade_only_fees"`
+	HasCostPlusCommission   bool            `json:"has_cost_plus_commission"`
+}
+
 func (c *Client) providerAccounts(ctx context.Context, credentials *financial.Credentials) ([]providerAccount, error) {
 	if err := c.VerifyConnection(ctx, credentials); err != nil {
 		return nil, err
@@ -221,6 +236,7 @@ func portfolioAccount(credentials *financial.Credentials) (financial.FinancialAc
 			"positions":     financial.Supported,
 			"trade_history": financial.Supported,
 			"order_history": financial.Supported,
+			"trading_costs": financial.Supported,
 			"equities":      financial.Unsupported,
 			"options":       financial.Unsupported,
 			"margin":        financial.Unsupported,
@@ -450,6 +466,37 @@ func (c *Client) GetOrderHistory(ctx context.Context, credentials *financial.Cre
 	}, nil
 }
 
+func (c *Client) GetTradingCostSummary(ctx context.Context, credentials *financial.Credentials, id string) (financial.TradingCostSummary, error) {
+	if err := validateAccountID(credentials, id); err != nil {
+		return financial.TradingCostSummary{}, err
+	}
+	if err := c.VerifyConnection(ctx, credentials); err != nil {
+		return financial.TradingCostSummary{}, err
+	}
+	query := url.Values{"product_type": {"SPOT"}}
+	var response transactionSummary
+	if err := c.get(ctx, credentials, "/api/v3/brokerage/transaction_summary?"+query.Encode(), &response); err != nil {
+		return financial.TradingCostSummary{}, err
+	}
+	pricingTier, tierOK := safeProviderLabel(response.FeeTier.PricingTier)
+	makerRate, makerOK := providerRate(response.FeeTier.MakerFeeRate)
+	takerRate, takerOK := providerRate(response.FeeTier.TakerFeeRate)
+	totalFees, totalOK := requiredNonnegativeProviderDecimal(response.TotalFees)
+	advancedVolume, volumeOK := requiredNonnegativeProviderDecimal(response.AdvancedTradeOnlyVolume)
+	advancedFees, feesOK := requiredNonnegativeProviderDecimal(response.AdvancedTradeOnlyFees)
+	if !tierOK || !makerOK || !takerOK || !totalOK || !volumeOK || !feesOK {
+		return financial.TradingCostSummary{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	return financial.TradingCostSummary{
+		Provider: "coinbase", Feed: "advanced_trade_transaction_summary", ProductType: "SPOT",
+		PricingTier: pricingTier, MakerFeeRate: makerRate, TakerFeeRate: takerRate,
+		AdvancedTradeVolume: financial.Money{Amount: advancedVolume, Currency: "USD"},
+		AdvancedTradeFees:   financial.Money{Amount: advancedFees, Currency: "USD"},
+		TotalFees:           financial.Money{Amount: totalFees, Currency: "USD"},
+		CostPlusCommission:  response.HasCostPlusCommission, RetrievedAt: c.now().UTC(),
+	}, nil
+}
+
 func normalizedOrderObservation(raw providerOrder, now time.Time) (financial.OrderObservation, bool) {
 	productID := strings.ToUpper(strings.TrimSpace(raw.ProductID))
 	separator := strings.LastIndexByte(productID, '-')
@@ -624,6 +671,38 @@ func nonnegativeProviderDecimal(value json.Number) (financial.Decimal, bool) {
 	}
 	rational, ok := new(big.Rat).SetString(string(result))
 	return result, ok && rational.Sign() >= 0
+}
+
+func requiredNonnegativeProviderDecimal(value json.Number) (financial.Decimal, bool) {
+	if strings.TrimSpace(value.String()) == "" {
+		return "", false
+	}
+	return nonnegativeProviderDecimal(value)
+}
+
+func providerRate(value string) (financial.Decimal, bool) {
+	if strings.TrimSpace(value) == "" {
+		return "", false
+	}
+	rate, ok := nonnegativeProviderDecimal(json.Number(value))
+	if !ok {
+		return "", false
+	}
+	rational, valid := new(big.Rat).SetString(string(rate))
+	return rate, valid && rational.Cmp(big.NewRat(1, 1)) <= 0
+}
+
+func safeProviderLabel(value string) (string, bool) {
+	normalized := strings.TrimSpace(value)
+	if normalized == "" || len(normalized) > 64 {
+		return "", false
+	}
+	for _, character := range normalized {
+		if character < 0x20 || character > 0x7e {
+			return "", false
+		}
+	}
+	return normalized, true
 }
 
 // Arbion-side encrypted credential deletion is authoritative. Coinbase API-key

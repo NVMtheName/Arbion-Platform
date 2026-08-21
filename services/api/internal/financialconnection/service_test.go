@@ -97,6 +97,7 @@ type coinbaseProviderFake struct {
 	balances int
 	fills    int
 	orders   int
+	costs    int
 }
 
 func (provider *coinbaseProviderFake) VerifyConnection(_ context.Context, credentials *financial.Credentials) error {
@@ -136,6 +137,13 @@ func (provider *coinbaseProviderFake) GetOrderHistory(_ context.Context, _ *fina
 		return financial.OrderHistoryPage{}, errors.New("unexpected order history boundary")
 	}
 	return financial.OrderHistoryPage{Provider: "coinbase", Feed: "advanced_trade_orders", Orders: []financial.OrderObservation{{ProductID: "BTC-USD", Status: "OPEN", Side: "BUY"}}}, nil
+}
+func (provider *coinbaseProviderFake) GetTradingCostSummary(_ context.Context, _ *financial.Credentials, id string) (financial.TradingCostSummary, error) {
+	provider.costs++
+	if id != "portfolio:portfolio-1" {
+		return financial.TradingCostSummary{}, errors.New("unexpected trading-cost boundary")
+	}
+	return financial.TradingCostSummary{Provider: "coinbase", Feed: "advanced_trade_transaction_summary", ProductType: "SPOT", MakerFeeRate: "0.0020", TakerFeeRate: "0.0030"}, nil
 }
 func (*coinbaseProviderFake) GetCapabilities(context.Context, *financial.Credentials, string) (financial.Capabilities, error) {
 	return financial.Capabilities{"crypto_assets": financial.Supported}, nil
@@ -181,6 +189,10 @@ func TestConnectAPIKeyStoresServerOnlyCredentialsAndRoutesAccountReads(t *testin
 	orders, err := service.GetOrderHistory(context.Background(), founder(), "account-1")
 	if err != nil || len(orders.Orders) != 1 || orders.Orders[0].Status != "OPEN" || provider.orders != 1 {
 		t.Fatalf("Coinbase order history was not used for owner-scoped reads: %#v %v", orders, err)
+	}
+	costs, err := service.GetTradingCostSummary(context.Background(), founder(), "account-1")
+	if err != nil || costs.MakerFeeRate != "0.0020" || costs.ProductType != "SPOT" || provider.costs != 1 {
+		t.Fatalf("Coinbase trading costs were not used for owner-scoped reads: %#v %v", costs, err)
 	}
 }
 

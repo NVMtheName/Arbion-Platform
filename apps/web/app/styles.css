@@ -1455,6 +1455,7 @@ button:disabled {
 .crypto-allocation-panel,
 .crypto-evidence-panel,
 .crypto-history-panel,
+.crypto-cost-panel,
 .crypto-order-monitor,
 .crypto-activity-panel,
 .crypto-position-ledger {
@@ -1628,6 +1629,152 @@ button:disabled {
   padding: 24px;
   border: 1px dashed rgba(139, 181, 163, 0.16);
   border-radius: 12px;
+}
+.crypto-cost-panel {
+  margin-top: 16px;
+  padding: 32px;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      circle at 8% 0%,
+      rgba(94, 224, 160, 0.09),
+      transparent 28rem
+    ),
+    radial-gradient(
+      circle at 92% 100%,
+      rgba(87, 204, 227, 0.065),
+      transparent 24rem
+    ),
+    rgba(5, 18, 13, 0.88);
+}
+.crypto-cost-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+}
+.crypto-cost-panel h2 {
+  margin: 7px 0 8px;
+  font-size: 1.65rem;
+}
+.crypto-cost-panel > header p:last-child {
+  max-width: 740px;
+  margin: 0;
+  color: #7d9489;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.crypto-cost-panel > header button {
+  min-width: 190px;
+  padding: 9px 13px;
+  border: 1px solid rgba(94, 224, 160, 0.24);
+  color: #d0eddd;
+  background: rgba(94, 224, 160, 0.055);
+}
+.crypto-cost-workspace {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.34fr) minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 26px;
+}
+.crypto-cost-tier {
+  padding: 22px;
+  border: 1px solid rgba(94, 224, 160, 0.18);
+  border-radius: 14px;
+  background: rgba(1, 10, 7, 0.54);
+}
+.crypto-cost-tier > span,
+.crypto-cost-metrics article > span {
+  color: #6d867b;
+  font-size: 0.62rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.crypto-cost-tier > strong {
+  display: block;
+  margin-top: 10px;
+  color: #e9f8ef;
+  font-size: clamp(1.55rem, 3vw, 2.35rem);
+  letter-spacing: -0.04em;
+}
+.crypto-cost-tier > small {
+  display: block;
+  margin-top: 4px;
+  color: #719082;
+  font-size: 0.7rem;
+}
+.crypto-cost-tier dl {
+  margin: 22px 0 0;
+}
+.crypto-cost-tier dl div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(139, 181, 163, 0.09);
+}
+.crypto-cost-tier dt {
+  color: #5f776c;
+  font-size: 0.61rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.crypto-cost-tier dd {
+  margin: 0;
+  color: #cbded4;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+.crypto-cost-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.crypto-cost-metrics article {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid rgba(115, 191, 207, 0.13);
+  border-radius: 12px;
+  background: rgba(2, 13, 9, 0.44);
+}
+.crypto-cost-metrics article:nth-child(-n + 2) {
+  border-color: rgba(94, 224, 160, 0.16);
+}
+.crypto-cost-metrics strong {
+  color: #e3f1ec;
+  font-size: clamp(1.05rem, 2vw, 1.55rem);
+  font-variant-numeric: tabular-nums;
+}
+.crypto-cost-metrics small {
+  color: #6a8379;
+  font-size: 0.67rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.crypto-cost-metrics .crypto-cost-total {
+  grid-column: 1 / -1;
+  background: linear-gradient(
+    105deg,
+    rgba(94, 224, 160, 0.065),
+    rgba(87, 204, 227, 0.035)
+  );
+}
+.crypto-cost-unavailable {
+  margin: 24px 0 0;
+  padding: 24px;
+  border: 1px dashed rgba(94, 224, 160, 0.18);
+  border-radius: 12px;
+  color: #758d82;
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+.crypto-cost-panel > footer {
+  margin-top: 18px;
+  color: #61776e;
+  font-size: 0.7rem;
+  line-height: 1.5;
 }
 .crypto-order-monitor {
   margin-top: 16px;
@@ -2148,6 +2295,7 @@ button:disabled {
   .crypto-allocation-panel,
   .crypto-evidence-panel,
   .crypto-history-panel,
+  .crypto-cost-panel,
   .crypto-order-monitor,
   .crypto-activity-panel,
   .crypto-position-ledger {
@@ -2156,6 +2304,16 @@ button:disabled {
   .crypto-history-panel > header {
     align-items: stretch;
     flex-direction: column;
+  }
+  .crypto-cost-panel > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .crypto-cost-panel > header button {
+    width: 100%;
+  }
+  .crypto-cost-workspace {
+    grid-template-columns: 1fr;
   }
   .crypto-activity-panel > header {
     align-items: stretch;

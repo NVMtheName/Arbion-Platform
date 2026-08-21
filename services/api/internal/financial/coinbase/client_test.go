@@ -116,7 +116,7 @@ func TestClientConnectsViewOnlyPortfolioAndNormalizesHoldings(t *testing.T) {
 	if err != nil || len(accounts) != 1 || accounts[0].Provider != "coinbase" || accounts[0].ProviderAccountID != "portfolio:portfolio-123" {
 		t.Fatalf("unexpected normalized accounts: %#v %v", accounts, err)
 	}
-	if accounts[0].Capabilities["trade_history"] != financial.Supported || accounts[0].Capabilities["order_history"] != financial.Supported || accounts[0].Capabilities["orders"] != financial.Unsupported {
+	if accounts[0].Capabilities["trade_history"] != financial.Supported || accounts[0].Capabilities["order_history"] != financial.Supported || accounts[0].Capabilities["trading_costs"] != financial.Supported || accounts[0].Capabilities["orders"] != financial.Unsupported {
 		t.Fatalf("read history capability weakened the order boundary: %#v", accounts[0].Capabilities)
 	}
 	balances, err := client.GetBalances(context.Background(), &credentials, accounts[0].ProviderAccountID)
@@ -316,6 +316,77 @@ func TestClientRejectsUnsafeOrderResponses(t *testing.T) {
 			_, err = client.GetOrderHistory(context.Background(), &credentials, "portfolio:portfolio-123", 50)
 			var providerError *financial.ProviderError
 			if !errors.As(err, &providerError) || (providerError.Code != financial.InvalidProviderResponse && providerError.Code != financial.PermissionDenied) {
+				t.Fatalf("expected safe rejection, got %v", err)
+			}
+		})
+	}
+}
+
+func TestClientGetsViewOnlyTradingCostSummaryWithoutPrivateProviderFields(t *testing.T) {
+	credentials, key := testCredentials(t)
+	credentials.PortfolioID = "portfolio-123"
+	now := time.Date(2026, 8, 21, 16, 30, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		verifyJWT(t, request, key, request.URL.Path)
+		response.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v3/brokerage/key_permissions":
+			_, _ = response.Write([]byte(`{"can_view":true,"can_trade":false,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+		case "/api/v3/brokerage/transaction_summary":
+			query := request.URL.Query()
+			if query.Get("product_type") != "SPOT" || len(query) != 1 {
+				t.Fatalf("unexpected trading-cost query: %s", request.URL.RawQuery)
+			}
+			_, _ = response.Write([]byte(`{"total_fees":25.00000001,"fee_tier":{"pricing_tier":"<$10k","taker_fee_rate":"0.0010","maker_fee_rate":"0.0020","aop_from":"private-lower","aop_to":"private-upper"},"margin_rate":0.5,"advanced_trade_only_volume":1000.123456789,"advanced_trade_only_fees":20.00000001,"coinbase_pro_volume":999,"coinbase_pro_fees":9,"total_balance":"private-balance","volume_breakdown":[{"volume_type":"VOLUME_TYPE_SPOT","volume":1000}],"has_cost_plus_commission":false}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(Config{BaseURL: server.URL}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.now = func() time.Time { return now }
+	summary, err := client.GetTradingCostSummary(context.Background(), &credentials, "portfolio:portfolio-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Provider != "coinbase" || summary.Feed != "advanced_trade_transaction_summary" || summary.ProductType != "SPOT" || summary.PricingTier != "<$10k" || summary.MakerFeeRate != "0.0020" || summary.TakerFeeRate != "0.0010" || summary.AdvancedTradeVolume.Amount != "1000.123456789" || summary.AdvancedTradeFees.Amount != "20.00000001" || summary.TotalFees.Amount != "25.00000001" || summary.RetrievedAt != now {
+		t.Fatalf("trading-cost evidence lost exact provider values: %#v", summary)
+	}
+	encoded, err := json.Marshal(summary)
+	if err != nil || strings.Contains(string(encoded), "private-") || strings.Contains(string(encoded), "margin_rate") || strings.Contains(string(encoded), "total_balance") || strings.Contains(string(encoded), "volume_breakdown") || strings.Contains(string(encoded), "coinbase_pro") {
+		t.Fatalf("excluded transaction-summary fields escaped the projection: %s %v", encoded, err)
+	}
+}
+
+func TestClientRejectsUnsafeTradingCostSummary(t *testing.T) {
+	for name, body := range map[string]string{
+		"missing total fees": `{"fee_tier":{"pricing_tier":"<$10k","taker_fee_rate":"0.0010","maker_fee_rate":"0.0020"},"advanced_trade_only_volume":1000,"advanced_trade_only_fees":20}`,
+		"negative fees":      `{"total_fees":-1,"fee_tier":{"pricing_tier":"<$10k","taker_fee_rate":"0.0010","maker_fee_rate":"0.0020"},"advanced_trade_only_volume":1000,"advanced_trade_only_fees":20}`,
+		"rate over one":      `{"total_fees":1,"fee_tier":{"pricing_tier":"<$10k","taker_fee_rate":"1.0001","maker_fee_rate":"0.0020"},"advanced_trade_only_volume":1000,"advanced_trade_only_fees":20}`,
+		"unsafe tier label":  `{"total_fees":1,"fee_tier":{"pricing_tier":"\u2603","taker_fee_rate":"0.0010","maker_fee_rate":"0.0020"},"advanced_trade_only_volume":1000,"advanced_trade_only_fees":20}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			credentials, _ := testCredentials(t)
+			credentials.PortfolioID = "portfolio-123"
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.URL.Path == "/api/v3/brokerage/key_permissions" {
+					_, _ = response.Write([]byte(`{"can_view":true,"can_trade":false,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+					return
+				}
+				_, _ = response.Write([]byte(body))
+			}))
+			defer server.Close()
+			client, err := New(Config{BaseURL: server.URL}, server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.GetTradingCostSummary(context.Background(), &credentials, "portfolio:portfolio-123")
+			var providerError *financial.ProviderError
+			if !errors.As(err, &providerError) || providerError.Code != financial.InvalidProviderResponse {
 				t.Fatalf("expected safe rejection, got %v", err)
 			}
 		})
