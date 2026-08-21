@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CryptoPortfolioCommandCenter,
+  type CoinbaseTradeActivity,
   type CryptoCandleSeries,
   type CryptoPortfolioSnapshot,
 } from "./crypto-portfolio-command-center";
@@ -62,6 +63,27 @@ const snapshot: CryptoPortfolioSnapshot = {
   market_data_cached: false,
 };
 
+const activity: CoinbaseTradeActivity = {
+  provider: "coinbase",
+  feed: "advanced_trade_fills",
+  fills: [
+    {
+      product_id: "BTC-USD",
+      base_asset: "BTC",
+      quote_currency: "USD",
+      side: "BUY",
+      price: "60123.123456789",
+      size: "0.000000010000",
+      size_unit: "BTC",
+      commission: { amount: "0.00000001", currency: "USD" },
+      trade_time: "2026-08-21T14:29:00Z",
+      liquidity: "MAKER",
+    },
+  ],
+  has_more: true,
+  retrieved_at: observedAt,
+};
+
 const history: CryptoCandleSeries = {
   symbol: "BTC",
   currency: "USD",
@@ -105,6 +127,7 @@ describe("CryptoPortfolioCommandCenter", () => {
     const { container } = render(
       <CryptoPortfolioCommandCenter
         accountID="coinbase-1"
+        initialActivity={activity}
         initialHistory={history}
         initialSnapshot={snapshot}
       />,
@@ -124,6 +147,15 @@ describe("CryptoPortfolioCommandCenter", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("2/96 intervals")).toBeInTheDocument();
     expect(screen.getByText(/not portfolio performance/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Recent external fills" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("60,123.123456789 USD")).toBeInTheDocument();
+    expect(screen.getByText("0.000000010000 BTC")).toBeInTheDocument();
+    expect(screen.getByText("Executed outside Arbion")).toBeInTheDocument();
+    expect(
+      screen.getByText(/never exposes Coinbase order IDs/),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("img", {
         name: /BTC Coinbase Exchange 24-hour price movement/,
@@ -199,6 +231,38 @@ describe("CryptoPortfolioCommandCenter", () => {
     await waitFor(() => expect(screen.getByText("$60,600.00")).toBeVisible());
     expect(request).toHaveBeenCalledWith(
       "/api/accounts/coinbase-1/markets/crypto/BTC/candles",
+      { cache: "no-store" },
+    );
+  });
+
+  it("refreshes only normalized external execution evidence", async () => {
+    const updatedActivity = {
+      ...activity,
+      fills: [{ ...activity.fills[0], side: "SELL" as const }],
+    };
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        activity: updatedActivity,
+        history_semantics: "EXTERNAL_EXECUTION_EVIDENCE",
+        live_execution_available: false,
+      }),
+    });
+    vi.stubGlobal("fetch", request);
+    render(
+      <CryptoPortfolioCommandCenter
+        accountID="coinbase-1"
+        initialActivity={activity}
+        initialHistory={history}
+        initialSnapshot={snapshot}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh activity" }));
+
+    await waitFor(() => expect(screen.getByText("SELL")).toBeVisible());
+    expect(request).toHaveBeenCalledWith(
+      "/api/accounts/coinbase-1/activity/fills",
       { cache: "no-store" },
     );
   });

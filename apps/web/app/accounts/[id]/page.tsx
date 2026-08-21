@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { AppPageHeader } from "../../app-page-header";
 import {
   CryptoPortfolioCommandCenter,
+  type CoinbaseTradeActivity,
   type CryptoCandleSeries,
   type CryptoPortfolioSnapshot,
 } from "./crypto-portfolio-command-center";
@@ -86,25 +87,39 @@ export default async function AccountPage({
     )?.symbol;
     let initialHistory: CryptoCandleSeries | undefined;
     let initialHistoryCached = false;
-    if (initialSymbol) {
-      const historyResponse = await fetch(
-        `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/candles`,
-        { headers, cache: "no-store" },
-      );
-      if (historyResponse.ok) {
-        const historyPayload = (await historyResponse.json()) as {
-          history: CryptoCandleSeries;
-          cached?: boolean;
-        };
-        initialHistory = historyPayload.history;
-        initialHistoryCached = Boolean(historyPayload.cached);
-      }
+    let initialActivity: CoinbaseTradeActivity | undefined;
+    const [activityResponse, historyResponse] = await Promise.all([
+      fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/fills`, {
+        headers,
+        cache: "no-store",
+      }),
+      initialSymbol
+        ? fetch(
+            `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/candles`,
+            { headers, cache: "no-store" },
+          )
+        : Promise.resolve(undefined),
+    ]);
+    if (activityResponse.ok) {
+      const activityPayload = (await activityResponse.json()) as {
+        activity: CoinbaseTradeActivity;
+      };
+      initialActivity = activityPayload.activity;
+    }
+    if (historyResponse?.ok) {
+      const historyPayload = (await historyResponse.json()) as {
+        history: CryptoCandleSeries;
+        cached?: boolean;
+      };
+      initialHistory = historyPayload.history;
+      initialHistoryCached = Boolean(historyPayload.cached);
     }
     return (
       <main className="connections-page crypto-account-page">
         <AppPageHeader backHref="/accounts" backLabel="Accounts" />
         <CryptoPortfolioCommandCenter
           accountID={account.id}
+          initialActivity={initialActivity}
           initialHistory={initialHistory}
           initialHistoryCached={initialHistoryCached}
           initialSnapshot={snapshot}

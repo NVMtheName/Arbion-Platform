@@ -74,6 +74,7 @@ type fakeBrokerMarketData struct {
 	quote    financial.Quote
 	chain    financial.OptionChain
 	query    financial.OptionChainRequest
+	fills    financial.TradeFillPage
 }
 
 func (fake *fakeBrokerMarketData) ListAccounts(context.Context, authorization.Principal) ([]financial.FinancialAccount, error) {
@@ -95,6 +96,10 @@ func (fake *fakeBrokerMarketData) GetBalances(context.Context, authorization.Pri
 
 func (fake *fakeBrokerMarketData) GetPositions(context.Context, authorization.Principal, string) ([]financial.Position, error) {
 	return []financial.Position{{InstrumentType: "CRYPTO", Symbol: "BTC", Quantity: "0.5", Direction: "long"}}, nil
+}
+
+func (fake *fakeBrokerMarketData) GetTradeFills(context.Context, authorization.Principal, string) (financial.TradeFillPage, error) {
+	return fake.fills, nil
 }
 
 func (fake *fakeBrokerMarketData) GetQuote(context.Context, authorization.Principal, string, string) (financial.Quote, error) {
@@ -247,6 +252,31 @@ func TestConnectedCryptoCandlesAreOwnerScopedBoundedAndReadOnly(t *testing.T) {
 	handler.connectedCryptoCandles(recorder, request)
 	if recorder.Code != stdhttp.StatusNotFound || !strings.Contains(recorder.Body.String(), "CONNECTED_ASSET_NOT_FOUND") {
 		t.Fatalf("unconnected asset history was exposed: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestConnectedTradeFillsAreOwnerScopedNoStoreExecutionEvidence(t *testing.T) {
+	broker := &fakeBrokerMarketData{
+		accounts: []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", Status: "active"}},
+		fills:    financial.TradeFillPage{Provider: "coinbase", Feed: "advanced_trade_fills", Fills: []financial.TradeFill{{ProductID: "BTC-USD", Side: "BUY", Price: "60123.123456789", Size: "0.00000001", SizeUnit: "BTC"}}, HasMore: true},
+	}
+	handler := &authHandler{marketFinancial: broker}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/activity/fills", nil)
+	request.SetPathValue("id", "coinbase-1")
+	recorder := httptest.NewRecorder()
+	handler.connectedTradeFills(recorder, request)
+	body := recorder.Body.String()
+	for _, expected := range []string{`"feed":"advanced_trade_fills"`, `"price":"60123.123456789"`, `"history_semantics":"EXTERNAL_EXECUTION_EVIDENCE"`, `"live_execution_available":false`} {
+		if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(body, expected) {
+			t.Fatalf("trade history boundary missing %s: status=%d body=%s", expected, recorder.Code, body)
+		}
+	}
+
+	broker.accounts[0].Provider = "schwab"
+	recorder = httptest.NewRecorder()
+	handler.connectedTradeFills(recorder, request)
+	if recorder.Code != stdhttp.StatusBadRequest || !strings.Contains(recorder.Body.String(), "TRADE_HISTORY_UNSUPPORTED") {
+		t.Fatalf("non-Coinbase activity entered the connected fill view: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

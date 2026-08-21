@@ -1455,6 +1455,7 @@ button:disabled {
 .crypto-allocation-panel,
 .crypto-evidence-panel,
 .crypto-history-panel,
+.crypto-activity-panel,
 .crypto-position-ledger {
   padding: 28px;
   border: 1px solid rgba(139, 181, 163, 0.17);
@@ -1626,6 +1627,140 @@ button:disabled {
   padding: 24px;
   border: 1px dashed rgba(139, 181, 163, 0.16);
   border-radius: 12px;
+}
+.crypto-activity-panel {
+  margin-top: 16px;
+  padding: 32px;
+  overflow: hidden;
+  background:
+    linear-gradient(115deg, rgba(94, 224, 160, 0.05), transparent 42%),
+    rgba(5, 18, 13, 0.88);
+}
+.crypto-activity-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+}
+.crypto-activity-panel h2 {
+  margin: 7px 0 8px;
+  font-size: 1.65rem;
+}
+.crypto-activity-panel > header p:last-child {
+  max-width: 720px;
+  margin: 0;
+  color: #7d9489;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.crypto-activity-panel > header button {
+  min-width: 160px;
+  padding: 9px 13px;
+  border: 1px solid rgba(124, 235, 177, 0.22);
+  color: #c9e5d7;
+  background: rgba(124, 235, 177, 0.055);
+}
+.crypto-activity-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 26px;
+  overflow: hidden;
+  border: 1px solid rgba(139, 181, 163, 0.12);
+  border-radius: 12px;
+  background: rgba(1, 10, 7, 0.42);
+}
+.crypto-activity-summary > div {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 16px;
+  border-right: 1px solid rgba(139, 181, 163, 0.1);
+}
+.crypto-activity-summary > div:last-child {
+  border-right: 0;
+}
+.crypto-activity-summary span {
+  color: #62776c;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.crypto-activity-summary strong {
+  overflow: hidden;
+  color: #dcebe3;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.crypto-activity-table {
+  margin-top: 22px;
+  overflow-x: auto;
+}
+.crypto-activity-table table {
+  width: 100%;
+  min-width: 1040px;
+  border-collapse: collapse;
+}
+.crypto-activity-table th {
+  padding: 0 14px 12px;
+  color: #6e857a;
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  text-align: left;
+  text-transform: uppercase;
+}
+.crypto-activity-table td {
+  padding: 17px 14px;
+  border-top: 1px solid rgba(139, 181, 163, 0.11);
+  color: #cfe0d7;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.crypto-activity-table td:nth-child(2) {
+  display: grid;
+  gap: 4px;
+}
+.crypto-activity-table td strong {
+  color: #eef8f3;
+}
+.crypto-activity-table td small {
+  color: #6e857a;
+  font-size: 0.66rem;
+}
+.crypto-activity-side {
+  display: inline-flex;
+  min-width: 50px;
+  justify-content: center;
+  padding: 5px 8px;
+  border: 1px solid rgba(124, 235, 177, 0.26);
+  border-radius: 999px;
+  color: #8ff0bd;
+  background: rgba(124, 235, 177, 0.08);
+  font-size: 0.66rem;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+}
+.crypto-activity-side.sell {
+  border-color: rgba(233, 163, 148, 0.3);
+  color: #efb1a4;
+  background: rgba(233, 163, 148, 0.07);
+}
+.crypto-activity-unavailable {
+  margin: 24px 0 0;
+  padding: 24px;
+  border: 1px dashed rgba(139, 181, 163, 0.16);
+  border-radius: 12px;
+  color: #758c81;
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+.crypto-activity-panel > footer {
+  margin-top: 16px;
+  color: #61766b;
+  font-size: 0.7rem;
+  line-height: 1.5;
 }
 .crypto-allocation-panel > header,
 .crypto-position-ledger > header {
@@ -1836,12 +1971,29 @@ button:disabled {
   .crypto-allocation-panel,
   .crypto-evidence-panel,
   .crypto-history-panel,
+  .crypto-activity-panel,
   .crypto-position-ledger {
     padding: 22px;
   }
   .crypto-history-panel > header {
     align-items: stretch;
     flex-direction: column;
+  }
+  .crypto-activity-panel > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .crypto-activity-panel > header button {
+    width: 100%;
+  }
+  .crypto-activity-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .crypto-activity-summary > div:nth-child(2) {
+    border-right: 0;
+  }
+  .crypto-activity-summary > div:nth-child(-n + 2) {
+    border-bottom: 1px solid rgba(139, 181, 163, 0.1);
   }
   .crypto-history-actions {
     min-width: 0;

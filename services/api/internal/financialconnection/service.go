@@ -376,6 +376,26 @@ func (s *Service) GetPositions(ctx context.Context, p authorization.Principal, i
 	return items, e
 }
 
+func (s *Service) GetTradeFills(ctx context.Context, p authorization.Principal, id string) (financial.TradeFillPage, error) {
+	a, e := s.GetAccount(ctx, p, id)
+	if e != nil {
+		return financial.TradeFillPage{}, e
+	}
+	connection, cr, e := s.credentials(ctx, p.UserID, a.ProviderConnectionID)
+	if e != nil {
+		return financial.TradeFillPage{}, e
+	}
+	broker, e := s.provider(connection.Provider)
+	if e != nil {
+		return financial.TradeFillPage{}, e
+	}
+	provider, ok := broker.(financial.TradeHistoryProvider)
+	if !ok {
+		return financial.TradeFillPage{}, &financial.ProviderError{Code: financial.ProviderUnavailable}
+	}
+	return provider.GetTradeFills(ctx, &cr, a.ProviderAccountID, 50)
+}
+
 func (s *Service) GetQuote(ctx context.Context, p authorization.Principal, accountID, symbol string) (financial.Quote, error) {
 	a, e := s.GetAccount(ctx, p, accountID)
 	if e != nil {

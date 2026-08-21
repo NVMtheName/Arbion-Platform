@@ -95,6 +95,7 @@ func (vault *vaultFake) Delete(_ context.Context, locator credential.Locator) er
 type coinbaseProviderFake struct {
 	verified int
 	balances int
+	fills    int
 }
 
 func (provider *coinbaseProviderFake) VerifyConnection(_ context.Context, credentials *financial.Credentials) error {
@@ -120,6 +121,13 @@ func (provider *coinbaseProviderFake) GetBalances(context.Context, *financial.Cr
 }
 func (*coinbaseProviderFake) GetPositions(context.Context, *financial.Credentials, string) ([]financial.Position, error) {
 	return []financial.Position{{Symbol: "BTC", Quantity: "0.1", Direction: "long", InstrumentType: "CRYPTO"}}, nil
+}
+func (provider *coinbaseProviderFake) GetTradeFills(_ context.Context, _ *financial.Credentials, id string, limit int) (financial.TradeFillPage, error) {
+	provider.fills++
+	if id != "portfolio:portfolio-1" || limit != 50 {
+		return financial.TradeFillPage{}, errors.New("unexpected trade history boundary")
+	}
+	return financial.TradeFillPage{Provider: "coinbase", Feed: "advanced_trade_fills", Fills: []financial.TradeFill{{ProductID: "BTC-USD", Side: "BUY", Price: "1", Size: "1", SizeUnit: "BTC"}}}, nil
 }
 func (*coinbaseProviderFake) GetCapabilities(context.Context, *financial.Credentials, string) (financial.Capabilities, error) {
 	return financial.Capabilities{"crypto_assets": financial.Supported}, nil
@@ -157,6 +165,10 @@ func TestConnectAPIKeyStoresServerOnlyCredentialsAndRoutesAccountReads(t *testin
 	balances, err := service.GetBalances(context.Background(), founder(), "account-1")
 	if err != nil || balances.Cash == nil || balances.Cash.Amount != "25" || provider.balances != 1 {
 		t.Fatalf("Coinbase provider was not used for account reads: %#v %v", balances, err)
+	}
+	fills, err := service.GetTradeFills(context.Background(), founder(), "account-1")
+	if err != nil || len(fills.Fills) != 1 || fills.Fills[0].ProductID != "BTC-USD" || provider.fills != 1 {
+		t.Fatalf("Coinbase history provider was not used for owner-scoped reads: %#v %v", fills, err)
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -46,6 +47,8 @@ type Client struct {
 	http *http.Client
 	now  func() time.Time
 }
+
+var _ financial.TradeHistoryProvider = (*Client)(nil)
 
 func New(cfg Config, client *http.Client) (*Client, error) {
 	baseURL := strings.TrimSpace(cfg.BaseURL)
@@ -116,6 +119,25 @@ type accountPage struct {
 	Cursor   string            `json:"cursor"`
 }
 
+type providerFill struct {
+	TradeTime          time.Time   `json:"trade_time"`
+	TradeType          string      `json:"trade_type"`
+	Price              json.Number `json:"price"`
+	Size               json.Number `json:"size"`
+	Commission         json.Number `json:"commission"`
+	ProductID          string      `json:"product_id"`
+	SequenceTimestamp  time.Time   `json:"sequence_timestamp"`
+	LiquidityIndicator string      `json:"liquidity_indicator"`
+	SizeInQuote        bool        `json:"size_in_quote"`
+	Side               string      `json:"side"`
+}
+
+type fillPage struct {
+	Fills              []providerFill `json:"fills"`
+	Cursor             string         `json:"cursor"`
+	ProofTokenRequired bool           `json:"proof_token_required"`
+}
+
 func (c *Client) providerAccounts(ctx context.Context, credentials *financial.Credentials) ([]providerAccount, error) {
 	if err := c.VerifyConnection(ctx, credentials); err != nil {
 		return nil, err
@@ -168,6 +190,7 @@ func portfolioAccount(credentials *financial.Credentials) (financial.FinancialAc
 			"crypto_assets": financial.Supported,
 			"balances":      financial.Supported,
 			"positions":     financial.Supported,
+			"trade_history": financial.Supported,
 			"equities":      financial.Unsupported,
 			"options":       financial.Unsupported,
 			"margin":        financial.Unsupported,
@@ -289,6 +312,108 @@ func (c *Client) GetCapabilities(_ context.Context, credentials *financial.Crede
 	}
 	account, _ := portfolioAccount(credentials)
 	return account.Capabilities, nil
+}
+
+func (c *Client) GetTradeFills(ctx context.Context, credentials *financial.Credentials, id string, limit int) (financial.TradeFillPage, error) {
+	if err := validateAccountID(credentials, id); err != nil {
+		return financial.TradeFillPage{}, err
+	}
+	if limit != 50 {
+		return financial.TradeFillPage{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	if err := c.VerifyConnection(ctx, credentials); err != nil {
+		return financial.TradeFillPage{}, err
+	}
+	query := url.Values{
+		"limit":         {"50"},
+		"product_types": {"SPOT"},
+		"sort_by":       {"TRADE_TIME"},
+	}
+	var response fillPage
+	if err := c.get(ctx, credentials, "/api/v3/brokerage/orders/historical/fills?"+query.Encode(), &response); err != nil {
+		return financial.TradeFillPage{}, err
+	}
+	if response.ProofTokenRequired {
+		return financial.TradeFillPage{}, &financial.ProviderError{Code: financial.PermissionDenied}
+	}
+	if len(response.Fills) > limit || len(response.Cursor) > 1024 || !safeCursor(response.Cursor) {
+		return financial.TradeFillPage{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	now := c.now().UTC()
+	fills := make([]financial.TradeFill, 0, len(response.Fills))
+	for _, raw := range response.Fills {
+		productID := strings.ToUpper(strings.TrimSpace(raw.ProductID))
+		separator := strings.LastIndexByte(productID, '-')
+		if separator < 1 || separator == len(productID)-1 {
+			return financial.TradeFillPage{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		}
+		baseAsset, quoteCurrency := productID[:separator], productID[separator+1:]
+		side := strings.ToUpper(strings.TrimSpace(raw.Side))
+		liquidity, ok := normalizedLiquidity(raw.LiquidityIndicator)
+		price, priceOK := positiveProviderDecimal(raw.Price)
+		size, sizeOK := positiveProviderDecimal(raw.Size)
+		commission, commissionOK := nonnegativeProviderDecimal(raw.Commission)
+		if !currencyPattern.MatchString(baseAsset) || !currencyPattern.MatchString(quoteCurrency) || (side != "BUY" && side != "SELL") || strings.ToUpper(strings.TrimSpace(raw.TradeType)) != "FILL" || !ok || !priceOK || !sizeOK || !commissionOK || raw.TradeTime.IsZero() || raw.TradeTime.After(now.Add(2*time.Minute)) || raw.SequenceTimestamp.IsZero() || raw.SequenceTimestamp.After(now.Add(2*time.Minute)) {
+			return financial.TradeFillPage{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		}
+		sizeUnit := baseAsset
+		if raw.SizeInQuote {
+			sizeUnit = quoteCurrency
+		}
+		fills = append(fills, financial.TradeFill{
+			ProductID: productID, BaseAsset: baseAsset, QuoteCurrency: quoteCurrency,
+			Side: side, Price: price, Size: size, SizeUnit: sizeUnit,
+			Commission: financial.Money{Amount: commission, Currency: quoteCurrency},
+			TradeTime:  raw.TradeTime.UTC(), Liquidity: liquidity,
+		})
+	}
+	sort.SliceStable(fills, func(left, right int) bool {
+		return fills[left].TradeTime.After(fills[right].TradeTime)
+	})
+	return financial.TradeFillPage{
+		Provider: "coinbase", Feed: "advanced_trade_fills", Fills: fills,
+		HasMore: strings.TrimSpace(response.Cursor) != "", RetrievedAt: now,
+	}, nil
+}
+
+func safeCursor(value string) bool {
+	for _, character := range value {
+		if character < 0x21 || character > 0x7e {
+			return strings.TrimSpace(value) == ""
+		}
+	}
+	return true
+}
+
+func normalizedLiquidity(value string) (string, bool) {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "MAKER":
+		return "MAKER", true
+	case "TAKER":
+		return "TAKER", true
+	case "", "UNKNOWN_LIQUIDITY_INDICATOR":
+		return "UNKNOWN", true
+	default:
+		return "", false
+	}
+}
+
+func positiveProviderDecimal(value json.Number) (financial.Decimal, bool) {
+	result, err := normalizedDecimal(value)
+	if err != nil {
+		return "", false
+	}
+	rational, ok := new(big.Rat).SetString(string(result))
+	return result, ok && rational.Sign() > 0
+}
+
+func nonnegativeProviderDecimal(value json.Number) (financial.Decimal, bool) {
+	result, err := normalizedDecimal(value)
+	if err != nil {
+		return "", false
+	}
+	rational, ok := new(big.Rat).SetString(string(result))
+	return result, ok && rational.Sign() >= 0
 }
 
 // Arbion-side encrypted credential deletion is authoritative. Coinbase API-key
