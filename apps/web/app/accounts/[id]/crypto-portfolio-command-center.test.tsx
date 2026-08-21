@@ -11,6 +11,7 @@ import {
   CryptoPortfolioCommandCenter,
   type CoinbaseOrderHistory,
   type CoinbaseTradeActivity,
+  type CoinbaseTradingCostSummary,
   type CryptoCandleSeries,
   type CryptoPortfolioSnapshot,
 } from "./crypto-portfolio-command-center";
@@ -116,6 +117,20 @@ const orderHistory: CoinbaseOrderHistory = {
   retrieved_at: observedAt,
 };
 
+const tradingCosts: CoinbaseTradingCostSummary = {
+  provider: "coinbase",
+  feed: "advanced_trade_transaction_summary",
+  product_type: "SPOT",
+  pricing_tier: "<$10k",
+  maker_fee_rate: "0.0020",
+  taker_fee_rate: "0.0030",
+  advanced_trade_volume: { amount: "1000.123456789", currency: "USD" },
+  advanced_trade_fees: { amount: "20.00000001", currency: "USD" },
+  total_fees: { amount: "25.00000001", currency: "USD" },
+  cost_plus_commission: false,
+  retrieved_at: observedAt,
+};
+
 const history: CryptoCandleSeries = {
   symbol: "BTC",
   currency: "USD",
@@ -163,6 +178,7 @@ describe("CryptoPortfolioCommandCenter", () => {
         initialHistory={history}
         initialOrderHistory={orderHistory}
         initialSnapshot={snapshot}
+        initialTradingCosts={tradingCosts}
       />,
     );
 
@@ -193,6 +209,18 @@ describe("CryptoPortfolioCommandCenter", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Provider-reported order state" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Current Coinbase fee tier" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("<$10k")).toBeInTheDocument();
+    expect(screen.getByText("0.20%")).toBeInTheDocument();
+    expect(screen.getByText("0.30%")).toBeInTheDocument();
+    expect(screen.getByText("1,000.123456789 USD")).toBeInTheDocument();
+    expect(screen.getByText("20.00000001 USD")).toBeInTheDocument();
+    expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText(/does not infer next-tier progress/),
     ).toBeInTheDocument();
     expect(
       screen.getByText("25.000% · 0.000000010000 BTC"),
@@ -353,5 +381,43 @@ describe("CryptoPortfolioCommandCenter", () => {
       { cache: "no-store" },
     );
     expect(screen.queryByRole("button", { name: /cancel/i })).toBeNull();
+  });
+
+  it("refreshes only provider fee-tier evidence without requesting a preview", async () => {
+    const updatedCosts = {
+      ...tradingCosts,
+      pricing_tier: "$10k-$50k",
+      maker_fee_rate: "0.0015",
+    };
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        trading_costs: updatedCosts,
+        summary_semantics: "PROVIDER_FEE_TIER_SNAPSHOT",
+        order_preview_available: false,
+        order_actions_available: false,
+        live_execution_available: false,
+      }),
+    });
+    vi.stubGlobal("fetch", request);
+    render(
+      <CryptoPortfolioCommandCenter
+        accountID="coinbase-1"
+        initialHistory={history}
+        initialSnapshot={snapshot}
+        initialTradingCosts={tradingCosts}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh cost evidence" }),
+    );
+
+    await waitFor(() => expect(screen.getByText("$10k-$50k")).toBeVisible());
+    expect(request).toHaveBeenCalledWith(
+      "/api/accounts/coinbase-1/activity/trading-costs",
+      { cache: "no-store" },
+    );
+    expect(screen.queryByRole("button", { name: /preview|trade/i })).toBeNull();
   });
 });

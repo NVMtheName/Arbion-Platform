@@ -416,6 +416,26 @@ func (s *Service) GetOrderHistory(ctx context.Context, p authorization.Principal
 	return provider.GetOrderHistory(ctx, &cr, a.ProviderAccountID, 50)
 }
 
+func (s *Service) GetTradingCostSummary(ctx context.Context, p authorization.Principal, id string) (financial.TradingCostSummary, error) {
+	a, e := s.GetAccount(ctx, p, id)
+	if e != nil {
+		return financial.TradingCostSummary{}, e
+	}
+	connection, cr, e := s.credentials(ctx, p.UserID, a.ProviderConnectionID)
+	if e != nil {
+		return financial.TradingCostSummary{}, e
+	}
+	broker, e := s.provider(connection.Provider)
+	if e != nil {
+		return financial.TradingCostSummary{}, e
+	}
+	provider, ok := broker.(financial.TradingCostProvider)
+	if !ok {
+		return financial.TradingCostSummary{}, &financial.ProviderError{Code: financial.ProviderUnavailable}
+	}
+	return provider.GetTradingCostSummary(ctx, &cr, a.ProviderAccountID)
+}
+
 func (s *Service) GetQuote(ctx context.Context, p authorization.Principal, accountID, symbol string) (financial.Quote, error) {
 	a, e := s.GetAccount(ctx, p, accountID)
 	if e != nil {

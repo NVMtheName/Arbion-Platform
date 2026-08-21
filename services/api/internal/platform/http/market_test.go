@@ -76,6 +76,7 @@ type fakeBrokerMarketData struct {
 	query    financial.OptionChainRequest
 	fills    financial.TradeFillPage
 	orders   financial.OrderHistoryPage
+	costs    financial.TradingCostSummary
 }
 
 func (fake *fakeBrokerMarketData) ListAccounts(context.Context, authorization.Principal) ([]financial.FinancialAccount, error) {
@@ -105,6 +106,10 @@ func (fake *fakeBrokerMarketData) GetTradeFills(context.Context, authorization.P
 
 func (fake *fakeBrokerMarketData) GetOrderHistory(context.Context, authorization.Principal, string) (financial.OrderHistoryPage, error) {
 	return fake.orders, nil
+}
+
+func (fake *fakeBrokerMarketData) GetTradingCostSummary(context.Context, authorization.Principal, string) (financial.TradingCostSummary, error) {
+	return fake.costs, nil
 }
 
 func (fake *fakeBrokerMarketData) GetQuote(context.Context, authorization.Principal, string, string) (financial.Quote, error) {
@@ -307,6 +312,37 @@ func TestConnectedOrderHistoryIsOwnerScopedNoStoreAndActionFree(t *testing.T) {
 	handler.connectedOrderHistory(recorder, request)
 	if recorder.Code != stdhttp.StatusBadRequest || !strings.Contains(recorder.Body.String(), "ORDER_HISTORY_UNSUPPORTED") {
 		t.Fatalf("non-Coinbase order history entered the monitor: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestConnectedTradingCostsAreOwnerScopedNoStoreAndPreviewFree(t *testing.T) {
+	broker := &fakeBrokerMarketData{
+		accounts: []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", Status: "active"}},
+		costs: financial.TradingCostSummary{
+			Provider: "coinbase", Feed: "advanced_trade_transaction_summary", ProductType: "SPOT", PricingTier: "<$10k",
+			MakerFeeRate: "0.0020", TakerFeeRate: "0.0030",
+			AdvancedTradeVolume: financial.Money{Amount: "1000.123456789", Currency: "USD"},
+			AdvancedTradeFees:   financial.Money{Amount: "20.00000001", Currency: "USD"},
+			TotalFees:           financial.Money{Amount: "25.00000001", Currency: "USD"},
+		},
+	}
+	handler := &authHandler{marketFinancial: broker}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/activity/trading-costs", nil)
+	request.SetPathValue("id", "coinbase-1")
+	recorder := httptest.NewRecorder()
+	handler.connectedTradingCosts(recorder, request)
+	body := recorder.Body.String()
+	for _, expected := range []string{`"feed":"advanced_trade_transaction_summary"`, `"maker_fee_rate":"0.0020"`, `"advanced_trade_volume":{"amount":"1000.123456789"`, `"summary_semantics":"PROVIDER_FEE_TIER_SNAPSHOT"`, `"order_preview_available":false`, `"order_actions_available":false`, `"live_execution_available":false`} {
+		if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(body, expected) {
+			t.Fatalf("trading-cost boundary missing %s: status=%d body=%s", expected, recorder.Code, body)
+		}
+	}
+
+	broker.accounts[0].Provider = "schwab"
+	recorder = httptest.NewRecorder()
+	handler.connectedTradingCosts(recorder, request)
+	if recorder.Code != stdhttp.StatusBadRequest || !strings.Contains(recorder.Body.String(), "TRADING_COSTS_UNSUPPORTED") {
+		t.Fatalf("non-Coinbase costs entered the summary: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
