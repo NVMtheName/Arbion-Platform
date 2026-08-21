@@ -54,6 +54,17 @@ func (provider *fakeCryptoProvider) RecentCryptoCandles(_ context.Context, symbo
 	}, nil
 }
 
+func (provider *fakeCryptoProvider) CryptoLiquidity(_ context.Context, symbol, currency string, depth int) (CryptoLiquiditySnapshot, error) {
+	provider.calls++
+	now := time.Now().UTC()
+	return CryptoLiquiditySnapshot{
+		Symbol: symbol, Currency: currency, ProductID: symbol + "-" + currency, Depth: depth,
+		Bids: []CryptoBookLevel{{Price: "99.9", Size: "2"}}, Asks: []CryptoBookLevel{{Price: "100.1", Size: "3"}},
+		Last: "100", MidMarket: "100", SpreadBPS: "20", SpreadAbsolute: "0.2",
+		Provenance: Provenance{Provider: "coinbase", Role: MarketObservation, Feed: "advanced_trade_public_product_book", Quality: RealTimeSingleVenue, Venue: "coinbase_advanced_trade", ProviderTimestamp: now, ReceivedAt: now},
+	}, nil
+}
+
 type fakeFilingProvider struct{ calls int }
 
 func (provider *fakeFilingProvider) RecentInsiderFilings(_ context.Context, cik string, _ int) ([]InsiderFilingObservation, error) {
@@ -183,6 +194,29 @@ func TestServiceKeepsCandleCacheAndSourceSeparate(t *testing.T) {
 	}
 	if global.calls != 0 {
 		t.Fatalf("global crypto source was used for connected history: calls=%d", global.calls)
+	}
+}
+
+func TestServiceKeepsLiquidityCacheBoundedAndCloned(t *testing.T) {
+	provider := &fakeCryptoProvider{}
+	service, err := NewService(ServiceConfig{
+		CryptoLiquidityProvider: provider, CryptoLiquiditySourceID: "coinbase_exchange",
+		CryptoLiquidityCacheTTL: time.Minute, CryptoLiquidityInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, cached, err := service.CryptoLiquidity(context.Background(), " btc ", "usd", 10)
+	if err != nil || cached || first.ProductID != "BTC-USD" || len(first.Bids) != 1 {
+		t.Fatalf("unexpected first liquidity result: cached=%v snapshot=%+v err=%v", cached, first, err)
+	}
+	first.Bids[0].Size = "0"
+	second, cached, err := service.CryptoLiquidity(context.Background(), "BTC", "USD", 10)
+	if err != nil || !cached || provider.calls != 1 || second.Bids[0].Size != "2" {
+		t.Fatalf("liquidity cache was not isolated or cloned: cached=%v calls=%d snapshot=%+v err=%v", cached, provider.calls, second, err)
+	}
+	if _, _, err = service.CryptoLiquidity(context.Background(), "BTC", "USD", 25); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("unbounded liquidity contract accepted: %v", err)
 	}
 }
 

@@ -9,6 +9,7 @@ import {
   type CoinbaseTradeActivity,
   type CoinbaseTradingCostSummary,
   type CryptoCandleSeries,
+  type CryptoLiquiditySnapshot,
   type CryptoPortfolioSnapshot,
 } from "./crypto-portfolio-command-center";
 type Money = { amount: string; currency: string };
@@ -89,36 +90,46 @@ export default async function AccountPage({
     )?.symbol;
     let initialHistory: CryptoCandleSeries | undefined;
     let initialHistoryCached = false;
+    let initialLiquidity: CryptoLiquiditySnapshot | undefined;
+    let initialLiquidityCached = false;
     let initialActivity: CoinbaseTradeActivity | undefined;
     let initialOrderHistory: CoinbaseOrderHistory | undefined;
     let initialTradingCosts: CoinbaseTradingCostSummary | undefined;
-    const [activityResponse, orderResponse, costsResponse, historyResponse] =
-      await Promise.all([
-        fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/fills`, {
+    const [
+      activityResponse,
+      orderResponse,
+      costsResponse,
+      historyResponse,
+      liquidityResponse,
+    ] = await Promise.all([
+      fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/fills`, {
+        headers,
+        cache: "no-store",
+      }),
+      fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/orders`, {
+        headers,
+        cache: "no-store",
+      }),
+      fetch(
+        `${base}/api/accounts/${encodeURIComponent(id)}/activity/trading-costs`,
+        {
           headers,
           cache: "no-store",
-        }),
-        fetch(
-          `${base}/api/accounts/${encodeURIComponent(id)}/activity/orders`,
-          {
-            headers,
-            cache: "no-store",
-          },
-        ),
-        fetch(
-          `${base}/api/accounts/${encodeURIComponent(id)}/activity/trading-costs`,
-          {
-            headers,
-            cache: "no-store",
-          },
-        ),
-        initialSymbol
-          ? fetch(
-              `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/candles`,
-              { headers, cache: "no-store" },
-            )
-          : Promise.resolve(undefined),
-      ]);
+        },
+      ),
+      initialSymbol
+        ? fetch(
+            `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/candles`,
+            { headers, cache: "no-store" },
+          )
+        : Promise.resolve(undefined),
+      initialSymbol
+        ? fetch(
+            `${base}/api/accounts/${encodeURIComponent(id)}/markets/crypto/${encodeURIComponent(initialSymbol)}/liquidity`,
+            { headers, cache: "no-store" },
+          )
+        : Promise.resolve(undefined),
+    ]);
     if (activityResponse.ok) {
       const activityPayload = (await activityResponse.json()) as {
         activity: CoinbaseTradeActivity;
@@ -145,6 +156,14 @@ export default async function AccountPage({
       initialHistory = historyPayload.history;
       initialHistoryCached = Boolean(historyPayload.cached);
     }
+    if (liquidityResponse?.ok) {
+      const liquidityPayload = (await liquidityResponse.json()) as {
+        liquidity: CryptoLiquiditySnapshot;
+        cached?: boolean;
+      };
+      initialLiquidity = liquidityPayload.liquidity;
+      initialLiquidityCached = Boolean(liquidityPayload.cached);
+    }
     return (
       <main className="connections-page crypto-account-page">
         <AppPageHeader backHref="/accounts" backLabel="Accounts" />
@@ -153,6 +172,8 @@ export default async function AccountPage({
           initialActivity={initialActivity}
           initialHistory={initialHistory}
           initialHistoryCached={initialHistoryCached}
+          initialLiquidity={initialLiquidity}
+          initialLiquidityCached={initialLiquidityCached}
           initialOrderHistory={initialOrderHistory}
           initialSnapshot={snapshot}
           initialTradingCosts={initialTradingCosts}

@@ -79,6 +79,35 @@ type HistoryResponse = {
   error?: { message?: string };
 };
 
+type CryptoBookLevel = {
+  price: string;
+  size: string;
+};
+
+export type CryptoLiquiditySnapshot = {
+  symbol: string;
+  currency: string;
+  product_id: string;
+  depth: 10;
+  bids: CryptoBookLevel[];
+  asks: CryptoBookLevel[];
+  last: string;
+  mid_market: string;
+  spread_bps: string;
+  spread_absolute: string;
+  provenance: Provenance;
+};
+
+type LiquidityResponse = {
+  liquidity?: CryptoLiquiditySnapshot;
+  cached?: boolean;
+  snapshot_semantics?: "SINGLE_VENUE_LIQUIDITY_SNAPSHOT";
+  order_book_streaming: false;
+  order_actions_available: false;
+  live_execution_available: false;
+  error?: { message?: string };
+};
+
 export type CoinbaseTradeFill = {
   product_id: string;
   base_asset: string;
@@ -249,6 +278,13 @@ function price(value?: string, currency = "USD") {
   }).format(parsed);
 }
 
+function bookLevelWidth(level: CryptoBookLevel, levels: CryptoBookLevel[]) {
+  const current = Number(level.size);
+  const maximum = Math.max(...levels.map((item) => Number(item.size) || 0));
+  if (!Number.isFinite(current) || maximum <= 0) return 0;
+  return Math.max(4, Math.min(100, (current / maximum) * 100));
+}
+
 function historyChart(series?: CryptoCandleSeries) {
   if (!series || series.candles.length === 0) return null;
   const candles = series.candles
@@ -313,6 +349,8 @@ export function CryptoPortfolioCommandCenter({
   initialSnapshot,
   initialHistory,
   initialHistoryCached = false,
+  initialLiquidity,
+  initialLiquidityCached = false,
   initialActivity,
   initialOrderHistory,
   initialTradingCosts,
@@ -321,6 +359,8 @@ export function CryptoPortfolioCommandCenter({
   initialSnapshot: CryptoPortfolioSnapshot;
   initialHistory?: CryptoCandleSeries;
   initialHistoryCached?: boolean;
+  initialLiquidity?: CryptoLiquiditySnapshot;
+  initialLiquidityCached?: boolean;
   initialActivity?: CoinbaseTradeActivity;
   initialOrderHistory?: CoinbaseOrderHistory;
   initialTradingCosts?: CoinbaseTradingCostSummary;
@@ -344,6 +384,18 @@ export function CryptoPortfolioCommandCenter({
   );
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
+  const [liquidities, setLiquidities] = useState<
+    Record<string, CryptoLiquiditySnapshot>
+  >(initialLiquidity ? { [initialLiquidity.symbol]: initialLiquidity } : {});
+  const [liquidityCached, setLiquidityCached] = useState<
+    Record<string, boolean>
+  >(
+    initialLiquidity
+      ? { [initialLiquidity.symbol]: initialLiquidityCached }
+      : {},
+  );
+  const [liquidityLoading, setLiquidityLoading] = useState(false);
+  const [liquidityError, setLiquidityError] = useState("");
   const [activity, setActivity] = useState(initialActivity);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityError, setActivityError] = useState("");
@@ -404,6 +456,7 @@ export function CryptoPortfolioCommandCenter({
   );
   const digitalAssetValue = observedNumber(snapshot.digital_asset_value);
   const selectedHistory = histories[selectedSymbol];
+  const selectedLiquidity = liquidities[selectedSymbol];
   const chart = useMemo(() => historyChart(selectedHistory), [selectedHistory]);
 
   const loadHistory = useCallback(
@@ -450,6 +503,56 @@ export function CryptoPortfolioCommandCenter({
       }
     },
     [accountID, histories],
+  );
+
+  const loadLiquidity = useCallback(
+    async (symbol: string, force = false) => {
+      if (!symbol || (!force && liquidities[symbol])) return;
+      setLiquidityLoading(true);
+      setLiquidityError("");
+      try {
+        const response = await fetch(
+          `/api/accounts/${encodeURIComponent(accountID)}/markets/crypto/${encodeURIComponent(symbol)}/liquidity`,
+          { cache: "no-store" },
+        );
+        const body = (await response.json()) as LiquidityResponse;
+        if (
+          !response.ok ||
+          !body.liquidity ||
+          body.snapshot_semantics !== "SINGLE_VENUE_LIQUIDITY_SNAPSHOT" ||
+          body.order_book_streaming !== false ||
+          body.order_actions_available !== false ||
+          body.live_execution_available !== false ||
+          body.liquidity.symbol !== symbol ||
+          body.liquidity.currency !== "USD" ||
+          body.liquidity.product_id !== `${symbol}-USD` ||
+          body.liquidity.depth !== 10 ||
+          body.liquidity.bids.length > 10 ||
+          body.liquidity.asks.length > 10
+        ) {
+          setLiquidityError(
+            body.error?.message ??
+              "Coinbase liquidity is temporarily unavailable. No depth or executable price was estimated.",
+          );
+          return;
+        }
+        setLiquidities((current) => ({
+          ...current,
+          [symbol]: body.liquidity as CryptoLiquiditySnapshot,
+        }));
+        setLiquidityCached((current) => ({
+          ...current,
+          [symbol]: Boolean(body.cached),
+        }));
+      } catch {
+        setLiquidityError(
+          "Coinbase liquidity is temporarily unavailable. No depth or executable price was estimated.",
+        );
+      } finally {
+        setLiquidityLoading(false);
+      }
+    },
+    [accountID, liquidities],
   );
 
   const refreshActivity = useCallback(async () => {
@@ -779,7 +882,9 @@ export function CryptoPortfolioCommandCenter({
                 onClick={() => {
                   setSelectedSymbol(position.symbol);
                   setHistoryError("");
+                  setLiquidityError("");
                   void loadHistory(position.symbol);
+                  void loadLiquidity(position.symbol);
                 }}
               >
                 {position.symbol}
@@ -922,6 +1027,152 @@ export function CryptoPortfolioCommandCenter({
             </aside>
           </div>
         )}
+      </motion.section>
+
+      <motion.section
+        className="crypto-liquidity-panel"
+        aria-labelledby="crypto-liquidity-title"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.23 }}
+      >
+        <header>
+          <div>
+            <p className="eyebrow">COINBASE LIQUIDITY MAP</p>
+            <h2 id="crypto-liquidity-title">Top-of-book depth</h2>
+            <p>
+              A ten-level, single-venue REST snapshot for the selected connected
+              asset—not a streaming book, executable quote, or order preview.
+            </p>
+          </div>
+          <div className="crypto-liquidity-actions">
+            <span>
+              {selectedSymbol ? `${selectedSymbol} / USD` : "No priced asset"}
+            </span>
+            <button
+              type="button"
+              disabled={!selectedSymbol || liquidityLoading}
+              onClick={() => void loadLiquidity(selectedSymbol, true)}
+            >
+              {liquidityLoading ? "Refreshing…" : "Refresh liquidity"}
+            </button>
+          </div>
+        </header>
+
+        {liquidityError ? (
+          <p className="crypto-liquidity-unavailable" role="alert">
+            {liquidityError}
+          </p>
+        ) : !selectedLiquidity ? (
+          <p className="crypto-liquidity-unavailable">
+            {liquidityLoading
+              ? "Loading provider-reported levels…"
+              : "No Coinbase liquidity snapshot is available for this connected asset."}
+          </p>
+        ) : (
+          <>
+            <div className="crypto-liquidity-summary">
+              <article>
+                <span>Mid-market</span>
+                <strong>
+                  {price(
+                    selectedLiquidity.mid_market,
+                    selectedLiquidity.currency,
+                  )}
+                </strong>
+                <small>{exactDecimal(selectedLiquidity.mid_market)} USD</small>
+              </article>
+              <article>
+                <span>Venue spread</span>
+                <strong>
+                  {exactDecimal(selectedLiquidity.spread_bps)} bps
+                </strong>
+                <small>
+                  {exactDecimal(selectedLiquidity.spread_absolute)} USD absolute
+                </small>
+              </article>
+              <article>
+                <span>Last trade</span>
+                <strong>
+                  {price(selectedLiquidity.last, selectedLiquidity.currency)}
+                </strong>
+                <small>{exactDecimal(selectedLiquidity.last)} USD</small>
+              </article>
+              <article>
+                <span>Observed</span>
+                <strong>
+                  {timestamp(selectedLiquidity.provenance.provider_timestamp)}
+                </strong>
+                <small>
+                  {liquidityCached[selectedSymbol]
+                    ? "One-second display cache"
+                    : "Provider response"}
+                </small>
+              </article>
+            </div>
+            <div
+              className="crypto-book"
+              aria-label={`${selectedLiquidity.product_id} Coinbase liquidity levels`}
+            >
+              <section className="crypto-book-side bid">
+                <header>
+                  <div>
+                    <span>Bids</span>
+                    <small>Buy-side interest</small>
+                  </div>
+                  <div aria-hidden="true">
+                    <span>Price</span>
+                    <span>Size {selectedLiquidity.symbol}</span>
+                  </div>
+                </header>
+                <ol>
+                  {selectedLiquidity.bids.map((level, index) => (
+                    <li key={`bid-${level.price}-${index}`}>
+                      <i
+                        style={{
+                          width: `${bookLevelWidth(level, selectedLiquidity.bids)}%`,
+                        }}
+                      />
+                      <span>{exactDecimal(level.price)}</span>
+                      <strong>{exactDecimal(level.size)}</strong>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+              <section className="crypto-book-side ask">
+                <header>
+                  <div>
+                    <span>Asks</span>
+                    <small>Sell-side interest</small>
+                  </div>
+                  <div aria-hidden="true">
+                    <span>Price</span>
+                    <span>Size {selectedLiquidity.symbol}</span>
+                  </div>
+                </header>
+                <ol>
+                  {selectedLiquidity.asks.map((level, index) => (
+                    <li key={`ask-${level.price}-${index}`}>
+                      <i
+                        style={{
+                          width: `${bookLevelWidth(level, selectedLiquidity.asks)}%`,
+                        }}
+                      />
+                      <span>{exactDecimal(level.price)}</span>
+                      <strong>{exactDecimal(level.size)}</strong>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            </div>
+          </>
+        )}
+        <footer>
+          Coinbase Advanced Trade public REST · ten levels per side · manual
+          refresh. Size is provider-reported base-asset quantity at one price
+          level. Arbion does not stream, aggregate venues, estimate slippage, or
+          expose order actions from this panel.
+        </footer>
       </motion.section>
 
       <motion.section

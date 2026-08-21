@@ -95,6 +95,43 @@ func TestValidateCryptoCandlesPreservesExactValuesAndRejectsInventedRanges(t *te
 	}
 }
 
+func TestValidateCryptoLiquidityPreservesExactOrderedLevelsAndRejectsCrossedBooks(t *testing.T) {
+	now := time.Date(2026, time.August, 21, 16, 0, 0, 0, time.UTC)
+	snapshot := CryptoLiquiditySnapshot{
+		Symbol: "BTC", Currency: "USD", ProductID: "BTC-USD", Depth: 10,
+		Bids: []CryptoBookLevel{{Price: "70186.900000000000000001", Size: "0.12500000"}, {Price: "70186.80", Size: "0.5"}},
+		Asks: []CryptoBookLevel{{Price: "70187.200000000000000001", Size: "0.25000000"}, {Price: "70187.3", Size: "0.75"}},
+		Last: "70187.10", MidMarket: "70187.050000000000000001", SpreadBPS: "0.042743", SpreadAbsolute: "0.300000000000000000",
+		Provenance: Provenance{Provider: "coinbase", Role: MarketObservation, Feed: "advanced_trade_public_product_book", Quality: RealTimeSingleVenue, Venue: "coinbase_advanced_trade", ProviderTimestamp: now.Add(-time.Second), ReceivedAt: now},
+	}
+	policy := FreshnessPolicy{MaxAge: time.Minute, MaxFutureSkew: time.Second}
+	if err := ValidateCryptoLiquidity(snapshot, now, policy); err != nil {
+		t.Fatalf("valid liquidity rejected: %v", err)
+	}
+	invalid := snapshot
+	invalid.Asks = append([]CryptoBookLevel(nil), snapshot.Asks...)
+	invalid.Asks[0].Price = "70186.80"
+	if err := ValidateCryptoLiquidity(invalid, now, policy); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("crossed book accepted: %v", err)
+	}
+	invalid = snapshot
+	invalid.Bids = append([]CryptoBookLevel(nil), snapshot.Bids...)
+	invalid.Bids[1].Size = "0"
+	if err := ValidateCryptoLiquidity(invalid, now, policy); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("zero-sized level accepted: %v", err)
+	}
+	invalid = snapshot
+	invalid.SpreadAbsolute = "0.31"
+	if err := ValidateCryptoLiquidity(invalid, now, policy); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("mismatched spread accepted: %v", err)
+	}
+	invalid = snapshot
+	invalid.Provenance.ProviderTimestamp = now.Add(-61 * time.Second)
+	if err := ValidateCryptoLiquidity(invalid, now, policy); !errors.Is(err, ErrStaleObservation) {
+		t.Fatalf("stale book accepted: %v", err)
+	}
+}
+
 func TestSelectSourceNeverSilentlyDowngradesQuality(t *testing.T) {
 	sources := []Source{
 		{ID: "alpaca_iex", Label: "Alpaca IEX", Role: MarketObservation, Feed: "iex", Quality: RealTimeSingleVenue, Capabilities: []Capability{EquityQuote}, Enabled: true, Healthy: true},

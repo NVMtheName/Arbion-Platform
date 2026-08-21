@@ -158,6 +158,7 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 		mux.Handle("GET /api/accounts/{id}/activity/orders", h.require(stdhttp.HandlerFunc(h.connectedOrderHistory)))
 		mux.Handle("GET /api/accounts/{id}/activity/trading-costs", h.require(stdhttp.HandlerFunc(h.connectedTradingCosts)))
 		mux.Handle("GET /api/accounts/{id}/markets/crypto/{symbol}/candles", h.require(stdhttp.HandlerFunc(h.connectedCryptoCandles)))
+		mux.Handle("GET /api/accounts/{id}/markets/crypto/{symbol}/liquidity", h.require(stdhttp.HandlerFunc(h.connectedCryptoLiquidity)))
 		mux.Handle("GET /api/accounts/{id}/markets/equities/{symbol}/quote", h.require(stdhttp.HandlerFunc(h.brokerEquityQuote)))
 		mux.Handle("GET /api/accounts/{id}/markets/options", h.require(stdhttp.HandlerFunc(h.brokerOptionChain)))
 	}

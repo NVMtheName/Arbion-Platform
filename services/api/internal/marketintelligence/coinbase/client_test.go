@@ -126,3 +126,35 @@ func TestClientReturnsBoundedCandlesInAscendingOrderAndPreservesGaps(t *testing.
 		t.Fatal("invalid candle symbol accepted")
 	}
 }
+
+func TestClientReturnsKeylessBoundedAdvancedTradeBook(t *testing.T) {
+	now := time.Now().UTC()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/api/v3/brokerage/market/product_book" || request.URL.Query().Get("product_id") != "BTC-USD" || request.URL.Query().Get("limit") != "10" {
+			t.Fatalf("unexpected book request: %s %s?%s", request.Method, request.URL.Path, request.URL.RawQuery)
+		}
+		if request.Header.Get("Authorization") != "" || request.Header.Get("Cache-Control") != "no-cache" {
+			t.Fatal("public product book must not send credentials and must bypass intermediary cache")
+		}
+		writer.Header().Set("CB-Request-ID", "book-1")
+		_, _ = writer.Write([]byte(`{"pricebook":{"product_id":"BTC-USD","bids":[{"price":"70186.80","size":"0.5"},{"price":"70186.900000000000000001","size":"0.12500000"}],"asks":[{"price":"70187.3","size":"0.75"},{"price":"70187.200000000000000001","size":"0.25000000"}],"time":"` + now.Format(time.RFC3339Nano) + `"},"last":"70187.10","mid_market":"70187.050000000000000001","spread_bps":"0.042743","spread_absolute":"0.300000000000000000"}`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL, AdvancedTradeBaseURL: server.URL, Products: []Product{{ID: "BTC-USD", Name: "Bitcoin"}}, Timeout: time.Second, MaxAge: time.Minute, MaxFutureSkew: time.Minute}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := client.CryptoLiquidity(t.Context(), "btc", "USD", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.ProductID != "BTC-USD" || snapshot.Bids[0].Price != "70186.900000000000000001" || snapshot.Asks[0].Size != "0.25000000" || snapshot.SpreadAbsolute != "0.300000000000000000" {
+		t.Fatalf("book order or precision changed: %+v", snapshot)
+	}
+	if snapshot.Provenance.ProviderRequestID != "book-1" || snapshot.Provenance.Feed != "advanced_trade_public_product_book" || snapshot.Provenance.Venue != "coinbase_advanced_trade" {
+		t.Fatalf("book provenance missing: %+v", snapshot.Provenance)
+	}
+	if _, err = client.CryptoLiquidity(t.Context(), "BTC", "USD", 50); err == nil {
+		t.Fatal("unbounded book depth accepted")
+	}
+}

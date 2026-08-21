@@ -62,6 +62,19 @@ func (fake fakeMarketIntelligence) RecentCryptoCandles(_ context.Context, symbol
 		Provenance: marketintelligence.Provenance{Provider: "coinbase", Role: marketintelligence.MarketObservation, Feed: "rest_candles", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_exchange", ProviderTimestamp: now.Add(-15 * time.Minute), ReceivedAt: now},
 	}, false, nil
 }
+func (fake fakeMarketIntelligence) CryptoLiquidity(_ context.Context, symbol, currency string, depth int) (marketintelligence.CryptoLiquiditySnapshot, bool, error) {
+	if fake.err != nil {
+		return marketintelligence.CryptoLiquiditySnapshot{}, false, fake.err
+	}
+	now := time.Now().UTC()
+	return marketintelligence.CryptoLiquiditySnapshot{
+		Symbol: symbol, Currency: currency, ProductID: symbol + "-" + currency, Depth: depth,
+		Bids: []marketintelligence.CryptoBookLevel{{Price: "70186.90", Size: "0.12500000"}},
+		Asks: []marketintelligence.CryptoBookLevel{{Price: "70187.20", Size: "0.25000000"}},
+		Last: "70187.10", MidMarket: "70187.05", SpreadBPS: "0.042743", SpreadAbsolute: "0.30",
+		Provenance: marketintelligence.Provenance{Provider: "coinbase", Role: marketintelligence.MarketObservation, Feed: "advanced_trade_public_product_book", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_advanced_trade", ProviderTimestamp: now, ReceivedAt: now},
+	}, false, nil
+}
 func (fake fakeMarketIntelligence) RecentInsiderFilings(_ context.Context, cik string, _ int) ([]marketintelligence.InsiderFilingObservation, bool, error) {
 	if fake.err != nil {
 		return nil, false, fake.err
@@ -262,6 +275,31 @@ func TestConnectedCryptoCandlesAreOwnerScopedBoundedAndReadOnly(t *testing.T) {
 	handler.connectedCryptoCandles(recorder, request)
 	if recorder.Code != stdhttp.StatusNotFound || !strings.Contains(recorder.Body.String(), "CONNECTED_ASSET_NOT_FOUND") {
 		t.Fatalf("unconnected asset history was exposed: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestConnectedCryptoLiquidityIsOwnerScopedBoundedAndActionFree(t *testing.T) {
+	broker := &fakeBrokerMarketData{accounts: []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", BaseCurrency: "USD", Status: "active"}}}
+	handler := &authHandler{marketFinancial: broker, markets: fakeMarketIntelligence{}}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/markets/crypto/BTC/liquidity", nil)
+	request.SetPathValue("id", "coinbase-1")
+	request.SetPathValue("symbol", "BTC")
+	recorder := httptest.NewRecorder()
+	handler.connectedCryptoLiquidity(recorder, request)
+	body := recorder.Body.String()
+	for _, expected := range []string{`"depth":10`, `"price":"70186.90"`, `"feed":"advanced_trade_public_product_book"`, `"snapshot_semantics":"SINGLE_VENUE_LIQUIDITY_SNAPSHOT"`, `"order_book_streaming":false`, `"order_actions_available":false`, `"live_execution_available":false`} {
+		if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(body, expected) {
+			t.Fatalf("connected liquidity boundary missing %s: status=%d body=%s", expected, recorder.Code, body)
+		}
+	}
+
+	request = httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/markets/crypto/ETH/liquidity", nil)
+	request.SetPathValue("id", "coinbase-1")
+	request.SetPathValue("symbol", "ETH")
+	recorder = httptest.NewRecorder()
+	handler.connectedCryptoLiquidity(recorder, request)
+	if recorder.Code != stdhttp.StatusNotFound || !strings.Contains(recorder.Body.String(), "CONNECTED_ASSET_NOT_FOUND") {
+		t.Fatalf("unconnected asset book was exposed: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 
