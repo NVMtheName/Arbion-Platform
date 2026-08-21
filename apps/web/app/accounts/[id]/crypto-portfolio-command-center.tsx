@@ -53,6 +53,32 @@ type PortfolioResponse = {
   error?: { message?: string };
 };
 
+type CryptoCandle = {
+  start: string;
+  low: string;
+  high: string;
+  open: string;
+  close: string;
+  volume: string;
+};
+
+export type CryptoCandleSeries = {
+  symbol: string;
+  currency: string;
+  granularity_seconds: 900;
+  expected_intervals: 96;
+  candles: CryptoCandle[];
+  provenance: Provenance;
+};
+
+type HistoryResponse = {
+  history?: CryptoCandleSeries;
+  cached?: boolean;
+  chart_semantics?: "VENUE_PRICE_MOVEMENT";
+  live_execution_available: false;
+  error?: { message?: string };
+};
+
 function money(value?: Money, compact = false) {
   if (!value) return "—";
   const parsed = Number(value.amount);
@@ -92,16 +118,106 @@ function observedNumber(value?: Money) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
+function price(value?: string, currency = "USD") {
+  if (!value) return "—";
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: Math.abs(parsed) < 1 ? 6 : 2,
+  }).format(parsed);
+}
+
+function historyChart(series?: CryptoCandleSeries) {
+  if (!series || series.candles.length === 0) return null;
+  const candles = series.candles
+    .map((candle) => ({
+      ...candle,
+      time: new Date(candle.start).valueOf(),
+      lowValue: Number(candle.low),
+      highValue: Number(candle.high),
+      closeValue: Number(candle.close),
+    }))
+    .filter(
+      (candle) =>
+        Number.isFinite(candle.time) &&
+        Number.isFinite(candle.lowValue) &&
+        Number.isFinite(candle.highValue) &&
+        Number.isFinite(candle.closeValue),
+    )
+    .sort((left, right) => left.time - right.time);
+  if (candles.length === 0) return null;
+  const width = 960;
+  const height = 300;
+  const paddingX = 14;
+  const paddingY = 18;
+  const granularityMs = series.granularity_seconds * 1000;
+  const receivedAt = new Date(series.provenance.received_at).valueOf();
+  const end = Number.isFinite(receivedAt)
+    ? receivedAt
+    : candles[candles.length - 1].time;
+  const start = end - series.expected_intervals * granularityMs;
+  const minimum = Math.min(...candles.map((candle) => candle.lowValue));
+  const maximum = Math.max(...candles.map((candle) => candle.highValue));
+  const spread = maximum - minimum || Math.max(Math.abs(maximum) * 0.01, 1);
+  const x = (value: number) =>
+    paddingX +
+    ((value - start) / Math.max(end - start, granularityMs)) *
+      (width - paddingX * 2);
+  const y = (value: number) =>
+    paddingY + ((maximum - value) / spread) * (height - paddingY * 2);
+  const segments: string[] = [];
+  let current = "";
+  candles.forEach((candle, index) => {
+    const prior = candles[index - 1];
+    const command =
+      !prior || candle.time - prior.time > granularityMs * 1.5 ? "M" : "L";
+    if (command === "M" && current) {
+      segments.push(current);
+      current = "";
+    }
+    current += `${command}${x(candle.time).toFixed(2)},${y(candle.closeValue).toFixed(2)} `;
+  });
+  if (current) segments.push(current);
+  const first = candles[0];
+  const last = candles[candles.length - 1];
+  const change = first.closeValue
+    ? ((last.closeValue - first.closeValue) / first.closeValue) * 100
+    : null;
+  return { width, height, segments, minimum, maximum, first, last, change };
+}
+
 export function CryptoPortfolioCommandCenter({
   accountID,
   initialSnapshot,
+  initialHistory,
+  initialHistoryCached = false,
 }: {
   accountID: string;
   initialSnapshot: CryptoPortfolioSnapshot;
+  initialHistory?: CryptoCandleSeries;
+  initialHistoryCached?: boolean;
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
+
+  const initialHistorySymbol = initialHistory?.symbol ?? "";
+  const [selectedSymbol, setSelectedSymbol] = useState(
+    initialHistorySymbol ||
+      initialSnapshot.positions.find((position) => position.market_value)
+        ?.symbol ||
+      "",
+  );
+  const [histories, setHistories] = useState<
+    Record<string, CryptoCandleSeries>
+  >(initialHistory ? { [initialHistory.symbol]: initialHistory } : {});
+  const [historyCached, setHistoryCached] = useState<Record<string, boolean>>(
+    initialHistory ? { [initialHistory.symbol]: initialHistoryCached } : {},
+  );
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -120,6 +236,19 @@ export function CryptoPortfolioCommandCenter({
         return;
       }
       setSnapshot(body.portfolio);
+      setSelectedSymbol((current) => {
+        if (
+          body.portfolio?.positions.some(
+            (position) => position.symbol === current && position.market_value,
+          )
+        ) {
+          return current;
+        }
+        return (
+          body.portfolio?.positions.find((position) => position.market_value)
+            ?.symbol ?? ""
+        );
+      });
     } catch {
       setRefreshError(
         "Portfolio refresh is temporarily unavailable. Existing observations remain labeled by time.",
@@ -139,6 +268,54 @@ export function CryptoPortfolioCommandCenter({
     [snapshot.positions],
   );
   const digitalAssetValue = observedNumber(snapshot.digital_asset_value);
+  const selectedHistory = histories[selectedSymbol];
+  const chart = useMemo(() => historyChart(selectedHistory), [selectedHistory]);
+
+  const loadHistory = useCallback(
+    async (symbol: string, force = false) => {
+      if (!symbol || (!force && histories[symbol])) return;
+      setHistoryLoading(true);
+      setHistoryError("");
+      try {
+        const response = await fetch(
+          `/api/accounts/${encodeURIComponent(accountID)}/markets/crypto/${encodeURIComponent(symbol)}/candles`,
+          { cache: "no-store" },
+        );
+        const body = (await response.json()) as HistoryResponse;
+        if (
+          !response.ok ||
+          !body.history ||
+          body.chart_semantics !== "VENUE_PRICE_MOVEMENT" ||
+          body.live_execution_available !== false ||
+          body.history.symbol !== symbol ||
+          body.history.currency !== "USD" ||
+          body.history.granularity_seconds !== 900 ||
+          body.history.expected_intervals !== 96
+        ) {
+          setHistoryError(
+            body.error?.message ??
+              "Coinbase venue history is temporarily unavailable. No intervals were estimated.",
+          );
+          return;
+        }
+        setHistories((current) => ({
+          ...current,
+          [symbol]: body.history as CryptoCandleSeries,
+        }));
+        setHistoryCached((current) => ({
+          ...current,
+          [symbol]: Boolean(body.cached),
+        }));
+      } catch {
+        setHistoryError(
+          "Coinbase venue history is temporarily unavailable. No intervals were estimated.",
+        );
+      } finally {
+        setHistoryLoading(false);
+      }
+    },
+    [accountID, histories],
+  );
 
   return (
     <section className="crypto-command" aria-labelledby="crypto-command-title">
@@ -308,6 +485,194 @@ export function CryptoPortfolioCommandCenter({
           <p>{snapshot.pricing_message}</p>
         </motion.article>
       </section>
+
+      <motion.section
+        className="crypto-history-panel"
+        aria-labelledby="crypto-history-title"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.22 }}
+      >
+        <header>
+          <div>
+            <p className="eyebrow">CONNECTED ASSET HISTORY</p>
+            <h2 id="crypto-history-title">24h venue movement</h2>
+            <p>
+              Coinbase Exchange price observations—not portfolio performance,
+              return, cost basis, or P&amp;L.
+            </p>
+          </div>
+          <div className="crypto-history-actions">
+            <span>
+              {selectedSymbol ? `${selectedSymbol} / USD` : "No priced asset"}
+            </span>
+            <button
+              type="button"
+              disabled={!selectedSymbol || historyLoading}
+              onClick={() => void loadHistory(selectedSymbol, true)}
+            >
+              {historyLoading ? "Loading…" : "Refresh history"}
+            </button>
+          </div>
+        </header>
+
+        {pricedPositions.length > 0 && (
+          <div className="crypto-history-symbols" aria-label="Chart asset">
+            {pricedPositions.map((position) => (
+              <button
+                key={position.symbol}
+                className={
+                  selectedSymbol === position.symbol ? "selected" : undefined
+                }
+                type="button"
+                aria-pressed={selectedSymbol === position.symbol}
+                onClick={() => {
+                  setSelectedSymbol(position.symbol);
+                  setHistoryError("");
+                  void loadHistory(position.symbol);
+                }}
+              >
+                {position.symbol}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {historyError ? (
+          <p className="crypto-history-unavailable" role="alert">
+            {historyError}
+          </p>
+        ) : !chart || !selectedHistory ? (
+          <p className="crypto-history-unavailable">
+            {historyLoading
+              ? "Loading provider-reported intervals…"
+              : "No provider-reported candle history is available for this connected asset."}
+          </p>
+        ) : (
+          <div className="crypto-history-workspace">
+            <div className="crypto-history-chart">
+              <div className="crypto-history-summary">
+                <div>
+                  <span>Latest close</span>
+                  <strong>
+                    {price(
+                      selectedHistory.candles[
+                        selectedHistory.candles.length - 1
+                      ]?.close,
+                      selectedHistory.currency,
+                    )}
+                  </strong>
+                </div>
+                <div>
+                  <span>Observed movement</span>
+                  <strong
+                    className={
+                      chart.change !== null && chart.change < 0
+                        ? "negative"
+                        : "positive"
+                    }
+                  >
+                    {chart.change === null
+                      ? "—"
+                      : `${chart.change >= 0 ? "+" : ""}${chart.change.toFixed(2)}%`}
+                  </strong>
+                </div>
+                <div>
+                  <span>Venue range</span>
+                  <strong>
+                    {price(String(chart.minimum), selectedHistory.currency)} —{" "}
+                    {price(String(chart.maximum), selectedHistory.currency)}
+                  </strong>
+                </div>
+              </div>
+              <svg
+                viewBox={`0 0 ${chart.width} ${chart.height}`}
+                role="img"
+                aria-label={`${selectedSymbol} Coinbase Exchange 24-hour price movement with provider gaps preserved`}
+                preserveAspectRatio="none"
+              >
+                <defs>
+                  <linearGradient
+                    id="arbion-history-line"
+                    x1="0"
+                    y1="0"
+                    x2="1"
+                    y2="0"
+                  >
+                    <stop offset="0" stopColor="#5ee0a0" />
+                    <stop offset="1" stopColor="#57cce3" />
+                  </linearGradient>
+                </defs>
+                <g className="crypto-history-grid" aria-hidden="true">
+                  <line x1="0" y1="75" x2="960" y2="75" />
+                  <line x1="0" y1="150" x2="960" y2="150" />
+                  <line x1="0" y1="225" x2="960" y2="225" />
+                </g>
+                {chart.segments.map((path, index) => (
+                  <motion.path
+                    key={`${selectedSymbol}-${index}`}
+                    d={path}
+                    fill="none"
+                    stroke="url(#arbion-history-line)"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    initial={{ pathLength: 0, opacity: 0 }}
+                    animate={{ pathLength: 1, opacity: 1 }}
+                    transition={{ duration: 0.7, ease: "easeOut" }}
+                  />
+                ))}
+              </svg>
+              <div className="crypto-history-axis" aria-hidden="true">
+                <span>24 hours ago</span>
+                <span>Latest provider interval</span>
+              </div>
+            </div>
+            <aside className="crypto-history-evidence">
+              <p className="eyebrow">SERIES EVIDENCE</p>
+              <dl>
+                <div>
+                  <dt>Coverage</dt>
+                  <dd>
+                    {selectedHistory.candles.length}/
+                    {selectedHistory.expected_intervals} intervals
+                  </dd>
+                </div>
+                <div>
+                  <dt>Interval</dt>
+                  <dd>15 minutes</dd>
+                </div>
+                <div>
+                  <dt>Venue</dt>
+                  <dd>Coinbase Exchange</dd>
+                </div>
+                <div>
+                  <dt>Feed</dt>
+                  <dd>REST candles · single venue</dd>
+                </div>
+                <div>
+                  <dt>Latest interval</dt>
+                  <dd>
+                    {timestamp(selectedHistory.provenance.provider_timestamp)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Delivery</dt>
+                  <dd>
+                    {historyCached[selectedSymbol]
+                      ? "Bounded display cache"
+                      : "Provider response"}
+                  </dd>
+                </div>
+              </dl>
+              <p>
+                Coinbase may omit intervals with no ticks. Arbion preserves
+                those gaps and does not interpolate missing prices.
+              </p>
+            </aside>
+          </div>
+        )}
+      </motion.section>
 
       <section
         className="crypto-position-ledger"

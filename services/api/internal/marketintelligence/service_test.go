@@ -44,6 +44,16 @@ func (provider *fakeCryptoProvider) CryptoMarkets(_ context.Context, currency st
 	return CryptoMarketBatch{Markets: markets}, nil
 }
 
+func (provider *fakeCryptoProvider) RecentCryptoCandles(_ context.Context, symbol, currency string, granularity, limit int) (CryptoCandleSeries, error) {
+	provider.calls++
+	now := time.Now().UTC().Truncate(time.Minute)
+	return CryptoCandleSeries{
+		Symbol: symbol, Currency: currency, GranularitySeconds: granularity, ExpectedIntervals: limit,
+		Candles:    []CryptoCandle{{Start: now.Add(-15 * time.Minute), Low: "99", High: "101", Open: "100", Close: "100.5", Volume: "2"}},
+		Provenance: Provenance{Provider: "coinbase", Role: MarketObservation, Feed: "rest_candles", Quality: RealTimeSingleVenue, Venue: "coinbase_exchange", ProviderTimestamp: now.Add(-15 * time.Minute), ReceivedAt: now},
+	}, nil
+}
+
 type fakeFilingProvider struct{ calls int }
 
 func (provider *fakeFilingProvider) RecentInsiderFilings(_ context.Context, cik string, _ int) ([]InsiderFilingObservation, error) {
@@ -146,6 +156,33 @@ func TestServiceKeepsPortfolioVenueSeparateFromGlobalCryptoProvider(t *testing.T
 		if !found {
 			t.Fatalf("configured crypto source was not independently healthy: %s %+v", sourceID, sources)
 		}
+	}
+}
+
+func TestServiceKeepsCandleCacheAndSourceSeparate(t *testing.T) {
+	global := &fakeTopOnlyCryptoProvider{}
+	candles := &fakeCryptoProvider{}
+	service, err := NewService(ServiceConfig{
+		CryptoProvider: global, CryptoSourceID: "coingecko_rest", CryptoCacheTTL: time.Minute, CryptoInterval: time.Millisecond,
+		CryptoCandleProvider: candles, CryptoCandleSourceID: "coinbase_exchange", CryptoCandleCacheTTL: time.Minute, CryptoCandleInterval: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, cached, err := service.RecentCryptoCandles(context.Background(), " btc ", "usd", 900, 96)
+	if err != nil || cached || first.Symbol != "BTC" || len(first.Candles) != 1 {
+		t.Fatalf("unexpected first candle series: cached=%v series=%+v err=%v", cached, first, err)
+	}
+	first.Candles[0].Close = "0"
+	second, cached, err := service.RecentCryptoCandles(context.Background(), "BTC", "USD", 900, 96)
+	if err != nil || !cached || candles.calls != 1 || second.Candles[0].Close != "100.5" {
+		t.Fatalf("candle cache was not isolated or cloned: cached=%v calls=%d series=%+v err=%v", cached, candles.calls, second, err)
+	}
+	if _, _, err = service.RecentCryptoCandles(context.Background(), "BTC", "USD", 3600, 24); !errors.Is(err, ErrInvalidObservation) {
+		t.Fatalf("unbounded candle contract accepted: %v", err)
+	}
+	if global.calls != 0 {
+		t.Fatalf("global crypto source was used for connected history: calls=%d", global.calls)
 	}
 }
 

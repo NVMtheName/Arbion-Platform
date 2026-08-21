@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -248,6 +250,114 @@ func (client *Client) CryptoMarkets(ctx context.Context, currency string, symbol
 	return batch, nil
 }
 
+// RecentCryptoCandles returns a bounded venue history. Coinbase documents that
+// intervals without ticks may be absent, so this method sorts and trims the
+// provider response but never fills a missing bucket.
+func (client *Client) RecentCryptoCandles(ctx context.Context, symbol, currency string, granularitySeconds, limit int) (marketintelligence.CryptoCandleSeries, error) {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if !validAssetSymbol(symbol) || !strings.EqualFold(strings.TrimSpace(currency), "usd") || limit < 1 || limit > 300 || !validGranularity(granularitySeconds) {
+		return marketintelligence.CryptoCandleSeries{}, marketintelligence.ErrInvalidObservation
+	}
+	productID := symbol + "-USD"
+	end := time.Now().UTC()
+	start := end.Add(-time.Duration(granularitySeconds*limit) * time.Second)
+	endpoint := *client.baseURL
+	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + "/products/" + url.PathEscape(productID) + "/candles"
+	query := endpoint.Query()
+	query.Set("start", start.Format(time.RFC3339))
+	query.Set("end", end.Format(time.RFC3339))
+	query.Set("granularity", strconv.Itoa(granularitySeconds))
+	endpoint.RawQuery = query.Encode()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return marketintelligence.CryptoCandleSeries{}, ErrUnavailable
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Cache-Control", "no-cache")
+	response, err := client.http.Do(request)
+	if err != nil {
+		return marketintelligence.CryptoCandleSeries{}, ErrUnavailable
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
+		if response.StatusCode == http.StatusTooManyRequests {
+			return marketintelligence.CryptoCandleSeries{}, ErrRateLimited
+		}
+		if response.StatusCode == http.StatusNotFound {
+			return marketintelligence.CryptoCandleSeries{}, marketintelligence.ErrInstrumentUnavailable
+		}
+		return marketintelligence.CryptoCandleSeries{}, ErrUnavailable
+	}
+	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseSize+1))
+	if err != nil || len(payload) > maxResponseSize {
+		return marketintelligence.CryptoCandleSeries{}, ErrInvalidResponse
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	var rows [][]json.Number
+	if err = decoder.Decode(&rows); err != nil || len(rows) == 0 || len(rows) > 300 {
+		return marketintelligence.CryptoCandleSeries{}, ErrInvalidResponse
+	}
+	if err = decoder.Decode(&struct{}{}); err != io.EOF {
+		return marketintelligence.CryptoCandleSeries{}, ErrInvalidResponse
+	}
+	candles := make([]marketintelligence.CryptoCandle, 0, len(rows))
+	for _, row := range rows {
+		if len(row) != 6 {
+			return marketintelligence.CryptoCandleSeries{}, ErrInvalidResponse
+		}
+		epoch, epochErr := strconv.ParseInt(string(row[0]), 10, 64)
+		low, lowOK := decimal(string(row[1]))
+		high, highOK := decimal(string(row[2]))
+		open, openOK := decimal(string(row[3]))
+		closeValue, closeOK := decimal(string(row[4]))
+		volume, volumeOK := decimal(string(row[5]))
+		if epochErr != nil || !lowOK || !highOK || !openOK || !closeOK || !volumeOK {
+			return marketintelligence.CryptoCandleSeries{}, ErrInvalidResponse
+		}
+		bucket := time.Unix(epoch, 0).UTC()
+		if bucket.Before(start.Add(-time.Second)) || bucket.After(end.Add(time.Duration(granularitySeconds)*time.Second)) {
+			continue
+		}
+		candles = append(candles, marketintelligence.CryptoCandle{Start: bucket, Low: low, High: high, Open: open, Close: closeValue, Volume: volume})
+	}
+	sort.Slice(candles, func(left, right int) bool { return candles[left].Start.Before(candles[right].Start) })
+	if len(candles) > limit {
+		candles = candles[len(candles)-limit:]
+	}
+	if len(candles) == 0 {
+		return marketintelligence.CryptoCandleSeries{}, marketintelligence.ErrInstrumentUnavailable
+	}
+	now := time.Now().UTC()
+	series := marketintelligence.CryptoCandleSeries{
+		Symbol: symbol, Currency: "USD", GranularitySeconds: granularitySeconds, ExpectedIntervals: limit, Candles: candles,
+		Provenance: marketintelligence.Provenance{
+			Provider: "coinbase", ProviderRequestID: requestID(response), Role: marketintelligence.MarketObservation,
+			Feed: "rest_candles", Quality: marketintelligence.RealTimeSingleVenue, Venue: "coinbase_exchange",
+			ProviderTimestamp: candles[len(candles)-1].Start, ReceivedAt: now,
+		},
+	}
+	historyPolicy := marketintelligence.FreshnessPolicy{
+		MaxAge:        time.Duration(granularitySeconds*(limit+1)) * time.Second,
+		MaxFutureSkew: client.freshness.MaxFutureSkew,
+	}
+	if err := marketintelligence.ValidateCryptoCandleSeries(series, now, historyPolicy); err != nil {
+		return marketintelligence.CryptoCandleSeries{}, err
+	}
+	return series, nil
+}
+
+func validGranularity(value int) bool {
+	switch value {
+	case 60, 300, 900, 3600, 21600, 86400:
+		return true
+	default:
+		return false
+	}
+}
+
 func validAssetSymbol(symbol string) bool {
 	if len(symbol) == 0 || len(symbol) > 12 {
 		return false
@@ -372,3 +482,5 @@ func requestID(response *http.Response) string {
 }
 
 var _ marketintelligence.CryptoMarketProvider = (*Client)(nil)
+var _ marketintelligence.CryptoAssetMarketProvider = (*Client)(nil)
+var _ marketintelligence.CryptoCandleProvider = (*Client)(nil)

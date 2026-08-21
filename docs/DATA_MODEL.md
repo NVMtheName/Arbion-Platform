@@ -52,6 +52,8 @@ Coinbase reuses the same provider-neutral tables without a schema migration. A f
 
 Coinbase portfolio valuation is also an on-demand read model, not a durable ledger. Current quantities come from the authenticated view-only account adapter; last trade, bid, ask, venue, and timestamps come from the independent keyless Exchange market adapter. The API derives bounded exact-decimal observed values in memory and returns per-position pricing status and aggregate coverage. It does not persist price snapshots, observed totals, inferred pegs, cost basis, or unavailable-asset estimates.
 
+Connected-asset history is likewise an ephemeral observation model. A series contains one canonical asset and USD quote currency, a fixed fifteen-minute granularity, an expected count of 96, only the candles Coinbase Exchange actually returned, and source provenance for the newest interval. Each candle preserves exact low, high, open, close, and volume decimals plus its provider bucket time. Arbion retains the normalized series only in a bounded one-minute memory cache; it does not persist candles, fill gaps, infer trades, replay current holdings across old prices, or derive a portfolio return.
+
 ## Durable automation authorization records
 
 Migration `00006_automation_mandates.sql` replaces the early placeholder in place: `automation_configs` is renamed and normalized as `automation_mandates`, so there are not two active automation concepts. Stable security fields are columns; validated extensible strategy/risk/universe/condition documents remain structured JSON. Each mandate binds a same-owner `financial_accounts` row and `capital_buckets` row and has a lifecycle status, effective interval, and monotonically increasing current version.
