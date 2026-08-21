@@ -16,11 +16,16 @@ import (
 )
 
 type fakeMarketIntelligence struct {
-	sources []marketintelligence.Source
-	err     error
+	sources    []marketintelligence.Source
+	history    marketintelligence.HealthHistory
+	err        error
+	historyErr error
 }
 
 func (fake fakeMarketIntelligence) Sources() []marketintelligence.Source { return fake.sources }
+func (fake fakeMarketIntelligence) SourceHealthHistory(context.Context) (marketintelligence.HealthHistory, error) {
+	return fake.history, fake.historyErr
+}
 func (fake fakeMarketIntelligence) LatestEquityQuote(_ context.Context, symbol string) (marketintelligence.QuoteObservation, bool, error) {
 	if fake.err != nil {
 		return marketintelligence.QuoteObservation{}, false, fake.err
@@ -188,6 +193,50 @@ func TestMarketSourcesAreNoStoreReadOnlyMetadata(t *testing.T) {
 				t.Fatalf("unwired capability exposed as verified: %+v", status)
 			}
 		}
+	}
+}
+
+func TestMarketSourceHistoryIsNoStoreBoundedAndReadOnly(t *testing.T) {
+	now := time.Date(2026, time.August, 21, 20, 0, 0, 0, time.UTC)
+	handler := &authHandler{markets: fakeMarketIntelligence{history: marketintelligence.HealthHistory{
+		Buckets: []marketintelligence.HealthBucket{{
+			SourceID: "coinbase_exchange", Capability: marketintelligence.CryptoMarkets,
+			IntervalStarted: now.Add(-time.Hour), LastObservedAt: now.Add(-30 * time.Minute),
+			CompletedAttempts: 4, Successes: 3, Failures: 1, LastState: marketintelligence.Degraded, FailureCategory: "TIMEOUT",
+		}},
+		WindowStartedAt: now.Add(-24 * time.Hour), WindowEndedAt: now, WindowHours: 24, IntervalMinutes: 60,
+	}}}
+	recorder := httptest.NewRecorder()
+	handler.marketSourceHistory(recorder, httptest.NewRequest(stdhttp.MethodGet, "/api/markets/source-history", nil))
+	if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("unexpected history response metadata: status=%d cache=%q", recorder.Code, recorder.Header().Get("Cache-Control"))
+	}
+	var response struct {
+		Buckets                  []marketintelligence.HealthBucket `json:"buckets"`
+		WindowHours              int                               `json:"window_hours"`
+		IntervalMinutes          int                               `json:"interval_minutes"`
+		HistorySemantics         string                            `json:"history_semantics"`
+		SubjectDimensionsExposed bool                              `json:"subject_dimensions_exposed"`
+		RawProviderErrorsExposed bool                              `json:"raw_provider_errors_exposed"`
+		LiveExecutionAvailable   bool                              `json:"live_execution_available"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Buckets) != 1 || response.WindowHours != 24 || response.IntervalMinutes != 60 || response.HistorySemantics != "DURABLE_PROVIDER_OUTCOMES_5_MINUTE_STORAGE_HOURLY_VIEW" || response.SubjectDimensionsExposed || response.RawProviderErrorsExposed || response.LiveExecutionAvailable {
+		t.Fatalf("unexpected market source history response: %+v", response)
+	}
+	if strings.Contains(recorder.Body.String(), "provider_request") || strings.Contains(recorder.Body.String(), "symbol") || strings.Contains(recorder.Body.String(), "raw_error") {
+		t.Fatalf("history response exposed a prohibited field: %s", recorder.Body.String())
+	}
+}
+
+func TestMarketSourceHistoryFailsClosedWithoutRawDiagnostics(t *testing.T) {
+	handler := &authHandler{markets: fakeMarketIntelligence{historyErr: errors.New("database password leaked")}}
+	recorder := httptest.NewRecorder()
+	handler.marketSourceHistory(recorder, httptest.NewRequest(stdhttp.MethodGet, "/api/markets/source-history", nil))
+	if recorder.Code != stdhttp.StatusServiceUnavailable || strings.Contains(recorder.Body.String(), "password") {
+		t.Fatalf("history failure did not fail closed: status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

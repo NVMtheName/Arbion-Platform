@@ -137,6 +137,7 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.Handle("DELETE /api/connections/ai/{id}", h.require(stdhttp.HandlerFunc(h.deleteAI)))
 	mux.Handle("GET /api/connections/financial/providers", h.require(stdhttp.HandlerFunc(h.listFinancialProviders)))
 	mux.Handle("GET /api/markets/sources", h.require(stdhttp.HandlerFunc(h.listMarketSources)))
+	mux.Handle("GET /api/markets/source-history", h.require(stdhttp.HandlerFunc(h.marketSourceHistory)))
 	mux.Handle("GET /api/markets/equities/{symbol}/quote", h.require(stdhttp.HandlerFunc(h.latestEquityQuote)))
 	mux.Handle("GET /api/markets/crypto", h.require(stdhttp.HandlerFunc(h.topCryptoMarkets)))
 	mux.Handle("GET /api/markets/insiders/{cik}", h.require(stdhttp.HandlerFunc(h.recentInsiderFilings)))

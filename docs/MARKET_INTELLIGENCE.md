@@ -10,6 +10,8 @@ Current authenticated read routes are `GET /api/markets/equities/{symbol}/quote`
 
 The authenticated `GET /api/markets/sources` route exposes process-local verification independently for every configured capability. A successful Coinbase ticker call cannot mark candles, liquidity, public trades, or rolling statistics verified. Each capability reports `NOT_CONFIGURED`, `AWAITING_OBSERVATION`, `VERIFIED`, `VERIFICATION_EXPIRED`, or `DEGRADED`, plus last-attempt/last-success times, consecutive failures, and a bounded failure category. A successful provider observation remains current for three cache lifetimes, with a five-minute minimum and one-hour maximum; after that it becomes `VERIFICATION_EXPIRED` until a fresh provider success. Expiry preserves the prior success and is not classified as a provider failure. Configured capabilities also report their Arbion cache lifetime, minimum provider-request interval, verification window, and capped aggregate counts of valid cache lookups, cache hits, and provider attempts. These counters carry no user, account, or instrument dimension and are explicitly not a provider quota or remaining-credit balance. Raw provider errors are never returned. Cache hits do not create a new provider success, status and usage counters reset with the API process, and runtime verification is not a quote, observation-freshness guarantee, consolidated-market claim, or execution guarantee. The `/markets` monitor refreshes this no-store metadata every 30 seconds and on demand.
 
+The authenticated `GET /api/markets/source-history` route adds a separate durable operational view. Completed provider results are atomically aggregated into five-minute PostgreSQL buckets, retained for 30 days, and returned only as a fixed 24-hour hourly timeline. Each bucket contains source, capability, success/failure counts, latest safe state/category, and timestamps. It cannot contain a user, account, symbol, instrument, request, credential, provider-request ID, URL, response body, or raw error. Canceled requests and instrument-specific unavailability do not become provider failures. Empty hours mean no completed outcome was recorded, not downtime. History persistence is best-effort and bounded to 250 milliseconds, so a database problem cannot change or fail the provider result; the history endpoint itself fails closed with a sanitized unavailable response.
+
 The first delivery target is a branded, authenticated `/markets` command center for one founder and a small number of test users. Cost can remain low while the product is being validated, but every observation must disclose whether it is consolidated, single-venue, indicative, delayed, or filing-derived. A cheap feed may reduce coverage; it must never make lower-quality data look authoritative.
 
 ## Product boundary
@@ -116,7 +118,7 @@ Each adapter must implement:
 - no-store browser responses for user-specific or licensed data; and
 - metrics for latency, error class, cache age, feed quality, and quota consumption.
 
-The current founder deployment implements in-process, per-capability last-attempt and last-success telemetry with safe failure categories. Time-bounded verification prevents an old success from remaining green indefinitely while keeping neutral aging distinct from an observed upstream failure. The monitor also reports capped cache-lookup, cache-hit, and provider-attempt counters beside the configured cache lifetime, minimum request interval, and verification window. This makes Arbion's request protection and cache reuse visible without claiming knowledge of an upstream quota. Durable health history, latency percentiles, provider-published quota accounting, and cross-instance aggregation remain later operational work; the UI does not imply that current process memory is durable monitoring.
+The current founder deployment implements in-process, per-capability last-attempt and last-success telemetry with safe failure categories. Time-bounded verification prevents an old success from remaining green indefinitely while keeping neutral aging distinct from an observed upstream failure. The monitor also reports capped cache-lookup, cache-hit, and provider-attempt counters beside the configured cache lifetime, minimum request interval, and verification window. A separate 24-hour branded timeline displays privacy-safe durable provider outcomes across API restarts without turning missing buckets into outages. This makes Arbion's request protection, cache reuse, and recent provider behavior visible without claiming knowledge of an upstream quota. Latency percentiles, provider-published quota accounting, alert thresholds, and cross-host aggregation remain later operational work.
 
 For the initial founder deployment, use the founder's delegated Schwab market-data entitlement for account-scoped equities/options and Coinbase Exchange public tickers for a bounded crypto venue board. Coinbase values must show `REAL_TIME_SINGLE_VENUE`; Schwab responses must preserve the provider's real-time/delayed entitlement flag and use `INDICATIVE` when that flag is absent. A production gate decides whether independent consolidated SIP/OPRA access, aggregated crypto breadth, or paid historical data is justified by actual usage.
 
@@ -143,6 +145,7 @@ The page must avoid presenting a single-venue or aggregate reference price as a 
 - Implemented: runtime health and source metadata backed by disabled-by-default configuration.
 - Implemented: independent per-capability verification timestamps and safe failure categories; raw provider diagnostics are excluded.
 - Implemented: cache-policy-derived verification windows with a neutral aged state, five-minute minimum, and one-hour maximum.
+- Implemented: 30-day bounded PostgreSQL health buckets and a privacy-safe 24-hour hourly history API.
 - Implemented: documented optional configuration without real credentials.
 
 Exit gate: malformed and stale data fail closed; source quality cannot be omitted; no order or trading scope exists.
@@ -182,8 +185,9 @@ Exit gate: all displayed events link to SEC evidence and the importer complies w
 ### 5. Arbion command center
 
 - Implemented: the branded `/markets` overview plus a motion-enhanced Coinbase portfolio command surface with observed value, cash, coverage, priced allocation, source-stamped 24-hour connected-asset charts, a position ledger, and evidence controls.
-- Implemented: responsive per-capability source status with current, aged, degraded, process-local, and non-executable semantics.
-- Next: watchlists, dedicated equity detail, and durable source-health timelines.
+- Implemented: responsive per-capability source status with current, aged, degraded, process-local, durable-history, and non-executable semantics.
+- Implemented: responsive 24-hour health strips that distinguish success, mixed outcomes, failure, and neutral no-observation intervals.
+- Next: watchlists, dedicated equity detail, and bounded health alert thresholds.
 - Keep broker account truth visually distinct from public/reference data.
 - Add responsive, loading, empty, degraded, stale, and provider-outage states with browser tests.
 
