@@ -238,6 +238,19 @@ func TestMFALifecycleRequiresSecondFactorPreventsReplayAndRevokesSessions(t *tes
 		t.Fatalf("replayed TOTP returned %v", err)
 	}
 
+	now = now.Add(totpPeriod)
+	stepUpCode := totpCode(secret, now.Unix()/30)
+	method, verifiedAt, err := service.VerifyOrderIntentStepUp(ctx, users.user.ID, stepUpCode)
+	if err != nil || method != "totp" || !verifiedAt.Equal(now) {
+		t.Fatalf("order intent step-up failed: method=%q time=%v err=%v", method, verifiedAt, err)
+	}
+	if _, _, err = service.VerifyOrderIntentStepUp(ctx, users.user.ID, stepUpCode); !errors.Is(err, ErrInvalidMFACode) {
+		t.Fatalf("replayed order intent step-up returned %v", err)
+	}
+	if _, _, err = service.VerifyOrderIntentStepUp(ctx, users.user.ID, recoveryCodes[0]); !errors.Is(err, ErrInvalidMFACode) {
+		t.Fatalf("order intent step-up accepted a recovery code: %v", err)
+	}
+
 	recoveryLogin, err := service.BeginLogin(ctx, "person@example.com", "correct horse battery staple", "ip-3")
 	if err != nil {
 		t.Fatal(err)

@@ -24,6 +24,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/marketintelligence/coingecko"
 	marketsec "github.com/arbion/platform/services/api/internal/marketintelligence/sec"
 	"github.com/arbion/platform/services/api/internal/neural"
+	"github.com/arbion/platform/services/api/internal/orderintent"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/platform/database"
 	platformhttp "github.com/arbion/platform/services/api/internal/platform/http"
@@ -86,6 +87,7 @@ func main() {
 		os.Exit(1)
 	}
 	financialConnections := financialconnection.NewService(financialconnection.NewPostgresStore(pool), vault, states, schwabClient, users, financialconnection.NamedProvider{ID: "coinbase", Provider: coinbaseClient})
+	orderIntents := orderintent.NewService(orderintent.NewPostgresStore(pool), financialConnections, authService, users)
 	automations := automation.NewService(automation.NewPostgresStore(pool), users)
 	strategyStore := strategy.NewPostgresStore(pool)
 	strategies := strategy.NewInstanceService(strategyStore, automations, users)
@@ -115,7 +117,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           platformhttp.NewFullApplicationHandlerWithEvaluationAndMarkets(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies, evaluations, breakers, markets),
+		Handler:           platformhttp.NewFullApplicationHandlerWithEvaluationMarketsAndOrderIntents(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies, evaluations, breakers, markets, orderIntents),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      45 * time.Second,

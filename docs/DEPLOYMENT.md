@@ -2,7 +2,7 @@
 
 ## Status, topology, and safety boundary
 
-This repository supports PAPER simulation, SHADOW intent recording, read-only real Schwab data, private Coinbase account reads, non-executing Coinbase order previews, and an opt-in guarded non-live scheduler. Coinbase enrollment requires View, may record Trade, and rejects Transfer. There is no provider-write interface, order-submission adapter, live-trading implementation, or live feature flag.
+This repository supports PAPER simulation, SHADOW intent recording, read-only real Schwab data, private Coinbase account reads, non-executing Coinbase order previews, durable non-executing Coinbase proposals with TOTP-backed owner review, and an opt-in guarded non-live scheduler. Coinbase enrollment requires View, may record Trade, and rejects Transfer. There is no provider-write interface, order-submission adapter, live-trading implementation, or live feature flag.
 
 ```text
 Internet :80/:443 -> Caddy (only published service)
@@ -22,7 +22,7 @@ Use a patched Linux host with Docker Engine, Compose v2, `curl`, `jq`, `openssl`
 Copy `.env.production.example` to ignored `.env.production` and populate it only on the host:
 
 - `ARBION_ENV=production`;
-- `NONLIVE_SCHEDULER_ENABLED=false` for the initial migration and smoke test. Change it to `true` only after the current schema (16) is confirmed and the guarded scheduler validation below passes;
+- `NONLIVE_SCHEDULER_ENABLED=false` for the initial migration and smoke test. Change it to `true` only after the current schema (19) is confirmed and the guarded scheduler validation below passes;
 - PostgreSQL database/user and a strong `POSTGRES_PASSWORD`;
 - `DATABASE_URL` with matching non-development credentials. Bundled private PostgreSQL may use `postgres://...@postgres:5432/arbion?sslmode=disable` only inside this host; external databases must use TLS;
 - `REDIS_URL=redis://redis:6379/0`;

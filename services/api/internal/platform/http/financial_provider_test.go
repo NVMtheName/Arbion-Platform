@@ -12,6 +12,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/financialconnection"
+	"github.com/arbion/platform/services/api/internal/orderintent"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/redis/go-redis/v9"
 )
@@ -86,5 +87,30 @@ func TestCoinbaseOrderPreviewRouteRequiresAuthenticationAndApprovedOrigin(t *tes
 	direct.previewSpotOrder(recorder, request)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("preview without an approved origin returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestOrderIntentRoutesRequireAuthenticationAndApprovedOrigin(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	t.Cleanup(func() { _ = redisClient.Close() })
+	sessions := auth.NewRedisStore(redisClient)
+	authService := auth.NewService(&authUsers{}, sessions, sessions, auditSink{}, time.Hour)
+	cfg := config.Config{Database: config.Database{ReadinessTimeout: time.Second}, Auth: config.Auth{SessionCookie: "session", SessionTTL: time.Hour, AllowedOrigins: []string{"http://localhost:3000"}}}
+	intents := orderintent.NewService(nil, nil, nil, nil)
+	handler := NewFullApplicationHandlerWithEvaluationMarketsAndOrderIntents(checker{}, cfg, authService, nil, nil, nil, nil, nil, nil, nil, nil, intents)
+	request := httptest.NewRequest(http.MethodPost, "/api/accounts/account-1/order-intents", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous intent route returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	direct := &authHandler{cfg: cfg.Auth, orderIntents: intents}
+	request = httptest.NewRequest(http.MethodPost, "/api/order-intents/intent-1/review", nil)
+	recorder = httptest.NewRecorder()
+	direct.reviewOrderIntent(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("intent review without an approved origin returned %d: %s", recorder.Code, recorder.Body.String())
 	}
 }

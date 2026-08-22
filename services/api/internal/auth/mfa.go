@@ -302,6 +302,41 @@ func (s *Service) CompleteMFALogin(ctx context.Context, challengeToken, code, _ 
 	return user.Safe(), token, nil
 }
 
+// VerifyOrderIntentStepUp consumes one fresh authenticator step for a single
+// order-intent review. Recovery codes are deliberately excluded from this
+// higher-risk operation and no reusable step-up token is issued.
+func (s *Service) VerifyOrderIntentStepUp(ctx context.Context, userID, code string) (string, time.Time, error) {
+	if s.mfaStore == nil || s.mfaProtector == nil || userID == "" {
+		return "", time.Time{}, ErrMFAUnavailable
+	}
+	allowed, err := s.limiter.Allow(ctx, "order_intent_step_up:"+userID, 8, 10*time.Minute)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if !allowed {
+		return "", time.Time{}, ErrRateLimited
+	}
+	factor, err := s.mfaStore.TOTPFactor(ctx, userID)
+	if err != nil || factor.EnabledAt == nil {
+		return "", time.Time{}, ErrMFANotEnabled
+	}
+	now := s.now().UTC()
+	step, valid := matchingTOTPStepFromCiphertext(s.mfaProtector, userID, factor.SecretCiphertext, code, now)
+	if !valid {
+		_ = s.audit.Record(ctx, &userID, "auth.order_intent_step_up_failed", map[string]any{"outcome": "rejected"})
+		return "", time.Time{}, ErrInvalidMFACode
+	}
+	advanced, err := s.mfaStore.AdvanceTOTPStep(ctx, userID, step, now)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if !advanced {
+		return "", time.Time{}, ErrInvalidMFACode
+	}
+	_ = s.audit.Record(ctx, &userID, "auth.order_intent_step_up_verified", map[string]any{"factor": "totp"})
+	return "totp", now, nil
+}
+
 func (s *Service) verifySecondFactor(ctx context.Context, userID string, factor TOTPFactor, code string, now time.Time) (string, error) {
 	if step, ok := matchingTOTPStepFromCiphertext(s.mfaProtector, userID, factor.SecretCiphertext, code, now); ok {
 		advanced, err := s.mfaStore.AdvanceTOTPStep(ctx, userID, step, now)
