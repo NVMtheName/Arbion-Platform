@@ -83,6 +83,8 @@ func (handler *authHandler) orderIntentError(writer stdhttp.ResponseWriter, err 
 		writeError(writer, stdhttp.StatusNotFound, "ORDER_INTENT_NOT_FOUND", "The order proposal was not found.")
 	case errors.Is(err, orderintent.ErrIdempotencyConflict):
 		writeError(writer, stdhttp.StatusConflict, "ORDER_INTENT_IDEMPOTENCY_CONFLICT", "This request key is already bound to a different proposal.")
+	case errors.Is(err, orderintent.ErrReservationConflict):
+		writeError(writer, stdhttp.StatusConflict, "ORDER_INTENT_RESERVATION_CONFLICT", "Available capital or holdings changed while this proposal was being saved. Create a fresh proposal.")
 	case errors.Is(err, orderintent.ErrConflict):
 		writeError(writer, stdhttp.StatusConflict, "ORDER_INTENT_CONFLICT", "The proposal changed or is no longer reviewable.")
 	case errors.Is(err, orderintent.ErrExpired):

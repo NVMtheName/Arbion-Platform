@@ -245,12 +245,28 @@ func manualFixture() (EvaluationContext, ProposedAction) {
 	now := time.Date(2026, 8, 22, 3, 0, 0, 0, time.UTC)
 	context := EvaluationContext{
 		UserID: "u", AccountOwned: true, FinancialEntitled: true, ConnectionUsable: true,
-		Bucket:  &CapitalBucket{ID: "b", UserID: "u", AccountID: "a", Name: "Coinbase manual", AllocationType: "FIXED_AMOUNT", AllocationValue: "100", Currency: "USD", ProtectedAmount: "10", Status: "ACTIVE"},
-		Account: &AccountRiskSnapshot{AccountID: "a", Currency: "USD", Timestamp: now, Cash: "250", AvailableCash: "200", BuyingPower: "200", CurrentExposure: "0", Positions: []Position{{Instrument: "BTC", AvailableQuantity: "0.01"}}},
-		Now:     now, MaxStaleness: 15 * time.Second,
+		Bucket:       &CapitalBucket{ID: "b", UserID: "u", AccountID: "a", Name: "Coinbase manual", AllocationType: "FIXED_AMOUNT", AllocationValue: "100", Currency: "USD", ProtectedAmount: "10", Status: "ACTIVE"},
+		Reservations: &CapitalReservationSnapshot{Timestamp: now, AccountReservedCash: "0", BucketReservedCash: "0", TargetInstrument: "BTC", TargetReservedQuantity: "0"},
+		Account:      &AccountRiskSnapshot{AccountID: "a", Currency: "USD", Timestamp: now, Cash: "250", AvailableCash: "200", BuyingPower: "200", CurrentExposure: "0", Positions: []Position{{Instrument: "BTC", AvailableQuantity: "0.01"}}},
+		Now:          now, MaxStaleness: 15 * time.Second,
 	}
 	action := ProposedAction{ID: "intent", FinancialAccountID: "a", Source: SourceUI, ActionType: ActionBuy, Instrument: "BTC", Side: "BUY", Quantity: "0.0004", Notional: "25.15", CreatedAt: now}
 	return context, action
+}
+
+func TestManualProposalAccountsForConcurrentCapitalReservations(t *testing.T) {
+	context, action := manualFixture()
+	context.Reservations.AccountReservedCash = "175"
+	context.Reservations.BucketReservedCash = "70"
+	if denied := NewEngine().Evaluate(context, action); denied.Decision != Deny || !reason(denied, InsufficientBuyingPower) {
+		t.Fatalf("manual proposal reused reserved cash: %#v", denied)
+	}
+
+	context, action = manualFixture()
+	context.Reservations.BucketReservedCash = "70"
+	if denied := NewEngine().Evaluate(context, action); denied.Decision != Deny || !reason(denied, CapitalLimitExceeded) {
+		t.Fatalf("manual proposal reused reserved bucket capacity: %#v", denied)
+	}
 }
 
 func TestManualProposalRequiresBoundedCapitalPolicyAndOwnerApproval(t *testing.T) {
@@ -286,5 +302,14 @@ func TestManualSellRequiresCurrentHoldingButNoAdditionalCapital(t *testing.T) {
 	action.Quantity = "0.02"
 	if denied := NewEngine().Evaluate(context, action); denied.Decision != Deny || !reason(denied, InsufficientPosition) {
 		t.Fatalf("uncovered manual sell was accepted: %#v", denied)
+	}
+
+	context, action = manualFixture()
+	context.Reservations.TargetReservedQuantity = "0.006"
+	action.ActionType = ActionSell
+	action.Side = "SELL"
+	action.Quantity = "0.005"
+	if denied := NewEngine().Evaluate(context, action); denied.Decision != Deny || !reason(denied, InsufficientPosition) {
+		t.Fatalf("manual sell reused reserved holdings: %#v", denied)
 	}
 }

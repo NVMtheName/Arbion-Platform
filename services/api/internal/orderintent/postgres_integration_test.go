@@ -78,18 +78,36 @@ func TestPostgresOrderIntentIsIdempotentOwnerScopedImmutableAndNonExecuting(t *t
 			Risk: &ManualRiskEvidence{
 				PolicyVersion: manualPolicyVersion, EvaluationID: riskEvaluationID, CapitalBucketID: bucketID, CapitalBucketName: "Coinbase manual",
 				AllocationType: "FIXED_AMOUNT", AllocationValue: "100", ProtectedAmount: "10", AccountAvailableCash: financial.Money{Amount: "200", Currency: "USD"},
-				TargetAvailableQuantity: "0.01", ProposedNotional: financial.Money{Amount: "25.65", Currency: "USD"}, Decision: risk.Allow,
+				AccountReservedCash: financial.Money{Amount: "0", Currency: "USD"}, BucketReservedCash: financial.Money{Amount: "0", Currency: "USD"},
+				TargetAvailableQuantity: "0.01", TargetReservedQuantity: "0", ProposedNotional: financial.Money{Amount: "25.65", Currency: "USD"}, Decision: risk.Allow,
 				ReasonCodes: []risk.ReasonCode{risk.Allowed}, Warnings: []risk.ReasonCode{risk.AutonomyRequiresApproval},
 				Checks:           []risk.RiskCheck{{Code: risk.CapitalPolicyRequired, Result: risk.Pass, Message: "The manual proposal is bound to an active owner/account capital policy."}},
 				ApprovalRequired: true, PlatformExecution: false, ObservedAt: now,
 			},
 			CreatedAt: now, UpdatedAt: now,
+			CapitalReservation: &CapitalReservation{ResourceType: "CASH", Asset: "USD", Quantity: "25.65", ReservedAt: now, ExpiresAt: now.Add(time.Minute)},
 		},
 	}
 	store := NewPostgresStore(pool)
 	created, storedHash, err := store.Create(ctx, input)
-	if err != nil || created.ID == "" || created.Status != ReviewRequired || created.Version != 1 || created.RequestedSize.Amount != "25.5" || created.CapitalBucketID != bucketID || created.Risk == nil || created.Risk.Decision != risk.Allow || created.Risk.ProposedNotional.Amount != "25.65" || created.Preview.ProductRules == nil || created.Preview.ProductRules.QuoteIncrement != "0.01" || !created.Preview.ProductRules.MarketIOCEnabled || !equalHash(storedHash, requestDigest[:]) {
+	if err != nil || created.ID == "" || created.Status != ReviewRequired || created.Version != 1 || created.RequestedSize.Amount != "25.5" || created.CapitalBucketID != bucketID || created.Risk == nil || created.Risk.Decision != risk.Allow || created.Risk.ProposedNotional.Amount != "25.65" || created.Risk.AccountReservedCash.Amount != "0" || created.CapitalReservation == nil || created.CapitalReservation.ResourceType != "CASH" || created.CapitalReservation.Asset != "USD" || created.CapitalReservation.Quantity != "25.65" || created.Preview.ProductRules == nil || created.Preview.ProductRules.QuoteIncrement != "0.01" || !created.Preview.ProductRules.MarketIOCEnabled || !equalHash(storedHash, requestDigest[:]) {
 		t.Fatalf("unexpected stored intent: %#v hash=%x err=%v", created, storedHash, err)
+	}
+	reservations, err := store.ActiveReservations(ctx, userID, accountID, bucketID, "BTC", now)
+	if err != nil || reservations.AccountReservedCash != "25.65" || reservations.BucketReservedCash != "25.65" || reservations.TargetReservedQuantity != "0" {
+		t.Fatalf("active cash reservation was not aggregated exactly: %#v %v", reservations, err)
+	}
+	stale := input
+	stale.IdempotencyKey = fmt.Sprintf("stale-reservation-key-%d", unique)
+	staleDigest := sha256.Sum256([]byte("stale-reservation"))
+	stale.RequestHash = staleDigest[:]
+	staleRisk := *input.Risk
+	if err = pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&staleRisk.EvaluationID); err != nil {
+		t.Fatal(err)
+	}
+	stale.Intent.Risk = &staleRisk
+	if _, _, err = store.Create(ctx, stale); !errors.Is(err, ErrReservationConflict) {
+		t.Fatalf("stale reservation snapshot returned %v", err)
 	}
 	replayed, replayHash, err := store.Create(ctx, input)
 	if err != nil || replayed.ID != created.ID || !equalHash(replayHash, requestDigest[:]) {
@@ -106,6 +124,7 @@ func TestPostgresOrderIntentIsIdempotentOwnerScopedImmutableAndNonExecuting(t *t
 	blockedDigest := sha256.Sum256([]byte("blocked-request"))
 	blocked.RequestHash = blockedDigest[:]
 	blocked.Intent.Status = Blocked
+	blocked.Intent.CapitalReservation = nil
 	blocked.Intent.Preview.PreviewState = "BLOCKED"
 	blocked.Intent.Preview.BlockReasons = []string{"PRODUCT_LIMIT_ONLY"}
 	blockedRules := *input.Intent.Preview.ProductRules
@@ -114,6 +133,8 @@ func TestPostgresOrderIntentIsIdempotentOwnerScopedImmutableAndNonExecuting(t *t
 	blocked.Intent.Preview.ProductRules.BlockReasons = []string{"PRODUCT_LIMIT_ONLY"}
 	blockedRisk := *input.Risk
 	blockedRisk.EvaluationID = blockedRiskEvaluationID
+	blockedRisk.AccountReservedCash.Amount = "25.65"
+	blockedRisk.BucketReservedCash.Amount = "25.65"
 	blocked.Intent.Risk = &blockedRisk
 	blockedStored, _, err := store.Create(ctx, blocked)
 	if err != nil || blockedStored.Status != Blocked || blockedStored.Preview.ProductRules == nil || blockedStored.Preview.ProductRules.MarketIOCEnabled || blockedStored.Risk == nil || blockedStored.Risk.Decision != risk.Allow {
@@ -142,12 +163,15 @@ func TestPostgresOrderIntentIsIdempotentOwnerScopedImmutableAndNonExecuting(t *t
 	if _, err = pool.Exec(ctx, `DELETE FROM order_intent_risk_evaluations WHERE order_intent_id=$1`, created.ID); err == nil {
 		t.Fatal("immutable order intent risk evidence was deleted")
 	}
+	if _, err = pool.Exec(ctx, `UPDATE capital_reservations SET quantity=1 WHERE order_intent_id=$1`, created.ID); err == nil {
+		t.Fatal("immutable capital reservation was modified")
+	}
 	_, err = pool.Exec(ctx, `INSERT INTO order_intents(user_id,financial_account_id,source,idempotency_key,request_hash,provider_name,product_id,base_asset,quote_currency,side,order_type,requested_size,requested_size_currency,status,version) VALUES($1,$2,'UI',$3,$4,'coinbase','BTC-USD','BTC','USD','BUY','MARKET_IOC',1,'USD','USER_APPROVED_NONEXECUTABLE',2)`, userID, accountID, fmt.Sprintf("unsafe-intent-%d", unique), requestDigest[:])
 	if err == nil {
 		t.Fatal("order intent was inserted directly into an approved state")
 	}
-	var reviews, events, attempts int
-	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM order_intent_reviews WHERE order_intent_id=$1),(SELECT count(*) FROM order_intent_events WHERE order_intent_id=$1),(SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('provider_orders','order_execution_attempts'))`, created.ID).Scan(&reviews, &events, &attempts); err != nil || reviews != 1 || events != 2 || attempts != 0 {
-		t.Fatalf("unexpected evidence or execution tables: reviews=%d events=%d attempts=%d err=%v", reviews, events, attempts, err)
+	var reviews, events, reservationCount, attempts int
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM order_intent_reviews WHERE order_intent_id=$1),(SELECT count(*) FROM order_intent_events WHERE order_intent_id=$1),(SELECT count(*) FROM capital_reservations WHERE order_intent_id=$1),(SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('provider_orders','order_execution_attempts'))`, created.ID).Scan(&reviews, &events, &reservationCount, &attempts); err != nil || reviews != 1 || events != 2 || reservationCount != 1 || attempts != 0 {
+		t.Fatalf("unexpected evidence or execution tables: reviews=%d events=%d reservations=%d attempts=%d err=%v", reviews, events, reservationCount, attempts, err)
 	}
 }

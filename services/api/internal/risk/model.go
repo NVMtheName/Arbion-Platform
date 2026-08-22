@@ -68,6 +68,11 @@ type CapitalBucket struct {
 	AllocationLimit                                                                                 *string
 	IsReserve                                                                                       bool
 }
+type CapitalReservationSnapshot struct {
+	Timestamp                                time.Time
+	AccountReservedCash, BucketReservedCash  string
+	TargetInstrument, TargetReservedQuantity string
+}
 type Mandate struct {
 	ID, UserID, AccountID, BucketID, Status, AutomationType, AutonomyLevel, ExecutionMode                      string
 	Version                                                                                                    int
@@ -84,6 +89,7 @@ type EvaluationContext struct {
 	AccountOwned, FinancialEntitled, AutomationEntitled, ConnectionUsable bool
 	Mandate                                                               *Mandate
 	Bucket                                                                *CapitalBucket
+	Reservations                                                          *CapitalReservationSnapshot
 	Account                                                               *AccountRiskSnapshot
 	Activity                                                              *RiskActivitySnapshot
 	Breakers                                                              []CircuitBreaker

@@ -250,3 +250,20 @@ func TestManualOrderIntentRiskIsOwnerBoundImmutableAndNonExecuting(t *testing.T)
 		}
 	}
 }
+
+func TestOrderIntentReservationsAreOwnerBoundImmutableAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00022_order_intent_capital_reservations.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"capital_reservations", "account_reserved_cash", "bucket_reserved_cash", "target_reserved_quantity", "ORDER_INTENT", "resource_type IN ('CASH','ASSET')", "pg_advisory_xact_lock", "capital reservation snapshot is stale", "capital_reservation_immutable", "reviewable_order_intent_reservation_guard", "DEFERRABLE INITIALLY DEFERRED"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("capital-reservation migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order_id", "client_order_id", "preview_id", "SUBMITTED", "FILLED", "create_order"} {
+		if strings.Contains(strings.ToLower(string(body)), strings.ToLower(prohibited)) {
+			t.Errorf("capital-reservation migration unexpectedly contains %q", prohibited)
+		}
+	}
+}

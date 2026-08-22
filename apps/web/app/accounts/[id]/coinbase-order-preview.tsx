@@ -94,7 +94,10 @@ type ManualRiskEvidence = {
   protected_amount: string;
   allocation_limit?: string;
   account_available_cash: Money;
+  account_reserved_cash: Money;
+  bucket_reserved_cash: Money;
   target_available_quantity: string;
+  target_reserved_quantity: string;
   proposed_notional: Money;
   decision: "ALLOW" | "DENY";
   reason_codes: string[];
@@ -103,6 +106,14 @@ type ManualRiskEvidence = {
   approval_required: boolean;
   platform_execution_available: false;
   observed_at: string;
+};
+
+type CapitalReservation = {
+  resource_type: "CASH" | "ASSET";
+  asset: string;
+  quantity: string;
+  reserved_at: string;
+  expires_at: string;
 };
 
 type OrderIntent = {
@@ -131,6 +142,7 @@ type OrderIntent = {
     product_rules: ProductRules;
   };
   risk: ManualRiskEvidence;
+  capital_reservation?: CapitalReservation;
   review_scope: "PROPOSAL_REVIEW_ONLY";
   submission_available: false;
   risk_approval_available: false;
@@ -236,9 +248,14 @@ function safeManualRisk(
       (risk.allocation_limit === undefined ||
         safePositiveDecimal(risk.allocation_limit)) &&
       risk.account_available_cash.currency === "USD" &&
+      risk.account_reserved_cash.currency === "USD" &&
+      risk.bucket_reserved_cash.currency === "USD" &&
       risk.proposed_notional.currency === "USD" &&
       safeUnsignedDecimal(risk.account_available_cash.amount) &&
+      safeUnsignedDecimal(risk.account_reserved_cash.amount) &&
+      safeUnsignedDecimal(risk.bucket_reserved_cash.amount) &&
       safeUnsignedDecimal(risk.target_available_quantity) &&
+      safeUnsignedDecimal(risk.target_reserved_quantity) &&
       safePositiveDecimal(risk.proposed_notional.amount) &&
       ["ALLOW", "DENY"].includes(risk.decision) &&
       risk.approval_required === (risk.decision === "ALLOW") &&
@@ -264,6 +281,29 @@ function safeManualRisk(
           check.message.trim().length > 0 &&
           check.message.length <= 240,
       ),
+  );
+}
+
+function safeCapitalReservation(
+  reservation: CapitalReservation | undefined,
+  intent: OrderIntent,
+) {
+  if (intent.status === "BLOCKED") return reservation === undefined;
+  if (!reservation || !safePositiveDecimal(reservation.quantity)) return false;
+  const cash = intent.side === "BUY";
+  return Boolean(
+    reservation.resource_type === (cash ? "CASH" : "ASSET") &&
+      reservation.asset === (cash ? "USD" : intent.base_asset) &&
+      canonicalDecimal(reservation.quantity) ===
+        canonicalDecimal(
+          cash
+            ? intent.risk.proposed_notional.amount
+            : intent.requested_size.amount,
+        ) &&
+      reservation.reserved_at === intent.risk.observed_at &&
+      reservation.expires_at === intent.preview.expires_at &&
+      Number.isFinite(Date.parse(reservation.reserved_at)) &&
+      Number.isFinite(Date.parse(reservation.expires_at)),
   );
 }
 
@@ -334,6 +374,7 @@ function safeIntentEnvelope(
         intent.preview.previewed_at,
         intent.preview.expires_at,
       ) &&
+      safeCapitalReservation(intent.capital_reservation, intent) &&
       (intent.status === "BLOCKED" || intent.risk.decision === "ALLOW") &&
       intent.requested_size.currency === requestedCurrency &&
       canonicalDecimal(intent.requested_size.amount) ===
@@ -763,6 +804,23 @@ export function CoinbaseOrderPreview({
               {exactMoney(intent.risk.proposed_notional)} · available cash{" "}
               {exactMoney(intent.risk.account_available_cash)}
             </p>
+            <p>
+              Existing reservations:{" "}
+              {exactMoney(intent.risk.account_reserved_cash)}
+              {" account cash · "}
+              {exactMoney(intent.risk.bucket_reserved_cash)} bucket cash ·{" "}
+              {intent.risk.target_reserved_quantity} {intent.base_asset}
+            </p>
+            {intent.capital_reservation && (
+              <p>
+                <strong>Reserved for this proposal:</strong>{" "}
+                {intent.capital_reservation.quantity}{" "}
+                {intent.capital_reservation.asset} until{" "}
+                {new Date(
+                  intent.capital_reservation.expires_at,
+                ).toLocaleTimeString()}
+              </p>
+            )}
             <ul>
               {intent.risk.checks.map((check) => (
                 <li key={`${check.code}-${check.result}`}>
