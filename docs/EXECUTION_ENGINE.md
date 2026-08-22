@@ -58,6 +58,8 @@ This operation calls Coinbase's real Advanced Trade preview endpoint and cannot 
 
 An owner may now save that normalized evidence as a durable, owner-scoped, non-executing Order Intent. The proposal records its UI or internal AI source, exact request hash, one-minute evidence expiry, immutable preview revision, append-only events, and an idempotency key. A fresh non-replayable TOTP step may change `REVIEW_REQUIRED` to `USER_APPROVED_NONEXECUTABLE`, but the stored review scope is permanently `PROPOSAL_REVIEW_ONLY`. This is review of the proposal the owner saw—not risk approval, a live-order authorization, a provider submission attempt, or permission to reuse stale evidence. The internal AI proposal method is not wired to the Neural Engine or a public AI tool.
 
+Every new reviewable proposal also commits one immutable reservation for the same one-minute evidence window. BUY reserves the previewed order total plus commission in USD; SELL reserves the requested base-asset quantity. Deterministic risk subtracts existing account/bucket cash reservations or target-asset reservations before allowing another proposal. A per-account PostgreSQL transaction lock rechecks the exact reservation snapshot at commit, so concurrent UI or future AI proposals cannot both rely on the same capital facts. Blocked proposals never reserve resources, expiration releases capacity without deleting evidence, and the reservation grants no execution authority.
+
 Coinbase key enrollment requires View, permits Trade, and rejects Transfer. A provider Trade grant is a capability fact—not Arbion approval, a capital allocation, a risk decision, or execution authority.
 
 ## Coinbase live-execution approval gates
@@ -77,7 +79,7 @@ The AI-facing tool set may eventually include structured proposal and preview to
 
 ## Deferred decisions
 
-No live-order, dispatch-attempt, provider-correlation, broker-write, or reconciliation table/interface/job exists. The implemented `order_intents`, preview/product-evidence, proposal-review, and event tables deliberately cannot represent provider submission or execution approval. Canonical live order/leg schemas, provider mapping, webhook/poll strategy, cancellation/replacement semantics, correction handling, multi-leg guarantees, and live retry protocols require the approval gates above.
+No live-order, dispatch-attempt, provider-correlation, broker-write, or reconciliation table/interface/job exists. The implemented `order_intents`, preview/product-evidence, proposal-review, short-lived capital-reservation, and event tables deliberately cannot represent provider submission or execution approval. Canonical live order/leg schemas, durable execution reservations, provider mapping, webhook/poll strategy, cancellation/replacement semantics, correction handling, multi-leg guarantees, and live retry protocols require the approval gates above.
 
 ## Proposed-action boundary
 

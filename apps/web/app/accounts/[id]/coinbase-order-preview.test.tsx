@@ -316,7 +316,10 @@ describe("CoinbaseOrderPreview", () => {
           allocation_value: "100",
           protected_amount: "10",
           account_available_cash: { amount: "200", currency: "USD" },
+          account_reserved_cash: { amount: "0", currency: "USD" },
+          bucket_reserved_cash: { amount: "0", currency: "USD" },
           target_available_quantity: "0.01",
+          target_reserved_quantity: "0",
           proposed_notional: { amount: "25.65", currency: "USD" },
           decision: "ALLOW",
           reason_codes: ["ALLOWED"],
@@ -332,6 +335,13 @@ describe("CoinbaseOrderPreview", () => {
           approval_required: true,
           platform_execution_available: false,
           observed_at: "2026-08-22T02:00:01Z",
+        },
+        capital_reservation: {
+          resource_type: "CASH",
+          asset: "USD",
+          quantity: "25.65",
+          reserved_at: "2026-08-22T02:00:01Z",
+          expires_at: "2026-08-22T02:01:00Z",
         },
         review_scope: "PROPOSAL_REVIEW_ONLY",
         submission_available: false,
@@ -396,6 +406,10 @@ describe("CoinbaseOrderPreview", () => {
     expect(screen.getByText(/product status ONLINE/)).toBeInTheDocument();
     expect(screen.getByText("DETERMINISTIC CAPITAL GATE")).toBeInTheDocument();
     expect(screen.getByText(/proposed notional 25.65 USD/)).toBeInTheDocument();
+    expect(
+      screen.getByText("DETERMINISTIC CAPITAL GATE").closest("div")
+        ?.parentElement,
+    ).toHaveTextContent("Reserved for this proposal: 25.65 USD");
 
     const createBody = JSON.parse(
       fetchMock.mock.calls[1][1].body as string,

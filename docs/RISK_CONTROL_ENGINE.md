@@ -41,7 +41,7 @@ See [Execution Engine](EXECUTION_ENGINE.md) for lifecycle and reconciliation and
 
 ## Deferred decisions
 
-The broader policy language, production numerical defaults, jurisdictional rules, realized-loss calculation, cross-account aggregation, reservation accounting, breaker reset workflows beyond the owner-controlled automation stop described below, administrative dual control, audit integrity, and formal live-trading safety case remain deferred. The implemented deterministic gate authorizes only current manual or guarded scheduled PAPER/SHADOW evaluation; it has no broker trading capability.
+The broader policy language, production numerical defaults, jurisdictional rules, realized-loss calculation, cross-account aggregation, durable execution and automation reservation accounting, breaker reset workflows beyond the owner-controlled automation stop described below, administrative dual control, audit integrity, and formal live-trading safety case remain deferred. Manual Coinbase proposals now account for immutable one-minute cash/asset reservations and fail closed on a concurrent snapshot change. The implemented deterministic gate authorizes only current manual or guarded scheduled PAPER/SHADOW evaluation; it has no broker trading capability.
 
 ## Implemented mandate risk-policy foundation
 

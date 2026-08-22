@@ -21,6 +21,7 @@ type memoryStore struct {
 	requestHash  []byte
 	evidenceHash []byte
 	reviews      int
+	reservations ReservationSnapshot
 }
 
 func (store *memoryStore) ByIdempotency(_ context.Context, userID, key string) (*Intent, []byte, error) {
@@ -78,6 +79,24 @@ func (store *memoryStore) ManualPolicy(_ context.Context, userID, accountID, buc
 		ID: testCapitalBucketID, UserID: "owner", AccountID: "account-1", Name: "Coinbase manual",
 		AllocationType: "FIXED_AMOUNT", AllocationValue: "100", Currency: "USD", ProtectedAmount: "0", Status: "ACTIVE",
 	}, []risk.CircuitBreaker{}, nil
+}
+
+func (store *memoryStore) ActiveReservations(_ context.Context, userID, accountID, bucketID, symbol string, observedAt time.Time) (ReservationSnapshot, error) {
+	if userID != "owner" || accountID != "account-1" || bucketID != testCapitalBucketID || symbol != "BTC" {
+		return ReservationSnapshot{}, ErrNotFound
+	}
+	snapshot := store.reservations
+	if snapshot.AccountReservedCash == "" {
+		snapshot.AccountReservedCash = "0"
+	}
+	if snapshot.BucketReservedCash == "" {
+		snapshot.BucketReservedCash = "0"
+	}
+	if snapshot.TargetReservedQuantity == "" {
+		snapshot.TargetReservedQuantity = "0"
+	}
+	snapshot.ObservedAt = observedAt
+	return snapshot, nil
 }
 
 type financialFake struct {
@@ -171,7 +190,7 @@ func TestCreateUIIsDurableIdempotentAndNonExecuting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if intent.ID != "intent-1" || intent.Status != ReviewRequired || intent.Version != 1 || intent.Source != SourceUI || intent.ProductID != "BTC-USD" || intent.Preview.OrderTotal.Amount != "25.50" || intent.CapitalBucketID != testCapitalBucketID || intent.Risk == nil || intent.Risk.Decision != risk.Allow || intent.Risk.ProposedNotional.Amount != "25.65" || !intent.Risk.ApprovalRequired || intent.Risk.PlatformExecution || intent.ReviewScope != ProposalReviewOnly || intent.SubmissionAvailable || intent.RiskApprovalAvailable || intent.AIExecutionAuthority || intent.LiveExecutionAvailable {
+	if intent.ID != "intent-1" || intent.Status != ReviewRequired || intent.Version != 1 || intent.Source != SourceUI || intent.ProductID != "BTC-USD" || intent.Preview.OrderTotal.Amount != "25.50" || intent.CapitalBucketID != testCapitalBucketID || intent.Risk == nil || intent.Risk.Decision != risk.Allow || intent.Risk.ProposedNotional.Amount != "25.65" || intent.Risk.AccountReservedCash.Amount != "0" || intent.Risk.BucketReservedCash.Amount != "0" || intent.CapitalReservation == nil || intent.CapitalReservation.ResourceType != "CASH" || intent.CapitalReservation.Asset != "USD" || intent.CapitalReservation.Quantity != "25.65" || !intent.Risk.ApprovalRequired || intent.Risk.PlatformExecution || intent.ReviewScope != ProposalReviewOnly || intent.SubmissionAvailable || intent.RiskApprovalAvailable || intent.AIExecutionAuthority || intent.LiveExecutionAvailable {
 		t.Fatalf("unsafe or incomplete intent: %#v", intent)
 	}
 	if provider.previewCalls != 1 || store.intent == nil || len(store.requestHash) != 32 || len(store.evidenceHash) != 32 || len(audit.actions) != 1 {
@@ -246,6 +265,22 @@ func TestInsufficientConnectedCashCreatesImmutableBlockedRiskEvidence(t *testing
 	}
 }
 
+func TestExistingReservationCreatesBlockedRiskEvidence(t *testing.T) {
+	now := time.Date(2026, 8, 22, 2, 0, 0, 0, time.UTC)
+	store, _, stepUp, _, service := fixture(now, true)
+	store.reservations = ReservationSnapshot{AccountReservedCash: "175", BucketReservedCash: "70", TargetReservedQuantity: "0"}
+	intent, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", CapitalBucketID: testCapitalBucketID, IdempotencyKey: "intent-key-123456789"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if intent.Status != Blocked || intent.Risk == nil || intent.Risk.Decision != risk.Deny || intent.CapitalReservation != nil || intent.Risk.AccountReservedCash.Amount != "175" || intent.Risk.BucketReservedCash.Amount != "70" {
+		t.Fatalf("reserved capital was reused: %#v", intent)
+	}
+	if _, err = service.Review(context.Background(), founder(), intent.ID, ReviewCommand{ExpectedVersion: 1, MFACode: "123456"}); !errors.Is(err, ErrConflict) || stepUp.calls != 0 {
+		t.Fatalf("reservation-blocked proposal reached MFA: err=%v calls=%d", err, stepUp.calls)
+	}
+}
+
 func TestReviewConsumesStepUpAndRemainsNonExecutable(t *testing.T) {
 	now := time.Date(2026, 8, 22, 2, 0, 0, 0, time.UTC)
 	store, _, stepUp, audit, service := fixture(now, true)
@@ -259,6 +294,22 @@ func TestReviewConsumesStepUpAndRemainsNonExecutable(t *testing.T) {
 	}
 	if reviewed.Status != UserApprovedNonExecutable || reviewed.Version != 2 || reviewed.SubmissionAvailable || reviewed.RiskApprovalAvailable || reviewed.LiveExecutionAvailable || store.reviews != 1 || stepUp.calls != 1 || len(audit.actions) != 2 {
 		t.Fatalf("review crossed the non-execution boundary: %#v reviews=%d stepups=%d audit=%#v", reviewed, store.reviews, stepUp.calls, audit.actions)
+	}
+}
+
+func TestReviewRequiresBoundCapitalReservationBeforeMFA(t *testing.T) {
+	now := time.Date(2026, 8, 22, 2, 0, 0, 0, time.UTC)
+	store, _, stepUp, _, service := fixture(now, true)
+	intent, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", CapitalBucketID: testCapitalBucketID, IdempotencyKey: "intent-key-123456789"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.intent.CapitalReservation = nil
+	if _, err = service.Review(context.Background(), founder(), intent.ID, ReviewCommand{ExpectedVersion: 1, MFACode: "123456"}); !errors.Is(err, ErrBlocked) {
+		t.Fatalf("proposal without reservation returned %v", err)
+	}
+	if stepUp.calls != 0 {
+		t.Fatal("proposal without reservation consumed MFA")
 	}
 }
 

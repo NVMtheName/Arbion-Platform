@@ -260,7 +260,7 @@ func holdingRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 		return check(InsufficientPosition, true, "No manual holding-quantity check is required.")
 	}
 	quantity := mustPositive(a.Quantity)
-	if quantity == nil || c.Account == nil {
+	if quantity == nil || c.Account == nil || c.Reservations == nil || !c.Reservations.Timestamp.Equal(c.Now) || !strings.EqualFold(c.Reservations.TargetInstrument, a.Instrument) {
 		return check(InsufficientPosition, false, "The requested sell quantity or account holdings are unavailable.")
 	}
 	available := rat("0")
@@ -273,10 +273,11 @@ func holdingRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 			available = add(available, value)
 		}
 	}
-	if available.Cmp(quantity) < 0 {
+	reserved := rat(c.Reservations.TargetReservedQuantity)
+	if reserved == nil || reserved.Sign() < 0 || sub(available, reserved).Cmp(quantity) < 0 {
 		return check(InsufficientPosition, false, "The requested sell exceeds the current available holding.")
 	}
-	return check(InsufficientPosition, true, "The current available holding covers the requested sell quantity.")
+	return check(InsufficientPosition, true, "The unreserved current holding covers the requested sell quantity.")
 }
 
 func add(a, b *big.Rat) *big.Rat                 { return new(big.Rat).Add(a, b) }
@@ -294,7 +295,21 @@ func capitalRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 	if c.Account == nil || mustPositive(c.Account.BuyingPower) == nil {
 		return check(InsufficientBuyingPower, false, "Buying power is unavailable.")
 	}
-	if cmp(n, mustPositive(c.Account.BuyingPower)) > 0 {
+	buyingPower := mustPositive(c.Account.BuyingPower)
+	accountReserved := rat("0")
+	bucketReserved := rat("0")
+	if c.Mandate == nil {
+		if c.Reservations == nil || !c.Reservations.Timestamp.Equal(c.Now) {
+			return check(CapitalLimitExceeded, false, "Current capital reservations are unavailable.")
+		}
+		accountReserved = rat(c.Reservations.AccountReservedCash)
+		bucketReserved = rat(c.Reservations.BucketReservedCash)
+		if accountReserved == nil || bucketReserved == nil || accountReserved.Sign() < 0 || bucketReserved.Sign() < 0 {
+			return check(CapitalLimitExceeded, false, "Current capital reservations are invalid.")
+		}
+		buyingPower = sub(buyingPower, accountReserved)
+	}
+	if buyingPower.Sign() < 0 || cmp(n, buyingPower) > 0 {
 		return check(InsufficientBuyingPower, false, "Proposed notional exceeds current buying power.")
 	}
 	b := c.Bucket
@@ -321,6 +336,8 @@ func capitalRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 	deployed := rat("0")
 	if c.Mandate != nil {
 		deployed = rat(c.Account.CurrentExposure)
+	} else {
+		deployed = bucketReserved
 	}
 	protected := rat(b.ProtectedAmount)
 	reserve := rat("0")
@@ -334,13 +351,16 @@ func capitalRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 		return check(CapitalLimitExceeded, false, "Proposed action exceeds remaining capital bucket capacity.")
 	}
 	cash := rat(c.Account.AvailableCash)
+	if c.Mandate == nil && cash != nil {
+		cash = sub(cash, accountReserved)
+	}
 	if cash == nil || cmp(sub(cash, n), reserve) < 0 {
 		return check(ReserveViolation, false, "Proposed action would violate the required cash reserve.")
 	}
 	if c.Mandate != nil && c.Mandate.MaxCapitalDeployed != nil && cmp(add(deployed, n), rat(*c.Mandate.MaxCapitalDeployed)) > 0 {
 		return check(CapitalLimitExceeded, false, "Proposed action exceeds maximum deployed capital.")
 	}
-	return check(CapitalLimitExceeded, true, "Capital bucket, buying power, deployment, and reserve limits pass.")
+	return check(CapitalLimitExceeded, true, "Capital bucket, unreserved buying power, deployment, and reserve limits pass.")
 }
 func positionRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 	if c.Mandate == nil {

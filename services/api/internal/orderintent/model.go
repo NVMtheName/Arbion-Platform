@@ -66,7 +66,10 @@ type ManualRiskEvidence struct {
 	ProtectedAmount         financial.Decimal  `json:"protected_amount"`
 	AllocationLimit         *financial.Decimal `json:"allocation_limit,omitempty"`
 	AccountAvailableCash    financial.Money    `json:"account_available_cash"`
+	AccountReservedCash     financial.Money    `json:"account_reserved_cash"`
+	BucketReservedCash      financial.Money    `json:"bucket_reserved_cash"`
 	TargetAvailableQuantity financial.Decimal  `json:"target_available_quantity"`
+	TargetReservedQuantity  financial.Decimal  `json:"target_reserved_quantity"`
 	ProposedNotional        financial.Money    `json:"proposed_notional"`
 	Decision                risk.Decision      `json:"decision"`
 	ReasonCodes             []risk.ReasonCode  `json:"reason_codes"`
@@ -75,6 +78,21 @@ type ManualRiskEvidence struct {
 	ApprovalRequired        bool               `json:"approval_required"`
 	PlatformExecution       bool               `json:"platform_execution_available"`
 	ObservedAt              time.Time          `json:"observed_at"`
+}
+
+type CapitalReservation struct {
+	ResourceType string            `json:"resource_type"`
+	Asset        string            `json:"asset"`
+	Quantity     financial.Decimal `json:"quantity"`
+	ReservedAt   time.Time         `json:"reserved_at"`
+	ExpiresAt    time.Time         `json:"expires_at"`
+}
+
+type ReservationSnapshot struct {
+	AccountReservedCash    financial.Decimal
+	BucketReservedCash     financial.Decimal
+	TargetReservedQuantity financial.Decimal
+	ObservedAt             time.Time
 }
 
 type Intent struct {
@@ -93,6 +111,7 @@ type Intent struct {
 	Version                int64               `json:"version"`
 	Preview                PreviewEvidence     `json:"preview"`
 	Risk                   *ManualRiskEvidence `json:"risk,omitempty"`
+	CapitalReservation     *CapitalReservation `json:"capital_reservation,omitempty"`
 	ReviewScope            string              `json:"review_scope"`
 	SubmissionAvailable    bool                `json:"submission_available"`
 	RiskApprovalAvailable  bool                `json:"risk_approval_available"`

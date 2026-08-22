@@ -136,7 +136,7 @@ The following require later design and approval:
 - supported connector sequence, normalized financial data and order semantics, OAuth lifecycle, webhook validation, and reconciliation;
 - secret-management technology, key ownership, encryption, rotation, revocation, and incident response;
 - risk-policy language, approval thresholds, audit retention, idempotency, and failure recovery;
-- the remaining live order, approval, reservation, and reconciliation schemas and APIs;
+- the remaining live order, execution-approval, durable execution/automation reservation, and reconciliation schemas and APIs (short-lived manual-proposal reservations are implemented);
 - strategy definition format, simulation semantics, worker topology, scheduling, concurrency, and notification transport;
 - market-data licensing, freshness, provenance, and caching rules;
 - the safety case and explicit design approval for any future live or automated execution; and
