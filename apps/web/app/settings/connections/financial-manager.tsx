@@ -66,7 +66,7 @@ export function FinancialManager({
       setError(
         await message(
           response,
-          "Coinbase did not accept this view-only connection.",
+          "Coinbase did not accept this account connection.",
         ),
       );
       return;
@@ -101,8 +101,9 @@ export function FinancialManager({
           <strong>Required key restrictions</strong>
           <ul>
             <li>Signature algorithm: ECDSA (ES256)</li>
-            <li>Permission: View only</li>
-            <li>Trade and Transfer: off</li>
+            <li>View permission: on</li>
+            <li>Trade permission: optional for the execution foundation</li>
+            <li>Transfer permission: off (required)</li>
             <li>Recommended IP allowlist: 52.21.127.30</li>
           </ul>
           <a
@@ -140,7 +141,9 @@ export function FinancialManager({
           </label>
           <p className="credential-assurance">
             Encrypted before storage. Arbion never returns this private key and
-            rejects keys that can trade or transfer assets.
+            rejects every key that can transfer assets. A Trade grant records
+            provider authorization only; it does not let an AI model or this
+            form submit an order.
           </p>
           <button disabled={!entitled || busy} type="submit">
             {busy ? "Verifying…" : "Connect Coinbase"}
@@ -184,6 +187,25 @@ export function FinancialManager({
                 {a.status !== "active" && ` (${a.status})`}
               </p>
             ))}
+          {provider.id === "coinbase" && (
+            <div className="coinbase-permission-state">
+              <strong>
+                {accounts.some(
+                  (account) =>
+                    account.provider_connection_id === c.id &&
+                    account.capabilities?.provider_trade_authorization ===
+                      "SUPPORTED",
+                )
+                  ? "Coinbase Trade permission granted"
+                  : "Coinbase View permission only"}
+              </strong>
+              <p>
+                Transfer permission is rejected. Arbion can request a real
+                provider preview, but order submission remains locked behind the
+                execution-control milestone.
+              </p>
+            </div>
+          )}
           <div className="connection-actions">
             <button
               disabled={busy || c.status === "disabled"}

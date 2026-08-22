@@ -1,12 +1,19 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/financialconnection"
+	"github.com/arbion/platform/services/api/internal/platform/config"
+	"github.com/redis/go-redis/v9"
 )
 
 func TestFinancialProvidersExposeSchwabConfiguration(t *testing.T) {
@@ -54,5 +61,30 @@ func TestStartSchwabRejectsUnconfiguredProvider(t *testing.T) {
 	}
 	if got := recorder.Body.String(); got == "" {
 		t.Fatal("expected a safe provider-unavailable response")
+	}
+}
+
+func TestCoinbaseOrderPreviewRouteRequiresAuthenticationAndApprovedOrigin(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	t.Cleanup(func() { _ = redisClient.Close() })
+	sessions := auth.NewRedisStore(redisClient)
+	service := auth.NewService(&authUsers{}, sessions, sessions, auditSink{}, time.Hour)
+	cfg := config.Config{Database: config.Database{ReadinessTimeout: time.Second}, Auth: config.Auth{SessionCookie: "session", SessionTTL: time.Hour, AllowedOrigins: []string{"http://localhost:3000"}}}
+	handler := NewFullApplicationHandler(checker{}, cfg, service, nil, nil, &financialconnection.Service{})
+	request := httptest.NewRequest(http.MethodPost, "/api/accounts/account-1/orders/preview", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous preview route returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	direct := &authHandler{cfg: cfg.Auth}
+	request = httptest.NewRequest(http.MethodPost, "/api/accounts/account-1/orders/preview", nil)
+	request = request.WithContext(context.WithValue(request.Context(), identityKey{}, struct{}{}))
+	recorder = httptest.NewRecorder()
+	direct.previewSpotOrder(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("preview without an approved origin returned %d: %s", recorder.Code, recorder.Body.String())
 	}
 }

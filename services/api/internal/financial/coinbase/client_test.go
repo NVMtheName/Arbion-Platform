@@ -116,7 +116,7 @@ func TestClientConnectsViewOnlyPortfolioAndNormalizesHoldings(t *testing.T) {
 	if err != nil || len(accounts) != 1 || accounts[0].Provider != "coinbase" || accounts[0].ProviderAccountID != "portfolio:portfolio-123" {
 		t.Fatalf("unexpected normalized accounts: %#v %v", accounts, err)
 	}
-	if accounts[0].Capabilities["trade_history"] != financial.Supported || accounts[0].Capabilities["order_history"] != financial.Supported || accounts[0].Capabilities["trading_costs"] != financial.Supported || accounts[0].Capabilities["orders"] != financial.Unsupported {
+	if accounts[0].Capabilities["trade_history"] != financial.Supported || accounts[0].Capabilities["order_history"] != financial.Supported || accounts[0].Capabilities["trading_costs"] != financial.Supported || accounts[0].Capabilities["order_preview"] != financial.Supported || accounts[0].Capabilities["provider_trade_authorization"] != financial.Unsupported || accounts[0].Capabilities["orders"] != financial.Unsupported {
 		t.Fatalf("read history capability weakened the order boundary: %#v", accounts[0].Capabilities)
 	}
 	balances, err := client.GetBalances(context.Background(), &credentials, accounts[0].ProviderAccountID)
@@ -132,24 +132,118 @@ func TestClientConnectsViewOnlyPortfolioAndNormalizesHoldings(t *testing.T) {
 	}
 }
 
-func TestClientRejectsKeysWithTradeOrTransferPermission(t *testing.T) {
-	for _, field := range []string{"can_trade", "can_transfer"} {
-		t.Run(field, func(t *testing.T) {
-			credentials, _ := testCredentials(t)
-			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
-				_, _ = response.Write([]byte(`{"can_view":true,"` + field + `":true,"portfolio_uuid":"portfolio-123"}`))
-			}))
-			defer server.Close()
-			client, err := New(Config{BaseURL: server.URL}, server.Client())
-			if err != nil {
+func TestClientAcceptsTradePermissionAndRejectsTransferPermission(t *testing.T) {
+	credentials, _ := testCredentials(t)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte(`{"can_view":true,"can_trade":true,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+	}))
+	client, err := New(Config{BaseURL: server.URL}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = client.VerifyConnection(context.Background(), &credentials); err != nil || !credentials.ProviderCanTrade {
+		t.Fatalf("trade-authorized key was not captured safely: %#v %v", credentials, err)
+	}
+	server.Close()
+
+	credentials, _ = testCredentials(t)
+	server = httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte(`{"can_view":true,"can_trade":true,"can_transfer":true,"portfolio_uuid":"portfolio-123"}`))
+	}))
+	defer server.Close()
+	client, err = New(Config{BaseURL: server.URL}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = client.VerifyConnection(context.Background(), &credentials)
+	var providerError *financial.ProviderError
+	if !errors.As(err, &providerError) || providerError.Code != financial.PermissionDenied {
+		t.Fatalf("expected transfer permission denial, got %v", err)
+	}
+}
+
+func TestClientPreviewsTradeAuthorizedSpotBuyWithoutCreatingAnOrder(t *testing.T) {
+	credentials, key := testCredentials(t)
+	credentials.PortfolioID = "portfolio-123"
+	now := time.Date(2026, 8, 21, 17, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		verifyJWT(t, request, key, request.URL.Path)
+		response.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v3/brokerage/key_permissions":
+			if request.Method != http.MethodGet {
+				t.Fatalf("permission check used %s", request.Method)
+			}
+			_, _ = response.Write([]byte(`{"can_view":true,"can_trade":true,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+		case "/api/v3/brokerage/orders/preview":
+			if request.Method != http.MethodPost || request.Header.Get("Content-Type") != "application/json" {
+				t.Fatalf("unsafe preview request: %s %s", request.Method, request.Header.Get("Content-Type"))
+			}
+			var payload map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 				t.Fatal(err)
 			}
-			err = client.VerifyConnection(context.Background(), &credentials)
-			var providerError *financial.ProviderError
-			if !errors.As(err, &providerError) || providerError.Code != financial.PermissionDenied {
-				t.Fatalf("expected permission denial, got %v", err)
+			encoded, _ := json.Marshal(payload)
+			body := string(encoded)
+			for _, required := range []string{`"product_id":"BTC-USD"`, `"side":"BUY"`, `"quote_size":"25.50"`, `"rfq_disabled":true`} {
+				if !strings.Contains(body, required) {
+					t.Fatalf("preview payload missing %s: %s", required, body)
+				}
 			}
-		})
+			for _, forbidden := range []string{"client_order_id", "retail_portfolio_id", "preview_id", "base_size"} {
+				if strings.Contains(body, forbidden) {
+					t.Fatalf("preview payload contained submission field %q: %s", forbidden, body)
+				}
+			}
+			_, _ = response.Write([]byte(`{"order_total":"25.50","commission_total":"0.15","errs":[],"warning":["SMALL_ORDER"],"quote_size":"25.50","base_size":"0.0004249","best_bid":"59990.12","best_ask":"60001.34","slippage":"0.0002","preview_id":"private-preview-id","est_average_filled_price":"60000.45"}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.now = func() time.Time { return now }
+	preview, err := client.PreviewSpotOrder(context.Background(), &credentials, "portfolio:portfolio-123", financial.SpotOrderPreviewRequest{Symbol: "btc", Side: "buy", Size: "25.50"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.PreviewState != "READY" || !preview.ProviderTradingAuthorized || preview.ProductID != "BTC-USD" || preview.RequestedSize.Amount != "25.50" || preview.RequestedSize.Currency != "USD" || preview.CommissionTotal.Amount != "0.15" || preview.EstimatedAverageFilledPrice == nil || preview.EstimatedAverageFilledPrice.Amount != "60000.45" || len(preview.Warnings) != 1 || preview.Warnings[0] != "SMALL_ORDER" || preview.PreviewedAt != now {
+		t.Fatalf("preview lost normalized provider evidence: %#v", preview)
+	}
+	encoded, err := json.Marshal(preview)
+	if err != nil || strings.Contains(string(encoded), "private-preview-id") || strings.Contains(string(encoded), "preview_id") || strings.Contains(string(encoded), "client_order_id") {
+		t.Fatalf("provider submission material escaped preview: %s %v", encoded, err)
+	}
+}
+
+func TestClientNormalizesBlockedPreviewWithoutRawProviderReasons(t *testing.T) {
+	credentials, _ := testCredentials(t)
+	credentials.PortfolioID = "portfolio-123"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v3/brokerage/key_permissions" {
+			_, _ = response.Write([]byte(`{"can_view":true,"can_trade":false,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+			return
+		}
+		_, _ = response.Write([]byte(`{"order_total":"0","commission_total":"0","errs":["PREVIEW_INSUFFICIENT_LEDGER_BALANCE","PREVIEW_GEOFENCING_RESTRICTION"],"warning":[],"quote_size":"0","base_size":"0","best_bid":"60000","best_ask":"60001","preview_id":""}`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := client.PreviewSpotOrder(context.Background(), &credentials, "portfolio:portfolio-123", financial.SpotOrderPreviewRequest{Symbol: "ETH", Side: "SELL", Size: "1.25"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.PreviewState != "BLOCKED" || len(preview.BlockReasons) != 2 || preview.BlockReasons[0] != "INSUFFICIENT_FUNDS" || preview.BlockReasons[1] != "ACCOUNT_RESTRICTED" || preview.ProviderTradingAuthorized {
+		t.Fatalf("blocked preview was not normalized safely: %#v", preview)
+	}
+	encoded, _ := json.Marshal(preview)
+	if strings.Contains(string(encoded), "LEDGER") || strings.Contains(string(encoded), "GEOFENCING") {
+		t.Fatalf("raw provider reason escaped: %s", encoded)
 	}
 }
 

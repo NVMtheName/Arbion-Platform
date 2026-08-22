@@ -3,6 +3,8 @@
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { CoinbaseOrderPreview } from "./coinbase-order-preview";
+
 type Money = { amount: string; currency: string };
 type Provenance = {
   provider: string;
@@ -29,6 +31,7 @@ export type CryptoPortfolioSnapshot = {
     display_name: string;
     provider: string;
     status: string;
+    capabilities?: Record<string, "SUPPORTED" | "UNSUPPORTED" | "UNKNOWN">;
   };
   balances: {
     cash?: Money;
@@ -265,7 +268,7 @@ export type CoinbaseTradingCostSummary = {
 type TradingCostResponse = {
   trading_costs?: CoinbaseTradingCostSummary;
   summary_semantics?: "PROVIDER_FEE_TIER_SNAPSHOT";
-  order_preview_available: false;
+  order_preview_available: true;
   order_actions_available: false;
   live_execution_available: false;
   error?: { message?: string };
@@ -850,7 +853,7 @@ export function CryptoPortfolioCommandCenter({
         !response.ok ||
         !body.trading_costs ||
         body.summary_semantics !== "PROVIDER_FEE_TIER_SNAPSHOT" ||
-        body.order_preview_available !== false ||
+        body.order_preview_available !== true ||
         body.order_actions_available !== false ||
         body.live_execution_available !== false ||
         body.trading_costs.provider !== "coinbase" ||
@@ -882,6 +885,8 @@ export function CryptoPortfolioCommandCenter({
         order.status,
       ),
     ).length ?? 0;
+  const providerTradingAuthorized =
+    snapshot.account.capabilities?.provider_trade_authorization === "SUPPORTED";
 
   return (
     <section className="crypto-command" aria-labelledby="crypto-command-title">
@@ -895,7 +900,7 @@ export function CryptoPortfolioCommandCenter({
           <h1 id="crypto-command-title">{snapshot.account.display_name}</h1>
           <p>
             Coinbase holdings meet venue-stamped market observations in one
-            read-only portfolio view.
+            connected trading command surface.
           </p>
         </div>
         <div className="crypto-command-actions">
@@ -1665,7 +1670,7 @@ export function CryptoPortfolioCommandCenter({
         ) : !tradingCosts ? (
           <p className="crypto-cost-unavailable">
             Coinbase fee-tier evidence is not available yet. Refresh to try the
-            protected View-only connection.
+            protected private account connection.
           </p>
         ) : (
           <div className="crypto-cost-workspace">
@@ -1795,7 +1800,7 @@ export function CryptoPortfolioCommandCenter({
         ) : !orderHistory ? (
           <p className="crypto-order-unavailable">
             Coinbase order status is not available yet. Refresh to try the
-            protected View-only connection.
+            protected private account connection.
           </p>
         ) : orderHistory.orders.length === 0 ? (
           <p className="crypto-order-unavailable">
@@ -1967,7 +1972,7 @@ export function CryptoPortfolioCommandCenter({
         ) : !activity ? (
           <p className="crypto-activity-unavailable">
             Coinbase execution evidence is not available yet. Refresh to try the
-            protected view-only connection.
+            protected private account connection.
           </p>
         ) : activity.fills.length === 0 ? (
           <p className="crypto-activity-unavailable">
@@ -2096,11 +2101,18 @@ export function CryptoPortfolioCommandCenter({
         )}
       </section>
 
+      <CoinbaseOrderPreview
+        accountID={accountID}
+        symbols={snapshot.positions.map((position) => position.symbol)}
+        tradingAuthorized={providerTradingAuthorized}
+      />
+
       <p className="crypto-safety-band">
-        <strong>READ-ONLY BY DESIGN</strong>
+        <strong>CONNECTED · EXECUTION LOCKED</strong>
         <span>
-          Arbion can view balances and market evidence here. It cannot place
-          orders, convert assets, deposit, withdraw, or transfer funds.
+          Arbion can sync your private Coinbase account and request real order
+          previews. It cannot submit, cancel, convert, deposit, withdraw, or
+          transfer assets until the execution-control gate is implemented.
         </span>
       </p>
     </section>

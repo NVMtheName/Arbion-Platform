@@ -50,9 +50,32 @@ Connected accounts expose discovered, freshness-bearing capabilities such as equ
 
 The same strategy core uses Historical, Paper, Shadow, or future Live adapters as described in [Strategy Engine](STRATEGY_ENGINE.md). Shadow produces records but has no submission capability. The deterministic gate is specified in [Risk and Control Engine](RISK_CONTROL_ENGINE.md).
 
+## Implemented Coinbase preview boundary
+
+Arbion now has a narrow provider-independent `OrderPreviewProvider` implemented by the Coinbase adapter. It accepts only an authenticated owner-scoped account plus a canonical crypto symbol, BUY/SELL side, and exact positive amount. The adapter fixes the provider operation to a USD spot market IOC preview. BUY amounts are USD quote size; SELL amounts are base-asset size.
+
+This operation calls Coinbase's real Advanced Trade preview endpoint, but it is deliberately not an Order Intent and cannot submit an order. The returned model contains normalized totals, commission, best bid/ask, estimated average fill, safe warning/block categories, and whether the encrypted key currently has Coinbase Trade permission. It excludes the Coinbase preview ID and every create/cancel/replace/transfer method. Browser responses state `order_created=false`, `submission_available=false`, `ai_execution_authority=false`, and `live_execution_available=false`.
+
+Coinbase key enrollment requires View, permits Trade, and rejects Transfer. A provider Trade grant is a capability fact—not Arbion approval, a capital allocation, a risk decision, or execution authority.
+
+## Coinbase live-execution approval gates
+
+Before a Coinbase `Create Order` adapter may exist, the following must be implemented and reviewed together:
+
+1. durable owner-scoped Order Intent, leg, approval, attempt, provider-correlation, event, and reconciliation records;
+2. exact product/precision metadata and a bounded preview-expiry policy;
+3. deterministic Risk/Control evaluation against current account, reserve, mandate, breaker, and market facts;
+4. explicit owner approval with step-up authentication for manual live orders, plus an immutable mandate path for any later automation;
+5. an Arbion-owned stable idempotency key used as Coinbase `client_order_id`, with a transactionally claimed dispatch attempt;
+6. unknown-outcome handling that stops and reconciles instead of blindly retrying;
+7. broker-authoritative order/fill polling, drift detection, scoped kill switches, and operational alerts; and
+8. a dedicated security review proving that neither the browser nor Neural Engine can receive financial credentials, preview IDs, provider order IDs, or direct dispatch authority.
+
+The AI-facing tool set may eventually include structured proposal and preview tools. It must not contain an unrestricted `place_order` tool. An AI proposal enters the same durable Order Intent and deterministic control path as a UI ticket and cannot satisfy its own approval requirement.
+
 ## Deferred decisions
 
-No live order tables, broker-write endpoints/adapters, execution SDKs, or reconciliation jobs exist. Canonical live order/leg schemas, precision rules, preview expiry, provider mapping, webhook/poll strategy, cancellation/replacement semantics, correction handling, multi-leg guarantees, and live retry protocols require future provider-specific threat modeling and approval.
+No live order tables, broker-write endpoints/adapters, execution SDKs, or reconciliation jobs exist. The implemented provider preview is ephemeral and non-executing. Canonical live order/leg schemas, precision rules, preview expiry, provider mapping, webhook/poll strategy, cancellation/replacement semantics, correction handling, multi-leg guarantees, and live retry protocols require the approval gates above.
 
 ## Proposed-action boundary
 

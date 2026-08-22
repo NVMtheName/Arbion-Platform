@@ -30,12 +30,49 @@ describe("FinancialManager", () => {
     );
 
     expect(screen.getByText(/ECDSA \(ES256\)/)).toBeVisible();
-    expect(screen.getByText(/Permission: View only/)).toBeVisible();
-    expect(screen.getByText(/Trade and Transfer: off/)).toBeVisible();
+    expect(screen.getByText(/View permission: on/)).toBeVisible();
+    expect(screen.getByText(/Trade permission: optional/)).toBeVisible();
+    expect(screen.getByText(/Transfer permission: off/)).toBeVisible();
     expect(screen.getByText(/52\.21\.127\.30/)).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Connect Coinbase" }),
     ).toBeEnabled();
+  });
+
+  it("distinguishes a Coinbase trading grant from Arbion execution authority", () => {
+    render(
+      <FinancialManager
+        provider={{
+          id: "coinbase",
+          label: "Coinbase",
+          auth_type: "jwt_key_pair",
+        }}
+        entitled
+        connections={[
+          {
+            id: "connection-1",
+            provider: "coinbase",
+            display_name: "Coinbase",
+            status: "active",
+          },
+        ]}
+        accounts={[
+          {
+            id: "account-1",
+            provider_connection_id: "connection-1",
+            provider: "coinbase",
+            display_name: "Coinbase Portfolio",
+            status: "active",
+            capabilities: {
+              provider_trade_authorization: "SUPPORTED",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Coinbase Trade permission granted")).toBeVisible();
+    expect(screen.getByText(/order submission remains locked/)).toBeVisible();
   });
 
   it("sends credentials only to the Coinbase connection endpoint and clears the private key", async () => {

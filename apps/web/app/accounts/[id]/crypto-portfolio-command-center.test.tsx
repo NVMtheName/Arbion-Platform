@@ -251,7 +251,7 @@ describe("CryptoPortfolioCommandCenter", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows observed value, source-stamped chart gaps, and the read-only boundary", () => {
+  it("shows observed value, source-stamped chart gaps, and the execution lock", () => {
     const { container } = render(
       <CryptoPortfolioCommandCenter
         accountID="coinbase-1"
@@ -274,7 +274,9 @@ describe("CryptoPortfolioCommandCenter", () => {
     expect(screen.getByText("RARE")).toBeInTheDocument();
     expect(screen.getByText("No approved USD product")).toBeInTheDocument();
     expect(screen.getByText("coinbase exchange")).toBeInTheDocument();
-    expect(screen.getByText("READ-ONLY BY DESIGN")).toBeInTheDocument();
+    expect(
+      screen.getByText("CONNECTED · EXECUTION LOCKED"),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "24h venue movement" }),
     ).toBeInTheDocument();
@@ -345,7 +347,7 @@ describe("CryptoPortfolioCommandCenter", () => {
       container.querySelectorAll(".crypto-history-chart path"),
     ).toHaveLength(2);
     expect(
-      screen.getByText(/cannot place orders, convert assets/),
+      screen.getByText(/cannot submit, cancel, convert/),
     ).toBeInTheDocument();
   });
 
@@ -630,7 +632,7 @@ describe("CryptoPortfolioCommandCenter", () => {
       json: async () => ({
         trading_costs: updatedCosts,
         summary_semantics: "PROVIDER_FEE_TIER_SNAPSHOT",
-        order_preview_available: false,
+        order_preview_available: true,
         order_actions_available: false,
         live_execution_available: false,
       }),

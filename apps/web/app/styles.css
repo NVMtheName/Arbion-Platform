@@ -547,6 +547,22 @@ button:disabled {
   font-size: 0.86rem;
   line-height: 1.55;
 }
+.coinbase-permission-state {
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(87, 204, 227, 0.25);
+  border-radius: 10px;
+  background: rgba(87, 204, 227, 0.06);
+}
+.coinbase-permission-state strong {
+  color: #b9f3df;
+}
+.coinbase-permission-state p {
+  margin: 6px 0 0;
+  color: var(--brand-muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
 .danger {
   background: #7e3333;
   color: white;
@@ -2075,6 +2091,151 @@ button:disabled {
   border-radius: 18px;
   background: rgba(5, 18, 13, 0.84);
 }
+.coinbase-order-preview {
+  margin-top: 16px;
+  padding: 32px;
+  border: 1px solid rgba(87, 204, 227, 0.24);
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at 92% 0%,
+      rgba(87, 204, 227, 0.11),
+      transparent 34%
+    ),
+    rgba(5, 18, 13, 0.88);
+}
+.coinbase-order-preview > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+}
+.coinbase-order-preview > header h2 {
+  margin: 8px 0;
+}
+.coinbase-order-preview > header p:last-child {
+  max-width: 720px;
+  margin: 0;
+  color: #8ca298;
+  line-height: 1.55;
+}
+.coinbase-trade-grant {
+  flex: 0 0 auto;
+  padding: 8px 11px;
+  border: 1px solid rgba(243, 215, 154, 0.3);
+  border-radius: 999px;
+  color: #f3d79a;
+  background: rgba(243, 215, 154, 0.07);
+  font-size: 0.72rem;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.coinbase-trade-grant.granted {
+  border-color: rgba(124, 235, 177, 0.3);
+  color: #9ff1c2;
+  background: rgba(124, 235, 177, 0.07);
+}
+.coinbase-order-preview form {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 0.7fr) minmax(120px, 0.45fr) minmax(180px, 0.8fr)
+    auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 24px;
+}
+.coinbase-order-preview form label {
+  display: grid;
+  gap: 7px;
+  color: #91a79d;
+  font-size: 0.78rem;
+  font-weight: 720;
+  letter-spacing: 0.04em;
+}
+.coinbase-order-preview form input,
+.coinbase-order-preview form select {
+  width: 100%;
+  min-height: 44px;
+}
+.coinbase-order-preview form button {
+  min-height: 44px;
+  border: 1px solid rgba(87, 204, 227, 0.36);
+  background: linear-gradient(110deg, #7cebb1, #57cce3);
+  white-space: nowrap;
+}
+.coinbase-preview-result {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid rgba(139, 181, 163, 0.18);
+  border-radius: 14px;
+  background: rgba(2, 12, 8, 0.7);
+}
+.coinbase-preview-result-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.coinbase-preview-result-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.coinbase-preview-result-heading span,
+.coinbase-preview-result-heading small,
+.coinbase-preview-result dt {
+  color: #71877c;
+}
+.coinbase-preview-result-heading strong {
+  color: #9ff1c2;
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+}
+.coinbase-preview-result dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 18px 0 0;
+  overflow: hidden;
+  border: 1px solid rgba(139, 181, 163, 0.12);
+  border-radius: 10px;
+  background: rgba(139, 181, 163, 0.12);
+}
+.coinbase-preview-result dl > div {
+  padding: 14px;
+  background: #07150f;
+}
+.coinbase-preview-result dt {
+  margin-bottom: 5px;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.coinbase-preview-result dd {
+  margin: 0;
+  color: #e7f5ee;
+  font-variant-numeric: tabular-nums;
+}
+.coinbase-preview-blocks,
+.coinbase-preview-warnings,
+.coinbase-preview-lock {
+  margin: 14px 0 0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+.coinbase-preview-blocks {
+  color: #f1c7bd;
+}
+.coinbase-preview-warnings {
+  color: #f3d79a;
+}
+.coinbase-preview-lock {
+  color: #8ca298;
+}
+.coinbase-preview-lock strong {
+  color: #b9f3df;
+}
 .crypto-history-panel {
   margin-top: 16px;
   padding: 32px;
@@ -3422,8 +3583,21 @@ button:disabled {
   .crypto-cost-panel,
   .crypto-order-monitor,
   .crypto-activity-panel,
-  .crypto-position-ledger {
+  .crypto-position-ledger,
+  .coinbase-order-preview {
     padding: 22px;
+  }
+  .coinbase-order-preview > header,
+  .coinbase-preview-result-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .coinbase-order-preview form,
+  .coinbase-preview-result dl {
+    grid-template-columns: 1fr;
+  }
+  .coinbase-order-preview form button {
+    width: 100%;
   }
   .crypto-history-panel > header {
     align-items: stretch;

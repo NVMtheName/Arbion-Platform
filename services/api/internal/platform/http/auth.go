@@ -159,6 +159,7 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 		mux.Handle("GET /api/accounts/{id}/activity/fills", h.require(stdhttp.HandlerFunc(h.connectedTradeFills)))
 		mux.Handle("GET /api/accounts/{id}/activity/orders", h.require(stdhttp.HandlerFunc(h.connectedOrderHistory)))
 		mux.Handle("GET /api/accounts/{id}/activity/trading-costs", h.require(stdhttp.HandlerFunc(h.connectedTradingCosts)))
+		mux.Handle("POST /api/accounts/{id}/orders/preview", h.require(stdhttp.HandlerFunc(h.previewSpotOrder)))
 		mux.Handle("GET /api/accounts/{id}/markets/crypto/{symbol}/candles", h.require(stdhttp.HandlerFunc(h.connectedCryptoCandles)))
 		mux.Handle("GET /api/accounts/{id}/markets/crypto/{symbol}/liquidity", h.require(stdhttp.HandlerFunc(h.connectedCryptoLiquidity)))
 		mux.Handle("GET /api/accounts/{id}/markets/crypto/{symbol}/trades", h.require(stdhttp.HandlerFunc(h.connectedCryptoTrades)))
@@ -231,6 +232,10 @@ func (h *authHandler) financialError(w stdhttp.ResponseWriter, e error) {
 		status = 400
 		code = "INVALID_CREDENTIAL_INPUT"
 		message = "The credential format is invalid."
+	} else if errors.Is(e, financialconnection.ErrInvalidOrderPreview) {
+		status = 400
+		code = "INVALID_ORDER_PREVIEW"
+		message = "Use a supported asset, BUY or SELL, and a positive decimal amount."
 	} else {
 		var pe *financial.ProviderError
 		if errors.As(e, &pe) {
@@ -321,6 +326,32 @@ func (h *authHandler) connectCoinbase(w stdhttp.ResponseWriter, r *stdhttp.Reque
 		return
 	}
 	writeJSON(w, 201, map[string]any{"connection": connection})
+}
+func (h *authHandler) previewSpotOrder(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var input financial.SpotOrderPreviewRequest
+	if !decode(w, r, &input) {
+		return
+	}
+	preview, err := h.financial.PreviewSpotOrder(r.Context(), principal(r), r.PathValue("id"), input)
+	if err != nil {
+		h.financialError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"preview":                     preview,
+		"preview_semantics":           "PROVIDER_ESTIMATE_ONLY",
+		"provider_trading_authorized": preview.ProviderTradingAuthorized,
+		"provider_preview_id_exposed": false,
+		"order_created":               false,
+		"submission_available":        false,
+		"ai_execution_authority":      false,
+		"live_execution_available":    false,
+	})
 }
 func (h *authHandler) syncFinancial(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	h.mutationOK(w, r, func() error { return h.financial.Sync(r.Context(), principal(r), r.PathValue("id")) })

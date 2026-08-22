@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/big"
+	"regexp"
 	"strings"
 	"time"
 
@@ -14,10 +16,16 @@ import (
 )
 
 var (
-	ErrForbidden    = errors.New("financial account entitlement required")
-	ErrNotFound     = errors.New("financial resource not found")
-	ErrDisabled     = errors.New("connection disabled")
-	ErrInvalidInput = errors.New("financial credential input is invalid")
+	ErrForbidden           = errors.New("financial account entitlement required")
+	ErrNotFound            = errors.New("financial resource not found")
+	ErrDisabled            = errors.New("connection disabled")
+	ErrInvalidInput        = errors.New("financial credential input is invalid")
+	ErrInvalidOrderPreview = errors.New("order preview input is invalid")
+)
+
+var (
+	previewSymbolPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]{0,15}$`)
+	previewSizePattern   = regexp.MustCompile(`^(0|[1-9][0-9]{0,17})(\.[0-9]{1,18})?$`)
 )
 
 type Connection struct {
@@ -434,6 +442,42 @@ func (s *Service) GetTradingCostSummary(ctx context.Context, p authorization.Pri
 		return financial.TradingCostSummary{}, &financial.ProviderError{Code: financial.ProviderUnavailable}
 	}
 	return provider.GetTradingCostSummary(ctx, &cr, a.ProviderAccountID)
+}
+
+func (s *Service) PreviewSpotOrder(ctx context.Context, p authorization.Principal, id string, input financial.SpotOrderPreviewRequest) (financial.SpotOrderPreview, error) {
+	input.Symbol = strings.ToUpper(strings.TrimSpace(input.Symbol))
+	input.Side = strings.ToUpper(strings.TrimSpace(input.Side))
+	input.Size = financial.Decimal(strings.TrimSpace(string(input.Size)))
+	size, sizeOK := new(big.Rat).SetString(string(input.Size))
+	if !previewSymbolPattern.MatchString(input.Symbol) || input.Symbol == "USD" || (input.Side != "BUY" && input.Side != "SELL") || !previewSizePattern.MatchString(string(input.Size)) || !sizeOK || size.Sign() <= 0 {
+		return financial.SpotOrderPreview{}, ErrInvalidOrderPreview
+	}
+	a, err := s.GetAccount(ctx, p, id)
+	if err != nil {
+		return financial.SpotOrderPreview{}, err
+	}
+	connection, credentials, err := s.credentials(ctx, p.UserID, a.ProviderConnectionID)
+	if err != nil {
+		return financial.SpotOrderPreview{}, err
+	}
+	broker, err := s.provider(connection.Provider)
+	if err != nil {
+		return financial.SpotOrderPreview{}, err
+	}
+	provider, ok := broker.(financial.OrderPreviewProvider)
+	if !ok {
+		return financial.SpotOrderPreview{}, &financial.ProviderError{Code: financial.ProviderUnavailable}
+	}
+	preview, err := provider.PreviewSpotOrder(ctx, &credentials, a.ProviderAccountID, input)
+	metadata := map[string]any{"connection_id": connection.ID, "account_id": a.ID, "provider": connection.Provider, "symbol": input.Symbol, "side": input.Side}
+	if err != nil {
+		metadata["outcome"] = "failed"
+		s.record(ctx, p.UserID, "financial.order_previewed", metadata)
+		return financial.SpotOrderPreview{}, err
+	}
+	metadata["outcome"] = strings.ToLower(preview.PreviewState)
+	s.record(ctx, p.UserID, "financial.order_previewed", metadata)
+	return preview, nil
 }
 
 func (s *Service) GetQuote(ctx context.Context, p authorization.Principal, accountID, symbol string) (financial.Quote, error) {
