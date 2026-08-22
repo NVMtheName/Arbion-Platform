@@ -156,13 +156,15 @@ Manual Schwab test (never place an order):
 7. During an open market session, configure a bounded PAPER or SHADOW strategy and manually evaluate it; confirm quote/standard option-chain reads succeed, the response says no broker order was sent, and no Schwab order appears.
 8. Confirm stale/closed-market data fails closed and the UI distinctions among PAPER, SHADOW, and real read-only Schwab data remain clear.
 
-Manual Coinbase connection test (never enable Trade or Transfer):
+Manual Coinbase connection and proposal test (never enable Transfer and never place an order):
 
-1. In Coinbase Developer Platform, create a Secret API Key restricted to the intended portfolio and production host IP, select ECDSA, enable View only, and leave Trade and Transfer off.
+1. In Coinbase Developer Platform, create a Secret API Key restricted to the intended portfolio and production host IP, select ECDSA, enable View and Trade, and leave Transfer off.
 2. Sign into Arbion, open **Settings → Connections → Coinbase**, and enter the full `organizations/.../apiKeys/...` key name and EC private key.
-3. Confirm Arbion accepts the connection, creates one masked Coinbase portfolio account, and never redisplays the key.
+3. Confirm Arbion accepts the connection, creates one masked Coinbase portfolio account, records the Trade grant only as provider capability, and never redisplays the key.
 4. Confirm USD cash and nonzero crypto holdings load, then run **Sync** and confirm no duplicate portfolio record appears.
-5. Disable and re-enable the connection to confirm re-verification; disconnect it and separately revoke the key in Coinbase.
+5. On the connected account, request a small real Coinbase preview and confirm the page says no order was created and exposes no provider preview ID.
+6. Save the preview as a durable proposal, verify the saved Coinbase re-quote, and review it with a fresh authenticator code. Confirm the result is `USER_APPROVED_NONEXECUTABLE`, scope is `PROPOSAL_REVIEW_ONLY`, and no Coinbase order appears.
+7. Disable and re-enable the connection to confirm re-verification; disconnect it and separately revoke the key in Coinbase only when intentionally testing teardown.
 
 Guarded scheduler activation (never place an order):
 
@@ -186,7 +188,7 @@ Guarded scheduler activation (never place an order):
 5. Validate Compose, then run `scripts/deploy-production.sh`.
 6. Run `scripts/smoke-production.sh`; inspect Compose health and sanitized logs.
 7. Register the founder, run the explicit idempotent bootstrap, and confirm its audit event.
-8. Perform the read-only Schwab and guarded scheduler tests if configured.
+8. Perform the read-only Schwab, non-executing Coinbase proposal, and guarded scheduler tests if configured.
 9. Reconfirm no broker-write routes/adapters, live-trading worker, or live toggle exists before announcing availability.
 
 ## Scalable AWS production option
