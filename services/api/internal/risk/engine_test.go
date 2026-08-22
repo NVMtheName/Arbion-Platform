@@ -240,3 +240,51 @@ func TestAttestedPaperOptionStillFailsOneDollarCapitalGate(t *testing.T) {
 		t.Fatalf("attestation evidence was lost before the capital denial: %#v", evaluation)
 	}
 }
+
+func manualFixture() (EvaluationContext, ProposedAction) {
+	now := time.Date(2026, 8, 22, 3, 0, 0, 0, time.UTC)
+	context := EvaluationContext{
+		UserID: "u", AccountOwned: true, FinancialEntitled: true, ConnectionUsable: true,
+		Bucket:  &CapitalBucket{ID: "b", UserID: "u", AccountID: "a", Name: "Coinbase manual", AllocationType: "FIXED_AMOUNT", AllocationValue: "100", Currency: "USD", ProtectedAmount: "10", Status: "ACTIVE"},
+		Account: &AccountRiskSnapshot{AccountID: "a", Currency: "USD", Timestamp: now, Cash: "250", AvailableCash: "200", BuyingPower: "200", CurrentExposure: "0", Positions: []Position{{Instrument: "BTC", AvailableQuantity: "0.01"}}},
+		Now:     now, MaxStaleness: 15 * time.Second,
+	}
+	action := ProposedAction{ID: "intent", FinancialAccountID: "a", Source: SourceUI, ActionType: ActionBuy, Instrument: "BTC", Side: "BUY", Quantity: "0.0004", Notional: "25.15", CreatedAt: now}
+	return context, action
+}
+
+func TestManualProposalRequiresBoundedCapitalPolicyAndOwnerApproval(t *testing.T) {
+	context, action := manualFixture()
+	evaluation := NewEngine().Evaluate(context, action)
+	if evaluation.Decision != Allow || !evaluation.ApprovalRequired || evaluation.Mode != "MANUAL_PROPOSAL" || evaluation.PlatformExecutionAvailable || !reason(evaluation, Allowed) {
+		t.Fatalf("manual policy did not allow a bounded non-executable proposal: %#v", evaluation)
+	}
+
+	context, action = manualFixture()
+	context.Bucket = nil
+	if denied := NewEngine().Evaluate(context, action); denied.Decision != Deny || !reason(denied, CapitalPolicyRequired) {
+		t.Fatalf("manual proposal without a capital policy was accepted: %#v", denied)
+	}
+
+	context, action = manualFixture()
+	action.Notional = "91"
+	if denied := NewEngine().Evaluate(context, action); denied.Decision != Deny || !reason(denied, CapitalLimitExceeded) {
+		t.Fatalf("manual proposal exceeded protected bucket capacity: %#v", denied)
+	}
+}
+
+func TestManualSellRequiresCurrentHoldingButNoAdditionalCapital(t *testing.T) {
+	context, action := manualFixture()
+	action.ActionType = ActionSell
+	action.Side = "SELL"
+	action.Quantity = "0.005"
+	action.Notional = "300"
+	if evaluation := NewEngine().Evaluate(context, action); evaluation.Decision != Allow {
+		t.Fatalf("covered manual sell was denied: %#v", evaluation)
+	}
+
+	action.Quantity = "0.02"
+	if denied := NewEngine().Evaluate(context, action); denied.Decision != Deny || !reason(denied, InsufficientPosition) {
+		t.Fatalf("uncovered manual sell was accepted: %#v", denied)
+	}
+}

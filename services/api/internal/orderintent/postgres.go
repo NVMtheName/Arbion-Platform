@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,11 +19,12 @@ type PostgresStore struct{ db *pgxpool.Pool }
 
 func NewPostgresStore(db *pgxpool.Pool) *PostgresStore { return &PostgresStore{db: db} }
 
-const intentColumns = `i.id::text,i.financial_account_id::text,i.source,i.provider_name,i.product_id,i.base_asset,i.quote_currency,i.side,i.order_type,i.requested_size::text,i.requested_size_currency,i.status,i.version,i.created_at,i.updated_at,p.provider_name,p.feed,p.preview_state,p.base_size::text,p.quote_size::text,p.order_total::text,p.commission_total::text,p.best_bid::text,p.best_ask::text,p.estimated_average_filled_price::text,p.slippage::text,p.provider_trading_authorized,p.block_reasons,p.warnings,p.previewed_at,p.expires_at,p.evidence_hash,p.product_rules_feed,p.product_type,p.product_status,p.base_increment::text,p.quote_increment::text,p.base_min_size::text,p.base_max_size::text,p.quote_min_size::text,p.quote_max_size::text,p.product_market_ioc_enabled,p.product_block_reasons,p.product_rules_observed_at`
+const intentColumns = `i.id::text,i.financial_account_id::text,i.capital_bucket_id::text,i.source,i.provider_name,i.product_id,i.base_asset,i.quote_currency,i.side,i.order_type,i.requested_size::text,i.requested_size_currency,i.status,i.version,i.created_at,i.updated_at,p.provider_name,p.feed,p.preview_state,p.base_size::text,p.quote_size::text,p.order_total::text,p.commission_total::text,p.best_bid::text,p.best_ask::text,p.estimated_average_filled_price::text,p.slippage::text,p.provider_trading_authorized,p.block_reasons,p.warnings,p.previewed_at,p.expires_at,p.evidence_hash,p.product_rules_feed,p.product_type,p.product_status,p.base_increment::text,p.quote_increment::text,p.base_min_size::text,p.base_max_size::text,p.quote_min_size::text,p.quote_max_size::text,p.product_market_ioc_enabled,p.product_block_reasons,p.product_rules_observed_at,l.policy_version,l.risk_evaluation_id::text,l.capital_bucket_id::text,l.capital_bucket_name,l.allocation_type,l.allocation_value::text,l.protected_amount::text,l.allocation_limit::text,l.account_available_cash::text,l.target_available_quantity::text,l.proposed_notional::text,l.observed_at,r.decision,r.approval_required,r.platform_execution_available,r.reason_codes,r.warnings,r.checks`
 
 func scanIntent(row pgx.Row) (Intent, []byte, error) {
 	var intent Intent
 	var requestedAmount string
+	var capitalBucketID *string
 	var requestedCurrency string
 	var orderTotal string
 	var commissionTotal string
@@ -38,19 +40,31 @@ func scanIntent(row pgx.Row) (Intent, []byte, error) {
 	var productMarketIOCEnabled *bool
 	var productBlockReasonsJSON []byte
 	var productObservedAt *time.Time
+	var policyVersion, riskEvaluationID, riskCapitalBucketID, riskBucketName, riskAllocationType *string
+	var riskAllocationValue, riskProtectedAmount, riskAllocationLimit, riskAvailableCash, riskTargetQuantity, riskProposedNotional *string
+	var riskObservedAt *time.Time
+	var riskDecision *string
+	var riskApprovalRequired, riskPlatformExecution *bool
+	var riskReasonsJSON, riskWarningsJSON, riskChecksJSON []byte
 	err := row.Scan(
-		&intent.ID, &intent.FinancialAccountID, &intent.Source, &intent.Provider, &intent.ProductID, &intent.BaseAsset, &intent.QuoteCurrency,
+		&intent.ID, &intent.FinancialAccountID, &capitalBucketID, &intent.Source, &intent.Provider, &intent.ProductID, &intent.BaseAsset, &intent.QuoteCurrency,
 		&intent.Side, &intent.OrderType, &requestedAmount, &requestedCurrency, &intent.Status, &intent.Version, &intent.CreatedAt, &intent.UpdatedAt,
 		&intent.Preview.Provider, &intent.Preview.Feed, &intent.Preview.PreviewState, &intent.Preview.BaseSize, &intent.Preview.QuoteSize,
 		&orderTotal, &commissionTotal, &bestBid, &bestAsk, &estimatedPrice, &slippage, &intent.Preview.ProviderTradingAuthorized,
 		&blockReasonsJSON, &warningsJSON, &intent.Preview.PreviewedAt, &intent.Preview.ExpiresAt, &evidenceHash,
 		&productFeed, &productType, &productStatus, &baseIncrement, &quoteIncrement, &baseMin, &baseMax, &quoteMin, &quoteMax,
 		&productMarketIOCEnabled, &productBlockReasonsJSON, &productObservedAt,
+		&policyVersion, &riskEvaluationID, &riskCapitalBucketID, &riskBucketName, &riskAllocationType,
+		&riskAllocationValue, &riskProtectedAmount, &riskAllocationLimit, &riskAvailableCash, &riskTargetQuantity, &riskProposedNotional, &riskObservedAt,
+		&riskDecision, &riskApprovalRequired, &riskPlatformExecution, &riskReasonsJSON, &riskWarningsJSON, &riskChecksJSON,
 	)
 	if err != nil {
 		return Intent{}, nil, err
 	}
 	intent.RequestedSize = financial.Money{Amount: financial.Decimal(canonicalStoredDecimal(requestedAmount)), Currency: requestedCurrency}
+	if capitalBucketID != nil {
+		intent.CapitalBucketID = *capitalBucketID
+	}
 	intent.Preview.BaseSize = financial.Decimal(canonicalStoredDecimal(string(intent.Preview.BaseSize)))
 	intent.Preview.QuoteSize = financial.Decimal(canonicalStoredDecimal(string(intent.Preview.QuoteSize)))
 	intent.Preview.OrderTotal = financial.Money{Amount: financial.Decimal(canonicalStoredDecimal(orderTotal)), Currency: "USD"}
@@ -90,6 +104,32 @@ func scanIntent(row pgx.Row) (Intent, []byte, error) {
 		}
 		intent.Preview.ProductRules = productRules
 	}
+	if policyVersion != nil {
+		if riskEvaluationID == nil || riskCapitalBucketID == nil || riskBucketName == nil || riskAllocationType == nil || riskAllocationValue == nil || riskProtectedAmount == nil || riskAvailableCash == nil || riskTargetQuantity == nil || riskProposedNotional == nil || riskObservedAt == nil || riskDecision == nil || riskApprovalRequired == nil || riskPlatformExecution == nil {
+			return Intent{}, nil, errors.New("incomplete stored manual risk evidence")
+		}
+		riskEvidence := &ManualRiskEvidence{
+			PolicyVersion: *policyVersion, EvaluationID: *riskEvaluationID, CapitalBucketID: *riskCapitalBucketID, CapitalBucketName: *riskBucketName,
+			AllocationType: *riskAllocationType, AllocationValue: financial.Decimal(canonicalStoredDecimal(*riskAllocationValue)), ProtectedAmount: financial.Decimal(canonicalStoredDecimal(*riskProtectedAmount)),
+			AccountAvailableCash: financial.Money{Amount: financial.Decimal(canonicalStoredDecimal(*riskAvailableCash)), Currency: "USD"}, TargetAvailableQuantity: financial.Decimal(canonicalStoredDecimal(*riskTargetQuantity)),
+			ProposedNotional: financial.Money{Amount: financial.Decimal(canonicalStoredDecimal(*riskProposedNotional)), Currency: "USD"}, Decision: risk.Decision(*riskDecision),
+			ApprovalRequired: *riskApprovalRequired, PlatformExecution: *riskPlatformExecution, ObservedAt: *riskObservedAt,
+		}
+		if riskAllocationLimit != nil {
+			value := financial.Decimal(canonicalStoredDecimal(*riskAllocationLimit))
+			riskEvidence.AllocationLimit = &value
+		}
+		if err = json.Unmarshal(riskReasonsJSON, &riskEvidence.ReasonCodes); err != nil {
+			return Intent{}, nil, err
+		}
+		if err = json.Unmarshal(riskWarningsJSON, &riskEvidence.Warnings); err != nil {
+			return Intent{}, nil, err
+		}
+		if err = json.Unmarshal(riskChecksJSON, &riskEvidence.Checks); err != nil {
+			return Intent{}, nil, err
+		}
+		intent.Risk = riskEvidence
+	}
 	intent.ReviewScope = ProposalReviewOnly
 	intent.SubmissionAvailable = false
 	intent.RiskApprovalAvailable = false
@@ -99,7 +139,7 @@ func scanIntent(row pgx.Row) (Intent, []byte, error) {
 }
 
 func selectIntent(suffix string) string {
-	return `SELECT ` + intentColumns + ` FROM order_intents i JOIN order_intent_previews p ON p.order_intent_id=i.id AND p.intent_version=1 ` + suffix
+	return `SELECT ` + intentColumns + ` FROM order_intents i JOIN order_intent_previews p ON p.order_intent_id=i.id AND p.intent_version=1 LEFT JOIN order_intent_risk_evaluations l ON l.order_intent_id=i.id LEFT JOIN risk_evaluations r ON r.id=l.risk_evaluation_id ` + suffix
 }
 
 func (store *PostgresStore) ByIdempotency(ctx context.Context, userID, idempotencyKey string) (*Intent, []byte, error) {
@@ -118,13 +158,16 @@ func (store *PostgresStore) ByIdempotency(ctx context.Context, userID, idempoten
 }
 
 func (store *PostgresStore) Create(ctx context.Context, input draft) (Intent, []byte, error) {
+	if input.Risk == nil {
+		return Intent{}, nil, ErrUnsafeRiskEvidence
+	}
 	transaction, err := store.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return Intent{}, nil, err
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 	var intentID string
-	err = transaction.QueryRow(ctx, `INSERT INTO order_intents(user_id,financial_account_id,source,idempotency_key,request_hash,provider_name,product_id,base_asset,quote_currency,side,order_type,requested_size,requested_size_currency,status,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'coinbase',$6,$7,'USD',$8,'MARKET_IOC',$9,$10,$11,1,$12,$12) RETURNING id::text`, input.UserID, input.FinancialAccountID, input.Source, input.IdempotencyKey, input.RequestHash, input.ProductID, input.BaseAsset, input.Side, input.RequestedSize.Amount, input.RequestedSize.Currency, input.Status, input.CreatedAt).Scan(&intentID)
+	err = transaction.QueryRow(ctx, `INSERT INTO order_intents(user_id,financial_account_id,capital_bucket_id,source,idempotency_key,request_hash,provider_name,product_id,base_asset,quote_currency,side,order_type,requested_size,requested_size_currency,status,version,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,'coinbase',$7,$8,'USD',$9,'MARKET_IOC',$10,$11,$12,1,$13,$13) RETURNING id::text`, input.UserID, input.FinancialAccountID, input.CapitalBucketID, input.Source, input.IdempotencyKey, input.RequestHash, input.ProductID, input.BaseAsset, input.Side, input.RequestedSize.Amount, input.RequestedSize.Currency, input.Status, input.CreatedAt).Scan(&intentID)
 	if err != nil {
 		var postgresError *pgconn.PgError
 		if errors.As(err, &postgresError) && postgresError.Code == "23505" {
@@ -156,6 +199,26 @@ func (store *PostgresStore) Create(ctx context.Context, input draft) (Intent, []
 		return Intent{}, nil, err
 	}
 	_, err = transaction.Exec(ctx, `INSERT INTO order_intent_previews(order_intent_id,intent_version,provider_name,feed,preview_state,base_size,quote_size,order_total,commission_total,best_bid,best_ask,estimated_average_filled_price,slippage,provider_trading_authorized,block_reasons,warnings,evidence_hash,previewed_at,expires_at,created_at,product_rules_feed,product_type,product_status,base_increment,quote_increment,base_min_size,base_max_size,quote_min_size,quote_max_size,product_market_ioc_enabled,product_block_reasons,product_rules_observed_at) VALUES($1,1,'coinbase','advanced_trade_order_preview',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'advanced_trade_product','SPOT',$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)`, intentID, input.Preview.PreviewState, input.Preview.BaseSize, input.Preview.QuoteSize, input.Preview.OrderTotal.Amount, input.Preview.CommissionTotal.Amount, moneyAmount(input.Preview.BestBid), moneyAmount(input.Preview.BestAsk), moneyAmount(input.Preview.EstimatedAverageFilledPrice), decimalValue(input.Preview.Slippage), input.Preview.ProviderTradingAuthorized, blocks, warnings, input.EvidenceHash, input.Preview.PreviewedAt, input.Preview.ExpiresAt, input.CreatedAt, input.Preview.ProductRules.Status, input.Preview.ProductRules.BaseIncrement, input.Preview.ProductRules.QuoteIncrement, input.Preview.ProductRules.BaseMinSize, input.Preview.ProductRules.BaseMaxSize, input.Preview.ProductRules.QuoteMinSize, input.Preview.ProductRules.QuoteMaxSize, input.Preview.ProductRules.MarketIOCEnabled, productBlocks, input.Preview.ProductRules.ObservedAt)
+	if err != nil {
+		return Intent{}, nil, err
+	}
+	riskReasons, err := json.Marshal(input.Risk.ReasonCodes)
+	if err != nil {
+		return Intent{}, nil, err
+	}
+	riskWarnings, err := json.Marshal(input.Risk.Warnings)
+	if err != nil {
+		return Intent{}, nil, err
+	}
+	riskChecks, err := json.Marshal(input.Risk.Checks)
+	if err != nil {
+		return Intent{}, nil, err
+	}
+	_, err = transaction.Exec(ctx, `INSERT INTO risk_evaluations(id,user_id,financial_account_id,proposed_action_id,correlation_id,decision,approval_required,execution_mode,platform_execution_available,reason_codes,warnings,checks,evaluated_at) VALUES($1,$2,$3,$4,$5,$6,$7,'MANUAL_PROPOSAL',false,$8,$9,$10,$11)`, input.Risk.EvaluationID, input.UserID, input.FinancialAccountID, intentID, input.IdempotencyKey, input.Risk.Decision, input.Risk.ApprovalRequired, riskReasons, riskWarnings, riskChecks, input.Risk.ObservedAt)
+	if err != nil {
+		return Intent{}, nil, err
+	}
+	_, err = transaction.Exec(ctx, `INSERT INTO order_intent_risk_evaluations(order_intent_id,user_id,financial_account_id,capital_bucket_id,risk_evaluation_id,policy_version,capital_bucket_name,allocation_type,allocation_value,protected_amount,allocation_limit,account_available_cash,target_available_quantity,proposed_notional,observed_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, intentID, input.UserID, input.FinancialAccountID, input.CapitalBucketID, input.Risk.EvaluationID, input.Risk.PolicyVersion, input.Risk.CapitalBucketName, input.Risk.AllocationType, input.Risk.AllocationValue, input.Risk.ProtectedAmount, decimalPointer(input.Risk.AllocationLimit), input.Risk.AccountAvailableCash.Amount, input.Risk.TargetAvailableQuantity, input.Risk.ProposedNotional.Amount, input.Risk.ObservedAt, input.CreatedAt)
 	if err != nil {
 		return Intent{}, nil, err
 	}
@@ -244,6 +307,32 @@ func (store *PostgresStore) Review(ctx context.Context, review reviewEvidence) (
 	return intent, err
 }
 
+func (store *PostgresStore) ManualPolicy(ctx context.Context, userID, accountID, bucketID string) (risk.CapitalBucket, []risk.CircuitBreaker, error) {
+	var bucket risk.CapitalBucket
+	var allocationLimit *string
+	err := store.db.QueryRow(ctx, `SELECT id::text,user_id::text,financial_account_id::text,name,allocation_type,allocation_value::text,currency,is_reserve,protected_amount::text,allocation_limit::text,status FROM capital_buckets WHERE id=$1 AND user_id=$2 AND financial_account_id=$3`, bucketID, userID, accountID).Scan(
+		&bucket.ID, &bucket.UserID, &bucket.AccountID, &bucket.Name, &bucket.AllocationType, &bucket.AllocationValue, &bucket.Currency, &bucket.IsReserve, &bucket.ProtectedAmount, &allocationLimit, &bucket.Status,
+	)
+	if err != nil {
+		return risk.CapitalBucket{}, nil, err
+	}
+	bucket.AllocationLimit = allocationLimit
+	rows, err := store.db.Query(ctx, `SELECT id::text,scope,scope_id::text,state,reason,source,engaged_by_user_id::text,engaged_at,released_by_user_id::text,released_at FROM risk_circuit_breakers WHERE state='OPEN' AND (scope='GLOBAL' OR (scope='USER' AND scope_id=$1) OR (scope='ACCOUNT' AND scope_id=$2)) ORDER BY engaged_at,id`, userID, accountID)
+	if err != nil {
+		return risk.CapitalBucket{}, nil, err
+	}
+	defer rows.Close()
+	breakers := make([]risk.CircuitBreaker, 0, 3)
+	for rows.Next() {
+		var breaker risk.CircuitBreaker
+		if err = rows.Scan(&breaker.ID, &breaker.Scope, &breaker.ScopeID, &breaker.State, &breaker.Reason, &breaker.Source, &breaker.EngagedByUserID, &breaker.EngagedAt, &breaker.ReleasedByUserID, &breaker.ReleasedAt); err != nil {
+			return risk.CapitalBucket{}, nil, err
+		}
+		breakers = append(breakers, breaker)
+	}
+	return bucket, breakers, rows.Err()
+}
+
 func moneyAmount(value *financial.Money) any {
 	if value == nil {
 		return nil
@@ -252,6 +341,13 @@ func moneyAmount(value *financial.Money) any {
 }
 
 func decimalValue(value *financial.Decimal) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func decimalPointer(value *financial.Decimal) any {
 	if value == nil {
 		return nil
 	}

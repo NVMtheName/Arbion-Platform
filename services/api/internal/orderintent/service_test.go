@@ -9,7 +9,12 @@ import (
 
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/risk"
 )
+
+const testCapitalBucketID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+func ptrDecimal(value financial.Decimal) *financial.Decimal { return &value }
 
 type memoryStore struct {
 	intent       *Intent
@@ -65,9 +70,21 @@ func (store *memoryStore) Review(_ context.Context, evidence reviewEvidence) (In
 	return updated, nil
 }
 
+func (store *memoryStore) ManualPolicy(_ context.Context, userID, accountID, bucketID string) (risk.CapitalBucket, []risk.CircuitBreaker, error) {
+	if userID != "owner" || accountID != "account-1" || bucketID != testCapitalBucketID {
+		return risk.CapitalBucket{}, nil, ErrNotFound
+	}
+	return risk.CapitalBucket{
+		ID: testCapitalBucketID, UserID: "owner", AccountID: "account-1", Name: "Coinbase manual",
+		AllocationType: "FIXED_AMOUNT", AllocationValue: "100", Currency: "USD", ProtectedAmount: "0", Status: "ACTIVE",
+	}, []risk.CircuitBreaker{}, nil
+}
+
 type financialFake struct {
 	account      financial.FinancialAccount
 	preview      financial.SpotOrderPreview
+	balances     financial.Balances
+	positions    []financial.Position
 	previewCalls int
 }
 
@@ -84,6 +101,20 @@ func (fake *financialFake) PreviewSpotOrder(_ context.Context, principal authori
 	}
 	fake.previewCalls++
 	return fake.preview, nil
+}
+
+func (fake *financialFake) GetBalances(_ context.Context, principal authorization.Principal, id string) (financial.Balances, error) {
+	if principal.UserID != "owner" || id != "account-1" {
+		return financial.Balances{}, errors.New("unexpected balance lookup")
+	}
+	return fake.balances, nil
+}
+
+func (fake *financialFake) GetPositions(_ context.Context, principal authorization.Principal, id string) ([]financial.Position, error) {
+	if principal.UserID != "owner" || id != "account-1" {
+		return nil, errors.New("unexpected position lookup")
+	}
+	return fake.positions, nil
 }
 
 type stepUpFake struct {
@@ -124,7 +155,7 @@ func fixture(now time.Time, tradingAuthorized bool) (*memoryStore, *financialFak
 			BaseIncrement: "0.00000001", QuoteIncrement: "0.01", BaseMinSize: "0.00000001", BaseMaxSize: "1000", QuoteMinSize: "1", QuoteMaxSize: "1000000",
 			Status: "ONLINE", MarketIOCEnabled: true, BlockReasons: []string{}, ObservedAt: now,
 		},
-	}}
+	}, balances: financial.Balances{AvailableCash: &financial.Money{Amount: "200", Currency: "USD"}}, positions: []financial.Position{{AccountID: "account-1", InstrumentType: "CRYPTO", Symbol: "BTC", Quantity: "0.012", AvailableQuantity: ptrDecimal("0.01"), Direction: "LONG"}}}
 	stepUp := &stepUpFake{verifiedAt: now.Add(10 * time.Second)}
 	audit := &auditFake{}
 	service := NewService(store, provider, stepUp, audit)
@@ -135,12 +166,12 @@ func fixture(now time.Time, tradingAuthorized bool) (*memoryStore, *financialFak
 func TestCreateUIIsDurableIdempotentAndNonExecuting(t *testing.T) {
 	now := time.Date(2026, 8, 22, 2, 0, 0, 0, time.UTC)
 	store, provider, _, audit, service := fixture(now, true)
-	command := CreateCommand{Symbol: "btc", Side: "buy", Size: "25.50", IdempotencyKey: "intent-key-123456789"}
+	command := CreateCommand{Symbol: "btc", Side: "buy", Size: "25.50", CapitalBucketID: testCapitalBucketID, IdempotencyKey: "intent-key-123456789"}
 	intent, err := service.CreateUI(context.Background(), founder(), "account-1", command)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if intent.ID != "intent-1" || intent.Status != ReviewRequired || intent.Version != 1 || intent.Source != SourceUI || intent.ProductID != "BTC-USD" || intent.Preview.OrderTotal.Amount != "25.50" || intent.ReviewScope != ProposalReviewOnly || intent.SubmissionAvailable || intent.RiskApprovalAvailable || intent.AIExecutionAuthority || intent.LiveExecutionAvailable {
+	if intent.ID != "intent-1" || intent.Status != ReviewRequired || intent.Version != 1 || intent.Source != SourceUI || intent.ProductID != "BTC-USD" || intent.Preview.OrderTotal.Amount != "25.50" || intent.CapitalBucketID != testCapitalBucketID || intent.Risk == nil || intent.Risk.Decision != risk.Allow || intent.Risk.ProposedNotional.Amount != "25.65" || !intent.Risk.ApprovalRequired || intent.Risk.PlatformExecution || intent.ReviewScope != ProposalReviewOnly || intent.SubmissionAvailable || intent.RiskApprovalAvailable || intent.AIExecutionAuthority || intent.LiveExecutionAvailable {
 		t.Fatalf("unsafe or incomplete intent: %#v", intent)
 	}
 	if provider.previewCalls != 1 || store.intent == nil || len(store.requestHash) != 32 || len(store.evidenceHash) != 32 || len(audit.actions) != 1 {
@@ -159,7 +190,7 @@ func TestCreateUIIsDurableIdempotentAndNonExecuting(t *testing.T) {
 func TestViewOnlyProviderCreatesBlockedProposalAndCannotReview(t *testing.T) {
 	now := time.Date(2026, 8, 22, 2, 0, 0, 0, time.UTC)
 	_, _, stepUp, _, service := fixture(now, false)
-	intent, err := service.CreateAIProposal(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", IdempotencyKey: "intent-key-123456789"})
+	intent, err := service.CreateAIProposal(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", CapitalBucketID: testCapitalBucketID, IdempotencyKey: "intent-key-123456789"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +212,7 @@ func TestProductControlsCreateBlockedProposalAndCannotReview(t *testing.T) {
 	provider.preview.BlockReasons = []string{"PRODUCT_LIMIT_ONLY"}
 	provider.preview.ProductRules.MarketIOCEnabled = false
 	provider.preview.ProductRules.BlockReasons = []string{"PRODUCT_LIMIT_ONLY"}
-	intent, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", IdempotencyKey: "intent-key-123456789"})
+	intent, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", CapitalBucketID: testCapitalBucketID, IdempotencyKey: "intent-key-123456789"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,10 +227,29 @@ func TestProductControlsCreateBlockedProposalAndCannotReview(t *testing.T) {
 	}
 }
 
+func TestInsufficientConnectedCashCreatesImmutableBlockedRiskEvidence(t *testing.T) {
+	now := time.Date(2026, 8, 22, 2, 0, 0, 0, time.UTC)
+	store, provider, stepUp, _, service := fixture(now, true)
+	provider.balances.AvailableCash.Amount = "20"
+	intent, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", CapitalBucketID: testCapitalBucketID, IdempotencyKey: "intent-key-123456789"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if intent.Status != Blocked || intent.Risk == nil || intent.Risk.Decision != risk.Deny || intent.Risk.ApprovalRequired || intent.Risk.PlatformExecution || len(intent.Risk.ReasonCodes) != 1 || intent.Risk.ReasonCodes[0] != risk.InsufficientBuyingPower || store.intent == nil {
+		t.Fatalf("cash policy did not fail closed with evidence: %#v", intent)
+	}
+	if _, err = service.Review(context.Background(), founder(), intent.ID, ReviewCommand{ExpectedVersion: 1, MFACode: "123456"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("risk-blocked proposal review returned %v", err)
+	}
+	if stepUp.calls != 0 {
+		t.Fatal("risk-blocked proposal consumed MFA")
+	}
+}
+
 func TestReviewConsumesStepUpAndRemainsNonExecutable(t *testing.T) {
 	now := time.Date(2026, 8, 22, 2, 0, 0, 0, time.UTC)
 	store, _, stepUp, audit, service := fixture(now, true)
-	intent, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", IdempotencyKey: "intent-key-123456789"})
+	intent, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", CapitalBucketID: testCapitalBucketID, IdempotencyKey: "intent-key-123456789"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +265,7 @@ func TestReviewConsumesStepUpAndRemainsNonExecutable(t *testing.T) {
 func TestExpiredPreviewFailsBeforeMFA(t *testing.T) {
 	now := time.Date(2026, 8, 22, 2, 0, 0, 0, time.UTC)
 	_, _, stepUp, _, service := fixture(now, true)
-	intent, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", IdempotencyKey: "intent-key-123456789"})
+	intent, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", CapitalBucketID: testCapitalBucketID, IdempotencyKey: "intent-key-123456789"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +303,7 @@ func TestCreateRejectsUnsafeProviderEvidence(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store, provider, _, _, service := fixture(now, true)
 			test.mutate(&provider.preview)
-			_, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", IdempotencyKey: "intent-key-123456789"})
+			_, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", CapitalBucketID: testCapitalBucketID, IdempotencyKey: "intent-key-123456789"})
 			if !errors.Is(err, ErrUnsafeProviderEvidence) {
 				t.Fatalf("unsafe evidence returned %v", err)
 			}

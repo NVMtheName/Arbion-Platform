@@ -3,7 +3,10 @@
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { CoinbaseOrderPreview } from "./coinbase-order-preview";
+import {
+  CoinbaseOrderPreview,
+  type CoinbaseCapitalPolicy,
+} from "./coinbase-order-preview";
 
 type Money = { amount: string; currency: string };
 type Provenance = {
@@ -436,6 +439,7 @@ export function CryptoPortfolioCommandCenter({
   initialActivity,
   initialOrderHistory,
   initialTradingCosts,
+  capitalPolicies = [],
 }: {
   accountID: string;
   initialSnapshot: CryptoPortfolioSnapshot;
@@ -450,6 +454,7 @@ export function CryptoPortfolioCommandCenter({
   initialActivity?: CoinbaseTradeActivity;
   initialOrderHistory?: CoinbaseOrderHistory;
   initialTradingCosts?: CoinbaseTradingCostSummary;
+  capitalPolicies?: CoinbaseCapitalPolicy[];
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [refreshing, setRefreshing] = useState(false);
@@ -2103,6 +2108,7 @@ export function CryptoPortfolioCommandCenter({
 
       <CoinbaseOrderPreview
         accountID={accountID}
+        capitalPolicies={capitalPolicies}
         symbols={snapshot.positions.map((position) => position.symbol)}
         tradingAuthorized={providerTradingAuthorized}
       />

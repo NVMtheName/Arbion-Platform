@@ -78,7 +78,7 @@ func (handler *authHandler) orderIntentError(writer stdhttp.ResponseWriter, err 
 	case errors.Is(err, orderintent.ErrForbidden):
 		writeError(writer, stdhttp.StatusForbidden, "ORDER_INTENT_FORBIDDEN", "Your plan does not allow connected-account order proposals.")
 	case errors.Is(err, orderintent.ErrInvalid):
-		writeError(writer, stdhttp.StatusBadRequest, "INVALID_ORDER_INTENT", "Use a supported asset, BUY or SELL, a positive decimal amount, and a unique request key.")
+		writeError(writer, stdhttp.StatusBadRequest, "INVALID_ORDER_INTENT", "Use a supported asset, BUY or SELL, a positive decimal amount, an account capital policy, and a unique request key.")
 	case errors.Is(err, orderintent.ErrNotFound):
 		writeError(writer, stdhttp.StatusNotFound, "ORDER_INTENT_NOT_FOUND", "The order proposal was not found.")
 	case errors.Is(err, orderintent.ErrIdempotencyConflict):
@@ -91,6 +91,8 @@ func (handler *authHandler) orderIntentError(writer stdhttp.ResponseWriter, err 
 		writeError(writer, stdhttp.StatusConflict, "ORDER_INTENT_BLOCKED", "The connected account or provider permissions block this proposal.")
 	case errors.Is(err, orderintent.ErrUnsafeProviderEvidence):
 		writeError(writer, stdhttp.StatusBadGateway, "UNSAFE_PROVIDER_PREVIEW", "Coinbase returned preview evidence that Arbion could not safely normalize.")
+	case errors.Is(err, orderintent.ErrUnsafeRiskEvidence):
+		writeError(writer, stdhttp.StatusBadGateway, "UNSAFE_RISK_EVIDENCE", "Arbion could not safely normalize the connected account's capital and risk evidence.")
 	case errors.Is(err, auth.ErrMFANotEnabled):
 		writeError(writer, stdhttp.StatusConflict, "MFA_REQUIRED", "Enable authenticator MFA before reviewing an order proposal.")
 	case errors.Is(err, auth.ErrInvalidMFACode):

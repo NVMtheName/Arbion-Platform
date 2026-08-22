@@ -417,6 +417,10 @@ func (c *Client) GetPositions(ctx context.Context, credentials *financial.Creden
 		if !nonzero || currency == "USD" {
 			continue
 		}
+		availableQuantity, err := normalizedDecimal(account.AvailableBalance.Value)
+		if err != nil {
+			return nil, err
+		}
 		instrumentType := "CRYPTO"
 		if strings.EqualFold(account.Type, "FIAT") {
 			instrumentType = "CASH"
@@ -426,6 +430,7 @@ func (c *Client) GetPositions(ctx context.Context, credentials *financial.Creden
 			InstrumentType:       instrumentType,
 			Symbol:               currency,
 			Quantity:             quantity,
+			AvailableQuantity:    &availableQuantity,
 			Direction:            "long",
 			ProviderInstrumentID: account.UUID,
 		})

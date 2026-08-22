@@ -12,6 +12,7 @@ import (
 
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/risk"
 )
 
 var (
@@ -23,6 +24,7 @@ var (
 	ErrExpired                = errors.New("order intent preview expired")
 	ErrBlocked                = errors.New("order intent is blocked")
 	ErrUnsafeProviderEvidence = errors.New("unsafe provider preview evidence")
+	ErrUnsafeRiskEvidence     = errors.New("unsafe deterministic risk evidence")
 )
 
 var (
@@ -32,7 +34,10 @@ var (
 	storedSignedDecimalPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$`)
 	storedProductStatusPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_-]{0,31}$`)
 	idempotencyPattern         = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
+	uuidPattern                = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 )
+
+const manualPolicyVersion = "manual_coinbase_spot.v1"
 
 var (
 	allowedBlockReasons = map[string]struct{}{
@@ -65,6 +70,13 @@ var (
 		"SIZE_BELOW_MINIMUM":      {},
 		"SIZE_INCREMENT_MISMATCH": {},
 	}
+	allowedManualRiskReasons = map[risk.ReasonCode]struct{}{
+		risk.Allowed: {}, risk.AuthorizationDenied: {}, risk.AccountOwnershipMismatch: {}, risk.ConnectionUnavailable: {},
+		risk.CircuitBreakerActive: {}, risk.MandateNotReady: {}, risk.CapitalPolicyRequired: {}, risk.AutonomyDenied: {}, risk.AutonomyRequiresApproval: {},
+		risk.StaleAccountData: {}, risk.SymbolNotAllowed: {}, risk.OptionsNotAllowed: {}, risk.MarginNotAllowed: {},
+		risk.InsufficientPosition: {}, risk.CapitalLimitExceeded: {}, risk.ReserveViolation: {}, risk.InsufficientBuyingPower: {},
+		risk.PositionLimitExceeded: {}, risk.DailyLossLimitExceeded: {}, risk.InvalidAction: {},
+	}
 )
 
 type Store interface {
@@ -73,10 +85,13 @@ type Store interface {
 	List(context.Context, string, string, int) ([]Intent, error)
 	Get(context.Context, string, string) (Intent, []byte, error)
 	Review(context.Context, reviewEvidence) (Intent, error)
+	ManualPolicy(context.Context, string, string, string) (risk.CapitalBucket, []risk.CircuitBreaker, error)
 }
 
 type FinancialService interface {
 	GetAccount(context.Context, authorization.Principal, string) (financial.FinancialAccount, error)
+	GetBalances(context.Context, authorization.Principal, string) (financial.Balances, error)
+	GetPositions(context.Context, authorization.Principal, string) ([]financial.Position, error)
 	PreviewSpotOrder(context.Context, authorization.Principal, string, financial.SpotOrderPreviewRequest) (financial.SpotOrderPreview, error)
 }
 
@@ -93,11 +108,12 @@ type Service struct {
 	financial FinancialService
 	stepUp    StepUpVerifier
 	audit     Auditor
+	gate      *risk.Engine
 	now       func() time.Time
 }
 
 func NewService(store Store, financialService FinancialService, stepUp StepUpVerifier, audit Auditor) *Service {
-	return &Service{store: store, financial: financialService, stepUp: stepUp, audit: audit, now: func() time.Time { return time.Now().UTC() }}
+	return &Service{store: store, financial: financialService, stepUp: stepUp, audit: audit, gate: risk.NewEngine(), now: func() time.Time { return time.Now().UTC() }}
 }
 
 func (service *Service) CreateUI(ctx context.Context, principal authorization.Principal, accountID string, command CreateCommand) (Intent, error) {
@@ -117,9 +133,10 @@ func (service *Service) create(ctx context.Context, principal authorization.Prin
 	command.Symbol = strings.ToUpper(strings.TrimSpace(command.Symbol))
 	command.Side = strings.ToUpper(strings.TrimSpace(command.Side))
 	command.Size = financial.Decimal(strings.TrimSpace(string(command.Size)))
+	command.CapitalBucketID = strings.ToLower(strings.TrimSpace(command.CapitalBucketID))
 	command.IdempotencyKey = strings.TrimSpace(command.IdempotencyKey)
 	quantity, quantityOK := new(big.Rat).SetString(string(command.Size))
-	if (source != SourceUI && source != SourceAI) || !intentSymbolPattern.MatchString(command.Symbol) || command.Symbol == "USD" || (command.Side != "BUY" && command.Side != "SELL") || !intentSizePattern.MatchString(string(command.Size)) || !quantityOK || quantity.Sign() <= 0 || !idempotencyPattern.MatchString(command.IdempotencyKey) {
+	if (source != SourceUI && source != SourceAI) || !intentSymbolPattern.MatchString(command.Symbol) || command.Symbol == "USD" || (command.Side != "BUY" && command.Side != "SELL") || !intentSizePattern.MatchString(string(command.Size)) || !quantityOK || quantity.Sign() <= 0 || !uuidPattern.MatchString(command.CapitalBucketID) || !idempotencyPattern.MatchString(command.IdempotencyKey) {
 		return Intent{}, ErrInvalid
 	}
 	requestHash := hashRequest(accountID, source, command)
@@ -145,22 +162,42 @@ func (service *Service) create(ctx context.Context, principal authorization.Prin
 		return Intent{}, err
 	}
 	now := service.now().UTC()
-	evidence, evidenceHash, err := normalizedEvidence(preview, command, now)
+	evidence, _, err := normalizedEvidence(preview, command, now)
+	if err != nil {
+		return Intent{}, err
+	}
+	bucket, breakers, err := service.store.ManualPolicy(ctx, principal.UserID, accountID, command.CapitalBucketID)
+	if err != nil {
+		return Intent{}, ErrBlocked
+	}
+	balances, err := service.financial.GetBalances(ctx, principal, accountID)
+	if err != nil {
+		return Intent{}, err
+	}
+	positions, err := service.financial.GetPositions(ctx, principal, accountID)
+	if err != nil {
+		return Intent{}, err
+	}
+	evaluatedAt := service.now().UTC()
+	if !evaluatedAt.Before(evidence.ExpiresAt) {
+		return Intent{}, ErrExpired
+	}
+	riskEvidence, err := service.evaluateManualRisk(principal, accountID, source, command, evidence, bucket, breakers, balances, positions, evaluatedAt)
 	if err != nil {
 		return Intent{}, err
 	}
 	status := ReviewRequired
-	if evidence.PreviewState == "BLOCKED" || !evidence.ProviderTradingAuthorized {
+	if evidence.PreviewState == "BLOCKED" || !evidence.ProviderTradingAuthorized || riskEvidence.Decision != risk.Allow {
 		status = Blocked
 		if !evidence.ProviderTradingAuthorized {
 			evidence.BlockReasons = appendUnique(evidence.BlockReasons, "PROVIDER_TRADE_PERMISSION_REQUIRED")
-			evidenceHash = hashEvidence(evidence)
 		}
 	}
+	evidenceHash := hashIntentEvidence(evidence, riskEvidence)
 	intent := Intent{
-		FinancialAccountID: accountID, Source: source, Provider: "coinbase", ProductID: preview.ProductID,
+		FinancialAccountID: accountID, CapitalBucketID: command.CapitalBucketID, Source: source, Provider: "coinbase", ProductID: preview.ProductID,
 		BaseAsset: preview.BaseAsset, QuoteCurrency: "USD", Side: command.Side, OrderType: "MARKET_IOC",
-		RequestedSize: preview.RequestedSize, Status: status, Version: 1, Preview: evidence, ReviewScope: ProposalReviewOnly,
+		RequestedSize: preview.RequestedSize, Status: status, Version: 1, Preview: evidence, Risk: &riskEvidence, ReviewScope: ProposalReviewOnly,
 		SubmissionAvailable: false, RiskApprovalAvailable: false, AIExecutionAuthority: false, LiveExecutionAvailable: false,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -171,7 +208,7 @@ func (service *Service) create(ctx context.Context, principal authorization.Prin
 	if !equalHash(storedRequestHash, requestHash) {
 		return Intent{}, ErrIdempotencyConflict
 	}
-	service.record(ctx, principal.UserID, "order_intent.proposed", created, map[string]any{"source": source, "outcome": strings.ToLower(created.Status)})
+	service.record(ctx, principal.UserID, "order_intent.proposed", created, map[string]any{"source": source, "outcome": strings.ToLower(created.Status), "risk_decision": strings.ToLower(string(riskEvidence.Decision)), "capital_bucket_id": command.CapitalBucketID})
 	return created, nil
 }
 
@@ -204,7 +241,7 @@ func (service *Service) Review(ctx context.Context, principal authorization.Prin
 	if !now.Before(intent.Preview.ExpiresAt) {
 		return Intent{}, ErrExpired
 	}
-	if intent.Preview.PreviewState != "READY" || !intent.Preview.ProviderTradingAuthorized || len(intent.Preview.BlockReasons) != 0 || intent.Preview.ProductRules == nil || !intent.Preview.ProductRules.MarketIOCEnabled {
+	if intent.Preview.PreviewState != "READY" || !intent.Preview.ProviderTradingAuthorized || len(intent.Preview.BlockReasons) != 0 || intent.Preview.ProductRules == nil || !intent.Preview.ProductRules.MarketIOCEnabled || !validManualRiskEvidence(intent.Risk, intent.CapitalBucketID, intent.Preview.PreviewedAt, intent.Preview.ExpiresAt, true) {
 		return Intent{}, ErrBlocked
 	}
 	account, err := service.financial.GetAccount(ctx, principal, intent.FinancialAccountID)
@@ -262,6 +299,122 @@ func normalizedEvidence(preview financial.SpotOrderPreview, command CreateComman
 		PreviewedAt: preview.PreviewedAt.UTC(), ExpiresAt: preview.PreviewedAt.UTC().Add(previewEvidenceLifetime), ProductRules: &productRules,
 	}
 	return evidence, hashEvidence(evidence), nil
+}
+
+func (service *Service) evaluateManualRisk(principal authorization.Principal, accountID, source string, command CreateCommand, preview PreviewEvidence, bucket risk.CapitalBucket, breakers []risk.CircuitBreaker, balances financial.Balances, positions []financial.Position, evaluatedAt time.Time) (ManualRiskEvidence, error) {
+	availableCash := financial.Decimal("0")
+	if balances.AvailableCash != nil {
+		if balances.AvailableCash.Currency != "USD" || !storedDecimalPattern.MatchString(string(balances.AvailableCash.Amount)) {
+			return ManualRiskEvidence{}, ErrUnsafeRiskEvidence
+		}
+		availableCash = balances.AvailableCash.Amount
+	}
+	targetQuantity := financial.Decimal("0")
+	riskPositions := make([]risk.Position, 0, len(positions))
+	for _, position := range positions {
+		symbol := strings.ToUpper(strings.TrimSpace(position.Symbol))
+		if !intentSymbolPattern.MatchString(symbol) || !storedDecimalPattern.MatchString(string(position.Quantity)) || position.AvailableQuantity == nil || !storedDecimalPattern.MatchString(string(*position.AvailableQuantity)) {
+			return ManualRiskEvidence{}, ErrUnsafeRiskEvidence
+		}
+		riskPositions = append(riskPositions, risk.Position{Instrument: symbol, AvailableQuantity: string(*position.AvailableQuantity)})
+		if symbol == command.Symbol {
+			var ok bool
+			targetQuantity, ok = addExactDecimals(targetQuantity, *position.AvailableQuantity)
+			if !ok {
+				return ManualRiskEvidence{}, ErrUnsafeRiskEvidence
+			}
+		}
+	}
+	proposedNotional, ok := addExactDecimals(preview.OrderTotal.Amount, preview.CommissionTotal.Amount)
+	if !ok || !positive(proposedNotional) {
+		return ManualRiskEvidence{}, ErrUnsafeRiskEvidence
+	}
+	actionType := risk.ActionBuy
+	actionQuantity := preview.BaseSize
+	if command.Side == "SELL" {
+		actionType = risk.ActionSell
+		actionQuantity = command.Size
+	}
+	actionSource := risk.SourceUI
+	if source == SourceAI {
+		actionSource = risk.SourceAI
+	}
+	action := risk.ProposedAction{
+		ID: "proposal:" + command.IdempotencyKey, CorrelationID: command.IdempotencyKey, FinancialAccountID: accountID,
+		Source: actionSource, ActionType: actionType, Instrument: command.Symbol, Side: command.Side,
+		Quantity: string(actionQuantity), Notional: string(proposedNotional), CreatedAt: evaluatedAt,
+	}
+	context := risk.EvaluationContext{
+		UserID: principal.UserID, AccountOwned: true, FinancialEntitled: true, ConnectionUsable: true,
+		Bucket: &bucket, Breakers: append([]risk.CircuitBreaker(nil), breakers...), Now: evaluatedAt, MaxStaleness: 15 * time.Second,
+		Account: &risk.AccountRiskSnapshot{
+			AccountID: accountID, Currency: "USD", Timestamp: evaluatedAt, Cash: string(availableCash), AvailableCash: string(availableCash), BuyingPower: string(availableCash), CurrentExposure: "0", Positions: riskPositions,
+		},
+	}
+	evaluation := service.gate.Evaluate(context, action)
+	limit := (*financial.Decimal)(nil)
+	if bucket.AllocationLimit != nil {
+		value := financial.Decimal(*bucket.AllocationLimit)
+		limit = &value
+	}
+	evidence := ManualRiskEvidence{
+		PolicyVersion: manualPolicyVersion, EvaluationID: evaluation.ID, CapitalBucketID: bucket.ID, CapitalBucketName: bucket.Name,
+		AllocationType: bucket.AllocationType, AllocationValue: financial.Decimal(bucket.AllocationValue), ProtectedAmount: financial.Decimal(bucket.ProtectedAmount), AllocationLimit: limit,
+		AccountAvailableCash: financial.Money{Amount: availableCash, Currency: "USD"}, TargetAvailableQuantity: targetQuantity,
+		ProposedNotional: financial.Money{Amount: proposedNotional, Currency: "USD"}, Decision: evaluation.Decision,
+		ReasonCodes: append([]risk.ReasonCode(nil), evaluation.ReasonCodes...), Warnings: append([]risk.ReasonCode(nil), evaluation.Warnings...), Checks: append([]risk.RiskCheck(nil), evaluation.Checks...),
+		ApprovalRequired: evaluation.ApprovalRequired, PlatformExecution: evaluation.PlatformExecutionAvailable, ObservedAt: evaluatedAt,
+	}
+	if !validManualRiskEvidence(&evidence, command.CapitalBucketID, preview.PreviewedAt, preview.ExpiresAt, false) {
+		return ManualRiskEvidence{}, ErrUnsafeRiskEvidence
+	}
+	return evidence, nil
+}
+
+func addExactDecimals(left, right financial.Decimal) (financial.Decimal, bool) {
+	leftNumber, leftOK := new(big.Rat).SetString(string(left))
+	rightNumber, rightOK := new(big.Rat).SetString(string(right))
+	if !leftOK || !rightOK || leftNumber.Sign() < 0 || rightNumber.Sign() < 0 {
+		return "", false
+	}
+	value := financial.Decimal(canonicalStoredDecimal(new(big.Rat).Add(leftNumber, rightNumber).FloatString(18)))
+	return value, storedDecimalPattern.MatchString(string(value))
+}
+
+func validManualRiskEvidence(evidence *ManualRiskEvidence, capitalBucketID string, previewedAt, expiresAt time.Time, requireAllow bool) bool {
+	if evidence == nil || evidence.PolicyVersion != manualPolicyVersion || !uuidPattern.MatchString(evidence.EvaluationID) || evidence.CapitalBucketID != capitalBucketID || !uuidPattern.MatchString(evidence.CapitalBucketID) || strings.TrimSpace(evidence.CapitalBucketName) == "" || len(evidence.CapitalBucketName) > 100 || (evidence.AllocationType != "FIXED_AMOUNT" && evidence.AllocationType != "PERCENT_OF_AVAILABLE_CASH" && evidence.AllocationType != "PERCENT_OF_BUYING_POWER") || evidence.AccountAvailableCash.Currency != "USD" || evidence.ProposedNotional.Currency != "USD" || !storedDecimalPattern.MatchString(string(evidence.AccountAvailableCash.Amount)) || !storedDecimalPattern.MatchString(string(evidence.TargetAvailableQuantity)) || !storedDecimalPattern.MatchString(string(evidence.ProposedNotional.Amount)) || !positive(evidence.ProposedNotional.Amount) || !storedDecimalPattern.MatchString(string(evidence.AllocationValue)) || !positive(evidence.AllocationValue) || !storedDecimalPattern.MatchString(string(evidence.ProtectedAmount)) || evidence.ObservedAt.Before(previewedAt) || !evidence.ObservedAt.Before(expiresAt) || evidence.PlatformExecution || len(evidence.ReasonCodes) == 0 || len(evidence.ReasonCodes) > 20 || len(evidence.Warnings) > 20 || len(evidence.Checks) == 0 || len(evidence.Checks) > 20 {
+		return false
+	}
+	if evidence.AllocationLimit != nil && (!storedDecimalPattern.MatchString(string(*evidence.AllocationLimit)) || !positive(*evidence.AllocationLimit)) {
+		return false
+	}
+	if evidence.Decision != risk.Allow && evidence.Decision != risk.Deny {
+		return false
+	}
+	if evidence.ApprovalRequired != (evidence.Decision == risk.Allow) {
+		return false
+	}
+	if requireAllow && evidence.Decision != risk.Allow {
+		return false
+	}
+	for _, reasons := range [][]risk.ReasonCode{evidence.ReasonCodes, evidence.Warnings} {
+		seen := map[risk.ReasonCode]struct{}{}
+		for _, reason := range reasons {
+			if _, allowed := allowedManualRiskReasons[reason]; !allowed {
+				return false
+			}
+			if _, duplicate := seen[reason]; duplicate {
+				return false
+			}
+			seen[reason] = struct{}{}
+		}
+	}
+	for _, item := range evidence.Checks {
+		if _, allowed := allowedManualRiskReasons[item.Code]; !allowed || (item.Result != risk.Pass && item.Result != risk.Fail && item.Result != risk.CheckWarn) || strings.TrimSpace(item.Message) == "" || len(item.Message) > 240 {
+			return false
+		}
+	}
+	return true
 }
 
 func validProductRules(rules *financial.SpotProductRules, command CreateCommand, previewedAt, now time.Time) bool {
@@ -339,12 +492,21 @@ func positive(value financial.Decimal) bool {
 }
 
 func hashRequest(accountID, source string, command CreateCommand) []byte {
-	digest := sha256.Sum256([]byte(accountID + "\x00" + source + "\x00" + command.Symbol + "\x00" + command.Side + "\x00" + string(command.Size)))
+	digest := sha256.Sum256([]byte(accountID + "\x00" + source + "\x00" + command.Symbol + "\x00" + command.Side + "\x00" + string(command.Size) + "\x00" + command.CapitalBucketID))
 	return digest[:]
 }
 
 func hashEvidence(evidence PreviewEvidence) []byte {
 	encoded, _ := json.Marshal(evidence)
+	digest := sha256.Sum256(encoded)
+	return digest[:]
+}
+
+func hashIntentEvidence(preview PreviewEvidence, riskEvidence ManualRiskEvidence) []byte {
+	encoded, _ := json.Marshal(struct {
+		Preview PreviewEvidence    `json:"preview"`
+		Risk    ManualRiskEvidence `json:"risk"`
+	}{Preview: preview, Risk: riskEvidence})
 	digest := sha256.Sum256(encoded)
 	return digest[:]
 }

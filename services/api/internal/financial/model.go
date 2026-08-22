@@ -100,14 +100,15 @@ type Balances struct {
 	OptionsBuyingPower *Money `json:"options_buying_power,omitempty"`
 }
 type Position struct {
-	AccountID            string  `json:"account_id"`
-	InstrumentType       string  `json:"instrument_type"`
-	Symbol               string  `json:"symbol"`
-	Quantity             Decimal `json:"quantity"`
-	Direction            string  `json:"direction"`
-	MarketValue          *Money  `json:"market_value,omitempty"`
-	CostBasis            *Money  `json:"cost_basis,omitempty"`
-	ProviderInstrumentID string  `json:"-"`
+	AccountID            string   `json:"account_id"`
+	InstrumentType       string   `json:"instrument_type"`
+	Symbol               string   `json:"symbol"`
+	Quantity             Decimal  `json:"quantity"`
+	AvailableQuantity    *Decimal `json:"available_quantity,omitempty"`
+	Direction            string   `json:"direction"`
+	MarketValue          *Money   `json:"market_value,omitempty"`
+	CostBasis            *Money   `json:"cost_basis,omitempty"`
+	ProviderInstrumentID string   `json:"-"`
 }
 
 // TradeFill is normalized historical evidence for an execution that occurred

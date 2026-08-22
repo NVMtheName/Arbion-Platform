@@ -50,7 +50,7 @@ const (
 	CapabilityUnknown     CapabilityState = "UNKNOWN"
 )
 
-type Position struct{ Instrument, Exposure string }
+type Position struct{ Instrument, Exposure, AvailableQuantity string }
 type AccountRiskSnapshot struct {
 	AccountID, Currency                               string
 	Timestamp                                         time.Time
@@ -64,8 +64,9 @@ type RiskActivitySnapshot struct {
 	ActionsToday                    *int
 }
 type CapitalBucket struct {
-	ID, UserID, AccountID, AllocationType, AllocationValue, ProtectedAmount string
-	AllocationLimit                                                         *string
+	ID, UserID, AccountID, Name, AllocationType, AllocationValue, Currency, ProtectedAmount, Status string
+	AllocationLimit                                                                                 *string
+	IsReserve                                                                                       bool
 }
 type Mandate struct {
 	ID, UserID, AccountID, BucketID, Status, AutomationType, AutonomyLevel, ExecutionMode                      string

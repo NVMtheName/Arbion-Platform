@@ -233,3 +233,20 @@ func TestOrderIntentProductRulesAreBoundedAndNonExecuting(t *testing.T) {
 		}
 	}
 }
+
+func TestManualOrderIntentRiskIsOwnerBoundImmutableAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00021_manual_order_intent_risk.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"capital_buckets_id_user_account_unique", "order_intents_capital_bucket_owner_account_fkey", "order_intents_id_owner_account_capital_bucket_unique", "risk_evaluations_id_owner_account_unique", "order_intent_risk_evaluations", "manual_coinbase_spot.v1", "risk_evaluations_immutable", "order_intent_risk_evaluations_immutable", "order_intent_capital_policy_guard", "order_intent_previews_block_reasons_check", "proposed_notional", "account_available_cash", "target_available_quantity"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("manual order-intent risk migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order_id", "client_order_id", "preview_id", "SUBMITTED", "FILLED", "create_order"} {
+		if strings.Contains(strings.ToLower(string(body)), strings.ToLower(prohibited)) {
+			t.Errorf("manual order-intent risk migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
