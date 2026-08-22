@@ -38,6 +38,7 @@ var (
 	currencyPattern        = regexp.MustCompile(`^[A-Z0-9][A-Z0-9._-]{0,31}$`)
 	previewSymbolPattern   = regexp.MustCompile(`^[A-Z][A-Z0-9]{0,15}$`)
 	previewDecimalPattern  = regexp.MustCompile(`^(0|[1-9][0-9]{0,17})(\.[0-9]{1,18})?$`)
+	productStatusPattern   = regexp.MustCompile(`^[A-Z][A-Z0-9_-]{0,31}$`)
 	providerDecimalPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?$`)
 )
 
@@ -220,6 +221,26 @@ type providerPreview struct {
 	Slippage                    providerDecimal `json:"slippage"`
 	PreviewID                   string          `json:"preview_id"`
 	EstimatedAverageFilledPrice providerDecimal `json:"est_average_filled_price"`
+}
+
+type providerProduct struct {
+	ProductID       string          `json:"product_id"`
+	ProductType     string          `json:"product_type"`
+	BaseCurrencyID  string          `json:"base_currency_id"`
+	QuoteCurrencyID string          `json:"quote_currency_id"`
+	BaseIncrement   providerDecimal `json:"base_increment"`
+	QuoteIncrement  providerDecimal `json:"quote_increment"`
+	BaseMinSize     providerDecimal `json:"base_min_size"`
+	BaseMaxSize     providerDecimal `json:"base_max_size"`
+	QuoteMinSize    providerDecimal `json:"quote_min_size"`
+	QuoteMaxSize    providerDecimal `json:"quote_max_size"`
+	Status          string          `json:"status"`
+	IsDisabled      bool            `json:"is_disabled"`
+	TradingDisabled bool            `json:"trading_disabled"`
+	CancelOnly      bool            `json:"cancel_only"`
+	LimitOnly       bool            `json:"limit_only"`
+	PostOnly        bool            `json:"post_only"`
+	AuctionMode     bool            `json:"auction_mode"`
 }
 
 type marketPreviewConfiguration struct {
@@ -573,6 +594,15 @@ func (c *Client) PreviewSpotOrder(ctx context.Context, credentials *financial.Cr
 	}
 
 	productID := symbol + "-USD"
+	var product providerProduct
+	if err := c.get(ctx, credentials, "/api/v3/brokerage/products/"+url.PathEscape(productID), &product); err != nil {
+		return financial.SpotOrderPreview{}, err
+	}
+	observedAt := c.now().UTC()
+	rules, ok := normalizeSpotProductRules(product, productID, symbol, side, financial.Decimal(size), observedAt)
+	if !ok {
+		return financial.SpotOrderPreview{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
 	request := providerPreviewRequest{ProductID: productID, Side: side}
 	request.OrderConfiguration.MarketIOC.RFQDisabled = true
 	requestedCurrency := symbol
@@ -586,11 +616,98 @@ func (c *Client) PreviewSpotOrder(ctx context.Context, credentials *financial.Cr
 	if err := c.post(ctx, credentials, "/api/v3/brokerage/orders/preview", request, &response); err != nil {
 		return financial.SpotOrderPreview{}, err
 	}
-	preview, ok := normalizeSpotPreview(response, productID, symbol, side, financial.Money{Amount: financial.Decimal(size), Currency: requestedCurrency}, credentials.ProviderCanTrade, c.now().UTC())
+	preview, ok := normalizeSpotPreview(response, productID, symbol, side, financial.Money{Amount: financial.Decimal(size), Currency: requestedCurrency}, credentials.ProviderCanTrade, observedAt)
 	if !ok {
 		return financial.SpotOrderPreview{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
 	}
+	preview.ProductRules = &rules
+	for _, reason := range rules.BlockReasons {
+		preview.BlockReasons = appendNormalizedReason(preview.BlockReasons, reason)
+	}
+	if !rules.MarketIOCEnabled {
+		preview.PreviewState = "BLOCKED"
+	}
 	return preview, nil
+}
+
+func normalizeSpotProductRules(raw providerProduct, productID, symbol, side string, size financial.Decimal, observedAt time.Time) (financial.SpotProductRules, bool) {
+	status := strings.ToUpper(strings.TrimSpace(raw.Status))
+	baseIncrement, baseIncrementOK := positiveProductDecimal(raw.BaseIncrement)
+	quoteIncrement, quoteIncrementOK := positiveProductDecimal(raw.QuoteIncrement)
+	baseMin, baseMinOK := positiveProductDecimal(raw.BaseMinSize)
+	baseMax, baseMaxOK := positiveProductDecimal(raw.BaseMaxSize)
+	quoteMin, quoteMinOK := positiveProductDecimal(raw.QuoteMinSize)
+	quoteMax, quoteMaxOK := positiveProductDecimal(raw.QuoteMaxSize)
+	if raw.ProductID != productID || strings.ToUpper(strings.TrimSpace(raw.ProductType)) != "SPOT" || strings.ToUpper(strings.TrimSpace(raw.BaseCurrencyID)) != symbol || strings.ToUpper(strings.TrimSpace(raw.QuoteCurrencyID)) != "USD" || !productStatusPattern.MatchString(status) || !baseIncrementOK || !quoteIncrementOK || !baseMinOK || !baseMaxOK || !quoteMinOK || !quoteMaxOK || compareDecimal(baseMin, baseMax) > 0 || compareDecimal(quoteMin, quoteMax) > 0 || !decimalMultiple(baseMin, baseIncrement) || !decimalMultiple(baseMax, baseIncrement) || !decimalMultiple(quoteMin, quoteIncrement) || !decimalMultiple(quoteMax, quoteIncrement) || observedAt.IsZero() {
+		return financial.SpotProductRules{}, false
+	}
+	blocks := make([]string, 0, 8)
+	if status != "ONLINE" || raw.IsDisabled || raw.TradingDisabled {
+		blocks = append(blocks, "PRODUCT_DISABLED")
+	}
+	if raw.CancelOnly {
+		blocks = append(blocks, "PRODUCT_CANCEL_ONLY")
+	}
+	if raw.LimitOnly {
+		blocks = append(blocks, "PRODUCT_LIMIT_ONLY")
+	}
+	if raw.PostOnly {
+		blocks = append(blocks, "PRODUCT_POST_ONLY")
+	}
+	if raw.AuctionMode {
+		blocks = append(blocks, "PRODUCT_AUCTION_MODE")
+	}
+	minimum, maximum, increment := baseMin, baseMax, baseIncrement
+	if side == "BUY" {
+		minimum, maximum, increment = quoteMin, quoteMax, quoteIncrement
+	}
+	if compareDecimal(size, minimum) < 0 {
+		blocks = append(blocks, "SIZE_BELOW_MINIMUM")
+	}
+	if compareDecimal(size, maximum) > 0 {
+		blocks = append(blocks, "SIZE_ABOVE_MAXIMUM")
+	}
+	if !decimalMultiple(size, increment) {
+		blocks = append(blocks, "SIZE_INCREMENT_MISMATCH")
+	}
+	return financial.SpotProductRules{
+		Provider: "coinbase", Feed: "advanced_trade_product", ProductID: productID, ProductType: "SPOT", BaseAsset: symbol, QuoteCurrency: "USD",
+		BaseIncrement: baseIncrement, QuoteIncrement: quoteIncrement, BaseMinSize: baseMin, BaseMaxSize: baseMax, QuoteMinSize: quoteMin, QuoteMaxSize: quoteMax,
+		Status: status, MarketIOCEnabled: len(blocks) == 0, BlockReasons: blocks, ObservedAt: observedAt,
+	}, true
+}
+
+func positiveProductDecimal(value providerDecimal) (financial.Decimal, bool) {
+	text := strings.TrimSpace(string(value))
+	if !previewDecimalPattern.MatchString(text) {
+		return "", false
+	}
+	number, ok := new(big.Rat).SetString(text)
+	return financial.Decimal(text), ok && number.Sign() > 0
+}
+
+func compareDecimal(left, right financial.Decimal) int {
+	leftNumber, leftOK := new(big.Rat).SetString(string(left))
+	rightNumber, rightOK := new(big.Rat).SetString(string(right))
+	if !leftOK || !rightOK {
+		return 0
+	}
+	return leftNumber.Cmp(rightNumber)
+}
+
+func decimalMultiple(value, increment financial.Decimal) bool {
+	valueNumber, valueOK := new(big.Rat).SetString(string(value))
+	incrementNumber, incrementOK := new(big.Rat).SetString(string(increment))
+	return valueOK && incrementOK && incrementNumber.Sign() > 0 && new(big.Rat).Quo(valueNumber, incrementNumber).IsInt()
+}
+
+func appendNormalizedReason(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func normalizeSpotPreview(raw providerPreview, productID, symbol, side string, requested financial.Money, tradingAuthorized bool, now time.Time) (financial.SpotOrderPreview, bool) {

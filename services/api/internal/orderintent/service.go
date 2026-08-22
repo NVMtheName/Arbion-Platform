@@ -30,21 +30,40 @@ var (
 	intentSizePattern          = regexp.MustCompile(`^(0|[1-9][0-9]{0,17})(\.[0-9]{1,18})?$`)
 	storedDecimalPattern       = regexp.MustCompile(`^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$`)
 	storedSignedDecimalPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$`)
+	storedProductStatusPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_-]{0,31}$`)
 	idempotencyPattern         = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
 )
 
 var (
 	allowedBlockReasons = map[string]struct{}{
-		"ACCOUNT_RESTRICTED": {},
-		"INSUFFICIENT_FUNDS": {},
-		"INVALID_SIZE":       {},
-		"MARKET_UNAVAILABLE": {},
-		"PROVIDER_REJECTED":  {},
+		"ACCOUNT_RESTRICTED":      {},
+		"INSUFFICIENT_FUNDS":      {},
+		"INVALID_SIZE":            {},
+		"MARKET_UNAVAILABLE":      {},
+		"PRODUCT_AUCTION_MODE":    {},
+		"PRODUCT_CANCEL_ONLY":     {},
+		"PRODUCT_DISABLED":        {},
+		"PRODUCT_LIMIT_ONLY":      {},
+		"PRODUCT_POST_ONLY":       {},
+		"PROVIDER_REJECTED":       {},
+		"SIZE_ABOVE_MAXIMUM":      {},
+		"SIZE_BELOW_MINIMUM":      {},
+		"SIZE_INCREMENT_MISMATCH": {},
 	}
 	allowedWarnings = map[string]struct{}{
 		"LARGE_ORDER":      {},
 		"PROVIDER_WARNING": {},
 		"SMALL_ORDER":      {},
+	}
+	allowedProductBlockReasons = map[string]struct{}{
+		"PRODUCT_AUCTION_MODE":    {},
+		"PRODUCT_CANCEL_ONLY":     {},
+		"PRODUCT_DISABLED":        {},
+		"PRODUCT_LIMIT_ONLY":      {},
+		"PRODUCT_POST_ONLY":       {},
+		"SIZE_ABOVE_MAXIMUM":      {},
+		"SIZE_BELOW_MINIMUM":      {},
+		"SIZE_INCREMENT_MISMATCH": {},
 	}
 )
 
@@ -185,7 +204,7 @@ func (service *Service) Review(ctx context.Context, principal authorization.Prin
 	if !now.Before(intent.Preview.ExpiresAt) {
 		return Intent{}, ErrExpired
 	}
-	if intent.Preview.PreviewState != "READY" || !intent.Preview.ProviderTradingAuthorized || len(intent.Preview.BlockReasons) != 0 {
+	if intent.Preview.PreviewState != "READY" || !intent.Preview.ProviderTradingAuthorized || len(intent.Preview.BlockReasons) != 0 || intent.Preview.ProductRules == nil || !intent.Preview.ProductRules.MarketIOCEnabled {
 		return Intent{}, ErrBlocked
 	}
 	account, err := service.financial.GetAccount(ctx, principal, intent.FinancialAccountID)
@@ -223,7 +242,7 @@ func normalizedEvidence(preview financial.SpotOrderPreview, command CreateComman
 			return PreviewEvidence{}, nil, ErrUnsafeProviderEvidence
 		}
 	}
-	if preview.OrderTotal.Currency != "USD" || preview.CommissionTotal.Currency != "USD" || !validOptionalMoney(preview.BestBid) || !validOptionalMoney(preview.BestAsk) || !validOptionalMoney(preview.EstimatedAverageFilledPrice) || (preview.Slippage != nil && !storedSignedDecimalPattern.MatchString(string(*preview.Slippage))) || !validMessages(preview.BlockReasons, allowedBlockReasons) || !validMessages(preview.Warnings, allowedWarnings) {
+	if preview.OrderTotal.Currency != "USD" || preview.CommissionTotal.Currency != "USD" || !validOptionalMoney(preview.BestBid) || !validOptionalMoney(preview.BestAsk) || !validOptionalMoney(preview.EstimatedAverageFilledPrice) || (preview.Slippage != nil && !storedSignedDecimalPattern.MatchString(string(*preview.Slippage))) || !validMessages(preview.BlockReasons, allowedBlockReasons) || !validMessages(preview.Warnings, allowedWarnings) || !validProductRules(preview.ProductRules, command, preview.PreviewedAt, now) {
 		return PreviewEvidence{}, nil, ErrUnsafeProviderEvidence
 	}
 	if preview.PreviewState == "READY" && (len(preview.BlockReasons) != 0 || !positive(preview.OrderTotal.Amount) || (!positive(preview.BaseSize) && !positive(preview.QuoteSize))) {
@@ -232,15 +251,65 @@ func normalizedEvidence(preview financial.SpotOrderPreview, command CreateComman
 	if preview.PreviewState == "BLOCKED" && len(preview.BlockReasons) == 0 {
 		return PreviewEvidence{}, nil, ErrUnsafeProviderEvidence
 	}
+	productRules := *preview.ProductRules
+	productRules.BlockReasons = append([]string(nil), preview.ProductRules.BlockReasons...)
 	evidence := PreviewEvidence{
 		Provider: preview.Provider, Feed: preview.Feed, PreviewState: preview.PreviewState,
 		BaseSize: preview.BaseSize, QuoteSize: preview.QuoteSize, OrderTotal: preview.OrderTotal, CommissionTotal: preview.CommissionTotal,
 		BestBid: preview.BestBid, BestAsk: preview.BestAsk, EstimatedAverageFilledPrice: preview.EstimatedAverageFilledPrice,
 		Slippage: preview.Slippage, ProviderTradingAuthorized: preview.ProviderTradingAuthorized,
 		BlockReasons: append([]string(nil), preview.BlockReasons...), Warnings: append([]string(nil), preview.Warnings...),
-		PreviewedAt: preview.PreviewedAt.UTC(), ExpiresAt: preview.PreviewedAt.UTC().Add(previewEvidenceLifetime),
+		PreviewedAt: preview.PreviewedAt.UTC(), ExpiresAt: preview.PreviewedAt.UTC().Add(previewEvidenceLifetime), ProductRules: &productRules,
 	}
 	return evidence, hashEvidence(evidence), nil
+}
+
+func validProductRules(rules *financial.SpotProductRules, command CreateCommand, previewedAt, now time.Time) bool {
+	if rules == nil || rules.Provider != "coinbase" || rules.Feed != "advanced_trade_product" || rules.ProductID != command.Symbol+"-USD" || rules.ProductType != "SPOT" || rules.BaseAsset != command.Symbol || rules.QuoteCurrency != "USD" || !storedProductStatusPattern.MatchString(rules.Status) || rules.ObservedAt.IsZero() || !rules.ObservedAt.Equal(previewedAt) || rules.ObservedAt.After(now.Add(5*time.Second)) || now.Sub(rules.ObservedAt) > 30*time.Second || !validMessages(rules.BlockReasons, allowedProductBlockReasons) || rules.MarketIOCEnabled != (len(rules.BlockReasons) == 0) {
+		return false
+	}
+	for _, value := range []financial.Decimal{rules.BaseIncrement, rules.QuoteIncrement, rules.BaseMinSize, rules.BaseMaxSize, rules.QuoteMinSize, rules.QuoteMaxSize} {
+		if !storedDecimalPattern.MatchString(string(value)) || !positive(value) {
+			return false
+		}
+	}
+	if compare(rules.BaseMinSize, rules.BaseMaxSize) > 0 || compare(rules.QuoteMinSize, rules.QuoteMaxSize) > 0 {
+		return false
+	}
+	if rules.Status != "ONLINE" && !hasReason(rules.BlockReasons, "PRODUCT_DISABLED") {
+		return false
+	}
+	minimum, maximum, increment := rules.BaseMinSize, rules.BaseMaxSize, rules.BaseIncrement
+	if command.Side == "BUY" {
+		minimum, maximum, increment = rules.QuoteMinSize, rules.QuoteMaxSize, rules.QuoteIncrement
+	}
+	return hasReason(rules.BlockReasons, "SIZE_BELOW_MINIMUM") == (compare(command.Size, minimum) < 0) &&
+		hasReason(rules.BlockReasons, "SIZE_ABOVE_MAXIMUM") == (compare(command.Size, maximum) > 0) &&
+		hasReason(rules.BlockReasons, "SIZE_INCREMENT_MISMATCH") == !multiple(command.Size, increment)
+}
+
+func compare(left, right financial.Decimal) int {
+	leftNumber, leftOK := new(big.Rat).SetString(string(left))
+	rightNumber, rightOK := new(big.Rat).SetString(string(right))
+	if !leftOK || !rightOK {
+		return 0
+	}
+	return leftNumber.Cmp(rightNumber)
+}
+
+func multiple(value, increment financial.Decimal) bool {
+	valueNumber, valueOK := new(big.Rat).SetString(string(value))
+	incrementNumber, incrementOK := new(big.Rat).SetString(string(increment))
+	return valueOK && incrementOK && incrementNumber.Sign() > 0 && new(big.Rat).Quo(valueNumber, incrementNumber).IsInt()
+}
+
+func hasReason(reasons []string, expected string) bool {
+	for _, reason := range reasons {
+		if reason == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func validMessages(values []string, allowed map[string]struct{}) bool {

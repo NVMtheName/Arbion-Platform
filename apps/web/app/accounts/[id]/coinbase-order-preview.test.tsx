@@ -43,6 +43,24 @@ describe("CoinbaseOrderPreview", () => {
           warnings: ["SMALL_ORDER"],
           provider_trading_authorized: true,
           previewed_at: "2026-08-21T17:00:00Z",
+          product_rules: {
+            provider: "coinbase",
+            feed: "advanced_trade_product",
+            product_id: "BTC-USD",
+            product_type: "SPOT",
+            base_asset: "BTC",
+            quote_currency: "USD",
+            base_increment: "0.00000001",
+            quote_increment: "0.01",
+            base_min_size: "0.00000001",
+            base_max_size: "1000",
+            quote_min_size: "1",
+            quote_max_size: "1000000",
+            status: "ONLINE",
+            market_ioc_enabled: true,
+            block_reasons: [],
+            observed_at: "2026-08-21T17:00:00Z",
+          },
         },
         preview_semantics: "PROVIDER_ESTIMATE_ONLY",
         provider_trading_authorized: true,
@@ -81,6 +99,9 @@ describe("CoinbaseOrderPreview", () => {
     );
     expect(await screen.findByText("READY")).toBeInTheDocument();
     expect(screen.getByText("60000.45 USD")).toBeInTheDocument();
+    expect(
+      screen.getByText("Market IOC enabled · 0.01 increment"),
+    ).toBeInTheDocument();
     expect(screen.getByText(/No order was created/)).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /submit|place|confirm order/i }),
@@ -153,6 +174,24 @@ describe("CoinbaseOrderPreview", () => {
       warnings: [],
       provider_trading_authorized: true,
       previewed_at: "2026-08-22T02:00:00Z",
+      product_rules: {
+        provider: "coinbase",
+        feed: "advanced_trade_product",
+        product_id: "BTC-USD",
+        product_type: "SPOT",
+        base_asset: "BTC",
+        quote_currency: "USD",
+        base_increment: "0.00000001",
+        quote_increment: "0.01",
+        base_min_size: "0.00000001",
+        base_max_size: "1000",
+        quote_min_size: "1",
+        quote_max_size: "1000000",
+        status: "ONLINE",
+        market_ioc_enabled: true,
+        block_reasons: [],
+        observed_at: "2026-08-22T02:00:00Z",
+      },
     };
     const envelope = (
       status: "REVIEW_REQUIRED" | "USER_APPROVED_NONEXECUTABLE",
@@ -234,6 +273,7 @@ describe("CoinbaseOrderPreview", () => {
     expect(
       screen.getByText(/Coinbase re-quoted the proposal/),
     ).toHaveTextContent("estimated total 25.50 USD plus 0.15 USD commission");
+    expect(screen.getByText(/product status ONLINE/)).toBeInTheDocument();
 
     const createBody = JSON.parse(
       fetchMock.mock.calls[1][1].body as string,

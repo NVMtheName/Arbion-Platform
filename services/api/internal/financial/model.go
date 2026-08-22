@@ -192,31 +192,53 @@ type SpotOrderPreviewRequest struct {
 	Size   Decimal `json:"size"`
 }
 
+// SpotProductRules is a freshness-bearing provider fact used to validate one
+// exact spot market order. It contains no account or order identifier.
+type SpotProductRules struct {
+	Provider         string    `json:"provider"`
+	Feed             string    `json:"feed"`
+	ProductID        string    `json:"product_id"`
+	ProductType      string    `json:"product_type"`
+	BaseAsset        string    `json:"base_asset"`
+	QuoteCurrency    string    `json:"quote_currency"`
+	BaseIncrement    Decimal   `json:"base_increment"`
+	QuoteIncrement   Decimal   `json:"quote_increment"`
+	BaseMinSize      Decimal   `json:"base_min_size"`
+	BaseMaxSize      Decimal   `json:"base_max_size"`
+	QuoteMinSize     Decimal   `json:"quote_min_size"`
+	QuoteMaxSize     Decimal   `json:"quote_max_size"`
+	Status           string    `json:"status"`
+	MarketIOCEnabled bool      `json:"market_ioc_enabled"`
+	BlockReasons     []string  `json:"block_reasons"`
+	ObservedAt       time.Time `json:"observed_at"`
+}
+
 // SpotOrderPreview is normalized provider evidence. Provider preview IDs are
 // intentionally excluded so this value cannot be replayed as submission
 // authority.
 type SpotOrderPreview struct {
-	Provider                    string    `json:"provider"`
-	Feed                        string    `json:"feed"`
-	ProductID                   string    `json:"product_id"`
-	BaseAsset                   string    `json:"base_asset"`
-	QuoteCurrency               string    `json:"quote_currency"`
-	Side                        string    `json:"side"`
-	OrderType                   string    `json:"order_type"`
-	RequestedSize               Money     `json:"requested_size"`
-	BaseSize                    Decimal   `json:"base_size"`
-	QuoteSize                   Decimal   `json:"quote_size"`
-	OrderTotal                  Money     `json:"order_total"`
-	CommissionTotal             Money     `json:"commission_total"`
-	BestBid                     *Money    `json:"best_bid,omitempty"`
-	BestAsk                     *Money    `json:"best_ask,omitempty"`
-	EstimatedAverageFilledPrice *Money    `json:"estimated_average_filled_price,omitempty"`
-	Slippage                    *Decimal  `json:"slippage,omitempty"`
-	PreviewState                string    `json:"preview_state"`
-	BlockReasons                []string  `json:"block_reasons"`
-	Warnings                    []string  `json:"warnings"`
-	ProviderTradingAuthorized   bool      `json:"provider_trading_authorized"`
-	PreviewedAt                 time.Time `json:"previewed_at"`
+	Provider                    string            `json:"provider"`
+	Feed                        string            `json:"feed"`
+	ProductID                   string            `json:"product_id"`
+	BaseAsset                   string            `json:"base_asset"`
+	QuoteCurrency               string            `json:"quote_currency"`
+	Side                        string            `json:"side"`
+	OrderType                   string            `json:"order_type"`
+	RequestedSize               Money             `json:"requested_size"`
+	BaseSize                    Decimal           `json:"base_size"`
+	QuoteSize                   Decimal           `json:"quote_size"`
+	OrderTotal                  Money             `json:"order_total"`
+	CommissionTotal             Money             `json:"commission_total"`
+	BestBid                     *Money            `json:"best_bid,omitempty"`
+	BestAsk                     *Money            `json:"best_ask,omitempty"`
+	EstimatedAverageFilledPrice *Money            `json:"estimated_average_filled_price,omitempty"`
+	Slippage                    *Decimal          `json:"slippage,omitempty"`
+	PreviewState                string            `json:"preview_state"`
+	BlockReasons                []string          `json:"block_reasons"`
+	Warnings                    []string          `json:"warnings"`
+	ProviderTradingAuthorized   bool              `json:"provider_trading_authorized"`
+	PreviewedAt                 time.Time         `json:"previewed_at"`
+	ProductRules                *SpotProductRules `json:"product_rules,omitempty"`
 }
 type Quote struct {
 	Symbol, AssetType    string

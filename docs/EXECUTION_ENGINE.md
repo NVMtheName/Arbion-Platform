@@ -52,7 +52,7 @@ The same strategy core uses Historical, Paper, Shadow, or future Live adapters a
 
 ## Implemented Coinbase preview boundary
 
-Arbion now has a narrow provider-independent `OrderPreviewProvider` implemented by the Coinbase adapter. It accepts only an authenticated owner-scoped account plus a canonical crypto symbol, BUY/SELL side, and exact positive amount. The adapter fixes the provider operation to a USD spot market IOC preview. BUY amounts are USD quote size; SELL amounts are base-asset size.
+Arbion now has a narrow provider-independent `OrderPreviewProvider` implemented by the Coinbase adapter. It accepts only an authenticated owner-scoped account plus a canonical crypto symbol, BUY/SELL side, and exact positive amount. Before preview, the adapter reads authenticated Coinbase product metadata and exactly validates the product identity, spot type, base/quote increments and bounds, status, and current market-IoC restriction flags. BUY amounts are USD quote size; SELL amounts are base-asset size. Invalid metadata fails closed; a safe restriction produces a blocked proposal.
 
 This operation calls Coinbase's real Advanced Trade preview endpoint and cannot submit an order. The immediate preview response contains normalized totals, commission, best bid/ask, estimated average fill, safe warning/block categories, and whether the encrypted key currently has Coinbase Trade permission. It excludes the Coinbase preview ID and every create/cancel/replace/transfer method. Browser responses state `order_created=false`, `submission_available=false`, `ai_execution_authority=false`, and `live_execution_available=false`.
 
@@ -65,7 +65,7 @@ Coinbase key enrollment requires View, permits Trade, and rejects Transfer. A pr
 Before a Coinbase `Create Order` adapter may exist, the following must be implemented and reviewed together:
 
 1. complete the current durable non-executing intent/review/event foundation with canonical live legs, execution approvals, dispatch attempts, provider correlation, and reconciliation records;
-2. exact product/precision metadata and a bounded preview-expiry policy;
+2. preserve the implemented exact product/precision evidence and bounded preview expiry through every later risk, approval, and dispatch transition;
 3. deterministic Risk/Control evaluation against current account, reserve, mandate, breaker, and market facts;
 4. explicit owner approval with step-up authentication for manual live orders, plus an immutable mandate path for any later automation;
 5. an Arbion-owned stable idempotency key used as Coinbase `client_order_id`, with a transactionally claimed dispatch attempt;
@@ -77,7 +77,7 @@ The AI-facing tool set may eventually include structured proposal and preview to
 
 ## Deferred decisions
 
-No live-order, dispatch-attempt, provider-correlation, broker-write, or reconciliation table/interface/job exists. The implemented `order_intents`, preview-evidence, proposal-review, and event tables deliberately cannot represent provider submission or execution approval. Canonical live order/leg schemas, product precision rules, provider mapping, webhook/poll strategy, cancellation/replacement semantics, correction handling, multi-leg guarantees, and live retry protocols require the approval gates above.
+No live-order, dispatch-attempt, provider-correlation, broker-write, or reconciliation table/interface/job exists. The implemented `order_intents`, preview/product-evidence, proposal-review, and event tables deliberately cannot represent provider submission or execution approval. Canonical live order/leg schemas, provider mapping, webhook/poll strategy, cancellation/replacement semantics, correction handling, multi-leg guarantees, and live retry protocols require the approval gates above.
 
 ## Proposed-action boundary
 
