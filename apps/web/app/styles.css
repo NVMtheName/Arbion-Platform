@@ -2252,6 +2252,18 @@ button:disabled {
   font-size: 0.8rem;
   line-height: 1.5;
 }
+.coinbase-intent-entry label {
+  display: grid;
+  gap: 7px;
+  min-width: min(300px, 100%);
+  color: #91a79d;
+  font-size: 0.75rem;
+  font-weight: 720;
+  letter-spacing: 0.04em;
+}
+.coinbase-intent-entry select {
+  min-height: 42px;
+}
 .coinbase-intent-entry button,
 .coinbase-intent-review button {
   min-height: 42px;
@@ -2293,6 +2305,43 @@ button:disabled {
 .coinbase-intent-result > p {
   color: #8ca298;
   line-height: 1.55;
+}
+.coinbase-risk-evidence {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid rgba(124, 235, 177, 0.16);
+  border-radius: 10px;
+  background: rgba(124, 235, 177, 0.035);
+}
+.coinbase-risk-evidence > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.coinbase-risk-evidence span {
+  color: #71877c;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+}
+.coinbase-risk-evidence > div strong {
+  color: #9ff1c2;
+  letter-spacing: 0.08em;
+}
+.coinbase-risk-evidence p,
+.coinbase-risk-evidence ul {
+  color: #8ca298;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.coinbase-risk-evidence ul {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 0;
+  padding-left: 18px;
+}
+.coinbase-risk-evidence li strong {
+  color: #b9f3df;
 }
 .coinbase-intent-review {
   display: flex;

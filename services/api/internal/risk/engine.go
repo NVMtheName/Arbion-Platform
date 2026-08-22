@@ -23,7 +23,7 @@ type Engine struct{ rules []Rule }
 
 func NewEngine() *Engine {
 	return &Engine{rules: []Rule{
-		rule{AuthorizationDenied, authorizationRule}, rule{CircuitBreakerActive, breakerRule}, rule{MandateNotReady, mandateRule}, rule{AutonomyDenied, autonomyRule}, rule{StaleAccountData, stalenessRule}, rule{SymbolNotAllowed, universeRule}, rule{OptionsNotAllowed, optionsRule}, rule{MarginNotAllowed, marginRule}, rule{CapitalLimitExceeded, capitalRule}, rule{PositionLimitExceeded, positionRule}, rule{DailyLossLimitExceeded, activityRule},
+		rule{AuthorizationDenied, authorizationRule}, rule{CircuitBreakerActive, breakerRule}, rule{MandateNotReady, mandateRule}, rule{CapitalPolicyRequired, capitalPolicyRule}, rule{AutonomyDenied, autonomyRule}, rule{StaleAccountData, stalenessRule}, rule{SymbolNotAllowed, universeRule}, rule{OptionsNotAllowed, optionsRule}, rule{MarginNotAllowed, marginRule}, rule{InsufficientPosition, holdingRule}, rule{CapitalLimitExceeded, capitalRule}, rule{PositionLimitExceeded, positionRule}, rule{DailyLossLimitExceeded, activityRule},
 	}}
 }
 func check(code ReasonCode, ok bool, message string) RiskCheck {
@@ -51,6 +51,8 @@ func (e *Engine) Evaluate(c EvaluationContext, a ProposedAction) RiskEvaluation 
 	}
 	if c.Mandate != nil {
 		out.Mode = c.Mandate.ExecutionMode
+	} else {
+		out.Mode = "MANUAL_PROPOSAL"
 	}
 	for _, r := range e.rules {
 		x := r.Evaluate(&c, a)
@@ -66,7 +68,7 @@ func (e *Engine) Evaluate(c EvaluationContext, a ProposedAction) RiskEvaluation 
 	}
 	if out.Decision == Allow {
 		out.ReasonCodes = append(out.ReasonCodes, Allowed)
-		if c.Mandate != nil && c.Mandate.AutonomyLevel == "CONFIRM_EACH" {
+		if c.Mandate == nil || c.Mandate.AutonomyLevel == "CONFIRM_EACH" {
 			out.ApprovalRequired = true
 			out.Warnings = append(out.Warnings, AutonomyRequiresApproval)
 		}
@@ -75,6 +77,28 @@ func (e *Engine) Evaluate(c EvaluationContext, a ProposedAction) RiskEvaluation 
 		}
 	}
 	return out
+}
+
+func capitalPolicyRule(c *EvaluationContext, a ProposedAction) RiskCheck {
+	if c.Mandate != nil {
+		return check(CapitalPolicyRequired, true, "The exact mandate owns the capital-policy binding.")
+	}
+	bucket := c.Bucket
+	if bucket == nil || bucket.ID == "" || bucket.UserID != c.UserID || bucket.AccountID != a.FinancialAccountID || bucket.Status != "ACTIVE" || bucket.IsReserve || bucket.Currency != "USD" {
+		return check(CapitalPolicyRequired, false, "An active, non-reserve USD capital bucket bound to this account is required.")
+	}
+	allocation := mustPositive(bucket.AllocationValue)
+	protected := rat(bucket.ProtectedAmount)
+	if allocation == nil || protected == nil || protected.Sign() < 0 || (bucket.AllocationType != "FIXED_AMOUNT" && bucket.AllocationType != "PERCENT_OF_AVAILABLE_CASH" && bucket.AllocationType != "PERCENT_OF_BUYING_POWER") {
+		return check(CapitalPolicyRequired, false, "The selected capital bucket is not safely evaluable.")
+	}
+	if bucket.AllocationType != "FIXED_AMOUNT" && allocation.Cmp(big.NewRat(100, 1)) > 0 {
+		return check(CapitalPolicyRequired, false, "The selected percentage allocation exceeds its policy ceiling.")
+	}
+	if bucket.AllocationLimit != nil && mustPositive(*bucket.AllocationLimit) == nil {
+		return check(CapitalPolicyRequired, false, "The selected capital bucket has an invalid absolute limit.")
+	}
+	return check(CapitalPolicyRequired, true, "The manual proposal is bound to an active owner/account capital policy.")
 }
 func authorizationRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 	if c.UserID == "" || !c.FinancialEntitled || !c.AccountOwned {
@@ -230,6 +254,31 @@ func mustPositive(s string) *big.Rat {
 	}
 	return x
 }
+
+func holdingRule(c *EvaluationContext, a ProposedAction) RiskCheck {
+	if c.Mandate != nil || (a.ActionType != ActionSell && a.ActionType != ActionCloseOption) {
+		return check(InsufficientPosition, true, "No manual holding-quantity check is required.")
+	}
+	quantity := mustPositive(a.Quantity)
+	if quantity == nil || c.Account == nil {
+		return check(InsufficientPosition, false, "The requested sell quantity or account holdings are unavailable.")
+	}
+	available := rat("0")
+	for _, position := range c.Account.Positions {
+		if strings.EqualFold(position.Instrument, a.Instrument) {
+			value := rat(position.AvailableQuantity)
+			if value == nil || value.Sign() < 0 {
+				return check(InsufficientPosition, false, "The available holding quantity is invalid.")
+			}
+			available = add(available, value)
+		}
+	}
+	if available.Cmp(quantity) < 0 {
+		return check(InsufficientPosition, false, "The requested sell exceeds the current available holding.")
+	}
+	return check(InsufficientPosition, true, "The current available holding covers the requested sell quantity.")
+}
+
 func add(a, b *big.Rat) *big.Rat                 { return new(big.Rat).Add(a, b) }
 func sub(a, b *big.Rat) *big.Rat                 { return new(big.Rat).Sub(a, b) }
 func cmp(a, b *big.Rat) int                      { return a.Cmp(b) }
@@ -247,9 +296,6 @@ func capitalRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 	}
 	if cmp(n, mustPositive(c.Account.BuyingPower)) > 0 {
 		return check(InsufficientBuyingPower, false, "Proposed notional exceeds current buying power.")
-	}
-	if c.Mandate == nil {
-		return check(CapitalLimitExceeded, true, "No mandate capital bucket applies.")
 	}
 	b := c.Bucket
 	allocation := rat(b.AllocationValue)
@@ -272,10 +318,13 @@ func capitalRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 			allocation = lim
 		}
 	}
-	deployed := rat(c.Account.CurrentExposure)
+	deployed := rat("0")
+	if c.Mandate != nil {
+		deployed = rat(c.Account.CurrentExposure)
+	}
 	protected := rat(b.ProtectedAmount)
 	reserve := rat("0")
-	if c.Mandate.MinimumCashReserve != nil {
+	if c.Mandate != nil && c.Mandate.MinimumCashReserve != nil {
 		reserve = rat(*c.Mandate.MinimumCashReserve)
 	}
 	if allocation == nil || deployed == nil || protected == nil || reserve == nil {
@@ -288,7 +337,7 @@ func capitalRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 	if cash == nil || cmp(sub(cash, n), reserve) < 0 {
 		return check(ReserveViolation, false, "Proposed action would violate the required cash reserve.")
 	}
-	if c.Mandate.MaxCapitalDeployed != nil && cmp(add(deployed, n), rat(*c.Mandate.MaxCapitalDeployed)) > 0 {
+	if c.Mandate != nil && c.Mandate.MaxCapitalDeployed != nil && cmp(add(deployed, n), rat(*c.Mandate.MaxCapitalDeployed)) > 0 {
 		return check(CapitalLimitExceeded, false, "Proposed action exceeds maximum deployed capital.")
 	}
 	return check(CapitalLimitExceeded, true, "Capital bucket, buying power, deployment, and reserve limits pass.")

@@ -14,6 +14,7 @@ import {
   type CryptoPortfolioSnapshot,
   type CryptoVenueStats,
 } from "./crypto-portfolio-command-center";
+import type { CoinbaseCapitalPolicy } from "./coinbase-order-preview";
 type Money = { amount: string; currency: string };
 type Account = {
   id: string;
@@ -109,6 +110,7 @@ export default async function AccountPage({
       liquidityResponse,
       marketTradesResponse,
       venueStatsResponse,
+      bucketsResponse,
     ] = await Promise.all([
       fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/fills`, {
         headers,
@@ -149,7 +151,66 @@ export default async function AccountPage({
             { headers, cache: "no-store" },
           )
         : Promise.resolve(undefined),
+      fetch(`${base}/api/capital-buckets`, {
+        headers,
+        cache: "no-store",
+      }),
     ]);
+    let capitalPolicies: CoinbaseCapitalPolicy[] = [];
+    if (bucketsResponse.ok) {
+      const bucketPayload = (await bucketsResponse.json()) as {
+        capital_buckets?: Record<string, unknown>[];
+      };
+      capitalPolicies = (bucketPayload.capital_buckets ?? [])
+        .map((bucket): CoinbaseCapitalPolicy | undefined => {
+          const financialAccountID = String(
+            bucket.FinancialAccountID ?? bucket.financial_account_id ?? "",
+          );
+          const status = String(bucket.Status ?? bucket.status ?? "");
+          const currency = String(bucket.Currency ?? bucket.currency ?? "");
+          const isReserve = Boolean(bucket.IsReserve ?? bucket.is_reserve);
+          const allocationType = String(
+            bucket.AllocationType ?? bucket.allocation_type ?? "",
+          );
+          if (
+            financialAccountID !== id ||
+            status !== "ACTIVE" ||
+            currency !== "USD" ||
+            isReserve ||
+            ![
+              "FIXED_AMOUNT",
+              "PERCENT_OF_AVAILABLE_CASH",
+              "PERCENT_OF_BUYING_POWER",
+            ].includes(allocationType)
+          ) {
+            return undefined;
+          }
+          const rawLimit =
+            bucket.AllocationLimit ?? bucket.allocation_limit ?? undefined;
+          return {
+            id: String(bucket.ID ?? bucket.id ?? ""),
+            financialAccountID,
+            name: String(bucket.Name ?? bucket.name ?? "Capital policy"),
+            allocationType:
+              allocationType as CoinbaseCapitalPolicy["allocationType"],
+            allocationValue: String(
+              bucket.AllocationValue ?? bucket.allocation_value ?? "",
+            ),
+            currency: "USD",
+            isReserve: false,
+            protectedAmount: String(
+              bucket.ProtectedAmount ?? bucket.protected_amount ?? "0",
+            ),
+            ...(rawLimit === undefined || rawLimit === null
+              ? {}
+              : { allocationLimit: String(rawLimit) }),
+            status: "ACTIVE",
+          };
+        })
+        .filter((policy): policy is CoinbaseCapitalPolicy =>
+          Boolean(policy?.id && policy.allocationValue),
+        );
+    }
     if (activityResponse.ok) {
       const activityPayload = (await activityResponse.json()) as {
         activity: CoinbaseTradeActivity;
@@ -205,6 +266,7 @@ export default async function AccountPage({
         <AppPageHeader backHref="/accounts" backLabel="Accounts" />
         <CryptoPortfolioCommandCenter
           accountID={account.id}
+          capitalPolicies={capitalPolicies}
           initialActivity={initialActivity}
           initialHistory={initialHistory}
           initialHistoryCached={initialHistoryCached}

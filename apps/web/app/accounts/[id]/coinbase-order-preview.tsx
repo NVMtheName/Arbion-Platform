@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
+import Link from "next/link";
 import { type FormEvent, useMemo, useState } from "react";
 
 type Money = { amount: string; currency: string };
@@ -61,9 +62,53 @@ type PreviewResponse = {
   error?: { message?: string };
 };
 
+export type CoinbaseCapitalPolicy = {
+  id: string;
+  financialAccountID: string;
+  name: string;
+  allocationType:
+    | "FIXED_AMOUNT"
+    | "PERCENT_OF_AVAILABLE_CASH"
+    | "PERCENT_OF_BUYING_POWER";
+  allocationValue: string;
+  currency: "USD";
+  isReserve: false;
+  protectedAmount: string;
+  allocationLimit?: string;
+  status: "ACTIVE";
+};
+
+type RiskCheck = {
+  code: string;
+  result: "PASS" | "FAIL" | "WARN";
+  message: string;
+};
+
+type ManualRiskEvidence = {
+  policy_version: "manual_coinbase_spot.v1";
+  evaluation_id: string;
+  capital_bucket_id: string;
+  capital_bucket_name: string;
+  allocation_type: CoinbaseCapitalPolicy["allocationType"];
+  allocation_value: string;
+  protected_amount: string;
+  allocation_limit?: string;
+  account_available_cash: Money;
+  target_available_quantity: string;
+  proposed_notional: Money;
+  decision: "ALLOW" | "DENY";
+  reason_codes: string[];
+  warnings: string[];
+  checks: RiskCheck[];
+  approval_required: boolean;
+  platform_execution_available: false;
+  observed_at: string;
+};
+
 type OrderIntent = {
   id: string;
   financial_account_id: string;
+  capital_bucket_id: string;
   source: "UI" | "AI" | "HYBRID";
   provider: "coinbase";
   product_id: string;
@@ -85,6 +130,7 @@ type OrderIntent = {
     expires_at: string;
     product_rules: ProductRules;
   };
+  risk: ManualRiskEvidence;
   review_scope: "PROPOSAL_REVIEW_ONLY";
   submission_available: false;
   risk_approval_available: false;
@@ -128,10 +174,96 @@ const productBlockReasons = new Set([
   "SIZE_INCREMENT_MISMATCH",
 ]);
 
+const manualRiskCodes = new Set([
+  "ALLOWED",
+  "AUTHORIZATION_DENIED",
+  "ACCOUNT_OWNERSHIP_MISMATCH",
+  "CONNECTION_UNAVAILABLE",
+  "CIRCUIT_BREAKER_ACTIVE",
+  "MANDATE_NOT_READY",
+  "CAPITAL_POLICY_REQUIRED",
+  "AUTONOMY_DENIED",
+  "AUTONOMY_REQUIRES_APPROVAL",
+  "STALE_ACCOUNT_DATA",
+  "SYMBOL_NOT_ALLOWED",
+  "OPTIONS_NOT_ALLOWED",
+  "MARGIN_NOT_ALLOWED",
+  "INSUFFICIENT_POSITION",
+  "CAPITAL_LIMIT_EXCEEDED",
+  "RESERVE_VIOLATION",
+  "INSUFFICIENT_BUYING_POWER",
+  "POSITION_LIMIT_EXCEEDED",
+  "DAILY_LOSS_LIMIT_EXCEEDED",
+  "INVALID_ACTION",
+]);
+
 function safePositiveDecimal(value: string) {
   return (
     /^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$/.test(value) &&
     !/^0(?:\.0+)?$/.test(value)
+  );
+}
+
+function safeUnsignedDecimal(value: string) {
+  return /^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$/.test(value);
+}
+
+function safeManualRisk(
+  risk: ManualRiskEvidence | undefined,
+  policy: CoinbaseCapitalPolicy | undefined,
+  previewedAt: string,
+  expiresAt: string,
+) {
+  if (!risk || !policy) return false;
+  const reasonSets = [risk.reason_codes, risk.warnings];
+  const observed = Date.parse(risk.observed_at);
+  return Boolean(
+    risk.policy_version === "manual_coinbase_spot.v1" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+        risk.evaluation_id,
+      ) &&
+      risk.capital_bucket_id === policy.id &&
+      risk.capital_bucket_name === policy.name &&
+      risk.allocation_type === policy.allocationType &&
+      canonicalDecimal(risk.allocation_value) ===
+        canonicalDecimal(policy.allocationValue) &&
+      safePositiveDecimal(risk.allocation_value) &&
+      canonicalDecimal(risk.protected_amount) ===
+        canonicalDecimal(policy.protectedAmount) &&
+      safeUnsignedDecimal(risk.protected_amount) &&
+      canonicalDecimal(risk.allocation_limit ?? "") ===
+        canonicalDecimal(policy.allocationLimit ?? "") &&
+      (risk.allocation_limit === undefined ||
+        safePositiveDecimal(risk.allocation_limit)) &&
+      risk.account_available_cash.currency === "USD" &&
+      risk.proposed_notional.currency === "USD" &&
+      safeUnsignedDecimal(risk.account_available_cash.amount) &&
+      safeUnsignedDecimal(risk.target_available_quantity) &&
+      safePositiveDecimal(risk.proposed_notional.amount) &&
+      ["ALLOW", "DENY"].includes(risk.decision) &&
+      risk.approval_required === (risk.decision === "ALLOW") &&
+      risk.platform_execution_available === false &&
+      Number.isFinite(observed) &&
+      observed >= Date.parse(previewedAt) &&
+      observed < Date.parse(expiresAt) &&
+      reasonSets.every(
+        (codes) =>
+          Array.isArray(codes) &&
+          codes.length <= 20 &&
+          new Set(codes).size === codes.length &&
+          codes.every((code) => manualRiskCodes.has(code)),
+      ) &&
+      risk.reason_codes.length > 0 &&
+      Array.isArray(risk.checks) &&
+      risk.checks.length > 0 &&
+      risk.checks.length <= 20 &&
+      risk.checks.every(
+        (check) =>
+          manualRiskCodes.has(check.code) &&
+          ["PASS", "FAIL", "WARN"].includes(check.result) &&
+          check.message.trim().length > 0 &&
+          check.message.length <= 240,
+      ),
   );
 }
 
@@ -175,6 +307,7 @@ function safeIntentEnvelope(
   symbol: string,
   side: "BUY" | "SELL",
   size: string,
+  policy: CoinbaseCapitalPolicy | undefined,
 ) {
   const intent = body.order_intent;
   const requestedCurrency = side === "BUY" ? "USD" : symbol;
@@ -182,6 +315,7 @@ function safeIntentEnvelope(
     intent &&
       intent.id &&
       intent.financial_account_id === accountID &&
+      intent.capital_bucket_id === policy?.id &&
       intent.source === "UI" &&
       intent.provider === "coinbase" &&
       intent.product_id === `${symbol}-USD` &&
@@ -194,6 +328,13 @@ function safeIntentEnvelope(
         symbol,
         intent.preview.previewed_at,
       ) &&
+      safeManualRisk(
+        intent.risk,
+        policy,
+        intent.preview.previewed_at,
+        intent.preview.expires_at,
+      ) &&
+      (intent.status === "BLOCKED" || intent.risk.decision === "ALLOW") &&
       intent.requested_size.currency === requestedCurrency &&
       canonicalDecimal(intent.requested_size.amount) ===
         canonicalDecimal(size) &&
@@ -220,10 +361,12 @@ export function CoinbaseOrderPreview({
   accountID,
   symbols,
   tradingAuthorized,
+  capitalPolicies,
 }: {
   accountID: string;
   symbols: string[];
   tradingAuthorized: boolean;
+  capitalPolicies: CoinbaseCapitalPolicy[];
 }) {
   const choices = useMemo(
     () => [...new Set(symbols.map((symbol) => symbol.toUpperCase()))].sort(),
@@ -239,6 +382,12 @@ export function CoinbaseOrderPreview({
   const [intentBusy, setIntentBusy] = useState(false);
   const [intentError, setIntentError] = useState("");
   const [mfaCode, setMFACode] = useState("");
+  const [capitalBucketID, setCapitalBucketID] = useState(
+    capitalPolicies[0]?.id ?? "",
+  );
+  const selectedPolicy = capitalPolicies.find(
+    (policy) => policy.id === capitalBucketID,
+  );
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -298,7 +447,7 @@ export function CoinbaseOrderPreview({
   }
 
   async function createIntent() {
-    if (!preview || !size) return;
+    if (!preview || !size || !selectedPolicy) return;
     setIntentBusy(true);
     setIntentError("");
     try {
@@ -311,6 +460,7 @@ export function CoinbaseOrderPreview({
             symbol,
             side,
             size,
+            capital_bucket_id: selectedPolicy.id,
             idempotency_key: crypto.randomUUID(),
           }),
         },
@@ -322,7 +472,9 @@ export function CoinbaseOrderPreview({
         );
         return;
       }
-      if (!safeIntentEnvelope(body, accountID, symbol, side, size)) {
+      if (
+        !safeIntentEnvelope(body, accountID, symbol, side, size, selectedPolicy)
+      ) {
         setIntentError("Arbion rejected an unsafe order-intent response.");
         return;
       }
@@ -360,7 +512,14 @@ export function CoinbaseOrderPreview({
       }
       const reviewed = body.order_intent;
       if (
-        !safeIntentEnvelope(body, accountID, symbol, side, size) ||
+        !safeIntentEnvelope(
+          body,
+          accountID,
+          symbol,
+          side,
+          size,
+          selectedPolicy,
+        ) ||
         !reviewed ||
         reviewed.id !== intent.id ||
         reviewed.status !== "USER_APPROVED_NONEXECUTABLE" ||
@@ -525,12 +684,37 @@ export function CoinbaseOrderPreview({
             <div>
               <strong>Build a durable proposal</strong>
               <p>
-                Save this idea with immutable preview evidence and a replay-safe
-                request key. This still cannot create a Coinbase order.
+                Bind this idea to one of your account capital policies, then
+                save immutable Coinbase and risk evidence. This still cannot
+                create a Coinbase order.
               </p>
             </div>
+            {capitalPolicies.length > 0 ? (
+              <label>
+                Capital policy
+                <select
+                  aria-label="Coinbase proposal capital policy"
+                  disabled={Boolean(intent)}
+                  onChange={(event) => setCapitalBucketID(event.target.value)}
+                  value={capitalBucketID}
+                >
+                  {capitalPolicies.map((policy) => (
+                    <option key={policy.id} value={policy.id}>
+                      {policy.name} · {policy.allocationValue}{" "}
+                      {policy.allocationType === "FIXED_AMOUNT" ? "USD" : "%"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <p className="coinbase-preview-blocks">
+                Create an active, non-reserve USD capital bucket for this
+                Coinbase account before saving a proposal.{" "}
+                <Link href="/automations">Create capital policy</Link>
+              </p>
+            )}
             <button
-              disabled={intentBusy || Boolean(intent)}
+              disabled={intentBusy || Boolean(intent) || !selectedPolicy}
               onClick={() => void createIntent()}
               type="button"
             >
@@ -569,6 +753,25 @@ export function CoinbaseOrderPreview({
             {intent.preview.product_rules.status} and expires at{" "}
             {new Date(intent.preview.expires_at).toLocaleTimeString()}.
           </p>
+          <div className="coinbase-risk-evidence">
+            <div>
+              <span>DETERMINISTIC CAPITAL GATE</span>
+              <strong>{intent.risk.decision}</strong>
+            </div>
+            <p>
+              {intent.risk.capital_bucket_name} · proposed notional{" "}
+              {exactMoney(intent.risk.proposed_notional)} · available cash{" "}
+              {exactMoney(intent.risk.account_available_cash)}
+            </p>
+            <ul>
+              {intent.risk.checks.map((check) => (
+                <li key={`${check.code}-${check.result}`}>
+                  <strong>{check.result}</strong> {label(check.code)} —{" "}
+                  {check.message}
+                </li>
+              ))}
+            </ul>
+          </div>
           {intent.status === "REVIEW_REQUIRED" && (
             <div className="coinbase-intent-review">
               <label>
@@ -596,8 +799,10 @@ export function CoinbaseOrderPreview({
           )}
           {intent.status === "BLOCKED" && (
             <p className="coinbase-preview-blocks">
-              This proposal is recorded but blocked. Confirm Coinbase Trade is
-              enabled, Transfer is disabled, and request a fresh preview.
+              This proposal is recorded but blocked by Coinbase product
+              controls, account permissions, or Arbion&apos;s deterministic
+              capital policy. Review the failed checks and request a fresh
+              preview after correcting them.
             </p>
           )}
           <p className="coinbase-intent-boundary">

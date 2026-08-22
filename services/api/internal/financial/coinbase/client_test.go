@@ -124,7 +124,7 @@ func TestClientConnectsViewOnlyPortfolioAndNormalizesHoldings(t *testing.T) {
 		t.Fatalf("unexpected balances: %#v %v", balances, err)
 	}
 	positions, err := client.GetPositions(context.Background(), &credentials, accounts[0].ProviderAccountID)
-	if err != nil || len(positions) != 2 || positions[0].Symbol != "BTC" || positions[0].Quantity != "0.12000000" || positions[1].Symbol != "ETH" {
+	if err != nil || len(positions) != 2 || positions[0].Symbol != "BTC" || positions[0].Quantity != "0.12000000" || positions[0].AvailableQuantity == nil || *positions[0].AvailableQuantity != "0.10000000" || positions[1].Symbol != "ETH" {
 		t.Fatalf("unexpected positions: %#v %v", positions, err)
 	}
 	if requests < 7 {

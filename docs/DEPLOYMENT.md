@@ -163,8 +163,9 @@ Manual Coinbase connection and proposal test (never enable Transfer and never pl
 3. Confirm Arbion accepts the connection, creates one masked Coinbase portfolio account, records the Trade grant only as provider capability, and never redisplays the key.
 4. Confirm USD cash and nonzero crypto holdings load, then run **Sync** and confirm no duplicate portfolio record appears.
 5. On the connected account, request a small real Coinbase preview and confirm the page shows the current product status and exact Coinbase size increment, says no order was created, and exposes no provider preview ID. Confirm a size that violates the displayed increment is blocked.
-6. Save the preview as a durable proposal, verify the saved Coinbase re-quote and product status, and review it with a fresh authenticator code. Confirm the result is `USER_APPROVED_NONEXECUTABLE`, scope is `PROPOSAL_REVIEW_ONLY`, and no Coinbase order appears.
-7. Disable and re-enable the connection to confirm re-verification; disconnect it and separately revoke the key in Coinbase only when intentionally testing teardown.
+6. Create or select an active, non-reserve USD Capital Bucket bound to this Coinbase account. Save the preview as a durable proposal and verify the saved Coinbase re-quote, product status, exact proposed notional, available cash, selected policy, and deterministic check results. Confirm an over-capacity BUY or over-holding SELL is retained as `BLOCKED` and cannot consume MFA.
+7. For an allowed proposal, review it with a fresh authenticator code. Confirm the result is `USER_APPROVED_NONEXECUTABLE`, scope is `PROPOSAL_REVIEW_ONLY`, and no Coinbase order appears.
+8. Disable and re-enable the connection to confirm re-verification; disconnect it and separately revoke the key in Coinbase only when intentionally testing teardown.
 
 Guarded scheduler activation (never place an order):
 

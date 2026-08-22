@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/risk"
 )
 
 const (
@@ -23,10 +24,11 @@ const (
 )
 
 type CreateCommand struct {
-	Symbol         string            `json:"symbol"`
-	Side           string            `json:"side"`
-	Size           financial.Decimal `json:"size"`
-	IdempotencyKey string            `json:"idempotency_key"`
+	Symbol          string            `json:"symbol"`
+	Side            string            `json:"side"`
+	Size            financial.Decimal `json:"size"`
+	CapitalBucketID string            `json:"capital_bucket_id"`
+	IdempotencyKey  string            `json:"idempotency_key"`
 }
 
 type ReviewCommand struct {
@@ -54,27 +56,50 @@ type PreviewEvidence struct {
 	ProductRules                *financial.SpotProductRules `json:"product_rules,omitempty"`
 }
 
+type ManualRiskEvidence struct {
+	PolicyVersion           string             `json:"policy_version"`
+	EvaluationID            string             `json:"evaluation_id"`
+	CapitalBucketID         string             `json:"capital_bucket_id"`
+	CapitalBucketName       string             `json:"capital_bucket_name"`
+	AllocationType          string             `json:"allocation_type"`
+	AllocationValue         financial.Decimal  `json:"allocation_value"`
+	ProtectedAmount         financial.Decimal  `json:"protected_amount"`
+	AllocationLimit         *financial.Decimal `json:"allocation_limit,omitempty"`
+	AccountAvailableCash    financial.Money    `json:"account_available_cash"`
+	TargetAvailableQuantity financial.Decimal  `json:"target_available_quantity"`
+	ProposedNotional        financial.Money    `json:"proposed_notional"`
+	Decision                risk.Decision      `json:"decision"`
+	ReasonCodes             []risk.ReasonCode  `json:"reason_codes"`
+	Warnings                []risk.ReasonCode  `json:"warnings"`
+	Checks                  []risk.RiskCheck   `json:"checks"`
+	ApprovalRequired        bool               `json:"approval_required"`
+	PlatformExecution       bool               `json:"platform_execution_available"`
+	ObservedAt              time.Time          `json:"observed_at"`
+}
+
 type Intent struct {
-	ID                     string          `json:"id"`
-	FinancialAccountID     string          `json:"financial_account_id"`
-	Source                 string          `json:"source"`
-	Provider               string          `json:"provider"`
-	ProductID              string          `json:"product_id"`
-	BaseAsset              string          `json:"base_asset"`
-	QuoteCurrency          string          `json:"quote_currency"`
-	Side                   string          `json:"side"`
-	OrderType              string          `json:"order_type"`
-	RequestedSize          financial.Money `json:"requested_size"`
-	Status                 string          `json:"status"`
-	Version                int64           `json:"version"`
-	Preview                PreviewEvidence `json:"preview"`
-	ReviewScope            string          `json:"review_scope"`
-	SubmissionAvailable    bool            `json:"submission_available"`
-	RiskApprovalAvailable  bool            `json:"risk_approval_available"`
-	AIExecutionAuthority   bool            `json:"ai_execution_authority"`
-	LiveExecutionAvailable bool            `json:"live_execution_available"`
-	CreatedAt              time.Time       `json:"created_at"`
-	UpdatedAt              time.Time       `json:"updated_at"`
+	ID                     string              `json:"id"`
+	FinancialAccountID     string              `json:"financial_account_id"`
+	CapitalBucketID        string              `json:"capital_bucket_id"`
+	Source                 string              `json:"source"`
+	Provider               string              `json:"provider"`
+	ProductID              string              `json:"product_id"`
+	BaseAsset              string              `json:"base_asset"`
+	QuoteCurrency          string              `json:"quote_currency"`
+	Side                   string              `json:"side"`
+	OrderType              string              `json:"order_type"`
+	RequestedSize          financial.Money     `json:"requested_size"`
+	Status                 string              `json:"status"`
+	Version                int64               `json:"version"`
+	Preview                PreviewEvidence     `json:"preview"`
+	Risk                   *ManualRiskEvidence `json:"risk,omitempty"`
+	ReviewScope            string              `json:"review_scope"`
+	SubmissionAvailable    bool                `json:"submission_available"`
+	RiskApprovalAvailable  bool                `json:"risk_approval_available"`
+	AIExecutionAuthority   bool                `json:"ai_execution_authority"`
+	LiveExecutionAvailable bool                `json:"live_execution_available"`
+	CreatedAt              time.Time           `json:"created_at"`
+	UpdatedAt              time.Time           `json:"updated_at"`
 }
 
 type draft struct {
