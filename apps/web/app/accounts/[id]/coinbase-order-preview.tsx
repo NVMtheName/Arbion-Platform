@@ -5,6 +5,25 @@ import { type FormEvent, useMemo, useState } from "react";
 
 type Money = { amount: string; currency: string };
 
+type ProductRules = {
+  provider: "coinbase";
+  feed: "advanced_trade_product";
+  product_id: string;
+  product_type: "SPOT";
+  base_asset: string;
+  quote_currency: "USD";
+  base_increment: string;
+  quote_increment: string;
+  base_min_size: string;
+  base_max_size: string;
+  quote_min_size: string;
+  quote_max_size: string;
+  status: string;
+  market_ioc_enabled: boolean;
+  block_reasons: string[];
+  observed_at: string;
+};
+
 type Preview = {
   provider: "coinbase";
   feed: "advanced_trade_order_preview";
@@ -27,6 +46,7 @@ type Preview = {
   warnings: string[];
   provider_trading_authorized: boolean;
   previewed_at: string;
+  product_rules: ProductRules;
 };
 
 type PreviewResponse = {
@@ -63,6 +83,7 @@ type OrderIntent = {
     warnings: string[];
     previewed_at: string;
     expires_at: string;
+    product_rules: ProductRules;
   };
   review_scope: "PROPOSAL_REVIEW_ONLY";
   submission_available: false;
@@ -96,6 +117,58 @@ function canonicalDecimal(value: string) {
   return trimmed ? `${whole}.${trimmed}` : whole;
 }
 
+const productBlockReasons = new Set([
+  "PRODUCT_AUCTION_MODE",
+  "PRODUCT_CANCEL_ONLY",
+  "PRODUCT_DISABLED",
+  "PRODUCT_LIMIT_ONLY",
+  "PRODUCT_POST_ONLY",
+  "SIZE_ABOVE_MAXIMUM",
+  "SIZE_BELOW_MINIMUM",
+  "SIZE_INCREMENT_MISMATCH",
+]);
+
+function safePositiveDecimal(value: string) {
+  return (
+    /^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$/.test(value) &&
+    !/^0(?:\.0+)?$/.test(value)
+  );
+}
+
+function safeProductRules(
+  rules: ProductRules | undefined,
+  symbol: string,
+  previewedAt: string,
+) {
+  const reasons = rules?.block_reasons;
+  return Boolean(
+    rules &&
+      rules.provider === "coinbase" &&
+      rules.feed === "advanced_trade_product" &&
+      rules.product_id === `${symbol}-USD` &&
+      rules.product_type === "SPOT" &&
+      rules.base_asset === symbol &&
+      rules.quote_currency === "USD" &&
+      [
+        rules.base_increment,
+        rules.quote_increment,
+        rules.base_min_size,
+        rules.base_max_size,
+        rules.quote_min_size,
+        rules.quote_max_size,
+      ].every(safePositiveDecimal) &&
+      /^[A-Z][A-Z0-9_-]{0,31}$/.test(rules.status) &&
+      Array.isArray(reasons) &&
+      reasons.length <= 20 &&
+      new Set(reasons).size === reasons.length &&
+      reasons.every((reason) => productBlockReasons.has(reason)) &&
+      (rules.status === "ONLINE" || reasons.includes("PRODUCT_DISABLED")) &&
+      rules.market_ioc_enabled === (reasons.length === 0) &&
+      rules.observed_at === previewedAt &&
+      !Number.isNaN(Date.parse(rules.observed_at)),
+  );
+}
+
 function safeIntentEnvelope(
   body: OrderIntentResponse,
   accountID: string,
@@ -116,6 +189,11 @@ function safeIntentEnvelope(
       intent.quote_currency === "USD" &&
       intent.side === side &&
       intent.order_type === "MARKET_IOC" &&
+      safeProductRules(
+        intent.preview.product_rules,
+        symbol,
+        intent.preview.previewed_at,
+      ) &&
       intent.requested_size.currency === requestedCurrency &&
       canonicalDecimal(intent.requested_size.amount) ===
         canonicalDecimal(size) &&
@@ -194,6 +272,11 @@ export function CoinbaseOrderPreview({
         body.preview.quote_currency !== "USD" ||
         body.preview.product_id !== `${symbol}-USD` ||
         body.preview.side !== side ||
+        !safeProductRules(
+          body.preview.product_rules,
+          symbol,
+          body.preview.previewed_at,
+        ) ||
         body.preview_semantics !== "PROVIDER_ESTIMATE_ONLY" ||
         body.provider_trading_authorized !==
           body.preview.provider_trading_authorized ||
@@ -414,6 +497,14 @@ export function CoinbaseOrderPreview({
                   : "Not granted"}
               </dd>
             </div>
+            <div>
+              <dt>Product control</dt>
+              <dd>
+                {preview.product_rules.market_ioc_enabled
+                  ? `Market IOC enabled · ${side === "BUY" ? preview.product_rules.quote_increment : preview.product_rules.base_increment} increment`
+                  : "Market IOC blocked"}
+              </dd>
+            </div>
           </dl>
           {preview.block_reasons.length > 0 && (
             <p className="coinbase-preview-blocks">
@@ -474,7 +565,8 @@ export function CoinbaseOrderPreview({
             when it was saved: estimated total{" "}
             {exactMoney(intent.preview.order_total)} plus{" "}
             {exactMoney(intent.preview.commission_total)} commission. This saved
-            evidence expires at{" "}
+            evidence includes Coinbase product status{" "}
+            {intent.preview.product_rules.status} and expires at{" "}
             {new Date(intent.preview.expires_at).toLocaleTimeString()}.
           </p>
           {intent.status === "REVIEW_REQUIRED" && (

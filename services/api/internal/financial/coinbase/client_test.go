@@ -175,6 +175,11 @@ func TestClientPreviewsTradeAuthorizedSpotBuyWithoutCreatingAnOrder(t *testing.T
 				t.Fatalf("permission check used %s", request.Method)
 			}
 			_, _ = response.Write([]byte(`{"can_view":true,"can_trade":true,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+		case "/api/v3/brokerage/products/BTC-USD":
+			if request.Method != http.MethodGet || request.URL.RawQuery != "" {
+				t.Fatalf("unsafe product-rules request: %s %s", request.Method, request.URL.RawQuery)
+			}
+			_, _ = response.Write([]byte(`{"product_id":"BTC-USD","product_type":"SPOT","base_currency_id":"BTC","quote_currency_id":"USD","base_increment":"0.00000001","quote_increment":"0.01","base_min_size":"0.00000001","base_max_size":"1000","quote_min_size":"1","quote_max_size":"1000000","status":"online","is_disabled":false,"trading_disabled":false,"cancel_only":false,"limit_only":false,"post_only":false,"auction_mode":false}`))
 		case "/api/v3/brokerage/orders/preview":
 			if request.Method != http.MethodPost || request.Header.Get("Content-Type") != "application/json" {
 				t.Fatalf("unsafe preview request: %s %s", request.Method, request.Header.Get("Content-Type"))
@@ -210,7 +215,7 @@ func TestClientPreviewsTradeAuthorizedSpotBuyWithoutCreatingAnOrder(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.PreviewState != "READY" || !preview.ProviderTradingAuthorized || preview.ProductID != "BTC-USD" || preview.RequestedSize.Amount != "25.50" || preview.RequestedSize.Currency != "USD" || preview.CommissionTotal.Amount != "0.15" || preview.EstimatedAverageFilledPrice == nil || preview.EstimatedAverageFilledPrice.Amount != "60000.45" || len(preview.Warnings) != 1 || preview.Warnings[0] != "SMALL_ORDER" || preview.PreviewedAt != now {
+	if preview.PreviewState != "READY" || !preview.ProviderTradingAuthorized || preview.ProductID != "BTC-USD" || preview.RequestedSize.Amount != "25.50" || preview.RequestedSize.Currency != "USD" || preview.CommissionTotal.Amount != "0.15" || preview.EstimatedAverageFilledPrice == nil || preview.EstimatedAverageFilledPrice.Amount != "60000.45" || len(preview.Warnings) != 1 || preview.Warnings[0] != "SMALL_ORDER" || preview.PreviewedAt != now || preview.ProductRules == nil || !preview.ProductRules.MarketIOCEnabled || preview.ProductRules.Status != "ONLINE" || preview.ProductRules.QuoteIncrement != "0.01" || preview.ProductRules.ObservedAt != now {
 		t.Fatalf("preview lost normalized provider evidence: %#v", preview)
 	}
 	encoded, err := json.Marshal(preview)
@@ -223,11 +228,16 @@ func TestClientNormalizesBlockedPreviewWithoutRawProviderReasons(t *testing.T) {
 	credentials, _ := testCredentials(t)
 	credentials.PortfolioID = "portfolio-123"
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/api/v3/brokerage/key_permissions" {
+		switch request.URL.Path {
+		case "/api/v3/brokerage/key_permissions":
 			_, _ = response.Write([]byte(`{"can_view":true,"can_trade":false,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
-			return
+		case "/api/v3/brokerage/products/ETH-USD":
+			_, _ = response.Write([]byte(`{"product_id":"ETH-USD","product_type":"SPOT","base_currency_id":"ETH","quote_currency_id":"USD","base_increment":"0.0001","quote_increment":"0.01","base_min_size":"0.001","base_max_size":"1000","quote_min_size":"1","quote_max_size":"1000000","status":"online","is_disabled":false,"trading_disabled":false,"cancel_only":false,"limit_only":false,"post_only":false,"auction_mode":false}`))
+		case "/api/v3/brokerage/orders/preview":
+			_, _ = response.Write([]byte(`{"order_total":"0","commission_total":"0","errs":["PREVIEW_INSUFFICIENT_LEDGER_BALANCE","PREVIEW_GEOFENCING_RESTRICTION"],"warning":[],"quote_size":"0","base_size":"0","best_bid":"60000","best_ask":"60001","preview_id":""}`))
+		default:
+			http.NotFound(response, request)
 		}
-		_, _ = response.Write([]byte(`{"order_total":"0","commission_total":"0","errs":["PREVIEW_INSUFFICIENT_LEDGER_BALANCE","PREVIEW_GEOFENCING_RESTRICTION"],"warning":[],"quote_size":"0","base_size":"0","best_bid":"60000","best_ask":"60001","preview_id":""}`))
 	}))
 	defer server.Close()
 	client, err := New(Config{BaseURL: server.URL}, server.Client())
@@ -244,6 +254,37 @@ func TestClientNormalizesBlockedPreviewWithoutRawProviderReasons(t *testing.T) {
 	encoded, _ := json.Marshal(preview)
 	if strings.Contains(string(encoded), "LEDGER") || strings.Contains(string(encoded), "GEOFENCING") {
 		t.Fatalf("raw provider reason escaped: %s", encoded)
+	}
+}
+
+func TestClientProductRulesFailClosedForMarketIOC(t *testing.T) {
+	credentials, _ := testCredentials(t)
+	credentials.PortfolioID = "portfolio-123"
+	now := time.Date(2026, 8, 21, 18, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/api/v3/brokerage/key_permissions":
+			_, _ = response.Write([]byte(`{"can_view":true,"can_trade":true,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+		case "/api/v3/brokerage/products/BTC-USD":
+			_, _ = response.Write([]byte(`{"product_id":"BTC-USD","product_type":"SPOT","base_currency_id":"BTC","quote_currency_id":"USD","base_increment":"0.00000001","quote_increment":"0.10","base_min_size":"0.00000001","base_max_size":"1000","quote_min_size":"1","quote_max_size":"1000000","status":"offline","is_disabled":false,"trading_disabled":false,"cancel_only":false,"limit_only":false,"post_only":false,"auction_mode":false}`))
+		case "/api/v3/brokerage/orders/preview":
+			_, _ = response.Write([]byte(`{"order_total":"25.55","commission_total":"0.15","errs":[],"warning":[],"quote_size":"25.55","base_size":"0.0004249","best_bid":"59990.12","best_ask":"60001.34","preview_id":"private-preview-id","est_average_filled_price":"60000.45"}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.now = func() time.Time { return now }
+	preview, err := client.PreviewSpotOrder(context.Background(), &credentials, "portfolio:portfolio-123", financial.SpotOrderPreviewRequest{Symbol: "BTC", Side: "BUY", Size: "25.55"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.PreviewState != "BLOCKED" || preview.ProductRules == nil || preview.ProductRules.MarketIOCEnabled || len(preview.ProductRules.BlockReasons) != 2 || preview.ProductRules.BlockReasons[0] != "PRODUCT_DISABLED" || preview.ProductRules.BlockReasons[1] != "SIZE_INCREMENT_MISMATCH" || len(preview.BlockReasons) != 2 {
+		t.Fatalf("product controls did not fail closed: %#v", preview)
 	}
 }
 

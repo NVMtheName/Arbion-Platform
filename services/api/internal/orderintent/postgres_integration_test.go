@@ -64,13 +64,16 @@ func TestPostgresOrderIntentIsIdempotentOwnerScopedImmutableAndNonExecuting(t *t
 		Intent: Intent{
 			FinancialAccountID: accountID, Source: SourceUI, Provider: "coinbase", ProductID: "BTC-USD", BaseAsset: "BTC", QuoteCurrency: "USD", Side: "BUY", OrderType: "MARKET_IOC",
 			RequestedSize: financial.Money{Amount: "25.50", Currency: "USD"}, Status: ReviewRequired, Version: 1,
-			Preview:   PreviewEvidence{Provider: "coinbase", Feed: "advanced_trade_order_preview", PreviewState: "READY", BaseSize: "0.0004249", QuoteSize: "25.50", OrderTotal: financial.Money{Amount: "25.50", Currency: "USD"}, CommissionTotal: financial.Money{Amount: "0.15", Currency: "USD"}, ProviderTradingAuthorized: true, BlockReasons: []string{}, Warnings: []string{"SMALL_ORDER"}, PreviewedAt: now, ExpiresAt: now.Add(time.Minute)},
+			Preview: PreviewEvidence{
+				Provider: "coinbase", Feed: "advanced_trade_order_preview", PreviewState: "READY", BaseSize: "0.0004249", QuoteSize: "25.50", OrderTotal: financial.Money{Amount: "25.50", Currency: "USD"}, CommissionTotal: financial.Money{Amount: "0.15", Currency: "USD"}, ProviderTradingAuthorized: true, BlockReasons: []string{}, Warnings: []string{"SMALL_ORDER"}, PreviewedAt: now, ExpiresAt: now.Add(time.Minute),
+				ProductRules: &financial.SpotProductRules{Provider: "coinbase", Feed: "advanced_trade_product", ProductID: "BTC-USD", ProductType: "SPOT", BaseAsset: "BTC", QuoteCurrency: "USD", BaseIncrement: "0.00000001", QuoteIncrement: "0.01", BaseMinSize: "0.00000001", BaseMaxSize: "1000", QuoteMinSize: "1", QuoteMaxSize: "1000000", Status: "ONLINE", MarketIOCEnabled: true, BlockReasons: []string{}, ObservedAt: now},
+			},
 			CreatedAt: now, UpdatedAt: now,
 		},
 	}
 	store := NewPostgresStore(pool)
 	created, storedHash, err := store.Create(ctx, input)
-	if err != nil || created.ID == "" || created.Status != ReviewRequired || created.Version != 1 || created.RequestedSize.Amount != "25.5" || !equalHash(storedHash, requestDigest[:]) {
+	if err != nil || created.ID == "" || created.Status != ReviewRequired || created.Version != 1 || created.RequestedSize.Amount != "25.5" || created.Preview.ProductRules == nil || created.Preview.ProductRules.QuoteIncrement != "0.01" || !created.Preview.ProductRules.MarketIOCEnabled || !equalHash(storedHash, requestDigest[:]) {
 		t.Fatalf("unexpected stored intent: %#v hash=%x err=%v", created, storedHash, err)
 	}
 	replayed, replayHash, err := store.Create(ctx, input)

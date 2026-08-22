@@ -18,7 +18,7 @@ type PostgresStore struct{ db *pgxpool.Pool }
 
 func NewPostgresStore(db *pgxpool.Pool) *PostgresStore { return &PostgresStore{db: db} }
 
-const intentColumns = `i.id::text,i.financial_account_id::text,i.source,i.provider_name,i.product_id,i.base_asset,i.quote_currency,i.side,i.order_type,i.requested_size::text,i.requested_size_currency,i.status,i.version,i.created_at,i.updated_at,p.provider_name,p.feed,p.preview_state,p.base_size::text,p.quote_size::text,p.order_total::text,p.commission_total::text,p.best_bid::text,p.best_ask::text,p.estimated_average_filled_price::text,p.slippage::text,p.provider_trading_authorized,p.block_reasons,p.warnings,p.previewed_at,p.expires_at,p.evidence_hash`
+const intentColumns = `i.id::text,i.financial_account_id::text,i.source,i.provider_name,i.product_id,i.base_asset,i.quote_currency,i.side,i.order_type,i.requested_size::text,i.requested_size_currency,i.status,i.version,i.created_at,i.updated_at,p.provider_name,p.feed,p.preview_state,p.base_size::text,p.quote_size::text,p.order_total::text,p.commission_total::text,p.best_bid::text,p.best_ask::text,p.estimated_average_filled_price::text,p.slippage::text,p.provider_trading_authorized,p.block_reasons,p.warnings,p.previewed_at,p.expires_at,p.evidence_hash,p.product_rules_feed,p.product_type,p.product_status,p.base_increment::text,p.quote_increment::text,p.base_min_size::text,p.base_max_size::text,p.quote_min_size::text,p.quote_max_size::text,p.product_market_ioc_enabled,p.product_block_reasons,p.product_rules_observed_at`
 
 func scanIntent(row pgx.Row) (Intent, []byte, error) {
 	var intent Intent
@@ -33,12 +33,19 @@ func scanIntent(row pgx.Row) (Intent, []byte, error) {
 	var blockReasonsJSON []byte
 	var warningsJSON []byte
 	var evidenceHash []byte
+	var productFeed, productType, productStatus *string
+	var baseIncrement, quoteIncrement, baseMin, baseMax, quoteMin, quoteMax *string
+	var productMarketIOCEnabled *bool
+	var productBlockReasonsJSON []byte
+	var productObservedAt *time.Time
 	err := row.Scan(
 		&intent.ID, &intent.FinancialAccountID, &intent.Source, &intent.Provider, &intent.ProductID, &intent.BaseAsset, &intent.QuoteCurrency,
 		&intent.Side, &intent.OrderType, &requestedAmount, &requestedCurrency, &intent.Status, &intent.Version, &intent.CreatedAt, &intent.UpdatedAt,
 		&intent.Preview.Provider, &intent.Preview.Feed, &intent.Preview.PreviewState, &intent.Preview.BaseSize, &intent.Preview.QuoteSize,
 		&orderTotal, &commissionTotal, &bestBid, &bestAsk, &estimatedPrice, &slippage, &intent.Preview.ProviderTradingAuthorized,
 		&blockReasonsJSON, &warningsJSON, &intent.Preview.PreviewedAt, &intent.Preview.ExpiresAt, &evidenceHash,
+		&productFeed, &productType, &productStatus, &baseIncrement, &quoteIncrement, &baseMin, &baseMax, &quoteMin, &quoteMax,
+		&productMarketIOCEnabled, &productBlockReasonsJSON, &productObservedAt,
 	)
 	if err != nil {
 		return Intent{}, nil, err
@@ -66,6 +73,22 @@ func scanIntent(row pgx.Row) (Intent, []byte, error) {
 	}
 	if err = json.Unmarshal(warningsJSON, &intent.Preview.Warnings); err != nil {
 		return Intent{}, nil, err
+	}
+	if productFeed != nil {
+		if productType == nil || productStatus == nil || baseIncrement == nil || quoteIncrement == nil || baseMin == nil || baseMax == nil || quoteMin == nil || quoteMax == nil || productMarketIOCEnabled == nil || productObservedAt == nil {
+			return Intent{}, nil, errors.New("incomplete stored product rules")
+		}
+		productRules := &financial.SpotProductRules{
+			Provider: "coinbase", Feed: *productFeed, ProductID: intent.ProductID, ProductType: *productType, BaseAsset: intent.BaseAsset, QuoteCurrency: intent.QuoteCurrency,
+			BaseIncrement: financial.Decimal(canonicalStoredDecimal(*baseIncrement)), QuoteIncrement: financial.Decimal(canonicalStoredDecimal(*quoteIncrement)),
+			BaseMinSize: financial.Decimal(canonicalStoredDecimal(*baseMin)), BaseMaxSize: financial.Decimal(canonicalStoredDecimal(*baseMax)),
+			QuoteMinSize: financial.Decimal(canonicalStoredDecimal(*quoteMin)), QuoteMaxSize: financial.Decimal(canonicalStoredDecimal(*quoteMax)),
+			Status: *productStatus, MarketIOCEnabled: *productMarketIOCEnabled, ObservedAt: *productObservedAt,
+		}
+		if err = json.Unmarshal(productBlockReasonsJSON, &productRules.BlockReasons); err != nil {
+			return Intent{}, nil, err
+		}
+		intent.Preview.ProductRules = productRules
 	}
 	intent.ReviewScope = ProposalReviewOnly
 	intent.SubmissionAvailable = false
@@ -125,7 +148,14 @@ func (store *PostgresStore) Create(ctx context.Context, input draft) (Intent, []
 	if err != nil {
 		return Intent{}, nil, err
 	}
-	_, err = transaction.Exec(ctx, `INSERT INTO order_intent_previews(order_intent_id,intent_version,provider_name,feed,preview_state,base_size,quote_size,order_total,commission_total,best_bid,best_ask,estimated_average_filled_price,slippage,provider_trading_authorized,block_reasons,warnings,evidence_hash,previewed_at,expires_at,created_at) VALUES($1,1,'coinbase','advanced_trade_order_preview',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`, intentID, input.Preview.PreviewState, input.Preview.BaseSize, input.Preview.QuoteSize, input.Preview.OrderTotal.Amount, input.Preview.CommissionTotal.Amount, moneyAmount(input.Preview.BestBid), moneyAmount(input.Preview.BestAsk), moneyAmount(input.Preview.EstimatedAverageFilledPrice), decimalValue(input.Preview.Slippage), input.Preview.ProviderTradingAuthorized, blocks, warnings, input.EvidenceHash, input.Preview.PreviewedAt, input.Preview.ExpiresAt, input.CreatedAt)
+	if input.Preview.ProductRules == nil {
+		return Intent{}, nil, ErrUnsafeProviderEvidence
+	}
+	productBlocks, err := json.Marshal(input.Preview.ProductRules.BlockReasons)
+	if err != nil {
+		return Intent{}, nil, err
+	}
+	_, err = transaction.Exec(ctx, `INSERT INTO order_intent_previews(order_intent_id,intent_version,provider_name,feed,preview_state,base_size,quote_size,order_total,commission_total,best_bid,best_ask,estimated_average_filled_price,slippage,provider_trading_authorized,block_reasons,warnings,evidence_hash,previewed_at,expires_at,created_at,product_rules_feed,product_type,product_status,base_increment,quote_increment,base_min_size,base_max_size,quote_min_size,quote_max_size,product_market_ioc_enabled,product_block_reasons,product_rules_observed_at) VALUES($1,1,'coinbase','advanced_trade_order_preview',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'advanced_trade_product','SPOT',$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)`, intentID, input.Preview.PreviewState, input.Preview.BaseSize, input.Preview.QuoteSize, input.Preview.OrderTotal.Amount, input.Preview.CommissionTotal.Amount, moneyAmount(input.Preview.BestBid), moneyAmount(input.Preview.BestAsk), moneyAmount(input.Preview.EstimatedAverageFilledPrice), decimalValue(input.Preview.Slippage), input.Preview.ProviderTradingAuthorized, blocks, warnings, input.EvidenceHash, input.Preview.PreviewedAt, input.Preview.ExpiresAt, input.CreatedAt, input.Preview.ProductRules.Status, input.Preview.ProductRules.BaseIncrement, input.Preview.ProductRules.QuoteIncrement, input.Preview.ProductRules.BaseMinSize, input.Preview.ProductRules.BaseMaxSize, input.Preview.ProductRules.QuoteMinSize, input.Preview.ProductRules.QuoteMaxSize, input.Preview.ProductRules.MarketIOCEnabled, productBlocks, input.Preview.ProductRules.ObservedAt)
 	if err != nil {
 		return Intent{}, nil, err
 	}

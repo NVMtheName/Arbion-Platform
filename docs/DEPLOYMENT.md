@@ -22,7 +22,7 @@ Use a patched Linux host with Docker Engine, Compose v2, `curl`, `jq`, `openssl`
 Copy `.env.production.example` to ignored `.env.production` and populate it only on the host:
 
 - `ARBION_ENV=production`;
-- `NONLIVE_SCHEDULER_ENABLED=false` for the initial migration and smoke test. Change it to `true` only after the current schema (19) is confirmed and the guarded scheduler validation below passes;
+- `NONLIVE_SCHEDULER_ENABLED=false` for the initial migration and smoke test. Change it to `true` only after the current schema (20) is confirmed and the guarded scheduler validation below passes;
 - PostgreSQL database/user and a strong `POSTGRES_PASSWORD`;
 - `DATABASE_URL` with matching non-development credentials. Bundled private PostgreSQL may use `postgres://...@postgres:5432/arbion?sslmode=disable` only inside this host; external databases must use TLS;
 - `REDIS_URL=redis://redis:6379/0`;
@@ -162,8 +162,8 @@ Manual Coinbase connection and proposal test (never enable Transfer and never pl
 2. Sign into Arbion, open **Settings → Connections → Coinbase**, and enter the full `organizations/.../apiKeys/...` key name and EC private key.
 3. Confirm Arbion accepts the connection, creates one masked Coinbase portfolio account, records the Trade grant only as provider capability, and never redisplays the key.
 4. Confirm USD cash and nonzero crypto holdings load, then run **Sync** and confirm no duplicate portfolio record appears.
-5. On the connected account, request a small real Coinbase preview and confirm the page says no order was created and exposes no provider preview ID.
-6. Save the preview as a durable proposal, verify the saved Coinbase re-quote, and review it with a fresh authenticator code. Confirm the result is `USER_APPROVED_NONEXECUTABLE`, scope is `PROPOSAL_REVIEW_ONLY`, and no Coinbase order appears.
+5. On the connected account, request a small real Coinbase preview and confirm the page shows the current product status and exact Coinbase size increment, says no order was created, and exposes no provider preview ID. Confirm a size that violates the displayed increment is blocked.
+6. Save the preview as a durable proposal, verify the saved Coinbase re-quote and product status, and review it with a fresh authenticator code. Confirm the result is `USER_APPROVED_NONEXECUTABLE`, scope is `PROPOSAL_REVIEW_ONLY`, and no Coinbase order appears.
 7. Disable and re-enable the connection to confirm re-verification; disconnect it and separately revoke the key in Coinbase only when intentionally testing teardown.
 
 Guarded scheduler activation (never place an order):

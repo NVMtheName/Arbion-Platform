@@ -35,22 +35,23 @@ type ReviewCommand struct {
 }
 
 type PreviewEvidence struct {
-	Provider                    string             `json:"provider"`
-	Feed                        string             `json:"feed"`
-	PreviewState                string             `json:"preview_state"`
-	BaseSize                    financial.Decimal  `json:"base_size"`
-	QuoteSize                   financial.Decimal  `json:"quote_size"`
-	OrderTotal                  financial.Money    `json:"order_total"`
-	CommissionTotal             financial.Money    `json:"commission_total"`
-	BestBid                     *financial.Money   `json:"best_bid,omitempty"`
-	BestAsk                     *financial.Money   `json:"best_ask,omitempty"`
-	EstimatedAverageFilledPrice *financial.Money   `json:"estimated_average_filled_price,omitempty"`
-	Slippage                    *financial.Decimal `json:"slippage,omitempty"`
-	ProviderTradingAuthorized   bool               `json:"provider_trading_authorized"`
-	BlockReasons                []string           `json:"block_reasons"`
-	Warnings                    []string           `json:"warnings"`
-	PreviewedAt                 time.Time          `json:"previewed_at"`
-	ExpiresAt                   time.Time          `json:"expires_at"`
+	Provider                    string                      `json:"provider"`
+	Feed                        string                      `json:"feed"`
+	PreviewState                string                      `json:"preview_state"`
+	BaseSize                    financial.Decimal           `json:"base_size"`
+	QuoteSize                   financial.Decimal           `json:"quote_size"`
+	OrderTotal                  financial.Money             `json:"order_total"`
+	CommissionTotal             financial.Money             `json:"commission_total"`
+	BestBid                     *financial.Money            `json:"best_bid,omitempty"`
+	BestAsk                     *financial.Money            `json:"best_ask,omitempty"`
+	EstimatedAverageFilledPrice *financial.Money            `json:"estimated_average_filled_price,omitempty"`
+	Slippage                    *financial.Decimal          `json:"slippage,omitempty"`
+	ProviderTradingAuthorized   bool                        `json:"provider_trading_authorized"`
+	BlockReasons                []string                    `json:"block_reasons"`
+	Warnings                    []string                    `json:"warnings"`
+	PreviewedAt                 time.Time                   `json:"previewed_at"`
+	ExpiresAt                   time.Time                   `json:"expires_at"`
+	ProductRules                *financial.SpotProductRules `json:"product_rules,omitempty"`
 }
 
 type Intent struct {

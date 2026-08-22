@@ -119,6 +119,11 @@ func fixture(now time.Time, tradingAuthorized bool) (*memoryStore, *financialFak
 		OrderTotal: financial.Money{Amount: "25.50", Currency: "USD"}, CommissionTotal: financial.Money{Amount: "0.15", Currency: "USD"},
 		EstimatedAverageFilledPrice: &financial.Money{Amount: "60000.45", Currency: "USD"}, PreviewState: "READY",
 		BlockReasons: []string{}, Warnings: []string{"SMALL_ORDER"}, ProviderTradingAuthorized: tradingAuthorized, PreviewedAt: now,
+		ProductRules: &financial.SpotProductRules{
+			Provider: "coinbase", Feed: "advanced_trade_product", ProductID: "BTC-USD", ProductType: "SPOT", BaseAsset: "BTC", QuoteCurrency: "USD",
+			BaseIncrement: "0.00000001", QuoteIncrement: "0.01", BaseMinSize: "0.00000001", BaseMaxSize: "1000", QuoteMinSize: "1", QuoteMaxSize: "1000000",
+			Status: "ONLINE", MarketIOCEnabled: true, BlockReasons: []string{}, ObservedAt: now,
+		},
 	}}
 	stepUp := &stepUpFake{verifiedAt: now.Add(10 * time.Second)}
 	audit := &auditFake{}
@@ -169,6 +174,28 @@ func TestViewOnlyProviderCreatesBlockedProposalAndCannotReview(t *testing.T) {
 	}
 }
 
+func TestProductControlsCreateBlockedProposalAndCannotReview(t *testing.T) {
+	now := time.Date(2026, 8, 22, 2, 0, 0, 0, time.UTC)
+	_, provider, stepUp, _, service := fixture(now, true)
+	provider.preview.PreviewState = "BLOCKED"
+	provider.preview.BlockReasons = []string{"PRODUCT_LIMIT_ONLY"}
+	provider.preview.ProductRules.MarketIOCEnabled = false
+	provider.preview.ProductRules.BlockReasons = []string{"PRODUCT_LIMIT_ONLY"}
+	intent, err := service.CreateUI(context.Background(), founder(), "account-1", CreateCommand{Symbol: "BTC", Side: "BUY", Size: "25.50", IdempotencyKey: "intent-key-123456789"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if intent.Status != Blocked || intent.Preview.ProductRules == nil || intent.Preview.ProductRules.MarketIOCEnabled || len(intent.Preview.BlockReasons) != 1 || intent.Preview.BlockReasons[0] != "PRODUCT_LIMIT_ONLY" {
+		t.Fatalf("product controls were not persisted as a block: %#v", intent)
+	}
+	if _, err = service.Review(context.Background(), founder(), intent.ID, ReviewCommand{ExpectedVersion: 1, MFACode: "123456"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("product-blocked proposal review returned %v", err)
+	}
+	if stepUp.calls != 0 {
+		t.Fatal("product-blocked proposal consumed MFA")
+	}
+}
+
 func TestReviewConsumesStepUpAndRemainsNonExecutable(t *testing.T) {
 	now := time.Date(2026, 8, 22, 2, 0, 0, 0, time.UTC)
 	store, _, stepUp, audit, service := fixture(now, true)
@@ -214,6 +241,12 @@ func TestCreateRejectsUnsafeProviderEvidence(t *testing.T) {
 		{name: "blocked without reason", mutate: func(preview *financial.SpotOrderPreview) {
 			preview.PreviewState = "BLOCKED"
 			preview.BlockReasons = nil
+		}},
+		{name: "missing product rules", mutate: func(preview *financial.SpotOrderPreview) { preview.ProductRules = nil }},
+		{name: "mismatched product increment", mutate: func(preview *financial.SpotOrderPreview) { preview.ProductRules.QuoteIncrement = "0.04" }},
+		{name: "non-online product without block", mutate: func(preview *financial.SpotOrderPreview) { preview.ProductRules.Status = "OFFLINE" }},
+		{name: "unsafe product reason", mutate: func(preview *financial.SpotOrderPreview) {
+			preview.ProductRules.BlockReasons = []string{"RAW_PRODUCT_TEXT"}
 		}},
 	}
 	for _, test := range tests {

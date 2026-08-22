@@ -216,3 +216,20 @@ func TestOrderIntentFoundationIsOwnerScopedImmutableAndNonExecuting(t *testing.T
 		}
 	}
 }
+
+func TestOrderIntentProductRulesAreBoundedAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00020_order_intent_product_rules.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"order_intent_previews", "advanced_trade_product", "base_increment", "quote_increment", "base_min_size", "base_max_size", "quote_min_size", "quote_max_size", "product_market_ioc_enabled", "product_block_reasons", "product_status='ONLINE' OR product_block_reasons", "product_rules_observed_at=previewed_at", "order_intent_product_rules_all_or_none"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("order intent product-rule migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order_id", "client_order_id", "preview_id", "SUBMITTED", "FILLED"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("order intent product-rule migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
