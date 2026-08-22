@@ -2,7 +2,7 @@
 
 ## Status, topology, and safety boundary
 
-This repository supports PAPER simulation, SHADOW intent recording, read-only real Schwab data, view-only Coinbase portfolio holdings, and an opt-in guarded non-live scheduler. There is no provider-write interface, order-submission adapter, live-trading implementation, or live feature flag.
+This repository supports PAPER simulation, SHADOW intent recording, read-only real Schwab data, private Coinbase account reads, non-executing Coinbase order previews, and an opt-in guarded non-live scheduler. Coinbase enrollment requires View, may record Trade, and rejects Transfer. There is no provider-write interface, order-submission adapter, live-trading implementation, or live feature flag.
 
 ```text
 Internet :80/:443 -> Caddy (only published service)

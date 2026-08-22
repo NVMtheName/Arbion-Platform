@@ -39,6 +39,7 @@ export type FinancialAccount = {
   provider: string;
   display_name: string;
   status: string;
+  capabilities?: Record<string, "SUPPORTED" | "UNSUPPORTED" | "UNKNOWN">;
 };
 export default async function ConnectionsPage() {
   const jar = await cookies();
@@ -95,12 +96,12 @@ export default async function ConnectionsPage() {
         className="financial-connections"
         aria-labelledby="financial-title"
       >
-        <p className="eyebrow">READ-ONLY</p>
+        <p className="eyebrow">CONNECTED ACCOUNT CONTROL</p>
         <h2 id="financial-title">Financial Accounts</h2>
         <p className="security-note">
           Arbion uses provider authorization. Never enter your brokerage
-          password into Arbion. Buying power is information, not trading
-          permission.
+          password into Arbion. Provider trading permission is recorded
+          separately from Arbion approval and execution authority.
         </p>
         <div className="provider-list">
           {financial.providers.map((provider) => (
@@ -109,7 +110,7 @@ export default async function ConnectionsPage() {
               {provider.availability === "implemented" &&
               provider.configured ? (
                 <>
-                  <p>Secure read-only account connection</p>
+                  <p>Secure private account connection</p>
                   <FinancialManager
                     provider={provider}
                     entitled={financial.can_connect_financial_accounts}

@@ -595,7 +595,7 @@ func (h *authHandler) connectedTradingCosts(writer stdhttp.ResponseWriter, reque
 	}
 	writeJSON(writer, stdhttp.StatusOK, map[string]any{
 		"trading_costs": summary, "summary_semantics": "PROVIDER_FEE_TIER_SNAPSHOT",
-		"order_preview_available": false, "order_actions_available": false, "live_execution_available": false,
+		"order_preview_available": true, "order_actions_available": false, "live_execution_available": false,
 	})
 }
 

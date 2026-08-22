@@ -1,6 +1,7 @@
 package coinbase
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -33,8 +34,11 @@ const (
 )
 
 var (
-	keyNamePattern  = regexp.MustCompile(`^organizations/[A-Za-z0-9_-]+/apiKeys/[A-Za-z0-9_-]+$`)
-	currencyPattern = regexp.MustCompile(`^[A-Z0-9][A-Z0-9._-]{0,31}$`)
+	keyNamePattern         = regexp.MustCompile(`^organizations/[A-Za-z0-9_-]+/apiKeys/[A-Za-z0-9_-]+$`)
+	currencyPattern        = regexp.MustCompile(`^[A-Z0-9][A-Z0-9._-]{0,31}$`)
+	previewSymbolPattern   = regexp.MustCompile(`^[A-Z][A-Z0-9]{0,15}$`)
+	previewDecimalPattern  = regexp.MustCompile(`^(0|[1-9][0-9]{0,17})(\.[0-9]{1,18})?$`)
+	providerDecimalPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?$`)
 )
 
 type Config struct {
@@ -51,6 +55,7 @@ type Client struct {
 var _ financial.TradeHistoryProvider = (*Client)(nil)
 var _ financial.OrderHistoryProvider = (*Client)(nil)
 var _ financial.TradingCostProvider = (*Client)(nil)
+var _ financial.OrderPreviewProvider = (*Client)(nil)
 
 func New(cfg Config, client *http.Client) (*Client, error) {
 	baseURL := strings.TrimSpace(cfg.BaseURL)
@@ -85,10 +90,11 @@ func (c *Client) VerifyConnection(ctx context.Context, credentials *financial.Cr
 		return err
 	}
 	portfolioID := strings.TrimSpace(value.PortfolioUUID)
-	if !value.CanView || value.CanTrade || value.CanTransfer || portfolioID == "" || (credentials.PortfolioID != "" && credentials.PortfolioID != portfolioID) {
+	if !value.CanView || value.CanTransfer || portfolioID == "" || (credentials.PortfolioID != "" && credentials.PortfolioID != portfolioID) {
 		return &financial.ProviderError{Code: financial.PermissionDenied}
 	}
 	credentials.PortfolioID = portfolioID
+	credentials.ProviderCanTrade = value.CanTrade
 	return nil
 }
 
@@ -182,6 +188,54 @@ type transactionSummary struct {
 	HasCostPlusCommission   bool            `json:"has_cost_plus_commission"`
 }
 
+type providerDecimal string
+
+func (value *providerDecimal) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || len(data) > 132 {
+		return errors.New("invalid provider decimal")
+	}
+	text := string(data)
+	if data[0] == '"' {
+		if err := json.Unmarshal(data, &text); err != nil {
+			return err
+		}
+	}
+	text = strings.TrimSpace(text)
+	if text != "" && (!providerDecimalPattern.MatchString(text) || len(text) > 128) {
+		return errors.New("invalid provider decimal")
+	}
+	*value = providerDecimal(text)
+	return nil
+}
+
+type providerPreview struct {
+	OrderTotal                  providerDecimal `json:"order_total"`
+	CommissionTotal             providerDecimal `json:"commission_total"`
+	Errors                      []string        `json:"errs"`
+	Warning                     []string        `json:"warning"`
+	QuoteSize                   providerDecimal `json:"quote_size"`
+	BaseSize                    providerDecimal `json:"base_size"`
+	BestBid                     providerDecimal `json:"best_bid"`
+	BestAsk                     providerDecimal `json:"best_ask"`
+	Slippage                    providerDecimal `json:"slippage"`
+	PreviewID                   string          `json:"preview_id"`
+	EstimatedAverageFilledPrice providerDecimal `json:"est_average_filled_price"`
+}
+
+type marketPreviewConfiguration struct {
+	QuoteSize   string `json:"quote_size,omitempty"`
+	BaseSize    string `json:"base_size,omitempty"`
+	RFQDisabled bool   `json:"rfq_disabled"`
+}
+
+type providerPreviewRequest struct {
+	ProductID          string `json:"product_id"`
+	Side               string `json:"side"`
+	OrderConfiguration struct {
+		MarketIOC marketPreviewConfiguration `json:"market_market_ioc"`
+	} `json:"order_configuration"`
+}
+
 func (c *Client) providerAccounts(ctx context.Context, credentials *financial.Credentials) ([]providerAccount, error) {
 	if err := c.VerifyConnection(ctx, credentials); err != nil {
 		return nil, err
@@ -222,6 +276,10 @@ func portfolioAccount(credentials *financial.Credentials) (financial.FinancialAc
 	if len(portfolioID) >= 4 {
 		masked += portfolioID[len(portfolioID)-4:]
 	}
+	tradeAuthorization := financial.Unsupported
+	if credentials.ProviderCanTrade {
+		tradeAuthorization = financial.Supported
+	}
 	return financial.FinancialAccount{
 		Provider:          "coinbase",
 		ProviderAccountID: "portfolio:" + portfolioID,
@@ -231,17 +289,19 @@ func portfolioAccount(credentials *financial.Credentials) (financial.FinancialAc
 		BaseCurrency:      "USD",
 		Status:            "active",
 		Capabilities: financial.Capabilities{
-			"crypto_assets": financial.Supported,
-			"balances":      financial.Supported,
-			"positions":     financial.Supported,
-			"trade_history": financial.Supported,
-			"order_history": financial.Supported,
-			"trading_costs": financial.Supported,
-			"equities":      financial.Unsupported,
-			"options":       financial.Unsupported,
-			"margin":        financial.Unsupported,
-			"orders":        financial.Unsupported,
-			"transfers":     financial.Unsupported,
+			"crypto_assets":                financial.Supported,
+			"balances":                     financial.Supported,
+			"positions":                    financial.Supported,
+			"trade_history":                financial.Supported,
+			"order_history":                financial.Supported,
+			"trading_costs":                financial.Supported,
+			"order_preview":                financial.Supported,
+			"provider_trade_authorization": tradeAuthorization,
+			"equities":                     financial.Unsupported,
+			"options":                      financial.Unsupported,
+			"margin":                       financial.Unsupported,
+			"orders":                       financial.Unsupported,
+			"transfers":                    financial.Unsupported,
 		},
 	}, nil
 }
@@ -497,6 +557,171 @@ func (c *Client) GetTradingCostSummary(ctx context.Context, credentials *financi
 	}, nil
 }
 
+func (c *Client) PreviewSpotOrder(ctx context.Context, credentials *financial.Credentials, id string, input financial.SpotOrderPreviewRequest) (financial.SpotOrderPreview, error) {
+	if err := validateAccountID(credentials, id); err != nil {
+		return financial.SpotOrderPreview{}, err
+	}
+	symbol := strings.ToUpper(strings.TrimSpace(input.Symbol))
+	side := strings.ToUpper(strings.TrimSpace(input.Side))
+	size := strings.TrimSpace(string(input.Size))
+	quantity, quantityOK := new(big.Rat).SetString(size)
+	if !previewSymbolPattern.MatchString(symbol) || symbol == "USD" || (side != "BUY" && side != "SELL") || !previewDecimalPattern.MatchString(size) || !quantityOK || quantity.Sign() <= 0 {
+		return financial.SpotOrderPreview{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	if err := c.VerifyConnection(ctx, credentials); err != nil {
+		return financial.SpotOrderPreview{}, err
+	}
+
+	productID := symbol + "-USD"
+	request := providerPreviewRequest{ProductID: productID, Side: side}
+	request.OrderConfiguration.MarketIOC.RFQDisabled = true
+	requestedCurrency := symbol
+	if side == "BUY" {
+		request.OrderConfiguration.MarketIOC.QuoteSize = size
+		requestedCurrency = "USD"
+	} else {
+		request.OrderConfiguration.MarketIOC.BaseSize = size
+	}
+	var response providerPreview
+	if err := c.post(ctx, credentials, "/api/v3/brokerage/orders/preview", request, &response); err != nil {
+		return financial.SpotOrderPreview{}, err
+	}
+	preview, ok := normalizeSpotPreview(response, productID, symbol, side, financial.Money{Amount: financial.Decimal(size), Currency: requestedCurrency}, credentials.ProviderCanTrade, c.now().UTC())
+	if !ok {
+		return financial.SpotOrderPreview{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	return preview, nil
+}
+
+func normalizeSpotPreview(raw providerPreview, productID, symbol, side string, requested financial.Money, tradingAuthorized bool, now time.Time) (financial.SpotOrderPreview, bool) {
+	if len(raw.Errors) > 20 || len(raw.Warning) > 20 || len(raw.PreviewID) > 256 {
+		return financial.SpotOrderPreview{}, false
+	}
+	orderTotal, orderTotalOK := normalizedPreviewDecimal(raw.OrderTotal, true)
+	commission, commissionOK := normalizedPreviewDecimal(raw.CommissionTotal, true)
+	baseSize, baseSizeOK := normalizedPreviewDecimal(raw.BaseSize, true)
+	quoteSize, quoteSizeOK := normalizedPreviewDecimal(raw.QuoteSize, true)
+	if !orderTotalOK || !commissionOK || !baseSizeOK || !quoteSizeOK {
+		return financial.SpotOrderPreview{}, false
+	}
+	blocks, blocksOK := normalizedPreviewMessages(raw.Errors, previewBlockReason)
+	warnings, warningsOK := normalizedPreviewMessages(raw.Warning, previewWarning)
+	if !blocksOK || !warningsOK {
+		return financial.SpotOrderPreview{}, false
+	}
+	state := "READY"
+	if len(blocks) > 0 {
+		state = "BLOCKED"
+	}
+	if state == "READY" && (raw.PreviewID == "" || !positiveDecimal(orderTotal) || (!positiveDecimal(baseSize) && !positiveDecimal(quoteSize))) {
+		return financial.SpotOrderPreview{}, false
+	}
+	bestBid, bidOK := optionalPreviewMoney(raw.BestBid, "USD")
+	bestAsk, askOK := optionalPreviewMoney(raw.BestAsk, "USD")
+	estimatedPrice, estimatedOK := optionalPreviewMoney(raw.EstimatedAverageFilledPrice, "USD")
+	slippage, slippageOK := optionalPreviewDecimal(raw.Slippage)
+	if !bidOK || !askOK || !estimatedOK || !slippageOK {
+		return financial.SpotOrderPreview{}, false
+	}
+	return financial.SpotOrderPreview{
+		Provider: "coinbase", Feed: "advanced_trade_order_preview", ProductID: productID,
+		BaseAsset: symbol, QuoteCurrency: "USD", Side: side, OrderType: "MARKET_IOC",
+		RequestedSize: requested, BaseSize: baseSize, QuoteSize: quoteSize,
+		OrderTotal:      financial.Money{Amount: orderTotal, Currency: "USD"},
+		CommissionTotal: financial.Money{Amount: commission, Currency: "USD"},
+		BestBid:         bestBid, BestAsk: bestAsk, EstimatedAverageFilledPrice: estimatedPrice,
+		Slippage: slippage, PreviewState: state, BlockReasons: blocks, Warnings: warnings,
+		ProviderTradingAuthorized: tradingAuthorized, PreviewedAt: now,
+	}, true
+}
+
+func normalizedPreviewDecimal(value providerDecimal, required bool) (financial.Decimal, bool) {
+	text := strings.TrimSpace(string(value))
+	if text == "" {
+		return "", !required
+	}
+	normalized, ok := nonnegativeProviderDecimal(json.Number(text))
+	return normalized, ok
+}
+
+func positiveDecimal(value financial.Decimal) bool {
+	rational, ok := new(big.Rat).SetString(string(value))
+	return ok && rational.Sign() > 0
+}
+
+func optionalPreviewMoney(value providerDecimal, currency string) (*financial.Money, bool) {
+	normalized, ok := normalizedPreviewDecimal(value, false)
+	if !ok {
+		return nil, false
+	}
+	if normalized == "" {
+		return nil, true
+	}
+	if !positiveDecimal(normalized) {
+		return nil, false
+	}
+	return &financial.Money{Amount: normalized, Currency: currency}, true
+}
+
+func optionalPreviewDecimal(value providerDecimal) (*financial.Decimal, bool) {
+	normalized, ok := normalizedPreviewDecimal(value, false)
+	if !ok {
+		return nil, false
+	}
+	if normalized == "" {
+		return nil, true
+	}
+	return &normalized, true
+}
+
+func normalizedPreviewMessages(values []string, normalize func(string) string) ([]string, bool) {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.ToUpper(strings.TrimSpace(value))
+		if value == "" || len(value) > 128 {
+			return nil, false
+		}
+		for _, character := range value {
+			if (character < 'A' || character > 'Z') && character != '_' && (character < '0' || character > '9') {
+				return nil, false
+			}
+		}
+		normalized := normalize(value)
+		if _, exists := seen[normalized]; !exists {
+			seen[normalized] = struct{}{}
+			result = append(result, normalized)
+		}
+	}
+	return result, true
+}
+
+func previewBlockReason(value string) string {
+	switch {
+	case strings.Contains(value, "INSUFFICIENT"):
+		return "INSUFFICIENT_FUNDS"
+	case strings.Contains(value, "SIZE"), strings.Contains(value, "PRECISION"), strings.Contains(value, "NOTIONAL"):
+		return "INVALID_SIZE"
+	case strings.Contains(value, "LIQUIDITY"), strings.Contains(value, "PRICE_BOOK"), strings.Contains(value, "MARKET"), strings.Contains(value, "HALTED"):
+		return "MARKET_UNAVAILABLE"
+	case strings.Contains(value, "GEOFENCING"), strings.Contains(value, "COMPLIANCE"), strings.Contains(value, "NOT_ALLOWED"), strings.Contains(value, "TRADING_DISABLED"), strings.Contains(value, "UNTRADABLE"):
+		return "ACCOUNT_RESTRICTED"
+	default:
+		return "PROVIDER_REJECTED"
+	}
+}
+
+func previewWarning(value string) string {
+	switch value {
+	case "BIG_ORDER":
+		return "LARGE_ORDER"
+	case "SMALL_ORDER":
+		return "SMALL_ORDER"
+	default:
+		return "PROVIDER_WARNING"
+	}
+}
+
 func normalizedOrderObservation(raw providerOrder, now time.Time) (financial.OrderObservation, bool) {
 	productID := strings.ToUpper(strings.TrimSpace(raw.ProductID))
 	separator := strings.LastIndexByte(productID, '-')
@@ -710,20 +935,39 @@ func safeProviderLabel(value string) (string, bool) {
 func (c *Client) Disconnect(context.Context, *financial.Credentials) error { return nil }
 
 func (c *Client) get(ctx context.Context, credentials *financial.Credentials, path string, output any) error {
+	return c.request(ctx, credentials, http.MethodGet, path, nil, output)
+}
+
+func (c *Client) post(ctx context.Context, credentials *financial.Credentials, path string, input, output any) error {
+	return c.request(ctx, credentials, http.MethodPost, path, input, output)
+}
+
+func (c *Client) request(ctx context.Context, credentials *financial.Credentials, method, path string, input, output any) error {
 	requestURL, err := c.base.Parse(path)
 	if err != nil || requestURL.Host != c.base.Host || requestURL.Scheme != c.base.Scheme {
 		return &financial.ProviderError{Code: financial.InternalError}
 	}
-	token, err := c.jwt(credentials, http.MethodGet, requestURL.Path)
+	var body io.Reader
+	if input != nil {
+		encoded, encodeErr := json.Marshal(input)
+		if encodeErr != nil || len(encoded) > 16*1024 {
+			return &financial.ProviderError{Code: financial.InternalError}
+		}
+		body = bytes.NewReader(encoded)
+	}
+	token, err := c.jwt(credentials, method, requestURL.Path)
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
+	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), body)
 	if err != nil {
 		return &financial.ProviderError{Code: financial.InternalError}
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Accept", "application/json")
+	if input != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	response, err := c.http.Do(request)
 	if err != nil {
 		var networkError net.Error

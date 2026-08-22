@@ -567,7 +567,7 @@ func TestConnectedOrderHistoryIsOwnerScopedNoStoreAndActionFree(t *testing.T) {
 	}
 }
 
-func TestConnectedTradingCostsAreOwnerScopedNoStoreAndPreviewFree(t *testing.T) {
+func TestConnectedTradingCostsAreOwnerScopedNoStoreAndOrderActionFree(t *testing.T) {
 	broker := &fakeBrokerMarketData{
 		accounts: []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", Status: "active"}},
 		costs: financial.TradingCostSummary{
@@ -584,7 +584,7 @@ func TestConnectedTradingCostsAreOwnerScopedNoStoreAndPreviewFree(t *testing.T) 
 	recorder := httptest.NewRecorder()
 	handler.connectedTradingCosts(recorder, request)
 	body := recorder.Body.String()
-	for _, expected := range []string{`"feed":"advanced_trade_transaction_summary"`, `"maker_fee_rate":"0.0020"`, `"advanced_trade_volume":{"amount":"1000.123456789"`, `"summary_semantics":"PROVIDER_FEE_TIER_SNAPSHOT"`, `"order_preview_available":false`, `"order_actions_available":false`, `"live_execution_available":false`} {
+	for _, expected := range []string{`"feed":"advanced_trade_transaction_summary"`, `"maker_fee_rate":"0.0020"`, `"advanced_trade_volume":{"amount":"1000.123456789"`, `"summary_semantics":"PROVIDER_FEE_TIER_SNAPSHOT"`, `"order_preview_available":true`, `"order_actions_available":false`, `"live_execution_available":false`} {
 		if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(body, expected) {
 			t.Fatalf("trading-cost boundary missing %s: status=%d body=%s", expected, recorder.Code, body)
 		}

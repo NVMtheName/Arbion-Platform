@@ -28,6 +28,7 @@ type ProviderCapabilities struct {
 	AccountDiscovery  bool `json:"account_discovery"`
 	Balances          bool `json:"balances"`
 	Positions         bool `json:"positions"`
+	OrderPreview      bool `json:"order_preview"`
 	Orders            bool `json:"orders"`
 	Options           bool `json:"options"`
 	MarginInformation bool `json:"margin_information"`
@@ -50,7 +51,7 @@ func DefaultRegistry() Registry {
 	return Registry{
 		"schwab":   {ID: "schwab", Label: "Charles Schwab", AuthType: OAuth2AuthorizationCode, Availability: Implemented, Capabilities: ProviderCapabilities{AccountDiscovery: true, Balances: true, Positions: true, MarketData: true, TokenRefresh: true}},
 		"etrade":   {ID: "etrade", Label: "E*TRADE", AuthType: OAuth1, Availability: Planned},
-		"coinbase": {ID: "coinbase", Label: "Coinbase", AuthType: JWTKeyPair, Availability: Implemented, Capabilities: ProviderCapabilities{AccountDiscovery: true, Balances: true, Positions: true}},
+		"coinbase": {ID: "coinbase", Label: "Coinbase", AuthType: JWTKeyPair, Availability: Implemented, Capabilities: ProviderCapabilities{AccountDiscovery: true, Balances: true, Positions: true, OrderPreview: true}},
 	}
 }
 func (r Registry) List() []ProviderDefinition {
@@ -181,6 +182,42 @@ type TradingCostSummary struct {
 	CostPlusCommission  bool      `json:"cost_plus_commission"`
 	RetrievedAt         time.Time `json:"retrieved_at"`
 }
+
+// SpotOrderPreviewRequest is a provider-independent, non-executing request for
+// an exact spot market-order estimate. BUY size is denominated in USD; SELL
+// size is denominated in the base asset. It is never an order instruction.
+type SpotOrderPreviewRequest struct {
+	Symbol string  `json:"symbol"`
+	Side   string  `json:"side"`
+	Size   Decimal `json:"size"`
+}
+
+// SpotOrderPreview is normalized provider evidence. Provider preview IDs are
+// intentionally excluded so this value cannot be replayed as submission
+// authority.
+type SpotOrderPreview struct {
+	Provider                    string    `json:"provider"`
+	Feed                        string    `json:"feed"`
+	ProductID                   string    `json:"product_id"`
+	BaseAsset                   string    `json:"base_asset"`
+	QuoteCurrency               string    `json:"quote_currency"`
+	Side                        string    `json:"side"`
+	OrderType                   string    `json:"order_type"`
+	RequestedSize               Money     `json:"requested_size"`
+	BaseSize                    Decimal   `json:"base_size"`
+	QuoteSize                   Decimal   `json:"quote_size"`
+	OrderTotal                  Money     `json:"order_total"`
+	CommissionTotal             Money     `json:"commission_total"`
+	BestBid                     *Money    `json:"best_bid,omitempty"`
+	BestAsk                     *Money    `json:"best_ask,omitempty"`
+	EstimatedAverageFilledPrice *Money    `json:"estimated_average_filled_price,omitempty"`
+	Slippage                    *Decimal  `json:"slippage,omitempty"`
+	PreviewState                string    `json:"preview_state"`
+	BlockReasons                []string  `json:"block_reasons"`
+	Warnings                    []string  `json:"warnings"`
+	ProviderTradingAuthorized   bool      `json:"provider_trading_authorized"`
+	PreviewedAt                 time.Time `json:"previewed_at"`
+}
 type Quote struct {
 	Symbol, AssetType    string
 	Bid, Ask, Mark, Last *Decimal
@@ -215,6 +252,7 @@ type Credentials struct {
 	APIKeyName       string     `json:"api_key_name,omitempty"`
 	APIPrivateKey    string     `json:"api_private_key,omitempty"`
 	PortfolioID      string     `json:"portfolio_id,omitempty"`
+	ProviderCanTrade bool       `json:"provider_can_trade,omitempty"`
 }
 
 func (c Credentials) Bytes() ([]byte, error) { return json.Marshal(c) }
@@ -279,4 +317,10 @@ type OrderHistoryProvider interface {
 // It deliberately has no preview, order, transfer, or tax-reporting method.
 type TradingCostProvider interface {
 	GetTradingCostSummary(context.Context, *Credentials, string) (TradingCostSummary, error)
+}
+
+// OrderPreviewProvider may ask a provider to estimate a spot order. It has no
+// create, cancel, replace, or transfer method and therefore cannot execute.
+type OrderPreviewProvider interface {
+	PreviewSpotOrder(context.Context, *Credentials, string, SpotOrderPreviewRequest) (SpotOrderPreview, error)
 }

@@ -98,6 +98,7 @@ type coinbaseProviderFake struct {
 	fills    int
 	orders   int
 	costs    int
+	previews int
 }
 
 func (provider *coinbaseProviderFake) VerifyConnection(_ context.Context, credentials *financial.Credentials) error {
@@ -106,6 +107,7 @@ func (provider *coinbaseProviderFake) VerifyConnection(_ context.Context, creden
 		return &financial.ProviderError{Code: financial.AuthorizationFailed}
 	}
 	credentials.PortfolioID = "portfolio-1"
+	credentials.ProviderCanTrade = true
 	return nil
 }
 func (provider *coinbaseProviderFake) RefreshAuthorization(ctx context.Context, credentials *financial.Credentials) error {
@@ -145,6 +147,13 @@ func (provider *coinbaseProviderFake) GetTradingCostSummary(_ context.Context, _
 	}
 	return financial.TradingCostSummary{Provider: "coinbase", Feed: "advanced_trade_transaction_summary", ProductType: "SPOT", MakerFeeRate: "0.0020", TakerFeeRate: "0.0030"}, nil
 }
+func (provider *coinbaseProviderFake) PreviewSpotOrder(_ context.Context, credentials *financial.Credentials, id string, input financial.SpotOrderPreviewRequest) (financial.SpotOrderPreview, error) {
+	provider.previews++
+	if id != "portfolio:portfolio-1" || input.Symbol != "BTC" || input.Side != "BUY" || input.Size != "25.50" || !credentials.ProviderCanTrade {
+		return financial.SpotOrderPreview{}, errors.New("unexpected order preview boundary")
+	}
+	return financial.SpotOrderPreview{Provider: "coinbase", Feed: "advanced_trade_order_preview", ProductID: "BTC-USD", Side: "BUY", PreviewState: "READY", ProviderTradingAuthorized: true}, nil
+}
 func (*coinbaseProviderFake) GetCapabilities(context.Context, *financial.Credentials, string) (financial.Capabilities, error) {
 	return financial.Capabilities{"crypto_assets": financial.Supported}, nil
 }
@@ -171,7 +180,7 @@ func TestConnectAPIKeyStoresServerOnlyCredentialsAndRoutesAccountReads(t *testin
 	if err := json.Unmarshal(vault.values[connection.ID], &stored); err != nil {
 		t.Fatal(err)
 	}
-	if stored.APIPrivateKey != "private-key" || stored.PortfolioID != "portfolio-1" {
+	if stored.APIPrivateKey != "private-key" || stored.PortfolioID != "portfolio-1" || !stored.ProviderCanTrade {
 		t.Fatalf("credential payload was not stored through the vault: %#v", stored)
 	}
 	public, err := json.Marshal(connection)
@@ -194,6 +203,10 @@ func TestConnectAPIKeyStoresServerOnlyCredentialsAndRoutesAccountReads(t *testin
 	if err != nil || costs.MakerFeeRate != "0.0020" || costs.ProductType != "SPOT" || provider.costs != 1 {
 		t.Fatalf("Coinbase trading costs were not used for owner-scoped reads: %#v %v", costs, err)
 	}
+	preview, err := service.PreviewSpotOrder(context.Background(), founder(), "account-1", financial.SpotOrderPreviewRequest{Symbol: "btc", Side: "buy", Size: "25.50"})
+	if err != nil || preview.ProductID != "BTC-USD" || !preview.ProviderTradingAuthorized || provider.previews != 1 {
+		t.Fatalf("Coinbase preview was not owner-scoped through the non-executing boundary: %#v %v", preview, err)
+	}
 }
 
 func TestConnectAPIKeyRequiresFinancialEntitlementAndValidInput(t *testing.T) {
@@ -204,6 +217,29 @@ func TestConnectAPIKeyRequiresFinancialEntitlementAndValidInput(t *testing.T) {
 	}
 	if _, err := service.ConnectAPIKey(context.Background(), founder(), "coinbase", "", "key"); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected invalid input rejection, got %v", err)
+	}
+}
+
+func TestPreviewSpotOrderRejectsInvalidOrUnentitledRequestsBeforeProviderAccess(t *testing.T) {
+	store := &connectionStoreFake{connection: Connection{ID: "connection-1", Provider: "coinbase", Status: "active"}, account: financial.FinancialAccount{ID: "account-1", ProviderConnectionID: "connection-1", Provider: "coinbase", ProviderAccountID: "portfolio:portfolio-1", Status: "active"}}
+	provider := &coinbaseProviderFake{}
+	service := NewService(store, &vaultFake{values: map[string][]byte{"connection-1": []byte(`{"api_key_name":"organizations/org/apiKeys/key","api_private_key":"private-key","portfolio_id":"portfolio-1","provider_can_trade":true}`)}}, nil, nil, nil, NamedProvider{ID: "coinbase", Provider: provider})
+	for _, input := range []financial.SpotOrderPreviewRequest{
+		{Symbol: "BTC-USD", Side: "BUY", Size: "10"},
+		{Symbol: "BTC", Side: "HOLD", Size: "10"},
+		{Symbol: "BTC", Side: "BUY", Size: "0"},
+		{Symbol: "BTC", Side: "BUY", Size: "1e3"},
+	} {
+		if _, err := service.PreviewSpotOrder(context.Background(), founder(), "account-1", input); !errors.Is(err, ErrInvalidOrderPreview) {
+			t.Fatalf("invalid preview was accepted: %#v %v", input, err)
+		}
+	}
+	free := authorization.Principal{UserID: "user-1", Entitlement: authorization.EntitlementFree}
+	if _, err := service.PreviewSpotOrder(context.Background(), free, "account-1", financial.SpotOrderPreviewRequest{Symbol: "BTC", Side: "BUY", Size: "10"}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("unentitled preview was accepted: %v", err)
+	}
+	if provider.previews != 0 {
+		t.Fatalf("provider received rejected previews: %d", provider.previews)
 	}
 }
 
