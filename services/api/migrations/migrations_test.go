@@ -199,3 +199,20 @@ func TestMarketWatchlistIsOwnerScopedBoundedAndNonExecutable(t *testing.T) {
 		}
 	}
 }
+
+func TestOrderIntentFoundationIsOwnerScopedImmutableAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00019_nonexecuting_order_intents.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"order_intents", "order_intent_previews", "order_intent_reviews", "order_intent_events", "FOREIGN KEY (financial_account_id,user_id)", "USER_APPROVED_NONEXECUTABLE", "PROPOSAL_REVIEW_ONLY", "evidence_hash bytea", "reject_order_intent_evidence_mutation", "enforce_order_intent_transition", "must begin non-approved", "expires_at = previewed_at + interval '1 minute'", "PROVIDER_TRADE_PERMISSION_REQUIRED"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("order intent migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order_id", "client_order_id", "preview_id", "EXECUTION_APPROVAL", "SUBMITTED", "FILLED"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("non-executing order intent migration unexpectedly contains %q", prohibited)
+		}
+	}
+}

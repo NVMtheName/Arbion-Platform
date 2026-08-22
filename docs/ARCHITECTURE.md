@@ -6,7 +6,7 @@ Arbion is a full trading platform with two equal control surfaces: traditional U
 
 Arbion combines that user experience with a provider-independent Neural Engine, deterministic financial controls, strategy and automation domains, and external financial-provider adapters. This document describes target boundaries; it does not claim that the conceptual capabilities are implemented.
 
-The current implementation remains a modular monolith plus one dedicated AI service. Email/password authentication, AI-provider connection verification/configuration, bounded read-only Arbion Insight analysis with explicit Fast/Core/Deep model profiles, private Schwab/Coinbase account connectivity, and a non-executing Coinbase order-preview boundary are implemented. Live or automated trading, order submission/cancellation, tool-using AI, and legacy Flask migration remain out of scope until explicitly designed and approved.
+The current implementation remains a modular monolith plus one dedicated AI service. Email/password authentication, AI-provider connection verification/configuration, bounded read-only Arbion Insight analysis with explicit Fast/Core/Deep model profiles, private Schwab/Coinbase account connectivity, real non-executing Coinbase order previews, and durable non-executing Coinbase proposals with TOTP-backed owner review are implemented. Live or automated trading, risk approval for those proposals, order submission/cancellation, tool-using AI, and legacy Flask migration remain out of scope until explicitly designed and approved.
 
 ## System model
 
@@ -72,7 +72,7 @@ The Neural Engine receives only the minimum data and tools authorized for a requ
 
 ### Financial connector layer
 
-Financial connectors live behind narrow provider-independent Go interfaces and adapters. Schwab implements delegated authorization plus read-only accounts, balances, positions, quotes, and option chains. Coinbase implements a founder-phase encrypted key-pair connection for portfolio inventory, USD cash, crypto holdings, separately bounded external-fill and order-status history, a spot fee-tier snapshot, and provider order preview. Coinbase enrollment requires View, permits an explicitly recorded Trade grant, and always rejects Transfer. The preview interface has no create, cancel, replace, or transfer method and never returns Coinbase preview IDs. Candidate future providers include E\*TRADE, Alpaca brokerage, and Interactive Brokers.
+Financial connectors live behind narrow provider-independent Go interfaces and adapters. Schwab implements delegated authorization plus read-only accounts, balances, positions, quotes, and option chains. Coinbase implements a founder-phase encrypted key-pair connection for portfolio inventory, USD cash, crypto holdings, separately bounded external-fill and order-status history, a spot fee-tier snapshot, and provider order preview. Coinbase enrollment requires View, permits an explicitly recorded Trade grant, and always rejects Transfer. The preview interface has no create, cancel, replace, or transfer method and never returns Coinbase preview IDs. The separate Go `internal/orderintent` domain can persist normalized preview evidence and proposal-review events, but it has no provider-write dependency or execution state. Candidate future providers include E\*TRADE, Alpaca brokerage, and Interactive Brokers.
 
 The connector layer is subordinate to the control plane: it translates approved operations but does not decide whether they are allowed. See [Connectors](CONNECTORS.md).
 
@@ -80,7 +80,7 @@ Independent market-data credentials and reads must not be forced through a user'
 
 ## Controlled tool flow
 
-The Neural Engine may conceptually request MCP-like tools such as portfolio lookup, quotes, analysis, backtesting, risk calculation, and order preview. Arbion owns the tool registry, schemas, permissions, resource limits, validation, and audit trail. The implemented Coinbase preview is currently an authenticated UI/API operation and is not exposed to Python or an AI tool registry. Tools that read or compute are not inherently trusted, and direct trade execution must not be exposed as an unrestricted AI tool.
+The Neural Engine may conceptually request MCP-like tools such as portfolio lookup, quotes, analysis, backtesting, risk calculation, and order preview. Arbion owns the tool registry, schemas, permissions, resource limits, validation, and audit trail. The implemented Coinbase preview and durable proposal routes are currently authenticated UI/API operations and are not exposed to Python or an AI tool registry. The Go order-intent service has one internal AI-source proposal entry point so a later bounded tool can converge on the same record, but nothing calls it today and it grants no approval or execution authority. Tools that read or compute are not inherently trusted, and direct trade execution must not be exposed as an unrestricted AI tool.
 
 A future MCP-compatible server could expose a deliberately approved subset of Arbion tools to external AI clients. It would remain an Arbion-controlled interface subject to the same identity, authorization, credential, policy, and audit boundaries. No MCP server is part of the current scope.
 

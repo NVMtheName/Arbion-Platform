@@ -2236,6 +2236,94 @@ button:disabled {
 .coinbase-preview-lock strong {
   color: #b9f3df;
 }
+.coinbase-intent-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(139, 181, 163, 0.14);
+}
+.coinbase-intent-entry p {
+  max-width: 660px;
+  margin: 5px 0 0;
+  color: #789086;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.coinbase-intent-entry button,
+.coinbase-intent-review button {
+  min-height: 42px;
+  border: 1px solid rgba(124, 235, 177, 0.28);
+  background: rgba(124, 235, 177, 0.08);
+  color: #b9f3df;
+  white-space: nowrap;
+}
+.coinbase-intent-result {
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid rgba(243, 215, 154, 0.2);
+  border-radius: 14px;
+  background:
+    linear-gradient(115deg, rgba(243, 215, 154, 0.045), transparent 45%),
+    rgba(2, 12, 8, 0.76);
+}
+.coinbase-intent-result > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.coinbase-intent-result > header > div {
+  display: grid;
+  gap: 4px;
+}
+.coinbase-intent-result > header span,
+.coinbase-intent-result > header small {
+  color: #71877c;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.coinbase-intent-result > header strong {
+  color: #f3d79a;
+  text-transform: capitalize;
+}
+.coinbase-intent-result > p {
+  color: #8ca298;
+  line-height: 1.55;
+}
+.coinbase-intent-review {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  margin-top: 16px;
+}
+.coinbase-intent-review label {
+  display: grid;
+  gap: 7px;
+  width: min(260px, 100%);
+  color: #91a79d;
+  font-size: 0.78rem;
+  font-weight: 720;
+  letter-spacing: 0.04em;
+}
+.coinbase-intent-review input {
+  min-height: 42px;
+  font-size: 1rem;
+  letter-spacing: 0.18em;
+}
+.coinbase-intent-boundary {
+  margin-bottom: 0;
+  padding: 13px 15px;
+  border-left: 2px solid rgba(243, 215, 154, 0.45);
+  background: rgba(243, 215, 154, 0.04);
+  font-size: 0.8rem;
+}
+.coinbase-intent-boundary strong {
+  color: #f3d79a;
+}
 .crypto-history-panel {
   margin-top: 16px;
   padding: 32px;
@@ -3597,6 +3685,16 @@ button:disabled {
     grid-template-columns: 1fr;
   }
   .coinbase-order-preview form button {
+    width: 100%;
+  }
+  .coinbase-intent-entry,
+  .coinbase-intent-result > header,
+  .coinbase-intent-review {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .coinbase-intent-entry button,
+  .coinbase-intent-review button {
     width: 100%;
   }
   .crypto-history-panel > header {
