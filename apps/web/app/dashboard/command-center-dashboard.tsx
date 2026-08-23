@@ -130,7 +130,7 @@ export function CommandCenterDashboard({
           </Link>
           <Link href="/markets">Markets</Link>
           <Link href="/accounts">Portfolio</Link>
-          <Link href="/automations">Automations</Link>
+          <Link href="/automations">Strategies</Link>
           <Link href="/activity">Journal</Link>
         </nav>
         <div className="command-account-actions">
@@ -405,8 +405,8 @@ export function CommandCenterDashboard({
             ],
             [
               "02",
-              "Automation",
-              "Mandates, controls, and non-live strategy state.",
+              "Strategies",
+              "Choose a model, account, budget, and repeatable playbook.",
               "/automations",
             ],
             [
