@@ -8,115 +8,87 @@ vi.mock("next/navigation", () => ({
 
 import { CommandCenterDashboard } from "./command-center-dashboard";
 
-describe("Trading command center dashboard", () => {
+describe("Portfolio-first command center", () => {
   afterEach(() => {
     cleanup();
     navigation.push.mockReset();
     navigation.refresh.mockReset();
   });
 
-  it("renders real source and decision status without claiming execution", () => {
+  it("puts connected account value and strategy launch on the home screen", () => {
     render(
       <CommandCenterDashboard
-        accountCount={1}
-        asOf="2026-08-20T18:00:00.000Z"
-        connectionCount={2}
+        accounts={[
+          {
+            id: "schwab-1",
+            provider: "schwab",
+            displayName: "Schwab Brokerage ••4270",
+            status: "active",
+            observedValue: { amount: "12500", currency: "USD" },
+            cash: { amount: "2500", currency: "USD" },
+            positionCount: 4,
+            availability: "ready",
+          },
+          {
+            id: "coinbase-1",
+            provider: "coinbase",
+            displayName: "Coinbase Advanced",
+            status: "active",
+            observedValue: { amount: "2750", currency: "USD" },
+            cash: { amount: "125", currency: "USD" },
+            positionCount: 3,
+            availability: "partial",
+          },
+        ]}
+        connectionCount={1}
         modelConfigured
-        journalEntries={[
-          {
-            id: "decision-1",
-            created_at: "2026-08-20T15:00:00.000Z",
-            strategy_instance_id: "instance-1",
-            financial_account_id: "account-1",
-            account_display_name: "Brokerage",
-            mandate_id: "mandate-1",
-            mandate_version: 1,
-            strategy_identifier: "wheel",
-            execution_mode: "PAPER",
-            strategy_state: "ACTIVE",
-            source: "manual",
-            decision_type: "HOLD",
-            structured_rationale: {},
-            risk_decision: "DENY",
-          },
-        ]}
-        sources={[
-          {
-            id: "alpaca_iex",
-            label: "Alpaca IEX",
-            role: "market_observation",
-            feed: "iex",
-            quality: "real_time_single_venue",
-            capabilities: ["equity_quote"],
-            enabled: true,
-            healthy: true,
-          },
-          {
-            id: "sec_edgar",
-            label: "SEC EDGAR",
-            role: "primary_filing",
-            feed: "ownership_xml",
-            quality: "filing",
-            capabilities: ["insider_filing"],
-            enabled: false,
-            healthy: false,
-          },
-        ]}
+        modelID="gpt-5"
         user={{
           email: "owner@example.com",
           display_name: "Nick Maya",
           entitlement: "founder",
           role: "superadmin",
         }}
-      >
-        <div>Advisory panel</div>
-      </CommandCenterDashboard>,
+      />,
     );
 
     expect(
-      screen.getByRole("heading", { name: /welcome back, nick/i }),
+      screen.getByRole("heading", { name: /your portfolio. one clear view/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Alpaca IEX")).toBeInTheDocument();
-    expect(screen.getByText("SEC EDGAR")).toBeInTheDocument();
-    expect(screen.getByText("1/2")).toBeInTheDocument();
-    expect(screen.getByText("Preview")).toBeInTheDocument();
+    expect(screen.getByText("$15,250.00")).toBeInTheDocument();
+    expect(screen.getByText("Schwab Brokerage ••4270")).toBeInTheDocument();
+    expect(screen.getByText("Coinbase Advanced")).toBeInTheDocument();
+    expect(screen.getByText("gpt-5")).toBeInTheDocument();
     expect(
-      screen.getByRole("img", { name: /1 recent decision loaded/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Advisory panel")).toBeInTheDocument();
+      screen.getByRole("link", { name: /create a strategy/i }),
+    ).toHaveAttribute("href", "/automations/new");
+    expect(screen.queryByText(/source coverage/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/35-day activity/i)).not.toBeInTheDocument();
   });
 
-  it("puts incomplete connection setup in the primary path", () => {
+  it("keeps the next missing connection in the primary path", () => {
     render(
       <CommandCenterDashboard
-        accountCount={0}
-        asOf="2026-08-20T18:00:00.000Z"
+        accounts={[]}
         connectionCount={0}
-        journalEntries={[]}
         modelConfigured={false}
-        sources={[]}
         user={{
           email: "owner@example.com",
           display_name: "Nick Maya",
           entitlement: "founder",
           role: "superadmin",
         }}
-      >
-        <div>Advisory panel</div>
-      </CommandCenterDashboard>,
+      />,
     );
 
     expect(
-      screen.getByRole("link", { name: /connect a financial account/i }),
+      screen.getAllByRole("link", { name: /connect a financial account/i })[0],
     ).toHaveAttribute("href", "/connections#financial-accounts");
     expect(
-      screen.getByRole("heading", {
-        name: "Three essentials. One command center.",
-      }),
+      screen.getByRole("heading", { name: "Connect. Choose. Build." }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute(
-      "href",
-      "/connections",
-    );
+    expect(
+      screen.getByText(/your accounts will appear here/i),
+    ).toBeInTheDocument();
   });
 });
