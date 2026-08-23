@@ -5501,6 +5501,219 @@ h1 {
   border: 0;
   background: transparent;
 }
+.portfolio-welcome {
+  padding-bottom: 42px;
+}
+.portfolio-command {
+  overflow: hidden;
+  padding: clamp(24px, 3vw, 38px);
+  border: 1px solid rgba(94, 224, 160, 0.2);
+  border-radius: 22px;
+  background:
+    radial-gradient(
+      circle at 90% 0%,
+      rgba(25, 201, 214, 0.08),
+      transparent 26rem
+    ),
+    linear-gradient(145deg, rgba(13, 37, 28, 0.8), rgba(6, 18, 14, 0.93));
+}
+.portfolio-command-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+}
+.portfolio-command-header h2,
+.strategy-launchpad h2 {
+  margin: 8px 0 0;
+  font-size: clamp(2rem, 4vw, 3.8rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+.portfolio-command-header > a,
+.portfolio-command-empty a {
+  flex: 0 0 auto;
+  color: var(--brand-cyan);
+  font-size: 0.76rem;
+  font-weight: 740;
+  text-decoration: none;
+}
+.portfolio-command-total {
+  display: grid;
+  gap: 7px;
+  margin: 34px 0 18px;
+  padding: 30px 0;
+  border-block: 1px solid rgba(139, 181, 163, 0.14);
+}
+.portfolio-command-total > span {
+  color: #83a095;
+  font-size: 0.72rem;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.portfolio-command-total > strong {
+  font-size: clamp(3rem, 6.5vw, 6rem);
+  line-height: 1;
+  letter-spacing: -0.06em;
+}
+.portfolio-command-total > small {
+  color: #789087;
+  font-size: 0.76rem;
+}
+.portfolio-account-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.portfolio-account-grid > article {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid rgba(139, 181, 163, 0.16);
+  border-radius: 16px;
+  background: rgba(3, 14, 10, 0.55);
+}
+.portfolio-account-grid article > header,
+.portfolio-account-grid article > header > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.portfolio-account-grid article > header {
+  justify-content: space-between;
+  gap: 18px;
+}
+.portfolio-account-grid article > header strong,
+.portfolio-account-grid article > header small {
+  display: block;
+}
+.portfolio-account-grid article > header strong {
+  overflow: hidden;
+  max-width: 250px;
+  color: #eaf6f0;
+  font-size: 0.88rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.portfolio-account-grid article > header small {
+  margin-top: 4px;
+  color: #71887d;
+  font-size: 0.66rem;
+}
+.portfolio-account-status {
+  flex: 0 0 auto;
+  color: #899c93;
+  font-size: 0.66rem;
+  font-weight: 740;
+}
+.portfolio-account-status.ready {
+  color: #73e2a8;
+}
+.portfolio-account-status.partial {
+  color: #e1bd79;
+}
+.portfolio-account-value {
+  display: grid;
+  gap: 6px;
+  margin: 26px 0 20px;
+}
+.portfolio-account-value span,
+.portfolio-account-grid dt {
+  color: #71887d;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.portfolio-account-value strong {
+  overflow-wrap: anywhere;
+  font-size: clamp(1.8rem, 3.4vw, 2.8rem);
+  letter-spacing: -0.045em;
+}
+.portfolio-account-grid dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 22px;
+}
+.portfolio-account-grid dl > div {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(139, 181, 163, 0.11);
+  border-radius: 9px;
+}
+.portfolio-account-grid dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: #cbdad2;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.portfolio-account-grid article > a {
+  color: var(--brand-mint);
+  font-size: 0.72rem;
+  font-weight: 740;
+  text-decoration: none;
+}
+.portfolio-command-empty {
+  display: grid;
+  gap: 9px;
+  margin-top: 32px;
+  padding: 28px;
+  border: 1px dashed rgba(139, 181, 163, 0.24);
+  border-radius: 14px;
+}
+.portfolio-command-empty p {
+  margin: 0 0 8px;
+  color: #7e9489;
+}
+.strategy-launchpad {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1fr) auto;
+  gap: clamp(28px, 4vw, 64px);
+  align-items: center;
+  margin-top: 20px;
+  padding: clamp(26px, 3.5vw, 44px);
+  border: 1px solid rgba(25, 201, 214, 0.22);
+  border-radius: 22px;
+  background: rgba(25, 201, 214, 0.045);
+}
+.strategy-launchpad h2 {
+  font-size: clamp(1.9rem, 3.5vw, 3.2rem);
+}
+.strategy-launchpad > div > p:last-child {
+  max-width: 520px;
+  margin: 16px 0 0;
+  color: #80968c;
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+.strategy-launchpad dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.strategy-launchpad dl > div {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(139, 181, 163, 0.12);
+}
+.strategy-launchpad dt {
+  color: #71877d;
+  font-size: 0.68rem;
+}
+.strategy-launchpad dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: #d7e6de;
+  font-size: 0.76rem;
+  font-weight: 720;
+}
+.strategy-launchpad > a {
+  min-width: 190px;
+}
 .command-footer {
   display: flex;
   justify-content: space-between;
@@ -5549,6 +5762,12 @@ h1 {
   }
   .command-workspace-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .strategy-launchpad {
+    grid-template-columns: 1fr 1fr;
+  }
+  .strategy-launchpad > a {
+    width: fit-content;
   }
 }
 
@@ -5675,7 +5894,7 @@ h1 {
   .command-account-actions > a:first-child {
     display: inline;
   }
-  .command-account-actions > a:nth-child(2) {
+  .command-account-actions > a:not(:first-child) {
     display: none;
   }
   .command-welcome {
@@ -5697,6 +5916,28 @@ h1 {
   }
   .command-setup-path ol {
     grid-template-columns: 1fr;
+  }
+  .portfolio-command {
+    padding: 22px;
+  }
+  .portfolio-command-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .portfolio-command-total > strong {
+    font-size: clamp(2.8rem, 15vw, 4.7rem);
+  }
+  .portfolio-account-grid {
+    grid-template-columns: 1fr;
+  }
+  .portfolio-account-grid article > header {
+    align-items: flex-start;
+  }
+  .strategy-launchpad {
+    grid-template-columns: 1fr;
+  }
+  .strategy-launchpad > a {
+    width: 100%;
   }
   .connection-hub {
     padding: 26px 18px 54px;
