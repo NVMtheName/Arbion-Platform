@@ -123,7 +123,7 @@ export default function AutomationBuilder() {
       {!loading && !loadError && activeAccounts.length === 0 && (
         <p className="security-note">
           Connect and sync a financial account before creating an automation.{" "}
-          <Link href="/settings/connections">Manage connections</Link>
+          <Link href="/connections">Open connection hub</Link>
         </p>
       )}
       {!loading &&

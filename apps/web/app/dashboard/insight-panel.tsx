@@ -107,7 +107,7 @@ export function InsightPanel({
       {!configured ? (
         <p className="security-note">
           Verify an AI provider and select a model before asking a question.{" "}
-          <Link href="/settings/connections">Configure Neural Engine</Link>
+          <Link href="/connections#ai-providers">Open connection hub</Link>
         </p>
       ) : (
         <form onSubmit={submit}>

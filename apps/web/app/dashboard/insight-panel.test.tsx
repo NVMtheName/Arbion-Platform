@@ -21,8 +21,8 @@ describe("InsightPanel", () => {
       screen.getByText(/has no access to your accounts/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: /configure neural engine/i }),
-    ).toHaveAttribute("href", "/settings/connections");
+      screen.getByRole("link", { name: /open connection hub/i }),
+    ).toHaveAttribute("href", "/connections#ai-providers");
   });
 
   it("submits only the typed prompt and renders structured output", async () => {

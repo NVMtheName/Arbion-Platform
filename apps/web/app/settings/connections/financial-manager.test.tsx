@@ -29,11 +29,14 @@ describe("FinancialManager", () => {
       />,
     );
 
-    expect(screen.getByText(/ECDSA \(ES256\)/)).toBeVisible();
-    expect(screen.getByText(/View permission: on/)).toBeVisible();
-    expect(screen.getByText(/Trade permission: optional/)).toBeVisible();
-    expect(screen.getByText(/Transfer permission: off/)).toBeVisible();
-    expect(screen.getByText(/52\.21\.127\.30/)).toBeVisible();
+    expect(
+      screen.getByText("How to create the right Coinbase key"),
+    ).toBeVisible();
+    expect(screen.getByText(/ECDSA \(ES256\)/)).toBeInTheDocument();
+    expect(screen.getByText(/View permission: on/)).toBeInTheDocument();
+    expect(screen.getByText(/Trade permission: optional/)).toBeInTheDocument();
+    expect(screen.getByText(/Transfer permission: off/)).toBeInTheDocument();
+    expect(screen.getByText(/52\.21\.127\.30/)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Connect Coinbase" }),
     ).toBeEnabled();
@@ -96,10 +99,10 @@ describe("FinancialManager", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("API key name"), {
+    fireEvent.change(screen.getByLabelText("Coinbase API key name"), {
       target: { value: "organizations/org/apiKeys/key" },
     });
-    fireEvent.change(screen.getByLabelText("ECDSA private key"), {
+    fireEvent.change(screen.getByLabelText("Coinbase private key"), {
       target: { value: "private-key-material" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Connect Coinbase" }));
@@ -116,7 +119,7 @@ describe("FinancialManager", () => {
         }),
       },
     );
-    expect(screen.getByLabelText("ECDSA private key")).toHaveValue("");
+    expect(screen.getByLabelText("Coinbase private key")).toHaveValue("");
     expect(screen.getByRole("alert")).toHaveTextContent(
       "The provider did not accept these credentials.",
     );

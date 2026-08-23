@@ -1,15 +1,18 @@
 "use client";
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 
-import { AppPageHeader } from "../../app-page-header";
-import type { Connection, Provider } from "./page";
+import type { Connection, NeuralPreference, Provider } from "./page";
+
+type Model = { id: string; display_name: string; provider: string };
 
 export function ConnectionsManager({
   initialConnections,
+  initialPreference,
   providers,
   entitled,
 }: {
   initialConnections: Connection[];
+  initialPreference: NeuralPreference | null;
   providers: Provider[];
   entitled: boolean;
 }) {
@@ -18,10 +21,19 @@ export function ConnectionsManager({
   const [replacing, setReplacing] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [models, setModels] = useState<Record<string, Model[]>>({});
-  const [selectedConnection, setSelectedConnection] = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
-  type Model = { id: string; display_name: string; provider: string };
-  async function request(path: string, method: string, body?: unknown) {
+  const [selectedConnection, setSelectedConnection] = useState(
+    initialPreference?.connection_id ?? "",
+  );
+  const [selectedModel, setSelectedModel] = useState(
+    initialPreference?.model_id ?? "",
+  );
+  const [savedPreference, setSavedPreference] = useState(initialPreference);
+  const [saveMessage, setSaveMessage] = useState("");
+  const request = useCallback(async function request(
+    path: string,
+    method: string,
+    body?: unknown,
+  ) {
     setError("");
     const response = await fetch(path, {
       method,
@@ -37,14 +49,14 @@ export function ConnectionsManager({
     }
     if (response.status === 204) return {};
     return response.json();
-  }
-  async function create(e: FormEvent<HTMLFormElement>, provider: string) {
+  }, []);
+  async function create(e: FormEvent<HTMLFormElement>, provider: Provider) {
     e.preventDefault();
     const form = e.currentTarget;
     const values = Object.fromEntries(new FormData(form));
     const data = (await request("/api/connections/ai", "POST", {
-      provider,
-      display_name: values.display_name,
+      provider: provider.id,
+      display_name: values.display_name || provider.label,
       credential: values.credential,
     })) as { connection: Connection } | null;
     form.reset();
@@ -89,34 +101,63 @@ export function ConnectionsManager({
       setConnections((items) =>
         items.map((item) => (item.id === c.id ? data.connection : item)),
       );
+      setSelectedConnection(data.connection.id);
+      setSelectedModel("");
       await loadModels(data.connection);
     }
   }
-  async function loadModels(c: Connection) {
-    const data = (await request(
-      `/api/connections/ai/${c.id}/models`,
-      "GET",
-    )) as { models: Model[] } | null;
-    if (data) setModels((current) => ({ ...current, [c.id]: data.models }));
-  }
+  const loadModels = useCallback(
+    async function loadModels(c: Connection) {
+      const data = (await request(
+        `/api/connections/ai/${c.id}/models`,
+        "GET",
+      )) as { models: Model[] } | null;
+      if (data) setModels((current) => ({ ...current, [c.id]: data.models }));
+    },
+    [request],
+  );
+  useEffect(() => {
+    if (!selectedConnection || models[selectedConnection]) return;
+    const connection = connections.find(
+      (item) => item.id === selectedConnection && item.status === "active",
+    );
+    if (connection) void loadModels(connection);
+  }, [connections, loadModels, models, selectedConnection]);
   async function saveDefault(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    await request("/api/settings/neural-engine", "PUT", {
+    setSaveMessage("");
+    const data = await request("/api/settings/neural-engine", "PUT", {
       connection_id: selectedConnection,
       model_id: selectedModel,
     });
+    if (data) {
+      setSavedPreference({
+        connection_id: selectedConnection,
+        model_id: selectedModel,
+      });
+      setSaveMessage(
+        "Default model saved. Arbion will use it for new AI-assisted work.",
+      );
+    }
   }
   return (
-    <main className="connections-page">
-      <AppPageHeader />
-      <p className="eyebrow">SETTINGS</p>
-      <h1>Neural Engine Providers</h1>
-      <p className="security-note">
-        Your API credential is encrypted and stored server-side. Arbion does not
-        display the credential again after it is saved.
-      </p>
+    <section
+      className="connection-hub-section"
+      id="ai-providers"
+      aria-labelledby="ai-provider-title"
+    >
+      <header className="connection-section-heading">
+        <div>
+          <p className="connection-step-label">STEP 2</p>
+          <h2 id="ai-provider-title">Connect an AI provider</h2>
+        </div>
+        <p>
+          Add the API key from OpenAI, Anthropic, or Google. The key is
+          encrypted and is never shown again after it is saved.
+        </p>
+      </header>
       {!entitled && (
-        <p className="unavailable">
+        <p className="connection-quiet-state">
           AI-provider connections are unavailable for the current plan.
         </p>
       )}
@@ -125,18 +166,26 @@ export function ConnectionsManager({
           {error}
         </p>
       )}
-      <section className="provider-list">
+      <div className="ai-provider-grid">
         {providers.map((provider) => {
           const items = connections.filter((c) => c.provider === provider.id);
           return (
-            <article key={provider.id}>
-              <h2>{provider.label}</h2>
+            <article className="ai-provider-card" key={provider.id}>
+              <header>
+                <span className={`provider-mark provider-${provider.id}`}>
+                  {provider.label.slice(0, 1)}
+                </span>
+                <div>
+                  <h3>{provider.label}</h3>
+                  <p>Bring your own API key</p>
+                </div>
+              </header>
               {items.length === 0 ? (
                 <>
-                  <p>Not connected</p>
+                  <p className="connection-card-state">Not connected</p>
                   {entitled && (
                     <button onClick={() => setConnecting(provider.id)}>
-                      Connect
+                      Add API key
                     </button>
                   )}
                 </>
@@ -145,21 +194,12 @@ export function ConnectionsManager({
                   <div className="connection" key={c.id}>
                     <strong>{c.display_name}</strong>
                     <p>
-                      Status:{" "}
                       {c.status === "pending"
-                        ? "Pending verification"
-                        : c.status}
+                        ? "Waiting for verification"
+                        : c.status === "active"
+                          ? "Connected and verified"
+                          : "Connection disabled"}
                     </p>
-                    <p>Credential: {c.credential_hint}</p>
-                    {c.last_verified_at && (
-                      <p>
-                        Verified:{" "}
-                        {new Date(c.last_verified_at).toLocaleString()}
-                      </p>
-                    )}
-                    {models[c.id] && (
-                      <p>Models available: {models[c.id].length}</p>
-                    )}
                     {entitled && (
                       <div className="connection-actions">
                         {c.status !== "disabled" && (
@@ -171,61 +211,77 @@ export function ConnectionsManager({
                         )}
                         {c.status === "active" && (
                           <button
-                            className="secondary"
                             onClick={() => {
                               setSelectedConnection(c.id);
                               void loadModels(c);
                             }}
                           >
-                            Configure Neural Engine
+                            Choose model
                           </button>
                         )}
-                        <button
-                          className="secondary"
-                          onClick={() => setReplacing(c.id)}
-                        >
-                          Replace Key
-                        </button>
-                        <button
-                          className="secondary"
-                          onClick={() =>
-                            state(c, c.enabled ? "disable" : "enable")
-                          }
-                        >
-                          {c.enabled ? "Disable" : "Enable"}
-                        </button>
-                        <button className="danger" onClick={() => remove(c)}>
-                          Remove
-                        </button>
                       </div>
                     )}
-                    {replacing === c.id && (
-                      <form onSubmit={(e) => replace(e, c.id)}>
-                        <label>
-                          New API Key
-                          <input
-                            name="credential"
-                            type="password"
-                            required
-                            maxLength={4096}
-                            autoComplete="off"
-                          />
-                        </label>
-                        <button>Save replacement</button>
-                      </form>
-                    )}
+                    <details className="connection-details">
+                      <summary>Manage connection</summary>
+                      <div>
+                        <p>Stored credential: {c.credential_hint}</p>
+                        {c.last_verified_at && (
+                          <p>
+                            Last verified:{" "}
+                            {new Date(c.last_verified_at).toLocaleString()}
+                          </p>
+                        )}
+                        <div className="connection-actions">
+                          <button
+                            className="secondary"
+                            onClick={() => setReplacing(c.id)}
+                          >
+                            Replace key
+                          </button>
+                          <button
+                            className="secondary"
+                            onClick={() =>
+                              state(c, c.enabled ? "disable" : "enable")
+                            }
+                          >
+                            {c.enabled ? "Disable" : "Enable"}
+                          </button>
+                          <button className="danger" onClick={() => remove(c)}>
+                            Remove
+                          </button>
+                        </div>
+                        {replacing === c.id && (
+                          <form onSubmit={(e) => replace(e, c.id)}>
+                            <label>
+                              New API key
+                              <input
+                                name="credential"
+                                type="password"
+                                required
+                                maxLength={4096}
+                                autoComplete="off"
+                              />
+                            </label>
+                            <button>Save replacement</button>
+                          </form>
+                        )}
+                      </div>
+                    </details>
                   </div>
                 ))
               )}
               {connecting === provider.id && (
-                <form onSubmit={(e) => create(e, provider.id)}>
-                  <p>Provider: {provider.label}</p>
+                <form onSubmit={(event) => create(event, provider)}>
                   <label>
-                    Display name
-                    <input name="display_name" required maxLength={100} />
+                    Connection name <span>(optional)</span>
+                    <input
+                      name="display_name"
+                      maxLength={100}
+                      placeholder={`My ${provider.label} connection`}
+                    />
                   </label>
                   <label>
-                    API Key
+                    API key
                     <input
                       name="credential"
                       type="password"
@@ -234,16 +290,22 @@ export function ConnectionsManager({
                       autoComplete="off"
                     />
                   </label>
-                  <button>Save Connection</button>
+                  <button>Save and verify</button>
                 </form>
               )}
             </article>
           );
         })}
-      </section>
-      <section className="neural-default">
-        <h2>Neural Engine</h2>
-        <p>Choose the default provider connection and model for AI features.</p>
+      </div>
+      <section className="model-choice" id="model-choice">
+        <div>
+          <p className="connection-step-label">STEP 3</p>
+          <h2>Choose your default model</h2>
+          <p>
+            You can change this later. Strategies may use a different verified
+            model when you explicitly choose one.
+          </p>
+        </div>
         <form onSubmit={saveDefault}>
           <label>
             Connection
@@ -258,7 +320,7 @@ export function ConnectionsManager({
                 if (connection) void loadModels(connection);
               }}
             >
-              <option value="">Select an active connection</option>
+              <option value="">Choose an AI provider</option>
               {connections
                 .filter((connection) => connection.status === "active")
                 .map((connection) => (
@@ -276,7 +338,7 @@ export function ConnectionsManager({
               onChange={(event) => setSelectedModel(event.target.value)}
               disabled={!selectedConnection}
             >
-              <option value="">Select a model</option>
+              <option value="">Choose a verified model</option>
               {(models[selectedConnection] ?? []).map((model) => (
                 <option key={model.id} value={model.id}>
                   {model.display_name}
@@ -285,10 +347,20 @@ export function ConnectionsManager({
             </select>
           </label>
           <button disabled={!selectedConnection || !selectedModel}>
-            Save Default
+            Save default model
           </button>
+          {saveMessage && (
+            <p className="form-success" role="status">
+              {saveMessage}
+            </p>
+          )}
+          {!saveMessage && savedPreference && (
+            <p className="connection-saved-model">
+              Current default: {savedPreference.model_id}
+            </p>
+          )}
         </form>
       </section>
-    </main>
+    </section>
   );
 }
