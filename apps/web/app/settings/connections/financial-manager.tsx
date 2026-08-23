@@ -97,26 +97,13 @@ export function FinancialManager({
   if (!connections.length && provider.id === "coinbase")
     return (
       <>
-        <div className="coinbase-key-guide">
-          <strong>Required key restrictions</strong>
-          <ul>
-            <li>Signature algorithm: ECDSA (ES256)</li>
-            <li>View permission: on</li>
-            <li>Trade permission: optional for the execution foundation</li>
-            <li>Transfer permission: off (required)</li>
-            <li>Recommended IP allowlist: 52.21.127.30</li>
-          </ul>
-          <a
-            href="https://portal.cdp.coinbase.com/"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open Coinbase Developer Platform
-          </a>
-        </div>
+        <p className="connection-card-copy">
+          Paste the key name and private key from your Coinbase Developer
+          Platform account.
+        </p>
         <form className="coinbase-key-form" onSubmit={connectCoinbase}>
           <label>
-            API key name
+            Coinbase API key name
             <input
               value={keyName}
               onChange={(event) => setKeyName(event.target.value)}
@@ -127,7 +114,7 @@ export function FinancialManager({
             />
           </label>
           <label>
-            ECDSA private key
+            Coinbase private key
             <textarea
               value={privateKey}
               onChange={(event) => setPrivateKey(event.target.value)}
@@ -140,24 +127,45 @@ export function FinancialManager({
             />
           </label>
           <p className="credential-assurance">
-            Encrypted before storage. Arbion never returns this private key and
-            rejects every key that can transfer assets. A Trade grant records
-            provider authorization only; it does not let an AI model or this
-            form submit an order.
+            Encrypted before storage and never displayed again. Transfer-enabled
+            keys are rejected.
           </p>
           <button disabled={!entitled || busy} type="submit">
             {busy ? "Verifying…" : "Connect Coinbase"}
           </button>
         </form>
+        <details className="connection-details coinbase-key-guide">
+          <summary>How to create the right Coinbase key</summary>
+          <div>
+            <strong>Required key restrictions</strong>
+            <ul>
+              <li>Signature algorithm: ECDSA (ES256)</li>
+              <li>View permission: on</li>
+              <li>Trade permission: optional for future execution</li>
+              <li>Transfer permission: off (required)</li>
+              <li>Recommended IP allowlist: 52.21.127.30</li>
+            </ul>
+            <a
+              href="https://portal.cdp.coinbase.com/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open Coinbase Developer Platform ↗
+            </a>
+          </div>
+        </details>
         {error && <p role="alert">{error}</p>}
       </>
     );
   if (!connections.length)
     return (
       <>
-        <p>Not connected</p>
+        <p className="connection-card-copy">
+          Authorize Arbion from your provider account. Your provider password
+          never passes through Arbion.
+        </p>
         <button disabled={!entitled || busy} onClick={connect}>
-          Connect
+          Connect {provider.label}
         </button>
         {error && <p role="alert">{error}</p>}
       </>
@@ -166,7 +174,9 @@ export function FinancialManager({
     <>
       {connections.map((c) => (
         <div className="connection" key={c.id}>
-          <strong>{c.status === "active" ? "Connected" : c.status}</strong>
+          <strong>
+            {c.status === "active" ? "Account connection active" : c.status}
+          </strong>
           <p>
             {
               accounts.filter(
@@ -206,30 +216,35 @@ export function FinancialManager({
               </p>
             </div>
           )}
-          <div className="connection-actions">
+          <div className="connection-actions connection-primary-actions">
             <button
               disabled={busy || c.status === "disabled"}
               onClick={() => change(c, "sync")}
             >
-              Sync
-            </button>
-            <button
-              disabled={busy}
-              className="secondary"
-              onClick={() =>
-                change(c, c.status === "disabled" ? "enable" : "disable")
-              }
-            >
-              {c.status === "disabled" ? "Enable" : "Disable"}
-            </button>
-            <button
-              disabled={busy}
-              className="danger"
-              onClick={() => disconnect(c)}
-            >
-              Disconnect
+              Refresh accounts
             </button>
           </div>
+          <details className="connection-details">
+            <summary>Manage connection</summary>
+            <div className="connection-actions">
+              <button
+                disabled={busy}
+                className="secondary"
+                onClick={() =>
+                  change(c, c.status === "disabled" ? "enable" : "disable")
+                }
+              >
+                {c.status === "disabled" ? "Enable" : "Disable"}
+              </button>
+              <button
+                disabled={busy}
+                className="danger"
+                onClick={() => disconnect(c)}
+              >
+                Disconnect
+              </button>
+            </div>
+          </details>
         </div>
       ))}
       {error && <p role="alert">{error}</p>}

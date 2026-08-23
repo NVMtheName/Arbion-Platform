@@ -79,7 +79,7 @@ export default async function AccountPage({
             Coinbase holdings could not be refreshed. Arbion has not substituted
             cached balances or estimated values.
           </p>
-          <Link href="/settings/connections">Review connection settings</Link>
+          <Link href="/connections">Review connection settings</Link>
         </main>
       );
     }

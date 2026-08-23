@@ -20,6 +20,7 @@ type DashboardProps = {
   user: DashboardUser;
   connectionCount: number;
   accountCount: number;
+  modelConfigured: boolean;
   sources: MarketSource[];
   journalEntries: JournalEntry[];
   asOf: string;
@@ -83,6 +84,7 @@ export function CommandCenterDashboard({
   user,
   connectionCount,
   accountCount,
+  modelConfigured,
   sources,
   journalEntries,
   asOf,
@@ -98,6 +100,25 @@ export function CommandCenterDashboard({
   const shadow = journalEntries.filter(
     (entry) => entry.execution_mode === "SHADOW",
   ).length;
+  const setupComplete =
+    accountCount > 0 && connectionCount > 0 && modelConfigured;
+  const nextSetupAction =
+    accountCount === 0
+      ? {
+          href: "/connections#financial-accounts",
+          label: "Connect a financial account",
+        }
+      : connectionCount === 0
+        ? {
+            href: "/connections#ai-providers",
+            label: "Connect an AI provider",
+          }
+        : !modelConfigured
+          ? {
+              href: "/connections#model-choice",
+              label: "Choose your default model",
+            }
+          : { href: "/accounts", label: "View your portfolio" };
 
   return (
     <main className="command-dashboard">
@@ -113,6 +134,7 @@ export function CommandCenterDashboard({
           <Link href="/activity">Journal</Link>
         </nav>
         <div className="command-account-actions">
+          <Link href="/connections">Connections</Link>
           <Link href="/settings/security" aria-label="Security settings">
             Security
           </Link>
@@ -131,23 +153,72 @@ export function CommandCenterDashboard({
       >
         <motion.div variants={enter}>
           <p className="command-kicker">
-            <span /> COMMAND CENTER · READ-ONLY
+            <span /> CONNECTED COMMAND CENTER
           </p>
           <h1>Welcome back, {firstName(user)}.</h1>
           <p>
-            Your financial system at a glance—connections, market coverage,
-            controls, and decision evidence without manufactured certainty.
+            See your connected portfolios, choose the intelligence behind your
+            strategy, and manage it all from one place.
           </p>
         </motion.div>
         <motion.div className="command-primary-actions" variants={enter}>
-          <Link className="command-primary-link" href="/markets">
-            Open market intelligence <span aria-hidden="true">↗</span>
+          <Link className="command-primary-link" href={nextSetupAction.href}>
+            {nextSetupAction.label} <span aria-hidden="true">↗</span>
           </Link>
-          <Link className="command-secondary-link" href="/activity">
-            Review decision journal
+          <Link className="command-secondary-link" href="/connections">
+            Manage connections
           </Link>
         </motion.div>
       </motion.section>
+
+      {!setupComplete && (
+        <motion.section
+          className="command-setup-path"
+          aria-labelledby="setup-path-title"
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+        >
+          <header>
+            <div>
+              <p className="command-kicker">FINISH SETUP</p>
+              <h2 id="setup-path-title">
+                Three essentials. One command center.
+              </h2>
+            </div>
+            <Link href="/connections">Open connection hub ↗</Link>
+          </header>
+          <ol>
+            <li className={accountCount > 0 ? "is-complete" : ""}>
+              <span>1</span>
+              <div>
+                <strong>Financial account</strong>
+                <small>
+                  {accountCount > 0 ? "Connected" : "Needs attention"}
+                </small>
+              </div>
+            </li>
+            <li className={connectionCount > 0 ? "is-complete" : ""}>
+              <span>2</span>
+              <div>
+                <strong>AI provider</strong>
+                <small>
+                  {connectionCount > 0 ? "Connected" : "Needs attention"}
+                </small>
+              </div>
+            </li>
+            <li className={modelConfigured ? "is-complete" : ""}>
+              <span>3</span>
+              <div>
+                <strong>Default model</strong>
+                <small>
+                  {modelConfigured ? "Selected" : "Needs attention"}
+                </small>
+              </div>
+            </li>
+          </ol>
+        </motion.section>
+      )}
 
       <motion.section
         className="command-metric-rail"
@@ -178,9 +249,9 @@ export function CommandCenterDashboard({
           <small>Verified adapters only</small>
         </motion.article>
         <motion.article variants={enter}>
-          <span>Execution path</span>
-          <strong>None</strong>
-          <small>PAPER / SHADOW evidence only</small>
+          <span>Trading mode</span>
+          <strong>Preview</strong>
+          <small>Manual execution is not enabled yet</small>
         </motion.article>
       </motion.section>
 
@@ -380,7 +451,7 @@ export function CommandCenterDashboard({
 
       <footer className="command-footer">
         <span>Plan · {readable(user.entitlement)}</span>
-        <span>Arbion operates without a live broker execution path.</span>
+        <span>Connected accounts remain under your control.</span>
       </footer>
     </main>
   );

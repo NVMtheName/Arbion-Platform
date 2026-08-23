@@ -39,8 +39,8 @@ describe("AutomationBuilder prerequisites", () => {
       ).toBeDisabled(),
     );
     expect(
-      screen.getByRole("link", { name: /manage connections/i }),
-    ).toHaveAttribute("href", "/settings/connections");
+      screen.getByRole("link", { name: /open connection hub/i }),
+    ).toHaveAttribute("href", "/connections");
   });
 
   it("does not attach protected reserve buckets to automation drafts", async () => {

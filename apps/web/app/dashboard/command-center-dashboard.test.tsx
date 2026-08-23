@@ -21,6 +21,7 @@ describe("Trading command center dashboard", () => {
         accountCount={1}
         asOf="2026-08-20T18:00:00.000Z"
         connectionCount={2}
+        modelConfigured
         journalEntries={[
           {
             id: "decision-1",
@@ -78,10 +79,44 @@ describe("Trading command center dashboard", () => {
     expect(screen.getByText("Alpaca IEX")).toBeInTheDocument();
     expect(screen.getByText("SEC EDGAR")).toBeInTheDocument();
     expect(screen.getByText("1/2")).toBeInTheDocument();
-    expect(screen.getByText("None")).toBeInTheDocument();
+    expect(screen.getByText("Preview")).toBeInTheDocument();
     expect(
       screen.getByRole("img", { name: /1 recent decision loaded/i }),
     ).toBeInTheDocument();
     expect(screen.getByText("Advisory panel")).toBeInTheDocument();
+  });
+
+  it("puts incomplete connection setup in the primary path", () => {
+    render(
+      <CommandCenterDashboard
+        accountCount={0}
+        asOf="2026-08-20T18:00:00.000Z"
+        connectionCount={0}
+        journalEntries={[]}
+        modelConfigured={false}
+        sources={[]}
+        user={{
+          email: "owner@example.com",
+          display_name: "Nick Maya",
+          entitlement: "founder",
+          role: "superadmin",
+        }}
+      >
+        <div>Advisory panel</div>
+      </CommandCenterDashboard>,
+    );
+
+    expect(
+      screen.getByRole("link", { name: /connect a financial account/i }),
+    ).toHaveAttribute("href", "/connections#financial-accounts");
+    expect(
+      screen.getByRole("heading", {
+        name: "Three essentials. One command center.",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connections" })).toHaveAttribute(
+      "href",
+      "/connections",
+    );
   });
 });

@@ -71,6 +71,7 @@ export default async function Dashboard() {
       asOf={new Date().toISOString()}
       connectionCount={connectionCount}
       journalEntries={journalEntries}
+      modelConfigured={preference !== null}
       sources={sources}
       user={user}
     >
