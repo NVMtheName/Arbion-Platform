@@ -15,6 +15,22 @@ function coinbaseKeyBundle(value: string) {
   return { name, privateKey };
 }
 
+function coinbaseCredentialProblem(name: string, privateKey: string) {
+  const normalizedName = name.trim().replace(/^"|"$/g, "");
+  const normalizedPrivateKey = privateKey.trim().replace(/^"|"$/g, "");
+  if (
+    !/^organizations\/[A-Za-z0-9_-]+\/apiKeys\/[A-Za-z0-9_-]+$/.test(
+      normalizedName,
+    )
+  ) {
+    return "That is not a current Coinbase CDP key name. It must start with organizations/ and contain /apiKeys/.";
+  }
+  if (!/^-----BEGIN (?:EC )?PRIVATE KEY-----/.test(normalizedPrivateKey)) {
+    return "That is a one-line API secret, not the ECDSA private key Coinbase App requires. Create a new Secret API Key, open Advanced Settings, and choose ECDSA instead of Ed25519.";
+  }
+  return "";
+}
+
 export function FinancialManager({
   provider,
   entitled,
@@ -83,8 +99,16 @@ export function FinancialManager({
     }
     if (!submittedName.trim() || !submittedPrivateKey.trim()) {
       setError(
-        "Paste the downloaded Coinbase key JSON, or enter both the API key name and private key.",
+        "Enter both the full Coinbase key name and its ECDSA private key. Downloaded JSON is optional.",
       );
+      return;
+    }
+    const credentialProblem = coinbaseCredentialProblem(
+      submittedName,
+      submittedPrivateKey,
+    );
+    if (credentialProblem) {
+      setError(credentialProblem);
       return;
     }
     setBusy(true);
@@ -137,42 +161,47 @@ export function FinancialManager({
     return (
       <>
         <p className="connection-card-copy">
-          Connect your own Coinbase account with the key details Coinbase gives
-          you. The quickest option is to paste the downloaded key JSON.
+          Enter the two ECDSA key values from Coinbase. You do not need a JSON
+          file.
         </p>
         <form className="coinbase-key-form" onSubmit={connectCoinbase}>
           <label>
-            Coinbase key JSON (recommended)
+            Coinbase key name
+            <input
+              value={keyName}
+              onChange={(event) => setKeyName(event.target.value)}
+              placeholder="organizations/…/apiKeys/…"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <label>
+            ECDSA private key
             <textarea
-              value={keyJSON}
-              onChange={(event) => setKeyJSON(event.target.value)}
+              value={privateKey}
+              onChange={(event) => setPrivateKey(event.target.value)}
               placeholder={
-                '{"name":"organizations/…/apiKeys/…","privateKey":"-----BEGIN EC PRIVATE KEY-----\\n…"}'
+                "-----BEGIN EC PRIVATE KEY-----\\n…\\n-----END EC PRIVATE KEY-----"
               }
               autoComplete="off"
               spellCheck={false}
             />
           </label>
-          <details className="connection-details coinbase-manual-key-entry">
-            <summary>Or enter the two values separately</summary>
+          <p className="credential-assurance coinbase-key-compatibility">
+            Compatible keys start with <code>organizations/</code>. Their secret
+            starts with <code>-----BEGIN EC PRIVATE KEY-----</code>. A short,
+            one-line secret is the wrong key type.
+          </p>
+          <details className="connection-details coinbase-json-entry">
+            <summary>Have downloaded key JSON? Paste it instead</summary>
             <div>
               <label>
-                Coinbase API key name
-                <input
-                  value={keyName}
-                  onChange={(event) => setKeyName(event.target.value)}
-                  placeholder="organizations/…/apiKeys/…"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              </label>
-              <label>
-                Coinbase private key
+                Downloaded Coinbase key JSON
                 <textarea
-                  value={privateKey}
-                  onChange={(event) => setPrivateKey(event.target.value)}
+                  value={keyJSON}
+                  onChange={(event) => setKeyJSON(event.target.value)}
                   placeholder={
-                    "-----BEGIN EC PRIVATE KEY-----\\n…\\n-----END EC PRIVATE KEY-----"
+                    '{"name":"organizations/…/apiKeys/…","privateKey":"-----BEGIN EC PRIVATE KEY-----\\n…"}'
                   }
                   autoComplete="off"
                   spellCheck={false}
@@ -193,6 +222,8 @@ export function FinancialManager({
           <div>
             <strong>Required key restrictions</strong>
             <ul>
+              <li>Use a new Secret API Key, not a legacy key</li>
+              <li>Open API restrictions and Advanced Settings</li>
               <li>Signature algorithm: ECDSA (ES256)</li>
               <li>View permission: on</li>
               <li>Trade permission: optional for future execution</li>

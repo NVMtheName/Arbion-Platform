@@ -252,7 +252,7 @@ func (h *authHandler) financialError(w stdhttp.ResponseWriter, e error) {
 			switch pe.Code {
 			case financial.InvalidCredentialFormat:
 				status = 400
-				message = "Use the full Coinbase API key name and an ECDSA (ES256) private key. Both pasted PEM lines and escaped \\n line breaks are accepted."
+				message = "Use the full Coinbase API key name and an ECDSA (ES256) private key. A plain one-line secret is not compatible; pasted PEM lines and escaped \\n line breaks are accepted."
 			case financial.AuthorizationFailed:
 				status = 400
 				message = "Coinbase rejected this key pair. Confirm both values came from the same active key and that any IP allowlist includes Arbion."

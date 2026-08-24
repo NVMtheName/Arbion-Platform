@@ -1055,6 +1055,17 @@ button:disabled {
   font-size: 0.86rem;
   line-height: 1.55;
 }
+.coinbase-key-compatibility {
+  padding: 12px 14px;
+  border: 1px solid rgba(25, 201, 214, 0.2);
+  border-radius: 10px;
+  background: rgba(25, 201, 214, 0.045);
+}
+.coinbase-key-compatibility code {
+  color: var(--brand-cyan);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
 .coinbase-permission-state {
   margin: 16px 0;
   padding: 14px 16px;

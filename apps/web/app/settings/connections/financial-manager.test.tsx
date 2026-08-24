@@ -32,8 +32,10 @@ describe("FinancialManager", () => {
     expect(
       screen.getByText("How to create the right Coinbase key"),
     ).toBeVisible();
+    expect(screen.getByLabelText("Coinbase key name")).toBeVisible();
+    expect(screen.getByLabelText("ECDSA private key")).toBeVisible();
     expect(
-      screen.getByLabelText("Coinbase key JSON (recommended)"),
+      screen.getByText(/short, one-line secret is the wrong key type/),
     ).toBeVisible();
     expect(screen.getByText(/ECDSA \(ES256\)/)).toBeInTheDocument();
     expect(screen.getByText(/View permission: on/)).toBeInTheDocument();
@@ -102,11 +104,12 @@ describe("FinancialManager", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Coinbase key JSON (recommended)"), {
+    fireEvent.change(screen.getByLabelText("Downloaded Coinbase key JSON"), {
       target: {
         value: JSON.stringify({
           name: "organizations/org/apiKeys/key",
-          privateKey: "private-key-material",
+          privateKey:
+            "-----BEGIN EC PRIVATE KEY-----\nprivate-key-material\n-----END EC PRIVATE KEY-----",
         }),
       },
     });
@@ -120,13 +123,14 @@ describe("FinancialManager", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           key_name: "organizations/org/apiKeys/key",
-          private_key: "private-key-material",
+          private_key:
+            "-----BEGIN EC PRIVATE KEY-----\nprivate-key-material\n-----END EC PRIVATE KEY-----",
         }),
       },
     );
-    expect(
-      screen.getByLabelText("Coinbase key JSON (recommended)"),
-    ).toHaveValue("");
+    expect(screen.getByLabelText("Downloaded Coinbase key JSON")).toHaveValue(
+      "",
+    );
     expect(screen.getByRole("alert")).toHaveTextContent(
       "The provider did not accept these credentials.",
     );
@@ -148,7 +152,7 @@ describe("FinancialManager", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Coinbase key JSON (recommended)"), {
+    fireEvent.change(screen.getByLabelText("Downloaded Coinbase key JSON"), {
       target: { value: '{"name":"organizations/org/apiKeys/key"}' },
     });
     fireEvent.click(screen.getByRole("button", { name: "Connect Coinbase" }));
@@ -156,6 +160,36 @@ describe("FinancialManager", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent(
       /does not contain Coinbase’s name and privateKey values/,
+    );
+  });
+
+  it("identifies a one-line Coinbase secret as the wrong key type before sending it", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <FinancialManager
+        provider={{
+          id: "coinbase",
+          label: "Coinbase",
+          auth_type: "jwt_key_pair",
+        }}
+        entitled
+        connections={[]}
+        accounts={[]}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Coinbase key name"), {
+      target: { value: "organizations/org/apiKeys/key" },
+    });
+    fireEvent.change(screen.getByLabelText("ECDSA private key"), {
+      target: { value: "one-line-api-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Coinbase" }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /one-line API secret, not the ECDSA private key/,
     );
   });
 });
