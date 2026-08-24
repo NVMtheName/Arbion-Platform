@@ -11,6 +11,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/credential"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/financial/oauthstate"
 )
 
 type connectionStoreFake struct {
@@ -21,8 +22,8 @@ type connectionStoreFake struct {
 func (store *connectionStoreFake) ListConnections(context.Context, string) ([]Connection, error) {
 	return []Connection{store.connection}, nil
 }
-func (store *connectionStoreFake) UpsertConnection(_ context.Context, _ string, provider, displayName string, expires *time.Time) (Connection, error) {
-	store.connection = Connection{ID: "connection-1", Provider: provider, DisplayName: displayName, Status: "pending", TokenExpiresAt: expires, CredentialStorage: "encrypted_database"}
+func (store *connectionStoreFake) UpsertConnection(_ context.Context, _ string, provider, displayName string, expires, authorizationExpires *time.Time) (Connection, error) {
+	store.connection = Connection{ID: "connection-1", Provider: provider, DisplayName: displayName, Status: "pending", TokenExpiresAt: expires, AuthorizationExpiresAt: authorizationExpires, CredentialStorage: "encrypted_database"}
 	return store.connection, nil
 }
 func (store *connectionStoreFake) GetConnection(context.Context, string, string) (Connection, error) {
@@ -101,6 +102,24 @@ type coinbaseProviderFake struct {
 	previews int
 }
 
+type schwabAuthorizerFake struct{ coinbaseProviderFake }
+
+func (*schwabAuthorizerFake) AuthorizationURL(state string) (string, error) {
+	return "https://schwab.example/authorize?state=" + state, nil
+}
+
+func (*schwabAuthorizerFake) Exchange(_ context.Context, code string) (financial.Credentials, error) {
+	if code != "authorization-code" {
+		return financial.Credentials{}, &financial.ProviderError{Code: financial.AuthorizationFailed}
+	}
+	return financial.Credentials{
+		AccessToken:     "access-token",
+		RefreshToken:    "refresh-token",
+		TokenType:       "Bearer",
+		AccessExpiresAt: time.Now().Add(30 * time.Minute),
+	}, nil
+}
+
 func (provider *coinbaseProviderFake) VerifyConnection(_ context.Context, credentials *financial.Credentials) error {
 	provider.verified++
 	if credentials.APIKeyName != "organizations/org/apiKeys/key" || credentials.APIPrivateKey != "private-key" {
@@ -161,6 +180,30 @@ func (*coinbaseProviderFake) Disconnect(context.Context, *financial.Credentials)
 
 func founder() authorization.Principal {
 	return authorization.Principal{UserID: "user-1", Entitlement: authorization.EntitlementFounder}
+}
+
+func TestSchwabAuthorizationStoresTheWeeklyReauthorizationDeadline(t *testing.T) {
+	store := &connectionStoreFake{}
+	states := oauthstate.New(oauthstate.NewMemoryStore(), time.Minute)
+	provider := &schwabAuthorizerFake{}
+	service := NewService(store, &vaultFake{}, states, provider, nil)
+	state, err := states.Start(context.Background(), founder().UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now().UTC()
+	userID, err := service.CompleteAuthorization(context.Background(), state, "authorization-code", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if userID != founder().UserID || store.connection.AuthorizationExpiresAt == nil {
+		t.Fatalf("weekly authorization deadline missing: %#v", store.connection)
+	}
+	minimum := started.Add(schwabAuthorizationLifetime - time.Second)
+	maximum := time.Now().UTC().Add(schwabAuthorizationLifetime + time.Second)
+	if store.connection.AuthorizationExpiresAt.Before(minimum) || store.connection.AuthorizationExpiresAt.After(maximum) {
+		t.Fatalf("unexpected weekly authorization deadline: %s", store.connection.AuthorizationExpiresAt)
+	}
 }
 
 func TestConnectAPIKeyStoresServerOnlyCredentialsAndRoutesAccountReads(t *testing.T) {

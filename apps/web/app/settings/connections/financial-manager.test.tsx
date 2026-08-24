@@ -83,6 +83,78 @@ describe("FinancialManager", () => {
     expect(screen.getByText(/order submission remains locked/)).toBeVisible();
   });
 
+  it("turns an expired Schwab connection into a clear weekly reconnect action", () => {
+    render(
+      <FinancialManager
+        provider={{
+          id: "schwab",
+          label: "Charles Schwab",
+          auth_type: "oauth2_authorization_code",
+        }}
+        entitled
+        connections={[
+          {
+            id: "connection-1",
+            provider: "schwab",
+            display_name: "Charles Schwab",
+            status: "expired",
+          },
+        ]}
+        accounts={[
+          {
+            id: "account-1",
+            provider_connection_id: "connection-1",
+            provider: "schwab",
+            display_name: "Schwab MARGIN ••••9555",
+            status: "active",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Schwab reconnect required")).toBeVisible();
+    expect(
+      screen.getByText(/approve API access again each week/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Reconnect Schwab" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Refresh accounts" }),
+    ).toBeDisabled();
+  });
+
+  it("shows the next Schwab renewal deadline while access is active", () => {
+    render(
+      <FinancialManager
+        provider={{
+          id: "schwab",
+          label: "Charles Schwab",
+          auth_type: "oauth2_authorization_code",
+        }}
+        entitled
+        connections={[
+          {
+            id: "connection-1",
+            provider: "schwab",
+            display_name: "Charles Schwab",
+            status: "active",
+            authorization_expires_at: "2026-08-31T17:45:00Z",
+          },
+        ]}
+        accounts={[]}
+      />,
+    );
+
+    expect(
+      screen.getByText("Weekly Schwab authorization active"),
+    ).toBeVisible();
+    expect(screen.getByText(/You can renew early/)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Renew Schwab access" }),
+    ).toBeEnabled();
+  });
+
   it("extracts downloaded Coinbase JSON, sends it only to the connection endpoint, and clears it", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,

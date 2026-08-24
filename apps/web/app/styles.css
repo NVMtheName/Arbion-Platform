@@ -891,6 +891,11 @@ button:disabled {
   color: #89ebb7;
   background: rgba(94, 224, 160, 0.07);
 }
+.connection-status.is-attention {
+  border-color: rgba(245, 190, 92, 0.5);
+  color: #f3d79a;
+  background: rgba(124, 101, 64, 0.18);
+}
 .connection-card-copy,
 .connection-card-state,
 .connection-quiet-state,
@@ -938,6 +943,32 @@ button:disabled {
 }
 .connection-primary-actions {
   margin-top: 18px;
+}
+.schwab-authorization-state,
+.schwab-reconnect-state {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  line-height: 1.55;
+}
+.schwab-authorization-state {
+  border: 1px solid rgba(94, 224, 160, 0.25);
+  color: #bfead2;
+  background: rgba(94, 224, 160, 0.055);
+}
+.schwab-reconnect-state {
+  border: 1px solid rgba(245, 190, 92, 0.42);
+  color: #f3d79a;
+  background: rgba(124, 101, 64, 0.16);
+}
+.schwab-authorization-state p,
+.schwab-reconnect-state p {
+  margin-bottom: 0;
+  color: var(--brand-muted);
+  font-size: 0.84rem;
+}
+.schwab-reconnect-state button {
+  margin-top: 12px;
 }
 .coinbase-key-guide {
   padding: 0;

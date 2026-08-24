@@ -76,11 +76,14 @@ export function FinancialManager({
     return true;
   }
   async function connect() {
+    setBusy(true);
+    setError("");
     const r = await fetch(`/api/connections/financial/${provider.id}/start`, {
       method: "POST",
     });
     if (!r.ok) {
       setError(await message(r, "Unable to start authorization."));
+      setBusy(false);
       return;
     }
     const d = (await r.json()) as { authorization_url: string };
@@ -290,7 +293,11 @@ export function FinancialManager({
       {connections.map((c) => (
         <div className="connection" key={c.id}>
           <strong>
-            {c.status === "active" ? "Account connection active" : c.status}
+            {c.status === "active"
+              ? "Account connection active"
+              : c.status === "expired"
+                ? "Schwab reconnect required"
+                : c.status}
           </strong>
           <p>
             {
@@ -304,6 +311,37 @@ export function FinancialManager({
           {c.last_synced_at && (
             <p>Last synced: {new Date(c.last_synced_at).toLocaleString()}</p>
           )}
+          {provider.id === "schwab" && c.status === "active" && (
+            <div className="schwab-authorization-state">
+              <strong>Weekly Schwab authorization active</strong>
+              {c.authorization_expires_at && (
+                <p>
+                  Renew by{" "}
+                  <time
+                    dateTime={c.authorization_expires_at}
+                    suppressHydrationWarning
+                  >
+                    {new Date(c.authorization_expires_at).toLocaleString()}
+                  </time>
+                  . You can renew early without changing your linked account.
+                </p>
+              )}
+            </div>
+          )}
+          {provider.id === "schwab" &&
+            ["expired", "error"].includes(c.status) && (
+              <div className="schwab-reconnect-state" role="status">
+                <strong>Your brokerage account is still safely linked.</strong>
+                <p>
+                  Schwab requires you to approve API access again each week.
+                  Reconnecting replaces only the expired authorization; it does
+                  not change your Arbion account, strategy, or risk settings.
+                </p>
+                <button disabled={busy || !entitled} onClick={connect}>
+                  {busy ? "Opening Schwab…" : "Reconnect Schwab"}
+                </button>
+              </div>
+            )}
           {accounts
             .filter((a) => a.provider_connection_id === c.id)
             .map((a) => (
@@ -333,11 +371,16 @@ export function FinancialManager({
           )}
           <div className="connection-actions connection-primary-actions">
             <button
-              disabled={busy || c.status === "disabled"}
+              disabled={busy || c.status !== "active"}
               onClick={() => change(c, "sync")}
             >
               Refresh accounts
             </button>
+            {provider.id === "schwab" && c.status === "active" && (
+              <button disabled={busy || !entitled} onClick={connect}>
+                Renew Schwab access
+              </button>
+            )}
           </div>
           <details className="connection-details">
             <summary>Manage connection</summary>

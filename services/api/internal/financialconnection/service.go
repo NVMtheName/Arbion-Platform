@@ -23,25 +23,28 @@ var (
 	ErrInvalidOrderPreview = errors.New("order preview input is invalid")
 )
 
+const schwabAuthorizationLifetime = 7 * 24 * time.Hour
+
 var (
 	previewSymbolPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]{0,15}$`)
 	previewSizePattern   = regexp.MustCompile(`^(0|[1-9][0-9]{0,17})(\.[0-9]{1,18})?$`)
 )
 
 type Connection struct {
-	ID                string     `json:"id"`
-	Provider          string     `json:"provider"`
-	DisplayName       string     `json:"display_name"`
-	Status            string     `json:"status"`
-	TokenExpiresAt    *time.Time `json:"token_expires_at,omitempty"`
-	LastSyncedAt      *time.Time `json:"last_synced_at,omitempty"`
-	CredentialStorage string     `json:"credential_storage"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID                     string     `json:"id"`
+	Provider               string     `json:"provider"`
+	DisplayName            string     `json:"display_name"`
+	Status                 string     `json:"status"`
+	TokenExpiresAt         *time.Time `json:"token_expires_at,omitempty"`
+	AuthorizationExpiresAt *time.Time `json:"authorization_expires_at,omitempty"`
+	LastSyncedAt           *time.Time `json:"last_synced_at,omitempty"`
+	CredentialStorage      string     `json:"credential_storage"`
+	CreatedAt              time.Time  `json:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
 }
 type Store interface {
 	ListConnections(context.Context, string) ([]Connection, error)
-	UpsertConnection(context.Context, string, string, string, *time.Time) (Connection, error)
+	UpsertConnection(context.Context, string, string, string, *time.Time, *time.Time) (Connection, error)
 	GetConnection(context.Context, string, string) (Connection, error)
 	SetStatus(context.Context, string, string, string, *time.Time) (Connection, error)
 	SyncAccounts(context.Context, string, string, []financial.FinancialAccount) error
@@ -133,7 +136,8 @@ func (s *Service) CompleteAuthorization(ctx context.Context, state, code, provid
 		s.record(ctx, r.UserID, "financial.authorization_failed", map[string]any{"provider": "schwab"})
 		return r.UserID, e
 	}
-	c, e := s.store.UpsertConnection(ctx, r.UserID, "schwab", "Charles Schwab", credentialExpiry(cr))
+	authorizationExpiresAt := time.Now().UTC().Add(schwabAuthorizationLifetime)
+	c, e := s.store.UpsertConnection(ctx, r.UserID, "schwab", "Charles Schwab", credentialExpiry(cr), &authorizationExpiresAt)
 	if e != nil {
 		return r.UserID, e
 	}
@@ -151,7 +155,7 @@ func (s *Service) CompleteAuthorization(ctx context.Context, state, code, provid
 		s.store.SetStatus(ctx, r.UserID, c.ID, "error", nil)
 		return r.UserID, e
 	}
-	s.record(ctx, r.UserID, "financial.authorization_completed", map[string]any{"provider": "schwab", "connection_id": c.ID})
+	s.record(ctx, r.UserID, "financial.authorization_completed", map[string]any{"provider": "schwab", "connection_id": c.ID, "authorization_expires_at": authorizationExpiresAt})
 	return r.UserID, nil
 }
 func (s *Service) ConnectAPIKey(ctx context.Context, p authorization.Principal, providerID, keyName, privateKey string) (Connection, error) {
@@ -178,7 +182,7 @@ func (s *Service) ConnectAPIKey(ctx context.Context, p authorization.Principal, 
 		s.record(ctx, p.UserID, "financial.authorization_failed", metadata)
 		return Connection{}, err
 	}
-	connection, err := s.store.UpsertConnection(ctx, p.UserID, providerID, "Coinbase", nil)
+	connection, err := s.store.UpsertConnection(ctx, p.UserID, providerID, "Coinbase", nil, nil)
 	if err != nil {
 		return Connection{}, err
 	}
@@ -242,7 +246,12 @@ func (s *Service) credentials(ctx context.Context, user, id string, allowDisable
 		if !cr.AccessExpiresAt.IsZero() && time.Until(cr.AccessExpiresAt) < 2*time.Minute {
 			if e = provider.RefreshAuthorization(ctx, &cr); e != nil {
 				s.store.SetStatus(ctx, user, id, "expired", nil)
-				s.record(ctx, user, "financial.refresh_failed", map[string]any{"connection_id": id})
+				metadata := map[string]any{"connection_id": id}
+				var providerError *financial.ProviderError
+				if errors.As(e, &providerError) {
+					metadata["code"] = providerError.Code
+				}
+				s.record(ctx, user, "financial.refresh_failed", metadata)
 				return e
 			}
 			fresh, _ := cr.Bytes()

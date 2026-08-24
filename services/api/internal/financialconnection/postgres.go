@@ -15,11 +15,11 @@ type PostgresStore struct{ db *pgxpool.Pool }
 
 func NewPostgresStore(db *pgxpool.Pool) *PostgresStore { return &PostgresStore{db: db} }
 
-const connectionColumns = `id::text,provider_name,display_name,status,token_expires_at,last_verified_at,credential_storage,created_at,updated_at`
+const connectionColumns = `id::text,provider_name,display_name,status,token_expires_at,authorization_expires_at,last_verified_at,credential_storage,created_at,updated_at`
 
 func scanConnection(row pgx.Row) (Connection, error) {
 	var c Connection
-	e := row.Scan(&c.ID, &c.Provider, &c.DisplayName, &c.Status, &c.TokenExpiresAt, &c.LastSyncedAt, &c.CredentialStorage, &c.CreatedAt, &c.UpdatedAt)
+	e := row.Scan(&c.ID, &c.Provider, &c.DisplayName, &c.Status, &c.TokenExpiresAt, &c.AuthorizationExpiresAt, &c.LastSyncedAt, &c.CredentialStorage, &c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(e, pgx.ErrNoRows) {
 		e = ErrNotFound
 	}
@@ -41,8 +41,8 @@ func (s *PostgresStore) ListConnections(ctx context.Context, user string) ([]Con
 	}
 	return out, rows.Err()
 }
-func (s *PostgresStore) UpsertConnection(ctx context.Context, user, provider, displayName string, expires *time.Time) (Connection, error) {
-	return scanConnection(s.db.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status,token_expires_at) VALUES($1,'financial',$2,$3,'pending',$4) ON CONFLICT(user_id,provider_category,provider_name,display_name) DO UPDATE SET status='pending',token_expires_at=excluded.token_expires_at,updated_at=now() RETURNING `+connectionColumns, user, provider, displayName, expires))
+func (s *PostgresStore) UpsertConnection(ctx context.Context, user, provider, displayName string, expires, authorizationExpires *time.Time) (Connection, error) {
+	return scanConnection(s.db.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status,token_expires_at,authorization_expires_at) VALUES($1,'financial',$2,$3,'pending',$4,$5) ON CONFLICT(user_id,provider_category,provider_name,display_name) DO UPDATE SET status='pending',token_expires_at=excluded.token_expires_at,authorization_expires_at=excluded.authorization_expires_at,updated_at=now() RETURNING `+connectionColumns, user, provider, displayName, expires, authorizationExpires))
 }
 func (s *PostgresStore) GetConnection(ctx context.Context, user, id string) (Connection, error) {
 	return scanConnection(s.db.QueryRow(ctx, `SELECT `+connectionColumns+` FROM provider_connections WHERE id=$1 AND user_id=$2 AND provider_category='financial'`, id, user))
