@@ -89,7 +89,7 @@ export default async function AccountPage({
       }
     ).portfolio;
     const initialSymbol = snapshot.positions.find(
-      (position) => position.market_value,
+      (position) => position.market_value && position.provenance,
     )?.symbol;
     let initialHistory: CryptoCandleSeries | undefined;
     let initialHistoryCached = false;

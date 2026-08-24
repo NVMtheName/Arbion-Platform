@@ -125,13 +125,15 @@ func (fake fakeMarketIntelligence) RecentInsiderFilings(_ context.Context, cik s
 }
 
 type fakeBrokerMarketData struct {
-	accounts []financial.FinancialAccount
-	quote    financial.Quote
-	chain    financial.OptionChain
-	query    financial.OptionChainRequest
-	fills    financial.TradeFillPage
-	orders   financial.OrderHistoryPage
-	costs    financial.TradingCostSummary
+	accounts  []financial.FinancialAccount
+	balances  *financial.Balances
+	positions []financial.Position
+	quote     financial.Quote
+	chain     financial.OptionChain
+	query     financial.OptionChainRequest
+	fills     financial.TradeFillPage
+	orders    financial.OrderHistoryPage
+	costs     financial.TradingCostSummary
 }
 
 func (fake *fakeBrokerMarketData) ListAccounts(context.Context, authorization.Principal) ([]financial.FinancialAccount, error) {
@@ -148,10 +150,16 @@ func (fake *fakeBrokerMarketData) GetAccount(_ context.Context, _ authorization.
 }
 
 func (fake *fakeBrokerMarketData) GetBalances(context.Context, authorization.Principal, string) (financial.Balances, error) {
+	if fake.balances != nil {
+		return *fake.balances, nil
+	}
 	return financial.Balances{Cash: &financial.Money{Amount: "25", Currency: "USD"}, AvailableCash: &financial.Money{Amount: "20", Currency: "USD"}}, nil
 }
 
 func (fake *fakeBrokerMarketData) GetPositions(context.Context, authorization.Principal, string) ([]financial.Position, error) {
+	if fake.positions != nil {
+		return fake.positions, nil
+	}
 	available := financial.Decimal("0.3")
 	unavailable := financial.Decimal("0.2")
 	return []financial.Position{{InstrumentType: "CRYPTO", Symbol: "BTC", Quantity: "0.5", AvailableQuantity: &available, UnavailableToTradeQuantity: &unavailable, Direction: "long"}}, nil
@@ -395,6 +403,39 @@ func TestCryptoPortfolioCombinesHoldingsWithExplicitReadOnlyVenueObservations(t 
 	for _, expected := range []string{`"observed_value":{"amount":"30025"`, `"digital_asset_value":{"amount":"30000"`, `"available_quantity":"0.3"`, `"unavailable_to_trade_quantity":"0.2"`, `"pricing_state":"READY"`, `"pricing_basis":"LAST_TRADE"`, `"venue":"coinbase_exchange"`, `"live_execution_available":false`} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("portfolio evidence missing %s: %s", expected, body)
+		}
+	}
+}
+
+func TestCryptoPortfolioIncludesCoinbaseUSDCAtExplicitRedemptionReference(t *testing.T) {
+	availableBTC := financial.Decimal("0.3")
+	availableUSDC := financial.Decimal("5.3263083")
+	unavailableUSDC := financial.Decimal("17534.7")
+	broker := &fakeBrokerMarketData{
+		accounts: []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", BaseCurrency: "USD", Status: "active"}},
+		positions: []financial.Position{
+			{InstrumentType: "CRYPTO", Symbol: "BTC", Quantity: "0.5", AvailableQuantity: &availableBTC, Direction: "long"},
+			{InstrumentType: "CRYPTO", Symbol: "USDC", Quantity: "17540.0263083", AvailableQuantity: &availableUSDC, UnavailableToTradeQuantity: &unavailableUSDC, Direction: "long"},
+		},
+	}
+	handler := &authHandler{marketFinancial: broker, markets: fakeMarketIntelligence{}}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/portfolio/crypto", nil)
+	request.SetPathValue("id", "coinbase-1")
+	recorder := httptest.NewRecorder()
+
+	handler.cryptoPortfolio(recorder, request)
+
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		`"observed_value":{"amount":"47565.0263083"`,
+		`"digital_asset_value":{"amount":"47540.0263083"`,
+		`"symbol":"USDC","quantity":"17540.0263083","available_quantity":"5.3263083","unavailable_to_trade_quantity":"17534.7","unit_price":{"amount":"1","currency":"USD"},"market_value":{"amount":"17540.0263083","currency":"USD"},"pricing_status":"PRICED","valuation_basis":"COINBASE_USDC_USD_REDEMPTION"`,
+		`"priced_positions":2`,
+		`"pricing_complete":true`,
+		`"pricing_basis":"LAST_TRADE_AND_USDC_USD_REDEMPTION"`,
+	} {
+		if recorder.Code != stdhttp.StatusOK || !strings.Contains(body, expected) {
+			t.Fatalf("USDC redemption-reference valuation missing %s: status=%d body=%s", expected, recorder.Code, body)
 		}
 	}
 }

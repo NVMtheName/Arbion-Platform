@@ -367,6 +367,54 @@ describe("CryptoPortfolioCommandCenter", () => {
     ).toBeInTheDocument();
   });
 
+  it("includes USDC in value and allocation without treating its redemption reference as a venue market", () => {
+    const usdcSnapshot: CryptoPortfolioSnapshot = {
+      ...snapshot,
+      observed_value: { amount: "47565.0263083", currency: "USD" },
+      digital_asset_value: { amount: "47540.0263083", currency: "USD" },
+      positions: [
+        {
+          symbol: "USDC",
+          quantity: "17540.0263083",
+          available_quantity: "5.3263083",
+          unavailable_to_trade_quantity: "17534.7",
+          unit_price: { amount: "1", currency: "USD" },
+          market_value: { amount: "17540.0263083", currency: "USD" },
+          pricing_status: "PRICED",
+          valuation_basis: "COINBASE_USDC_USD_REDEMPTION",
+        },
+        snapshot.positions[0],
+      ],
+      priced_positions: 2,
+      total_positions: 2,
+      pricing_complete: true,
+      pricing_state: "READY",
+      pricing_basis: "LAST_TRADE_AND_USDC_USD_REDEMPTION",
+      pricing_message:
+        "Coinbase Exchange last trades are combined with Coinbase's 1:1 USDC-to-USD redemption reference.",
+    };
+
+    render(
+      <CryptoPortfolioCommandCenter
+        accountID="coinbase-1"
+        initialHistory={history}
+        initialSnapshot={usdcSnapshot}
+      />,
+    );
+
+    expect(screen.getByText("$47,565.03")).toBeInTheDocument();
+    expect(screen.getByText("17,540.0263083")).toBeInTheDocument();
+    expect(screen.getByText("17,534.7")).toBeInTheDocument();
+    expect(
+      screen.getByText("Coinbase USDC · 1:1 USD redemption reference"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Last trade + USDC 1:1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "BTC" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "USDC" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("refreshes through only the protected read-only portfolio endpoint", async () => {
     const updated = {
       ...snapshot,
