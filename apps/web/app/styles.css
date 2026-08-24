@@ -1066,6 +1066,17 @@ button:disabled {
   font-size: 0.78rem;
   overflow-wrap: anywhere;
 }
+.coinbase-connection-error {
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 156, 156, 0.48);
+  border-radius: 10px;
+  background: rgba(126, 51, 51, 0.22);
+  line-height: 1.55;
+}
+.coinbase-connection-error:focus {
+  outline: 2px solid #ff9c9c;
+  outline-offset: 2px;
+}
 .coinbase-permission-state {
   margin: 16px 0;
   padding: 14px 16px;
