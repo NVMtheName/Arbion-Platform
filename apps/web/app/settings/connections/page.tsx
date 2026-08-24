@@ -34,6 +34,7 @@ export type FinancialConnection = {
   display_name: string;
   status: string;
   last_synced_at?: string;
+  authorization_expires_at?: string;
 };
 export type FinancialAccount = {
   id: string;
@@ -103,8 +104,15 @@ export default async function ConnectionsPage() {
         }
       ).preference
     : null;
+  const activeFinancialConnectionIDs = new Set(
+    financialConnections
+      .filter((connection) => connection.status === "active")
+      .map((connection) => connection.id),
+  );
   const activeFinancialAccounts = financialAccounts.filter(
-    (account) => account.status === "active",
+    (account) =>
+      account.status === "active" &&
+      activeFinancialConnectionIDs.has(account.provider_connection_id),
   );
   const activeAIConnections = data.connections.filter(
     (connection) => connection.status === "active" && connection.enabled,
@@ -225,7 +233,13 @@ export default async function ConnectionsPage() {
                         connection.status === "active",
                     )
                       ? "is-connected"
-                      : ""
+                      : financialConnections.some(
+                            (connection) =>
+                              connection.provider === provider.id &&
+                              ["expired", "error"].includes(connection.status),
+                          )
+                        ? "is-attention"
+                        : ""
                   }`}
                 >
                   {financialConnections.some(
@@ -234,7 +248,13 @@ export default async function ConnectionsPage() {
                       connection.status === "active",
                   )
                     ? "Connected"
-                    : "Not connected"}
+                    : financialConnections.some(
+                          (connection) =>
+                            connection.provider === provider.id &&
+                            ["expired", "error"].includes(connection.status),
+                        )
+                      ? "Reconnect"
+                      : "Not connected"}
                 </span>
               </header>
               {provider.configured ? (

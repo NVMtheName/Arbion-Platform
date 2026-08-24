@@ -183,6 +183,18 @@ func TestMarketSourceHealthHistoryIsBoundedAndContainsNoSubjectDimensions(t *tes
 	}
 }
 
+func TestFinancialAuthorizationDeadlineTracksWeeklySchwabReauthorization(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00023_financial_authorization_deadline.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"authorization_expires_at", "financial.authorization_completed", "interval '7 days'", "provider_name = 'schwab'"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("financial authorization deadline migration missing %q", required)
+		}
+	}
+}
+
 func TestMarketWatchlistIsOwnerScopedBoundedAndNonExecutable(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00018_market_watchlist.sql")
 	if err != nil {
