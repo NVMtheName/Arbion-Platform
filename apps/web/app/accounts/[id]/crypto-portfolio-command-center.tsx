@@ -2119,9 +2119,11 @@ export function CryptoPortfolioCommandCenter({
           </div>
         )}
         <p className="crypto-position-note">
-          Coinbase reports total and available-to-trade quantities separately.
-          Their difference can include staking, open-order holds, or other
-          provider restrictions.
+          Total holdings include Coinbase App wallets and vaults. Staked /
+          unavailable is the difference between that inventory and the quantity
+          Advanced Trade explicitly reports as tradable; it can include rewards
+          balances, staking, vaults, open-order holds, or other provider
+          restrictions.
         </p>
       </section>
 

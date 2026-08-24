@@ -148,6 +148,26 @@ type portfolioBreakdownResponse struct {
 	} `json:"breakdown"`
 }
 
+type providerWalletAccount struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Currency struct {
+		Code string `json:"code"`
+		Type string `json:"type"`
+	} `json:"currency"`
+	Balance struct {
+		Amount   providerDecimal `json:"amount"`
+		Currency string          `json:"currency"`
+	} `json:"balance"`
+}
+
+type walletAccountPage struct {
+	Pagination struct {
+		NextURI string `json:"next_uri"`
+	} `json:"pagination"`
+	Data []providerWalletAccount `json:"data"`
+}
+
 type providerFill struct {
 	TradeTime          time.Time   `json:"trade_time"`
 	TradeType          string      `json:"trade_type"`
@@ -327,6 +347,37 @@ func (c *Client) providerPortfolioPositions(ctx context.Context, credentials *fi
 	return response.Breakdown.SpotPositions, nil
 }
 
+func (c *Client) providerWalletAccounts(ctx context.Context, credentials *financial.Credentials) ([]providerWalletAccount, error) {
+	accounts := make([]providerWalletAccount, 0, 32)
+	startingAfter := ""
+	for page := 0; page < maxPages; page++ {
+		query := url.Values{"limit": {"100"}, "order": {"desc"}}
+		if startingAfter != "" {
+			query.Set("starting_after", startingAfter)
+		}
+		var response walletAccountPage
+		if err := c.get(ctx, credentials, "/v2/accounts?"+query.Encode(), &response); err != nil {
+			return nil, err
+		}
+		if len(response.Data) > 100 || len(response.Pagination.NextURI) > 2048 {
+			return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		}
+		accounts = append(accounts, response.Data...)
+		if strings.TrimSpace(response.Pagination.NextURI) == "" {
+			return accounts, nil
+		}
+		if len(response.Data) == 0 {
+			return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		}
+		next := strings.TrimSpace(response.Data[len(response.Data)-1].ID)
+		if next == "" || len(next) > 200 || next == startingAfter {
+			return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		}
+		startingAfter = next
+	}
+	return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+}
+
 func portfolioAccount(credentials *financial.Credentials) (financial.FinancialAccount, error) {
 	portfolioID := strings.TrimSpace(credentials.PortfolioID)
 	if portfolioID == "" || len(portfolioID) > 200 {
@@ -439,8 +490,16 @@ func (c *Client) GetPositions(ctx context.Context, credentials *financial.Creden
 	if err != nil {
 		return nil, err
 	}
-	positions := make([]financial.Position, 0, len(providerPositions))
-	positionIndex := make(map[string]int, len(providerPositions))
+	walletAccounts, err := c.providerWalletAccounts(ctx, credentials)
+	if err != nil {
+		return nil, err
+	}
+	type aggregate struct {
+		total                financial.Decimal
+		available            financial.Decimal
+		providerInstrumentID string
+	}
+	advanced := make(map[string]aggregate, len(providerPositions))
 	for _, providerPosition := range providerPositions {
 		currency := strings.ToUpper(strings.TrimSpace(providerPosition.Asset))
 		if providerPosition.AccountUUID == "" || len(providerPosition.AccountUUID) > 200 || !currencyPattern.MatchString(currency) {
@@ -451,8 +510,7 @@ func (c *Client) GetPositions(ctx context.Context, credentials *financial.Creden
 		if !quantityOK || !availableOK {
 			return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
 		}
-		unavailableQuantity, err := subtractDecimals(quantity, availableQuantity)
-		if err != nil {
+		if _, err := subtractDecimals(quantity, availableQuantity); err != nil {
 			return nil, err
 		}
 		nonzero, err := decimalNonzero(quantity)
@@ -462,34 +520,101 @@ func (c *Client) GetPositions(ctx context.Context, credentials *financial.Creden
 		if !nonzero || currency == "USD" {
 			continue
 		}
-		if index, exists := positionIndex[currency]; exists {
-			combinedQuantity, combineErr := addDecimals(json.Number(positions[index].Quantity), json.Number(quantity))
-			if combineErr != nil || positions[index].AvailableQuantity == nil {
-				return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		current := advanced[currency]
+		if current.total != "" {
+			quantity, err = addDecimals(json.Number(current.total), json.Number(quantity))
+			if err != nil {
+				return nil, err
 			}
-			combinedAvailable, combineErr := addDecimals(json.Number(*positions[index].AvailableQuantity), json.Number(availableQuantity))
-			if combineErr != nil {
-				return nil, combineErr
+			availableQuantity, err = addDecimals(json.Number(current.available), json.Number(availableQuantity))
+			if err != nil {
+				return nil, err
 			}
-			combinedUnavailable, combineErr := subtractDecimals(combinedQuantity, combinedAvailable)
-			if combineErr != nil {
-				return nil, combineErr
-			}
-			positions[index].Quantity = combinedQuantity
-			positions[index].AvailableQuantity = &combinedAvailable
-			positions[index].UnavailableToTradeQuantity = &combinedUnavailable
+		}
+		advanced[currency] = aggregate{total: quantity, available: availableQuantity, providerInstrumentID: providerPosition.AccountUUID}
+	}
+
+	walletTotals := make(map[string]financial.Decimal, len(walletAccounts))
+	walletInstrumentIDs := make(map[string]string, len(walletAccounts))
+	for _, account := range walletAccounts {
+		accountID := strings.TrimSpace(account.ID)
+		currency := strings.ToUpper(strings.TrimSpace(account.Currency.Code))
+		balanceCurrency := strings.ToUpper(strings.TrimSpace(account.Balance.Currency))
+		currencyType := strings.ToLower(strings.TrimSpace(account.Currency.Type))
+		if accountID == "" || len(accountID) > 200 || !currencyPattern.MatchString(currency) || currency != balanceCurrency || (currencyType != "crypto" && currencyType != "fiat") {
+			return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		}
+		if currencyType == "fiat" || currency == "USD" {
 			continue
 		}
-		positionIndex[currency] = len(positions)
+		quantity, ok := requiredNonnegativeProviderDecimal(json.Number(account.Balance.Amount))
+		if !ok {
+			return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		}
+		nonzero, err := decimalNonzero(quantity)
+		if err != nil {
+			return nil, err
+		}
+		if !nonzero {
+			continue
+		}
+		if current := walletTotals[currency]; current != "" {
+			quantity, err = addDecimals(json.Number(current), json.Number(quantity))
+			if err != nil {
+				return nil, err
+			}
+		}
+		walletTotals[currency] = quantity
+		if walletInstrumentIDs[currency] == "" {
+			walletInstrumentIDs[currency] = accountID
+		}
+	}
+
+	symbols := make(map[string]struct{}, len(advanced)+len(walletTotals))
+	for currency := range advanced {
+		symbols[currency] = struct{}{}
+	}
+	for currency := range walletTotals {
+		symbols[currency] = struct{}{}
+	}
+	if len(symbols) > 250 {
+		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	ordered := make([]string, 0, len(symbols))
+	for currency := range symbols {
+		ordered = append(ordered, currency)
+	}
+	sort.Strings(ordered)
+	positions := make([]financial.Position, 0, len(ordered))
+	for _, currency := range ordered {
+		advancedPosition, hasAdvanced := advanced[currency]
+		total := advancedPosition.total
+		providerInstrumentID := advancedPosition.providerInstrumentID
+		if walletTotal, hasWallet := walletTotals[currency]; hasWallet {
+			if total == "" || compareDecimal(walletTotal, total) > 0 {
+				total = walletTotal
+			}
+			if providerInstrumentID == "" {
+				providerInstrumentID = walletInstrumentIDs[currency]
+			}
+		}
+		available := financial.Decimal("0")
+		if hasAdvanced {
+			available = advancedPosition.available
+		}
+		unavailable, err := subtractDecimals(total, available)
+		if err != nil {
+			return nil, err
+		}
 		positions = append(positions, financial.Position{
 			AccountID:                  id,
 			InstrumentType:             "CRYPTO",
 			Symbol:                     currency,
-			Quantity:                   quantity,
-			AvailableQuantity:          &availableQuantity,
-			UnavailableToTradeQuantity: &unavailableQuantity,
+			Quantity:                   total,
+			AvailableQuantity:          &available,
+			UnavailableToTradeQuantity: &unavailable,
 			Direction:                  "long",
-			ProviderInstrumentID:       providerPosition.AccountUUID,
+			ProviderInstrumentID:       providerInstrumentID,
 		})
 	}
 	return positions, nil

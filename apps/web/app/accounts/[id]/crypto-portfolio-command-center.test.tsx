@@ -284,7 +284,9 @@ describe("CryptoPortfolioCommandCenter", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("0.2")).toBeInTheDocument();
     expect(
-      screen.getByText(/difference can include staking, open-order holds/),
+      screen.getByText(
+        /Total holdings include Coinbase App wallets and vaults/,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("No approved USD product")).toBeInTheDocument();
     expect(screen.getByText("coinbase exchange")).toBeInTheDocument();
