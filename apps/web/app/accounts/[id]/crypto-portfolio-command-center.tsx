@@ -27,6 +27,7 @@ type PortfolioPosition = {
   ask?: Money;
   market_value?: Money;
   pricing_status: "PRICED" | "UNAVAILABLE";
+  valuation_basis?: "VENUE_LAST_TRADE" | "COINBASE_USDC_USD_REDEMPTION";
   provenance?: Provenance;
 };
 
@@ -49,7 +50,10 @@ export type CryptoPortfolioSnapshot = {
   total_positions: number;
   pricing_complete: boolean;
   pricing_state: "READY" | "PARTIAL" | "UNAVAILABLE";
-  pricing_basis: "LAST_TRADE";
+  pricing_basis:
+    | "LAST_TRADE"
+    | "USDC_USD_REDEMPTION"
+    | "LAST_TRADE_AND_USDC_USD_REDEMPTION";
   pricing_message: string;
   pricing_as_of?: string;
   market_data_cached: boolean;
@@ -368,6 +372,24 @@ function bookLevelWidth(level: CryptoBookLevel, levels: CryptoBookLevel[]) {
   return Math.max(4, Math.min(100, (current / maximum) * 100));
 }
 
+function pricingBasisLabel(basis: CryptoPortfolioSnapshot["pricing_basis"]) {
+  if (basis === "USDC_USD_REDEMPTION") return "USDC 1:1 redemption";
+  if (basis === "LAST_TRADE_AND_USDC_USD_REDEMPTION") {
+    return "Last trade + USDC 1:1";
+  }
+  return "Last trade";
+}
+
+function digitalAssetValueLabel(
+  basis: CryptoPortfolioSnapshot["pricing_basis"],
+) {
+  if (basis === "USDC_USD_REDEMPTION") return "Coinbase USDC 1:1 reference";
+  if (basis === "LAST_TRADE_AND_USDC_USD_REDEMPTION") {
+    return "Market observations + USDC 1:1";
+  }
+  return "Coinbase Exchange last trade";
+}
+
 function historyChart(series?: CryptoCandleSeries) {
   if (!series || series.candles.length === 0) return null;
   const candles = series.candles
@@ -465,8 +487,9 @@ export function CryptoPortfolioCommandCenter({
   const initialHistorySymbol = initialHistory?.symbol ?? "";
   const [selectedSymbol, setSelectedSymbol] = useState(
     initialHistorySymbol ||
-      initialSnapshot.positions.find((position) => position.market_value)
-        ?.symbol ||
+      initialSnapshot.positions.find(
+        (position) => position.market_value && position.provenance,
+      )?.symbol ||
       "",
   );
   const [histories, setHistories] = useState<
@@ -547,14 +570,18 @@ export function CryptoPortfolioCommandCenter({
       setSelectedSymbol((current) => {
         if (
           body.portfolio?.positions.some(
-            (position) => position.symbol === current && position.market_value,
+            (position) =>
+              position.symbol === current &&
+              position.market_value &&
+              position.provenance,
           )
         ) {
           return current;
         }
         return (
-          body.portfolio?.positions.find((position) => position.market_value)
-            ?.symbol ?? ""
+          body.portfolio?.positions.find(
+            (position) => position.market_value && position.provenance,
+          )?.symbol ?? ""
         );
       });
     } catch {
@@ -573,6 +600,13 @@ export function CryptoPortfolioCommandCenter({
 
   const pricedPositions = useMemo(
     () => snapshot.positions.filter((position) => position.market_value),
+    [snapshot.positions],
+  );
+  const venuePricedPositions = useMemo(
+    () =>
+      snapshot.positions.filter(
+        (position) => position.market_value && position.provenance,
+      ),
     [snapshot.positions],
   );
   const digitalAssetValue = observedNumber(snapshot.digital_asset_value);
@@ -937,7 +971,7 @@ export function CryptoPortfolioCommandCenter({
         <motion.article initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <span>Observed portfolio</span>
           <strong>{money(snapshot.observed_value)}</strong>
-          <small>USD cash + priced assets</small>
+          <small>USD cash + valued holdings</small>
         </motion.article>
         <motion.article
           initial={{ opacity: 0 }}
@@ -946,7 +980,7 @@ export function CryptoPortfolioCommandCenter({
         >
           <span>Digital assets</span>
           <strong>{money(snapshot.digital_asset_value)}</strong>
-          <small>Coinbase Exchange last trade</small>
+          <small>{digitalAssetValueLabel(snapshot.pricing_basis)}</small>
         </motion.article>
         <motion.article
           initial={{ opacity: 0 }}
@@ -1021,8 +1055,9 @@ export function CryptoPortfolioCommandCenter({
             </div>
           )}
           <footer>
-            Allocation uses only positions with an approved USD observation.
-            Unpriced assets are excluded and remain visible below.
+            Allocation uses approved USD market observations and Coinbase&apos;s
+            1:1 USDC redemption reference. Other unpriced assets remain visible
+            below.
           </footer>
         </motion.article>
 
@@ -1037,7 +1072,7 @@ export function CryptoPortfolioCommandCenter({
           <dl>
             <div>
               <dt>Pricing basis</dt>
-              <dd>Last trade</dd>
+              <dd>{pricingBasisLabel(snapshot.pricing_basis)}</dd>
             </div>
             <div>
               <dt>Venue</dt>
@@ -1094,9 +1129,9 @@ export function CryptoPortfolioCommandCenter({
           </div>
         </header>
 
-        {pricedPositions.length > 0 && (
+        {venuePricedPositions.length > 0 && (
           <div className="crypto-history-symbols" aria-label="Chart asset">
-            {pricedPositions.map((position) => (
+            {venuePricedPositions.map((position) => (
               <button
                 key={position.symbol}
                 className={
@@ -2109,7 +2144,12 @@ export function CryptoPortfolioCommandCenter({
                           </small>
                         </>
                       ) : (
-                        <small>No approved USD product</small>
+                        <small>
+                          {position.valuation_basis ===
+                          "COINBASE_USDC_USD_REDEMPTION"
+                            ? "Coinbase USDC · 1:1 USD redemption reference"
+                            : "No approved USD product"}
+                        </small>
                       )}
                     </td>
                   </tr>

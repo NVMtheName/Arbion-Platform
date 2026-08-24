@@ -71,6 +71,12 @@ type BrokerMarketData interface {
 const (
 	maxPortfolioPositions = 250
 	maxPricedCryptoAssets = 32
+
+	valuationBasisVenueLastTrade       = "VENUE_LAST_TRADE"
+	valuationBasisUSDCUSDRedemption    = "COINBASE_USDC_USD_REDEMPTION"
+	pricingBasisLastTrade              = "LAST_TRADE"
+	pricingBasisUSDCUSDRedemption      = "USDC_USD_REDEMPTION"
+	pricingBasisLastTradeAndRedemption = "LAST_TRADE_AND_USDC_USD_REDEMPTION"
 )
 
 type cryptoPortfolioPosition struct {
@@ -83,6 +89,7 @@ type cryptoPortfolioPosition struct {
 	Ask                        *financial.Money               `json:"ask,omitempty"`
 	MarketValue                *financial.Money               `json:"market_value,omitempty"`
 	PricingStatus              string                         `json:"pricing_status"`
+	ValuationBasis             string                         `json:"valuation_basis,omitempty"`
 	Provenance                 *marketintelligence.Provenance `json:"provenance,omitempty"`
 }
 
@@ -236,6 +243,9 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 			continue
 		}
 		symbol := strings.ToUpper(strings.TrimSpace(position.Symbol))
+		if isUSDCUSDRedemptionReference(symbol, account.BaseCurrency) {
+			continue
+		}
 		if _, exists := seen[symbol]; exists {
 			continue
 		}
@@ -273,6 +283,8 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 	view := make([]cryptoPortfolioPosition, 0, len(positions))
 	assetValue := new(big.Rat)
 	priced := 0
+	venueValued := false
+	redemptionValued := false
 	var pricingAsOf *time.Time
 	for _, position := range positions {
 		symbol := strings.ToUpper(strings.TrimSpace(position.Symbol))
@@ -283,6 +295,20 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 			UnavailableToTradeQuantity: position.UnavailableToTradeQuantity,
 			PricingStatus:              "UNAVAILABLE",
 		}
+		if isUSDCUSDRedemptionReference(symbol, account.BaseCurrency) {
+			value, rational, valueErr := observedMarketValue(position.Quantity, "1", account.BaseCurrency)
+			if valueErr == nil {
+				item.UnitPrice = &financial.Money{Amount: "1", Currency: strings.ToUpper(account.BaseCurrency)}
+				item.MarketValue = value
+				item.PricingStatus = "PRICED"
+				item.ValuationBasis = valuationBasisUSDCUSDRedemption
+				assetValue.Add(assetValue, rational)
+				priced++
+				redemptionValued = true
+			}
+			view = append(view, item)
+			continue
+		}
 		observation, found := observations[symbol]
 		if found {
 			value, rational, valueErr := observedMarketValue(position.Quantity, observation.CurrentPrice, account.BaseCurrency)
@@ -292,10 +318,12 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 				item.Ask = marketMoneyPointer(observation.Ask, observation.Currency)
 				item.MarketValue = value
 				item.PricingStatus = "PRICED"
+				item.ValuationBasis = valuationBasisVenueLastTrade
 				provenance := observation.Provenance
 				item.Provenance = &provenance
 				assetValue.Add(assetValue, rational)
 				priced++
+				venueValued = true
 				providerTime := observation.Provenance.ProviderTimestamp.UTC()
 				if pricingAsOf == nil || providerTime.Before(*pricingAsOf) {
 					pricingAsOf = &providerTime
@@ -322,6 +350,18 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 		pricingState = "PARTIAL"
 		pricingMessage = "Pricing is limited to 32 assets per refresh. Remaining holdings stay visible without an estimated value."
 	}
+	pricingBasis := pricingBasisLastTrade
+	if redemptionValued {
+		pricingBasis = pricingBasisUSDCUSDRedemption
+		if venueValued {
+			pricingBasis = pricingBasisLastTradeAndRedemption
+		}
+		if pricingState == "READY" {
+			pricingMessage = "Coinbase Exchange last trades are combined with Coinbase's 1:1 USDC-to-USD redemption reference; values are informational and non-executable."
+		} else {
+			pricingMessage = "Coinbase's 1:1 USDC-to-USD redemption reference is included. " + pricingMessage
+		}
+	}
 
 	digitalAssetValue := &financial.Money{Amount: financial.Decimal(formatObservedMoney(assetValue)), Currency: account.BaseCurrency}
 	observedValue := new(big.Rat).Set(assetValue)
@@ -335,10 +375,14 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 		ObservedValue:     &financial.Money{Amount: financial.Decimal(formatObservedMoney(observedValue)), Currency: account.BaseCurrency},
 		DigitalAssetValue: digitalAssetValue, Positions: view,
 		PricedPositions: priced, TotalPositions: len(positions), PricingComplete: complete,
-		PricingState: pricingState, PricingBasis: "LAST_TRADE", PricingMessage: pricingMessage,
+		PricingState: pricingState, PricingBasis: pricingBasis, PricingMessage: pricingMessage,
 		PricingAsOf: pricingAsOf, MarketDataCached: cached,
 	}
 	writeJSON(writer, stdhttp.StatusOK, map[string]any{"portfolio": snapshot, "live_execution_available": false})
+}
+
+func isUSDCUSDRedemptionReference(symbol, currency string) bool {
+	return strings.EqualFold(strings.TrimSpace(symbol), "USDC") && strings.EqualFold(strings.TrimSpace(currency), "USD")
 }
 
 func (h *authHandler) connectedCryptoCandles(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
