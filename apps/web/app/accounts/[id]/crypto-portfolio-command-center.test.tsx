@@ -34,6 +34,9 @@ const snapshot: CryptoPortfolioSnapshot = {
     cash: { amount: "25", currency: "USD" },
     available_cash: { amount: "20", currency: "USD" },
   },
+  portfolio_state: "READY",
+  balance_state: "READY",
+  holdings_state: "READY",
   observed_value: { amount: "30025", currency: "USD" },
   digital_asset_value: { amount: "30000", currency: "USD" },
   positions: [
@@ -368,6 +371,33 @@ describe("CryptoPortfolioCommandCenter", () => {
     expect(
       screen.getByText(/cannot submit, cancel, convert/),
     ).toBeInTheDocument();
+  });
+
+  it("distinguishes a temporary holdings outage from a disconnected account", () => {
+    const partial: CryptoPortfolioSnapshot = {
+      ...snapshot,
+      portfolio_state: "PARTIAL",
+      holdings_state: "UNAVAILABLE",
+      pricing_state: "UNAVAILABLE",
+      positions: [],
+      total_positions: 0,
+      priced_positions: 0,
+      pricing_complete: false,
+      observed_value: undefined,
+      digital_asset_value: undefined,
+    };
+    render(
+      <CryptoPortfolioCommandCenter
+        accountID="coinbase-1"
+        initialSnapshot={partial}
+      />,
+    );
+
+    expect(
+      screen.getByText(/holdings feed is temporarily unavailable/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/remains connected/i)).toBeInTheDocument();
+    expect(screen.queryByText(/reported no non-zero/i)).toBeNull();
   });
 
   it("includes USDC in value and allocation without treating its redemption reference as a venue market", () => {

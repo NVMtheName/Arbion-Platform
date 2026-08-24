@@ -2,6 +2,8 @@ package financialconnection
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math/big"
@@ -21,6 +23,7 @@ var (
 	ErrDisabled            = errors.New("connection disabled")
 	ErrInvalidInput        = errors.New("financial credential input is invalid")
 	ErrInvalidOrderPreview = errors.New("order preview input is invalid")
+	ErrConnectionInUse     = errors.New("financial connection is used by active automation")
 )
 
 const schwabAuthorizationLifetime = 7 * 24 * time.Hour
@@ -45,8 +48,10 @@ type Connection struct {
 type Store interface {
 	ListConnections(context.Context, string) ([]Connection, error)
 	UpsertConnection(context.Context, string, string, string, *time.Time, *time.Time) (Connection, error)
+	UpsertConnectionForAccount(context.Context, string, string, string, string, *time.Time, *time.Time) (Connection, error)
 	GetConnection(context.Context, string, string) (Connection, error)
 	SetStatus(context.Context, string, string, string, *time.Time) (Connection, error)
+	ConnectionInUse(context.Context, string, string) (bool, error)
 	SyncAccounts(context.Context, string, string, []financial.FinancialAccount) error
 	ListAccounts(context.Context, string) ([]financial.FinancialAccount, error)
 	GetAccount(context.Context, string, string) (financial.FinancialAccount, error)
@@ -145,11 +150,15 @@ func (s *Service) CompleteAuthorization(ctx context.Context, state, code, provid
 	if e != nil {
 		return r.UserID, e
 	}
+	defer clear(raw)
 	loc := credential.Locator{ConnectionID: c.ID, UserID: r.UserID, Class: credential.Financial}
-	if e = s.vault.Store(ctx, loc, raw); e != nil {
-		if e = s.vault.Replace(ctx, loc, raw); e != nil {
-			return r.UserID, e
+	if e = s.store.WithLock(ctx, c.ID, func() error {
+		if storeErr := s.vault.Store(ctx, loc, raw); storeErr != nil {
+			return s.vault.Replace(ctx, loc, raw)
 		}
+		return nil
+	}); e != nil {
+		return r.UserID, e
 	}
 	if e = s.sync(ctx, r.UserID, c.ID); e != nil {
 		s.store.SetStatus(ctx, r.UserID, c.ID, "error", nil)
@@ -182,7 +191,11 @@ func (s *Service) ConnectAPIKey(ctx context.Context, p authorization.Principal, 
 		s.record(ctx, p.UserID, "financial.authorization_failed", metadata)
 		return Connection{}, err
 	}
-	connection, err := s.store.UpsertConnection(ctx, p.UserID, providerID, "Coinbase", nil, nil)
+	if strings.TrimSpace(credentials.PortfolioID) == "" {
+		return Connection{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	providerAccountID := "portfolio:" + credentials.PortfolioID
+	connection, err := s.store.UpsertConnectionForAccount(ctx, p.UserID, providerID, apiKeyConnectionName(providerID, providerAccountID), providerAccountID, nil, nil)
 	if err != nil {
 		return Connection{}, err
 	}
@@ -192,11 +205,14 @@ func (s *Service) ConnectAPIKey(ctx context.Context, p authorization.Principal, 
 	}
 	defer clear(raw)
 	locator := credential.Locator{ConnectionID: connection.ID, UserID: p.UserID, Class: credential.Financial}
-	if err = s.vault.Store(ctx, locator, raw); err != nil {
-		if err = s.vault.Replace(ctx, locator, raw); err != nil {
-			_, _ = s.store.SetStatus(ctx, p.UserID, connection.ID, "error", nil)
-			return Connection{}, err
+	if err = s.store.WithLock(ctx, connection.ID, func() error {
+		if storeErr := s.vault.Store(ctx, locator, raw); storeErr != nil {
+			return s.vault.Replace(ctx, locator, raw)
 		}
+		return nil
+	}); err != nil {
+		_, _ = s.store.SetStatus(ctx, p.UserID, connection.ID, "error", nil)
+		return Connection{}, err
 	}
 	if err = s.sync(ctx, p.UserID, connection.ID); err != nil {
 		_, _ = s.store.SetStatus(ctx, p.UserID, connection.ID, "error", nil)
@@ -207,6 +223,11 @@ func (s *Service) ConnectAPIKey(ctx context.Context, p authorization.Principal, 
 		s.record(ctx, p.UserID, "financial.authorization_completed", map[string]any{"provider": providerID, "connection_id": connection.ID})
 	}
 	return connection, err
+}
+
+func apiKeyConnectionName(provider, providerAccountID string) string {
+	digest := sha256.Sum256([]byte(provider + ":" + providerAccountID))
+	return "Coinbase portfolio " + hex.EncodeToString(digest[:4])
 }
 func credentialExpiry(credentials financial.Credentials) *time.Time {
 	if credentials.AccessExpiresAt.IsZero() {
@@ -276,7 +297,11 @@ func (s *Service) sync(ctx context.Context, user, id string) error {
 	}
 	accounts, e := provider.ListAccounts(ctx, &cr)
 	if e != nil {
+		s.observeProviderFailure(ctx, user, connection, e)
 		return e
+	}
+	if len(accounts) == 0 {
+		return &financial.ProviderError{Code: financial.InvalidProviderResponse}
 	}
 	for i := range accounts {
 		detail, de := provider.GetAccount(ctx, &cr, accounts[i].ProviderAccountID)
@@ -309,6 +334,15 @@ func (s *Service) SetEnabled(ctx context.Context, p authorization.Principal, id 
 	}
 	status := "disabled"
 	action := "financial.connection_disabled"
+	if !enabled {
+		inUse, err := s.store.ConnectionInUse(ctx, p.UserID, id)
+		if err != nil {
+			return Connection{}, err
+		}
+		if inUse {
+			return Connection{}, ErrConnectionInUse
+		}
+	}
 	if enabled {
 		status = "active"
 		action = "financial.connection_enabled"
@@ -333,6 +367,13 @@ func (s *Service) SetEnabled(ctx context.Context, p authorization.Principal, id 
 func (s *Service) Disconnect(ctx context.Context, p authorization.Principal, id string) error {
 	if !allowed(p) {
 		return ErrForbidden
+	}
+	inUse, e := s.store.ConnectionInUse(ctx, p.UserID, id)
+	if e != nil {
+		return e
+	}
+	if inUse {
+		return ErrConnectionInUse
 	}
 	connection, cr, e := s.credentials(ctx, p.UserID, id, true)
 	if e != nil {
@@ -376,7 +417,9 @@ func (s *Service) GetBalances(ctx context.Context, p authorization.Principal, id
 	if e != nil {
 		return financial.Balances{}, e
 	}
-	return provider.GetBalances(ctx, &cr, a.ProviderAccountID)
+	balances, err := provider.GetBalances(ctx, &cr, a.ProviderAccountID)
+	s.observeProviderFailure(ctx, p.UserID, connection, err)
+	return balances, err
 }
 func (s *Service) GetPositions(ctx context.Context, p authorization.Principal, id string) ([]financial.Position, error) {
 	a, e := s.GetAccount(ctx, p, id)
@@ -392,10 +435,23 @@ func (s *Service) GetPositions(ctx context.Context, p authorization.Principal, i
 		return nil, e
 	}
 	items, e := provider.GetPositions(ctx, &cr, a.ProviderAccountID)
+	s.observeProviderFailure(ctx, p.UserID, connection, e)
 	for i := range items {
 		items[i].AccountID = a.ID
 	}
 	return items, e
+}
+
+func (s *Service) observeProviderFailure(ctx context.Context, user string, connection Connection, err error) {
+	if err == nil {
+		return
+	}
+	var providerError *financial.ProviderError
+	if !errors.As(err, &providerError) || (providerError.Code != financial.AuthorizationFailed && providerError.Code != financial.PermissionDenied) {
+		return
+	}
+	_, _ = s.store.SetStatus(ctx, user, connection.ID, "error", nil)
+	s.record(ctx, user, "financial.connection_requires_attention", map[string]any{"connection_id": connection.ID, "provider": connection.Provider, "code": providerError.Code})
 }
 
 func (s *Service) GetTradeFills(ctx context.Context, p authorization.Principal, id string) (financial.TradeFillPage, error) {

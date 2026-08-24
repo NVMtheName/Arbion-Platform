@@ -50,10 +50,10 @@ export function FinancialManager({
   const [privateKey, setPrivateKey] = useState("");
   const coinbaseErrorRef = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
-    if (error && provider.id === "coinbase" && !connections.length) {
+    if (error && provider.id === "coinbase") {
       coinbaseErrorRef.current?.focus();
     }
-  }, [connections.length, error, provider.id]);
+  }, [error, provider.id]);
   async function message(response: Response, fallback: string) {
     try {
       const payload = (await response.json()) as {
@@ -405,7 +405,66 @@ export function FinancialManager({
           </details>
         </div>
       ))}
-      {error && <p role="alert">{error}</p>}
+      {error && provider.id === "coinbase" && (
+        <p ref={coinbaseErrorRef} role="alert" tabIndex={-1}>
+          <strong>Connection not completed.</strong> {error}
+        </p>
+      )}
+      {provider.id === "coinbase" && (
+        <details className="connection-details coinbase-key-guide">
+          <summary>Add another Coinbase portfolio</summary>
+          <div>
+            <p>
+              Each Coinbase API key is verified and attached only to its own
+              portfolio. Existing accounts and automations are not changed.
+            </p>
+            <form className="coinbase-key-form" onSubmit={connectCoinbase}>
+              <label>
+                Coinbase key name
+                <input
+                  value={keyName}
+                  onChange={(event) => {
+                    setKeyName(event.target.value);
+                    setError("");
+                  }}
+                  placeholder="organizations/…/apiKeys/…"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <label>
+                ECDSA private key
+                <textarea
+                  value={privateKey}
+                  onChange={(event) => {
+                    setPrivateKey(event.target.value);
+                    setError("");
+                  }}
+                  placeholder="-----BEGIN EC PRIVATE KEY-----\n…\n-----END EC PRIVATE KEY-----"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <label>
+                Or paste downloaded key JSON
+                <textarea
+                  value={keyJSON}
+                  onChange={(event) => {
+                    setKeyJSON(event.target.value);
+                    setError("");
+                  }}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <button disabled={!entitled || busy} type="submit">
+                {busy ? "Verifying…" : "Add Coinbase portfolio"}
+              </button>
+            </form>
+          </div>
+        </details>
+      )}
+      {error && provider.id !== "coinbase" && <p role="alert">{error}</p>}
     </>
   );
 }

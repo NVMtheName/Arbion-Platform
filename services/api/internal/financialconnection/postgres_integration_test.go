@@ -1,0 +1,94 @@
+package financialconnection
+
+import (
+	"context"
+	"database/sql"
+	"os"
+	"testing"
+
+	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/migrations"
+	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
+)
+
+func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
+	databaseURL := os.Getenv("STRATEGY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("STRATEGY_TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	goose.SetBaseFS(migrations.Files)
+	if err = goose.SetDialect("postgres"); err != nil {
+		t.Fatal(err)
+	}
+	if err = goose.UpContext(ctx, db, "."); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	const (
+		userID      = "c1111111-1111-4111-8111-111111111111"
+		connectionA = "c2222222-2222-4222-8222-222222222222"
+		connectionB = "c3333333-3333-4333-8333-333333333333"
+		accountA    = "c4444444-4444-4444-8444-444444444444"
+		accountB    = "c5555555-5555-4555-8555-555555555555"
+		bucketB     = "c6666666-6666-4666-8666-666666666666"
+		mandateB    = "c7777777-7777-4777-8777-777777777777"
+		providerIDA = "portfolio:portfolio-a"
+		providerIDB = "portfolio:portfolio-b"
+	)
+	statements := []string{
+		`INSERT INTO users(id,email,normalized_email,display_name,email_verified_at) VALUES('` + userID + `','connection-isolation@example.com','connection-isolation@example.com','Connection Isolation',now())`,
+		`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES('` + connectionA + `','` + userID + `','financial','coinbase','Coinbase A','active')`,
+		`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES('` + connectionB + `','` + userID + `','financial','coinbase','Coinbase B','active')`,
+		`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES('` + accountA + `','` + userID + `','` + connectionA + `','coinbase','` + providerIDA + `','Portfolio A','digital_asset_portfolio','USD','active','{}')`,
+		`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES('` + accountB + `','` + userID + `','` + connectionB + `','coinbase','` + providerIDB + `','Portfolio B','digital_asset_portfolio','USD','active','{}')`,
+		`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,status) VALUES('` + bucketB + `','` + userID + `','` + accountB + `','Protected automation','FIXED_AMOUNT',100,'USD','ACTIVE')`,
+		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + mandateB + `','` + userID + `','` + accountB + `','STRATEGY','wheel','` + bucketB + `','STRATEGY_AUTONOMOUS','PAPER','READY',1,'{}','{}','{"symbols":[],"universe_ids":[]}','{"symbols":[]}',false,false,'{}',false)`,
+	}
+	for _, statement := range statements {
+		if _, err = pool.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	store := NewPostgresStore(pool)
+	if err = store.SyncAccounts(ctx, userID, connectionA, []financial.FinancialAccount{{Provider: "coinbase", ProviderAccountID: providerIDA, DisplayName: "Portfolio A refreshed", AccountType: "digital_asset_portfolio", BaseCurrency: "USD", Capabilities: financial.Capabilities{}}}); err != nil {
+		t.Fatal(err)
+	}
+	var bStatus, bName string
+	if err = pool.QueryRow(ctx, `SELECT status,display_name FROM financial_accounts WHERE id=$1`, accountB).Scan(&bStatus, &bName); err != nil || bStatus != "active" || bName != "Portfolio B" {
+		t.Fatalf("sync crossed connection boundary: status=%q name=%q err=%v", bStatus, bName, err)
+	}
+
+	reused, err := store.UpsertConnectionForAccount(ctx, userID, "coinbase", "replacement label", providerIDB, nil, nil)
+	if err != nil || reused.ID != connectionB {
+		t.Fatalf("reauthorization did not preserve provider-account identity: %#v %v", reused, err)
+	}
+	created, err := store.UpsertConnectionForAccount(ctx, userID, "coinbase", "Coinbase C", "portfolio:portfolio-c", nil, nil)
+	if err != nil || created.ID == connectionA || created.ID == connectionB {
+		t.Fatalf("a distinct provider account did not receive an isolated connection: %#v %v", created, err)
+	}
+
+	inUse, err := store.ConnectionInUse(ctx, userID, connectionB)
+	if err != nil || !inUse {
+		t.Fatalf("active automation did not protect its connection: in_use=%v err=%v", inUse, err)
+	}
+	if err = store.Retire(ctx, userID, connectionA); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT status FROM financial_accounts WHERE id=$1`, accountB).Scan(&bStatus); err != nil || bStatus != "active" {
+		t.Fatalf("retiring one connection changed another account: status=%q err=%v", bStatus, err)
+	}
+}

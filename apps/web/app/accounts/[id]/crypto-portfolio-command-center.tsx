@@ -43,6 +43,9 @@ export type CryptoPortfolioSnapshot = {
     cash?: Money;
     available_cash?: Money;
   };
+  portfolio_state: "READY" | "PARTIAL";
+  balance_state: "READY" | "UNAVAILABLE";
+  holdings_state: "READY" | "UNAVAILABLE";
   observed_value?: Money;
   digital_asset_value?: Money;
   positions: PortfolioPosition[];
@@ -1006,10 +1009,16 @@ export function CryptoPortfolioCommandCenter({
         >
           <span>Pricing coverage</span>
           <strong>
-            {snapshot.priced_positions}/{snapshot.total_positions}
+            {snapshot.holdings_state === "UNAVAILABLE"
+              ? "—"
+              : `${snapshot.priced_positions}/${snapshot.total_positions}`}
           </strong>
           <small>
-            {snapshot.pricing_complete ? "Complete" : "Partial—no estimates"}
+            {snapshot.holdings_state === "UNAVAILABLE"
+              ? "Holdings feed unavailable"
+              : snapshot.pricing_complete
+                ? "Complete"
+                : "Partial—no estimates"}
           </small>
         </motion.article>
       </section>
@@ -2105,9 +2114,18 @@ export function CryptoPortfolioCommandCenter({
             <p className="eyebrow">CONNECTED HOLDINGS</p>
             <h2 id="crypto-position-title">Position ledger</h2>
           </div>
-          <span>{snapshot.total_positions} assets</span>
+          <span>
+            {snapshot.holdings_state === "UNAVAILABLE"
+              ? "Assets unavailable"
+              : `${snapshot.total_positions} assets`}
+          </span>
         </header>
-        {snapshot.positions.length === 0 ? (
+        {snapshot.holdings_state === "UNAVAILABLE" ? (
+          <p className="crypto-empty" role="status">
+            Coinbase’s holdings feed is temporarily unavailable. This account
+            remains connected; Arbion has not replaced or cleared any holdings.
+          </p>
+        ) : snapshot.positions.length === 0 ? (
           <p className="crypto-empty">
             Coinbase reported no non-zero digital-asset positions.
           </p>

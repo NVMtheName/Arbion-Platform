@@ -125,15 +125,17 @@ func (fake fakeMarketIntelligence) RecentInsiderFilings(_ context.Context, cik s
 }
 
 type fakeBrokerMarketData struct {
-	accounts  []financial.FinancialAccount
-	balances  *financial.Balances
-	positions []financial.Position
-	quote     financial.Quote
-	chain     financial.OptionChain
-	query     financial.OptionChainRequest
-	fills     financial.TradeFillPage
-	orders    financial.OrderHistoryPage
-	costs     financial.TradingCostSummary
+	accounts     []financial.FinancialAccount
+	balances     *financial.Balances
+	positions    []financial.Position
+	quote        financial.Quote
+	chain        financial.OptionChain
+	query        financial.OptionChainRequest
+	fills        financial.TradeFillPage
+	orders       financial.OrderHistoryPage
+	costs        financial.TradingCostSummary
+	balancesErr  error
+	positionsErr error
 }
 
 func (fake *fakeBrokerMarketData) ListAccounts(context.Context, authorization.Principal) ([]financial.FinancialAccount, error) {
@@ -150,6 +152,9 @@ func (fake *fakeBrokerMarketData) GetAccount(_ context.Context, _ authorization.
 }
 
 func (fake *fakeBrokerMarketData) GetBalances(context.Context, authorization.Principal, string) (financial.Balances, error) {
+	if fake.balancesErr != nil {
+		return financial.Balances{}, fake.balancesErr
+	}
 	if fake.balances != nil {
 		return *fake.balances, nil
 	}
@@ -157,6 +162,9 @@ func (fake *fakeBrokerMarketData) GetBalances(context.Context, authorization.Pri
 }
 
 func (fake *fakeBrokerMarketData) GetPositions(context.Context, authorization.Principal, string) ([]financial.Position, error) {
+	if fake.positionsErr != nil {
+		return nil, fake.positionsErr
+	}
 	if fake.positions != nil {
 		return fake.positions, nil
 	}
@@ -452,6 +460,29 @@ func TestCryptoPortfolioPreservesHoldingsWhenPricingIsUnavailable(t *testing.T) 
 	body := recorder.Body.String()
 	if recorder.Code != stdhttp.StatusOK || !strings.Contains(body, `"pricing_state":"UNAVAILABLE"`) || !strings.Contains(body, `"pricing_status":"UNAVAILABLE"`) || !strings.Contains(body, `"quantity":"0.5"`) {
 		t.Fatalf("pricing failure hid holdings or fabricated value: status=%d body=%s", recorder.Code, body)
+	}
+}
+
+func TestCryptoPortfolioPreservesBalancesWhenHoldingsFeedIsUnavailable(t *testing.T) {
+	broker := &fakeBrokerMarketData{
+		accounts:     []financial.FinancialAccount{{ID: "coinbase-1", Provider: "coinbase", BaseCurrency: "USD", Status: "active"}},
+		positionsErr: &financial.ProviderError{Code: financial.ProviderUnavailable},
+	}
+	handler := &authHandler{marketFinancial: broker, markets: fakeMarketIntelligence{}}
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/accounts/coinbase-1/portfolio/crypto", nil)
+	request.SetPathValue("id", "coinbase-1")
+	recorder := httptest.NewRecorder()
+
+	handler.cryptoPortfolio(recorder, request)
+
+	body := recorder.Body.String()
+	for _, expected := range []string{`"portfolio_state":"PARTIAL"`, `"balance_state":"READY"`, `"holdings_state":"UNAVAILABLE"`, `"cash":{"amount":"25"`, `"positions":[]`, `"live_execution_available":false`} {
+		if recorder.Code != stdhttp.StatusOK || !strings.Contains(body, expected) {
+			t.Fatalf("partial Coinbase outage discarded working data or implied disconnect for %s: status=%d body=%s", expected, recorder.Code, body)
+		}
+	}
+	if strings.Contains(body, `"observed_value"`) || strings.Contains(body, `"digital_asset_value"`) {
+		t.Fatalf("partial Coinbase outage fabricated a complete portfolio value: %s", body)
 	}
 }
 

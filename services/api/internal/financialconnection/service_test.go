@@ -15,8 +15,10 @@ import (
 )
 
 type connectionStoreFake struct {
-	connection Connection
-	account    financial.FinancialAccount
+	connection      Connection
+	account         financial.FinancialAccount
+	providerAccount string
+	connectionInUse bool
 }
 
 func (store *connectionStoreFake) ListConnections(context.Context, string) ([]Connection, error) {
@@ -25,6 +27,10 @@ func (store *connectionStoreFake) ListConnections(context.Context, string) ([]Co
 func (store *connectionStoreFake) UpsertConnection(_ context.Context, _ string, provider, displayName string, expires, authorizationExpires *time.Time) (Connection, error) {
 	store.connection = Connection{ID: "connection-1", Provider: provider, DisplayName: displayName, Status: "pending", TokenExpiresAt: expires, AuthorizationExpiresAt: authorizationExpires, CredentialStorage: "encrypted_database"}
 	return store.connection, nil
+}
+func (store *connectionStoreFake) UpsertConnectionForAccount(_ context.Context, _ string, provider, displayName, providerAccountID string, expires, authorizationExpires *time.Time) (Connection, error) {
+	store.providerAccount = providerAccountID
+	return store.UpsertConnection(context.Background(), "", provider, displayName, expires, authorizationExpires)
 }
 func (store *connectionStoreFake) GetConnection(context.Context, string, string) (Connection, error) {
 	if store.connection.ID == "" {
@@ -40,6 +46,9 @@ func (store *connectionStoreFake) SetStatus(_ context.Context, _, _ string, stat
 	now := time.Now()
 	store.connection.LastSyncedAt = &now
 	return store.connection, nil
+}
+func (store *connectionStoreFake) ConnectionInUse(context.Context, string, string) (bool, error) {
+	return store.connectionInUse, nil
 }
 func (store *connectionStoreFake) SyncAccounts(_ context.Context, _ string, connectionID string, accounts []financial.FinancialAccount) error {
 	if len(accounts) != 1 {
@@ -94,12 +103,13 @@ func (vault *vaultFake) Delete(_ context.Context, locator credential.Locator) er
 }
 
 type coinbaseProviderFake struct {
-	verified int
-	balances int
-	fills    int
-	orders   int
-	costs    int
-	previews int
+	verified     int
+	balances     int
+	fills        int
+	orders       int
+	costs        int
+	previews     int
+	disconnected int
 }
 
 type schwabAuthorizerFake struct{ coinbaseProviderFake }
@@ -176,7 +186,10 @@ func (provider *coinbaseProviderFake) PreviewSpotOrder(_ context.Context, creden
 func (*coinbaseProviderFake) GetCapabilities(context.Context, *financial.Credentials, string) (financial.Capabilities, error) {
 	return financial.Capabilities{"crypto_assets": financial.Supported}, nil
 }
-func (*coinbaseProviderFake) Disconnect(context.Context, *financial.Credentials) error { return nil }
+func (provider *coinbaseProviderFake) Disconnect(context.Context, *financial.Credentials) error {
+	provider.disconnected++
+	return nil
+}
 
 func founder() authorization.Principal {
 	return authorization.Principal{UserID: "user-1", Entitlement: authorization.EntitlementFounder}
@@ -218,6 +231,9 @@ func TestConnectAPIKeyStoresServerOnlyCredentialsAndRoutesAccountReads(t *testin
 	}
 	if connection.Provider != "coinbase" || connection.Status != "active" || provider.verified != 1 {
 		t.Fatalf("unexpected connection result: %#v verified=%d", connection, provider.verified)
+	}
+	if store.providerAccount != "portfolio:portfolio-1" || !strings.HasPrefix(connection.DisplayName, "Coinbase portfolio ") {
+		t.Fatalf("connection identity was not bound to the verified portfolio: account=%q connection=%#v", store.providerAccount, connection)
 	}
 	var stored financial.Credentials
 	if err := json.Unmarshal(vault.values[connection.ID], &stored); err != nil {
@@ -283,6 +299,27 @@ func TestPreviewSpotOrderRejectsInvalidOrUnentitledRequestsBeforeProviderAccess(
 	}
 	if provider.previews != 0 {
 		t.Fatalf("provider received rejected previews: %d", provider.previews)
+	}
+}
+
+func TestDisconnectAndDisableFailClosedWhileAutomationUsesConnection(t *testing.T) {
+	store := &connectionStoreFake{
+		connection:      Connection{ID: "connection-1", Provider: "coinbase", Status: "active"},
+		account:         financial.FinancialAccount{ID: "account-1", ProviderConnectionID: "connection-1", Provider: "coinbase", ProviderAccountID: "portfolio:portfolio-1", Status: "active"},
+		connectionInUse: true,
+	}
+	provider := &coinbaseProviderFake{}
+	vault := &vaultFake{values: map[string][]byte{"connection-1": []byte(`{"api_key_name":"organizations/org/apiKeys/key","api_private_key":"private-key","portfolio_id":"portfolio-1"}`)}}
+	service := NewService(store, vault, nil, nil, nil, NamedProvider{ID: "coinbase", Provider: provider})
+
+	if err := service.Disconnect(context.Background(), founder(), "connection-1"); !errors.Is(err, ErrConnectionInUse) {
+		t.Fatalf("in-use connection was not protected from disconnect: %v", err)
+	}
+	if _, err := service.SetEnabled(context.Background(), founder(), "connection-1", false); !errors.Is(err, ErrConnectionInUse) {
+		t.Fatalf("in-use connection was not protected from disable: %v", err)
+	}
+	if provider.disconnected != 0 || vault.values["connection-1"] == nil || store.connection.Status != "active" {
+		t.Fatalf("blocked mutation changed provider, credential, or status: disconnected=%d credential=%v status=%q", provider.disconnected, vault.values["connection-1"] != nil, store.connection.Status)
 	}
 }
 

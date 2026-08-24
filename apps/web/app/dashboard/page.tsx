@@ -32,6 +32,9 @@ type Balances = {
 };
 
 type CryptoPortfolio = {
+  portfolio_state?: "READY" | "PARTIAL";
+  balance_state?: "READY" | "UNAVAILABLE";
+  holdings_state?: "READY" | "UNAVAILABLE";
   observed_value?: DashboardMoney;
   balances?: {
     cash?: DashboardMoney;
@@ -76,13 +79,15 @@ async function accountSummary(
         ...shared,
         observedValue: portfolio.observed_value,
         cash: portfolio.balances?.cash ?? portfolio.balances?.available_cash,
-        positionCount: portfolio.total_positions,
+        positionCount:
+          portfolio.holdings_state === "READY"
+            ? portfolio.total_positions
+            : undefined,
         availability:
-          portfolio.pricing_state === "READY"
-            ? "ready"
-            : portfolio.pricing_state === "PARTIAL"
-              ? "partial"
-              : "unavailable",
+          portfolio.portfolio_state === "PARTIAL" ||
+          portfolio.pricing_state !== "READY"
+            ? "partial"
+            : "ready",
         asOf: portfolio.pricing_as_of ?? account.last_synced_at,
       };
     }

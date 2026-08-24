@@ -30,6 +30,18 @@ func TestAuthenticationMigrationIsVersionedAndConstrained(t *testing.T) {
 	}
 }
 
+func TestFinancialConnectionIdentityMigrationPreventsDuplicateProviderAccounts(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00024_financial_connection_identity.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"CREATE UNIQUE INDEX", "financial_accounts_owner_provider_identity_idx", "user_id,provider_name,provider_account_id"} {
+		if !strings.Contains(strings.ReplaceAll(string(body), " ", ""), strings.ReplaceAll(required, " ", "")) {
+			t.Errorf("financial identity migration missing %q", required)
+		}
+	}
+}
+
 func TestNonLiveStrategyMigrationSeparatesSimulationAndHistory(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00008_nonlive_strategy.sql")
 	if err != nil {

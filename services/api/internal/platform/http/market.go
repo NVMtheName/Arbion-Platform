@@ -96,6 +96,9 @@ type cryptoPortfolioPosition struct {
 type cryptoPortfolioSnapshot struct {
 	Account           financial.FinancialAccount `json:"account"`
 	Balances          financial.Balances         `json:"balances"`
+	PortfolioState    string                     `json:"portfolio_state"`
+	BalanceState      string                     `json:"balance_state"`
+	HoldingsState     string                     `json:"holdings_state"`
 	ObservedValue     *financial.Money           `json:"observed_value,omitempty"`
 	DigitalAssetValue *financial.Money           `json:"digital_asset_value,omitempty"`
 	Positions         []cryptoPortfolioPosition  `json:"positions"`
@@ -223,12 +226,12 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 		positions, positionsErr = h.marketFinancial.GetPositions(request.Context(), p, account.ID)
 	}()
 	wait.Wait()
-	if balancesErr != nil {
-		h.financialError(writer, balancesErr)
-		return
-	}
-	if positionsErr != nil {
-		h.financialError(writer, positionsErr)
+	if (balancesErr != nil && positionsErr != nil) || providerCredentialError(balancesErr) || providerCredentialError(positionsErr) {
+		if balancesErr != nil {
+			h.financialError(writer, balancesErr)
+		} else {
+			h.financialError(writer, positionsErr)
+		}
 		return
 	}
 	if len(positions) > maxPortfolioPositions {
@@ -260,9 +263,22 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 
 	batch := marketintelligence.CryptoMarketBatch{}
 	cached := false
+	portfolioState := "READY"
+	balanceState := "READY"
+	holdingsState := "READY"
 	pricingMessage := "Last-trade observations from Coinbase Exchange; values are informational and non-executable."
 	pricingState := "READY"
-	if len(requested) > 0 {
+	if balancesErr != nil {
+		portfolioState = "PARTIAL"
+		balanceState = "UNAVAILABLE"
+	}
+	if positionsErr != nil {
+		portfolioState = "PARTIAL"
+		holdingsState = "UNAVAILABLE"
+		pricingState = "UNAVAILABLE"
+		pricingMessage = "Coinbase balances are available, but its holdings feed is temporarily unavailable. The connection remains active and no holdings were substituted."
+	}
+	if holdingsState == "READY" && len(requested) > 0 {
 		if h.markets == nil {
 			pricingState = "UNAVAILABLE"
 			pricingMessage = "Portfolio holdings are available, but the approved market source is not configured. No values were substituted."
@@ -341,7 +357,7 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 		return view[left].Symbol < view[right].Symbol
 	})
 
-	complete := priced == len(positions)
+	complete := holdingsState == "READY" && priced == len(positions)
 	if !complete && pricingState == "READY" {
 		pricingState = "PARTIAL"
 		pricingMessage = "Some assets do not have an approved Coinbase Exchange USD ticker. They remain visible without an estimated value."
@@ -362,23 +378,44 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 			pricingMessage = "Coinbase's 1:1 USDC-to-USD redemption reference is included. " + pricingMessage
 		}
 	}
+	if balanceState == "UNAVAILABLE" {
+		pricingMessage = "Coinbase holdings are available, but its balance feed is temporarily unavailable; aggregate portfolio value omits cash. " + pricingMessage
+	}
 
-	digitalAssetValue := &financial.Money{Amount: financial.Decimal(formatObservedMoney(assetValue)), Currency: account.BaseCurrency}
-	observedValue := new(big.Rat).Set(assetValue)
-	if balances.Cash != nil && strings.EqualFold(balances.Cash.Currency, account.BaseCurrency) {
-		if cash, ok := new(big.Rat).SetString(string(balances.Cash.Amount)); ok && cash.Sign() >= 0 {
-			observedValue.Add(observedValue, cash)
+	var digitalAssetValue *financial.Money
+	if holdingsState == "READY" {
+		digitalAssetValue = &financial.Money{Amount: financial.Decimal(formatObservedMoney(assetValue)), Currency: account.BaseCurrency}
+	}
+	var observedValueMoney *financial.Money
+	if holdingsState == "READY" && balanceState == "READY" {
+		observedValue := new(big.Rat).Set(assetValue)
+		if balances.Cash != nil && strings.EqualFold(balances.Cash.Currency, account.BaseCurrency) {
+			if cash, ok := new(big.Rat).SetString(string(balances.Cash.Amount)); ok && cash.Sign() >= 0 {
+				observedValue.Add(observedValue, cash)
+			}
 		}
+		observedValueMoney = &financial.Money{Amount: financial.Decimal(formatObservedMoney(observedValue)), Currency: account.BaseCurrency}
 	}
 	snapshot := cryptoPortfolioSnapshot{
 		Account: account, Balances: balances,
-		ObservedValue:     &financial.Money{Amount: financial.Decimal(formatObservedMoney(observedValue)), Currency: account.BaseCurrency},
+		PortfolioState:    portfolioState,
+		BalanceState:      balanceState,
+		HoldingsState:     holdingsState,
+		ObservedValue:     observedValueMoney,
 		DigitalAssetValue: digitalAssetValue, Positions: view,
 		PricedPositions: priced, TotalPositions: len(positions), PricingComplete: complete,
 		PricingState: pricingState, PricingBasis: pricingBasis, PricingMessage: pricingMessage,
 		PricingAsOf: pricingAsOf, MarketDataCached: cached,
 	}
 	writeJSON(writer, stdhttp.StatusOK, map[string]any{"portfolio": snapshot, "live_execution_available": false})
+}
+
+func providerCredentialError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var providerError *financial.ProviderError
+	return errors.As(err, &providerError) && (providerError.Code == financial.AuthorizationFailed || providerError.Code == financial.PermissionDenied || providerError.Code == financial.InvalidCredentialFormat)
 }
 
 func isUSDCUSDRedemptionReference(symbol, currency string) bool {

@@ -58,6 +58,7 @@ describe("Portfolio-first command center", () => {
     expect(screen.getByText("$15,250.00")).toBeInTheDocument();
     expect(screen.getByText("Schwab Brokerage ••4270")).toBeInTheDocument();
     expect(screen.getByText("Coinbase Advanced")).toBeInTheDocument();
+    expect(screen.getByText("Provider data partial")).toBeInTheDocument();
     expect(screen.getByText("gpt-5")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: /create a strategy/i }),
