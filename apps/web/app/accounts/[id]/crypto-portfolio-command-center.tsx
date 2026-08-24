@@ -1,13 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   CoinbaseOrderPreview,
@@ -398,18 +392,6 @@ function digitalAssetValueLabel(
   return "Coinbase Exchange last trade";
 }
 
-function subscribeToBrowserClock() {
-  return () => undefined;
-}
-
-function browserClockReady() {
-  return true;
-}
-
-function serverClockReady() {
-  return false;
-}
-
 function historyChart(series?: CryptoCandleSeries) {
   if (!series || series.candles.length === 0) return null;
   const candles = series.candles
@@ -503,11 +485,7 @@ export function CryptoPortfolioCommandCenter({
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
-  const browserTimeReady = useSyncExternalStore(
-    subscribeToBrowserClock,
-    browserClockReady,
-    serverClockReady,
-  );
+  const [browserTimeReady, setBrowserTimeReady] = useState(false);
 
   const initialHistorySymbol = initialHistory?.symbol ?? "";
   const [selectedSymbol, setSelectedSymbol] = useState(
@@ -617,6 +595,11 @@ export function CryptoPortfolioCommandCenter({
       setRefreshing(false);
     }
   }, [accountID]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setBrowserTimeReady(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => void refresh(), 30_000);

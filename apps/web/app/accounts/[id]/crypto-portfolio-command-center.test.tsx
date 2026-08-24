@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -6,6 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 
 import {
@@ -427,6 +429,27 @@ describe("CryptoPortfolioCommandCenter", () => {
 
     expect(serverHTML).toContain("Aug 21, 2:30:00 PM UTC");
     expect(serverHTML).not.toContain("Aug 21, 10:30:00 AM EDT");
+  });
+
+  it("hydrates server-rendered portfolio evidence without a recoverable mismatch", async () => {
+    const view = (
+      <CryptoPortfolioCommandCenter
+        accountID="coinbase-1"
+        initialHistory={history}
+        initialSnapshot={snapshot}
+      />
+    );
+    const host = document.createElement("div");
+    host.innerHTML = renderToString(view);
+    document.body.append(host);
+    const onRecoverableError = vi.fn();
+
+    const root = hydrateRoot(host, view, { onRecoverableError });
+    await act(async () => undefined);
+
+    expect(onRecoverableError).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+    host.remove();
   });
 
   it("refreshes through only the protected read-only portfolio endpoint", async () => {
