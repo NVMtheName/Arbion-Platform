@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import type { FinancialAccount, FinancialConnection } from "./page";
 
 function coinbaseKeyBundle(value: string) {
@@ -48,6 +48,12 @@ export function FinancialManager({
   const [keyJSON, setKeyJSON] = useState("");
   const [keyName, setKeyName] = useState("");
   const [privateKey, setPrivateKey] = useState("");
+  const coinbaseErrorRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (error && provider.id === "coinbase" && !connections.length) {
+      coinbaseErrorRef.current?.focus();
+    }
+  }, [connections.length, error, provider.id]);
   async function message(response: Response, fallback: string) {
     try {
       const payload = (await response.json()) as {
@@ -169,7 +175,10 @@ export function FinancialManager({
             Coinbase key name
             <input
               value={keyName}
-              onChange={(event) => setKeyName(event.target.value)}
+              onChange={(event) => {
+                setKeyName(event.target.value);
+                setError("");
+              }}
               placeholder="organizations/…/apiKeys/…"
               autoComplete="off"
               spellCheck={false}
@@ -179,7 +188,10 @@ export function FinancialManager({
             ECDSA private key
             <textarea
               value={privateKey}
-              onChange={(event) => setPrivateKey(event.target.value)}
+              onChange={(event) => {
+                setPrivateKey(event.target.value);
+                setError("");
+              }}
               placeholder={
                 "-----BEGIN EC PRIVATE KEY-----\\n…\\n-----END EC PRIVATE KEY-----"
               }
@@ -199,7 +211,10 @@ export function FinancialManager({
                 Downloaded Coinbase key JSON
                 <textarea
                   value={keyJSON}
-                  onChange={(event) => setKeyJSON(event.target.value)}
+                  onChange={(event) => {
+                    setKeyJSON(event.target.value);
+                    setError("");
+                  }}
                   placeholder={
                     '{"name":"organizations/…/apiKeys/…","privateKey":"-----BEGIN EC PRIVATE KEY-----\\n…"}'
                   }
@@ -213,7 +228,23 @@ export function FinancialManager({
             Encrypted before storage and never displayed again. Transfer-enabled
             keys are rejected.
           </p>
-          <button disabled={!entitled || busy} type="submit">
+          {error && (
+            <p
+              className="form-error coinbase-connection-error"
+              id="coinbase-connection-error"
+              ref={coinbaseErrorRef}
+              role="alert"
+              tabIndex={-1}
+            >
+              <strong>Connection not completed.</strong> {error}
+            </p>
+          )}
+          <button
+            aria-busy={busy}
+            aria-describedby={error ? "coinbase-connection-error" : undefined}
+            disabled={!entitled || busy}
+            type="submit"
+          >
             {busy ? "Verifying…" : "Connect Coinbase"}
           </button>
         </form>
@@ -239,7 +270,6 @@ export function FinancialManager({
             </a>
           </div>
         </details>
-        {error && <p role="alert">{error}</p>}
       </>
     );
   if (!connections.length)

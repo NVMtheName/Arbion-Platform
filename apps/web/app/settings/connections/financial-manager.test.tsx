@@ -163,7 +163,7 @@ describe("FinancialManager", () => {
     );
   });
 
-  it("identifies a one-line Coinbase secret as the wrong key type before sending it", () => {
+  it("identifies a one-line Coinbase secret visibly at the submit action before sending it", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     render(
@@ -188,8 +188,14 @@ describe("FinancialManager", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect Coinbase" }));
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Connection not completed.");
+    expect(alert).toHaveTextContent(
       /one-line API secret, not the ECDSA private key/,
     );
+    expect(alert.nextElementSibling).toBe(
+      screen.getByRole("button", { name: "Connect Coinbase" }),
+    );
+    await waitFor(() => expect(alert).toHaveFocus());
   });
 });
