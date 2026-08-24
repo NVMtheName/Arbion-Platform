@@ -50,7 +50,7 @@ Sources:
 - [CoinGecko keyless API limits](https://docs.coingecko.com/docs/keyless-public-api)
 - [CoinGecko WebSocket status](https://docs.coingecko.com/websocket)
 - [Coinbase public ticker](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-ticker)
-- [Coinbase App API-key authorization](https://docs.cdp.coinbase.com/coinbase-app/authentication-authorization/authorization)
+- [Coinbase App API-key authentication](https://docs.cdp.coinbase.com/coinbase-app/authentication-authorization/api-key-authentication)
 - [Coinbase Advanced Trade preview order](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/orders/preview-orders)
 - [Coinbase Advanced Trade create order](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/orders/create-order)
 - [Coinbase public product book](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/public/get-public-product-book)

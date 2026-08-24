@@ -170,7 +170,12 @@ func (s *Service) ConnectAPIKey(ctx context.Context, p authorization.Principal, 
 	}
 	credentials := financial.Credentials{APIKeyName: keyName, APIPrivateKey: privateKey}
 	if err := provider.VerifyConnection(ctx, &credentials); err != nil {
-		s.record(ctx, p.UserID, "financial.authorization_failed", map[string]any{"provider": providerID})
+		metadata := map[string]any{"provider": providerID}
+		var providerError *financial.ProviderError
+		if errors.As(err, &providerError) {
+			metadata["code"] = providerError.Code
+		}
+		s.record(ctx, p.UserID, "financial.authorization_failed", metadata)
 		return Connection{}, err
 	}
 	connection, err := s.store.UpsertConnection(ctx, p.UserID, providerID, "Coinbase", nil)

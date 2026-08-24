@@ -3,6 +3,18 @@ import Link from "next/link";
 import { type FormEvent, useState } from "react";
 import type { FinancialAccount, FinancialConnection } from "./page";
 
+function coinbaseKeyBundle(value: string) {
+  const parsed = JSON.parse(value) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    return null;
+  const record = parsed as Record<string, unknown>;
+  const name = record.name ?? record.keyName ?? record.key_name;
+  const privateKey =
+    record.privateKey ?? record.private_key ?? record.apiPrivateKey;
+  if (typeof name !== "string" || typeof privateKey !== "string") return null;
+  return { name, privateKey };
+}
+
 export function FinancialManager({
   provider,
   entitled,
@@ -17,6 +29,7 @@ export function FinancialManager({
   const [connections, setConnections] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [keyJSON, setKeyJSON] = useState("");
   const [keyName, setKeyName] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   async function message(response: Response, fallback: string) {
@@ -53,14 +66,40 @@ export function FinancialManager({
   }
   async function connectCoinbase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    let submittedName = keyName;
+    let submittedPrivateKey = privateKey;
+    if (keyJSON.trim()) {
+      try {
+        const parsed = coinbaseKeyBundle(keyJSON);
+        if (!parsed) throw new Error("invalid Coinbase key JSON");
+        submittedName = parsed.name;
+        submittedPrivateKey = parsed.privateKey;
+      } catch {
+        setError(
+          "That JSON does not contain Coinbase’s name and privateKey values. Paste the complete downloaded key JSON, or enter both values separately.",
+        );
+        return;
+      }
+    }
+    if (!submittedName.trim() || !submittedPrivateKey.trim()) {
+      setError(
+        "Paste the downloaded Coinbase key JSON, or enter both the API key name and private key.",
+      );
+      return;
+    }
     setBusy(true);
     setError("");
+    const body = JSON.stringify({
+      key_name: submittedName,
+      private_key: submittedPrivateKey,
+    });
+    setKeyJSON("");
+    setPrivateKey("");
     const response = await fetch("/api/connections/financial/coinbase", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key_name: keyName, private_key: privateKey }),
+      body,
     });
-    setPrivateKey("");
     setBusy(false);
     if (!response.ok) {
       setError(
@@ -98,34 +137,49 @@ export function FinancialManager({
     return (
       <>
         <p className="connection-card-copy">
-          Paste the key name and private key from your Coinbase Developer
-          Platform account.
+          Connect your own Coinbase account with the key details Coinbase gives
+          you. The quickest option is to paste the downloaded key JSON.
         </p>
         <form className="coinbase-key-form" onSubmit={connectCoinbase}>
           <label>
-            Coinbase API key name
-            <input
-              value={keyName}
-              onChange={(event) => setKeyName(event.target.value)}
-              placeholder="organizations/…/apiKeys/…"
-              autoComplete="off"
-              spellCheck={false}
-              required
-            />
-          </label>
-          <label>
-            Coinbase private key
+            Coinbase key JSON (recommended)
             <textarea
-              value={privateKey}
-              onChange={(event) => setPrivateKey(event.target.value)}
+              value={keyJSON}
+              onChange={(event) => setKeyJSON(event.target.value)}
               placeholder={
-                "-----BEGIN EC PRIVATE KEY-----\n…\n-----END EC PRIVATE KEY-----"
+                '{"name":"organizations/…/apiKeys/…","privateKey":"-----BEGIN EC PRIVATE KEY-----\\n…"}'
               }
               autoComplete="off"
               spellCheck={false}
-              required
             />
           </label>
+          <details className="connection-details coinbase-manual-key-entry">
+            <summary>Or enter the two values separately</summary>
+            <div>
+              <label>
+                Coinbase API key name
+                <input
+                  value={keyName}
+                  onChange={(event) => setKeyName(event.target.value)}
+                  placeholder="organizations/…/apiKeys/…"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <label>
+                Coinbase private key
+                <textarea
+                  value={privateKey}
+                  onChange={(event) => setPrivateKey(event.target.value)}
+                  placeholder={
+                    "-----BEGIN EC PRIVATE KEY-----\\n…\\n-----END EC PRIVATE KEY-----"
+                  }
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+            </div>
+          </details>
           <p className="credential-assurance">
             Encrypted before storage and never displayed again. Transfer-enabled
             keys are rejected.
@@ -146,11 +200,11 @@ export function FinancialManager({
               <li>Recommended IP allowlist: 52.21.127.30</li>
             </ul>
             <a
-              href="https://portal.cdp.coinbase.com/"
+              href="https://docs.cdp.coinbase.com/coinbase-app/authentication-authorization/api-key-authentication"
               target="_blank"
               rel="noreferrer"
             >
-              Open Coinbase Developer Platform ↗
+              Read Coinbase’s official key guide ↗
             </a>
           </div>
         </details>

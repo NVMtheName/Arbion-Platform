@@ -32,6 +32,9 @@ describe("FinancialManager", () => {
     expect(
       screen.getByText("How to create the right Coinbase key"),
     ).toBeVisible();
+    expect(
+      screen.getByLabelText("Coinbase key JSON (recommended)"),
+    ).toBeVisible();
     expect(screen.getByText(/ECDSA \(ES256\)/)).toBeInTheDocument();
     expect(screen.getByText(/View permission: on/)).toBeInTheDocument();
     expect(screen.getByText(/Trade permission: optional/)).toBeInTheDocument();
@@ -78,7 +81,7 @@ describe("FinancialManager", () => {
     expect(screen.getByText(/order submission remains locked/)).toBeVisible();
   });
 
-  it("sends credentials only to the Coinbase connection endpoint and clears the private key", async () => {
+  it("extracts downloaded Coinbase JSON, sends it only to the connection endpoint, and clears it", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       json: async () => ({
@@ -99,11 +102,13 @@ describe("FinancialManager", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Coinbase API key name"), {
-      target: { value: "organizations/org/apiKeys/key" },
-    });
-    fireEvent.change(screen.getByLabelText("Coinbase private key"), {
-      target: { value: "private-key-material" },
+    fireEvent.change(screen.getByLabelText("Coinbase key JSON (recommended)"), {
+      target: {
+        value: JSON.stringify({
+          name: "organizations/org/apiKeys/key",
+          privateKey: "private-key-material",
+        }),
+      },
     });
     fireEvent.click(screen.getByRole("button", { name: "Connect Coinbase" }));
 
@@ -119,9 +124,38 @@ describe("FinancialManager", () => {
         }),
       },
     );
-    expect(screen.getByLabelText("Coinbase private key")).toHaveValue("");
+    expect(
+      screen.getByLabelText("Coinbase key JSON (recommended)"),
+    ).toHaveValue("");
     expect(screen.getByRole("alert")).toHaveTextContent(
       "The provider did not accept these credentials.",
+    );
+  });
+
+  it("rejects incomplete Coinbase JSON without sending credential material", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <FinancialManager
+        provider={{
+          id: "coinbase",
+          label: "Coinbase",
+          auth_type: "jwt_key_pair",
+        }}
+        entitled
+        connections={[]}
+        accounts={[]}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Coinbase key JSON (recommended)"), {
+      target: { value: '{"name":"organizations/org/apiKeys/key"}' },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Coinbase" }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /does not contain Coinbase’s name and privateKey values/,
     );
   });
 });

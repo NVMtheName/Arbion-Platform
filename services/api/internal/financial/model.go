@@ -284,6 +284,7 @@ type ProviderErrorCode string
 
 const (
 	AuthorizationFailed     ProviderErrorCode = "AUTHORIZATION_FAILED"
+	InvalidCredentialFormat ProviderErrorCode = "INVALID_CREDENTIAL_FORMAT"
 	AuthorizationExpired    ProviderErrorCode = "AUTHORIZATION_EXPIRED"
 	ProviderUnavailable     ProviderErrorCode = "PROVIDER_UNAVAILABLE"
 	RateLimited             ProviderErrorCode = "RATE_LIMITED"

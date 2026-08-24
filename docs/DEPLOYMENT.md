@@ -159,7 +159,7 @@ Manual Schwab test (never place an order):
 Manual Coinbase connection and proposal test (never enable Transfer and never place an order):
 
 1. In Coinbase Developer Platform, create a Secret API Key restricted to the intended portfolio and production host IP, select ECDSA, enable View and Trade, and leave Transfer off.
-2. Sign into Arbion, open **Settings → Connections → Coinbase**, and enter the full `organizations/.../apiKeys/...` key name and EC private key.
+2. Sign into Arbion, open **Settings → Connections → Coinbase**, and paste the downloaded Coinbase key JSON. If no file was downloaded, enter the full `organizations/.../apiKeys/...` key name and ECDSA private key separately. Literal PEM lines, quoted values, and escaped `\n` line breaks are accepted.
 3. Confirm Arbion accepts the connection, creates one masked Coinbase portfolio account, records the Trade grant only as provider capability, and never redisplays the key.
 4. Confirm USD cash and nonzero crypto holdings load, then run **Sync** and confirm no duplicate portfolio record appears.
 5. On the connected account, request a small real Coinbase preview and confirm the page shows the current product status and exact Coinbase size increment, says no order was created, and exposes no provider preview ID. Confirm a size that violates the displayed increment is blocked.

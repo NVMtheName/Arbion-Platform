@@ -295,8 +295,37 @@ func TestClientRejectsMalformedCredentialsBeforeNetworkCall(t *testing.T) {
 	}
 	err = client.VerifyConnection(context.Background(), &financial.Credentials{APIKeyName: "wrong", APIPrivateKey: "not-pem"})
 	var providerError *financial.ProviderError
-	if !errors.As(err, &providerError) || providerError.Code != financial.AuthorizationFailed {
-		t.Fatalf("expected authorization failure, got %v", err)
+	if !errors.As(err, &providerError) || providerError.Code != financial.InvalidCredentialFormat {
+		t.Fatalf("expected credential-format failure, got %v", err)
+	}
+}
+
+func TestClientAcceptsDocumentedQuotedAndEscapedCoinbaseCredentials(t *testing.T) {
+	credentials, key := testCredentials(t)
+	keyName := credentials.APIKeyName
+	privateKey := strings.TrimSpace(credentials.APIPrivateKey) + "\n"
+	encodedPrivateKey, err := json.Marshal(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials.APIKeyName = `"` + keyName + `"`
+	credentials.APIPrivateKey = string(encodedPrivateKey)
+
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		verifyJWT(t, request, key, request.URL.Path)
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"can_view":true,"can_trade":false,"can_transfer":false,"portfolio_uuid":"portfolio-123"}`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BaseURL: server.URL}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = client.VerifyConnection(context.Background(), &credentials); err != nil {
+		t.Fatal(err)
+	}
+	if credentials.APIKeyName != keyName || strings.Contains(credentials.APIPrivateKey, `\n`) || !strings.HasPrefix(credentials.APIPrivateKey, "-----BEGIN EC PRIVATE KEY-----") {
+		t.Fatalf("credentials were not normalized into a stable storage form")
 	}
 }
 
