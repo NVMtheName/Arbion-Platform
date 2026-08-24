@@ -9,6 +9,7 @@ import (
 
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/risk"
 )
 
@@ -156,6 +157,20 @@ func (audit *auditFake) Record(_ context.Context, _ *string, action string, _ ma
 	return nil
 }
 
+type proposalGeneratorFake struct {
+	proposal neural.TradeProposal
+	request  neural.TradeProposalRequest
+	err      error
+}
+
+func (fake *proposalGeneratorFake) GenerateTradeProposal(_ context.Context, principal authorization.Principal, request neural.TradeProposalRequest) (neural.TradeProposal, error) {
+	if principal.UserID != "owner" {
+		return neural.TradeProposal{}, errors.New("unexpected proposal principal")
+	}
+	fake.request = request
+	return fake.proposal, fake.err
+}
+
 func founder() authorization.Principal {
 	return authorization.Principal{UserID: "owner", Role: authorization.RoleSuperadmin, Entitlement: authorization.EntitlementFounder}
 }
@@ -203,6 +218,70 @@ func TestCreateUIIsDurableIdempotentAndNonExecuting(t *testing.T) {
 	command.Size = "30"
 	if _, err = service.CreateUI(context.Background(), founder(), "account-1", command); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("changed payload reused an idempotency key: %v", err)
+	}
+}
+
+func TestGenerateAIProposalUsesNormalizedFactsAndDeterministicOrderIntentPath(t *testing.T) {
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	_, provider, _, audit, service := fixture(now, true)
+	provider.positions = append(provider.positions, financial.Position{AccountID: "account-1", InstrumentType: "CRYPTO", Symbol: "BTC", Quantity: "0.003", AvailableQuantity: ptrDecimal("0.002"), Direction: "LONG"})
+	generator := &proposalGeneratorFake{proposal: neural.TradeProposal{
+		Decision: "PROPOSE", RequestedSize: "25.50", Confidence: "LOW", Thesis: "Keep the proposed allocation below the fixed user ceiling.",
+		RiskFlags: []string{"Crypto prices can move sharply."}, Limitations: []string{"No external news feed was supplied."},
+		Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-terra", Profile: "core"},
+	}}
+	service.ai = generator
+	proposal, intent, err := service.GenerateAIProposal(context.Background(), founder(), "account-1", AIProposalCommand{
+		Symbol: "btc", Side: "buy", MaxSize: "50", CapitalBucketID: testCapitalBucketID,
+		Objective: " Keep a small long-term allocation. ", IdempotencyKey: "intent-key-123456789",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.Decision != "PROPOSE" || intent == nil || intent.Source != SourceAI || intent.RequestedSize.Amount != "25.50" || intent.SubmissionAvailable || intent.AIExecutionAuthority || intent.LiveExecutionAvailable {
+		t.Fatalf("unsafe AI proposal result: proposal=%#v intent=%#v", proposal, intent)
+	}
+	if generator.request.Profile != "core" || generator.request.Symbol != "BTC" || generator.request.Side != "BUY" || generator.request.MaxSize != "50" || generator.request.MaxSizeUnit != "USD" || generator.request.AvailableCash != "200" || generator.request.PositionQuantity != "0.015" || generator.request.PositionAvailableQuantity != "0.012" || generator.request.Objective != "Keep a small long-term allocation." || !generator.request.ObservedAt.Equal(now) {
+		t.Fatalf("proposal generator received unsafe or incomplete facts: %#v", generator.request)
+	}
+	if provider.previewCalls != 1 || len(audit.actions) != 1 || audit.actions[0] != "order_intent.proposed" {
+		t.Fatalf("AI output did not use the durable proposal path: calls=%d audit=%#v", provider.previewCalls, audit.actions)
+	}
+}
+
+func TestGenerateAIProposalAbstainsWithoutProviderPreview(t *testing.T) {
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	_, provider, _, audit, service := fixture(now, true)
+	service.ai = &proposalGeneratorFake{proposal: neural.TradeProposal{
+		Decision: "ABSTAIN", RequestedSize: "0", Confidence: "LOW", Thesis: "The supplied facts do not support a cautious proposal.",
+		RiskFlags: []string{}, Limitations: []string{"No external market evidence was supplied."},
+		Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-terra", Profile: "core"},
+	}}
+	proposal, intent, err := service.GenerateAIProposal(context.Background(), founder(), "account-1", AIProposalCommand{
+		Symbol: "BTC", Side: "BUY", MaxSize: "50", CapitalBucketID: testCapitalBucketID,
+		Objective: "Keep risk low.", IdempotencyKey: "intent-key-123456789",
+	})
+	if err != nil || proposal.Decision != "ABSTAIN" || intent != nil {
+		t.Fatalf("safe abstention failed: proposal=%#v intent=%#v err=%v", proposal, intent, err)
+	}
+	if provider.previewCalls != 0 || len(audit.actions) != 1 || audit.actions[0] != "order_intent.ai_abstained" {
+		t.Fatalf("abstention reached provider or was not audited: calls=%d audit=%#v", provider.previewCalls, audit.actions)
+	}
+}
+
+func TestGenerateAIProposalRejectsConstraintViolationBeforeProviderPreview(t *testing.T) {
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	_, provider, _, _, service := fixture(now, true)
+	service.ai = &proposalGeneratorFake{proposal: neural.TradeProposal{
+		Decision: "PROPOSE", RequestedSize: "51", Confidence: "HIGH", Thesis: "Exceeds the user ceiling.",
+		RiskFlags: []string{}, Limitations: []string{}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-terra", Profile: "core"},
+	}}
+	_, _, err := service.GenerateAIProposal(context.Background(), founder(), "account-1", AIProposalCommand{
+		Symbol: "BTC", Side: "BUY", MaxSize: "50", CapitalBucketID: testCapitalBucketID,
+		Objective: "Keep risk low.", IdempotencyKey: "intent-key-123456789",
+	})
+	if !errors.Is(err, ErrUnsafeAIProposal) || provider.previewCalls != 0 {
+		t.Fatalf("unsafe model size reached provider: err=%v calls=%d", err, provider.previewCalls)
 	}
 }
 

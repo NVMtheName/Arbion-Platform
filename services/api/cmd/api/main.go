@@ -87,7 +87,7 @@ func main() {
 		os.Exit(1)
 	}
 	financialConnections := financialconnection.NewService(financialconnection.NewPostgresStore(pool), vault, states, schwabClient, users, financialconnection.NamedProvider{ID: "coinbase", Provider: coinbaseClient})
-	orderIntents := orderintent.NewService(orderintent.NewPostgresStore(pool), financialConnections, authService, users)
+	orderIntents := orderintent.NewService(orderintent.NewPostgresStore(pool), financialConnections, authService, users, aiConnections)
 	automations := automation.NewService(automation.NewPostgresStore(pool), users)
 	strategyStore := strategy.NewPostgresStore(pool)
 	strategies := strategy.NewInstanceService(strategyStore, automations, users)

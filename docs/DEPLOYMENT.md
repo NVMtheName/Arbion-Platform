@@ -2,7 +2,7 @@
 
 ## Status, topology, and safety boundary
 
-This repository supports PAPER simulation, SHADOW intent recording, read-only real Schwab data, private Coinbase account reads, non-executing Coinbase order previews, durable non-executing Coinbase proposals with TOTP-backed owner review, and an opt-in guarded non-live scheduler. Coinbase enrollment requires View, may record Trade, and rejects Transfer. There is no provider-write interface, order-submission adapter, live-trading implementation, or live feature flag.
+This repository supports PAPER simulation, SHADOW intent recording, read-only real Schwab data, private Coinbase account reads, non-executing Coinbase order previews, bounded OpenAI-generated Coinbase proposals, durable non-executing Coinbase proposals with TOTP-backed owner review, and an opt-in guarded non-live scheduler. Coinbase enrollment requires View, may record Trade, and rejects Transfer. There is no provider-write interface, order-submission adapter, live-trading implementation, or live feature flag.
 
 ```text
 Internet :80/:443 -> Caddy (only published service)
@@ -165,7 +165,8 @@ Manual Coinbase connection and proposal test (never enable Transfer and never pl
 5. On the connected account, request a small real Coinbase preview and confirm the page shows the current product status and exact Coinbase size increment, says no order was created, and exposes no provider preview ID. Confirm a size that violates the displayed increment is blocked.
 6. Create or select an active, non-reserve USD Capital Bucket bound to this Coinbase account. Save the preview as a durable proposal and verify the saved Coinbase re-quote, product status, exact proposed notional, available cash, selected policy, and deterministic check results. Confirm an over-capacity BUY or over-holding SELL is retained as `BLOCKED` and cannot consume MFA.
 7. For an allowed proposal, review it with a fresh authenticator code. Confirm the result is `USER_APPROVED_NONEXECUTABLE`, scope is `PROPOSAL_REVIEW_ONLY`, and no Coinbase order appears.
-8. Disable and re-enable the connection to confirm re-verification; disconnect it and separately revoke the key in Coinbase only when intentionally testing teardown.
+8. In the Arbion Neural Engine card, select the same capital policy, enter one bounded objective, and treat the displayed amount as a fixed maximum. Confirm the model either abstains without a provider preview or proposes a size no greater than that maximum. For a proposal, confirm the saved record has source `AI`, fresh Coinbase and deterministic risk evidence, and every execution-capability flag remains false. Confirm the browser states that only normalized cash/target-position facts were shared and that no financial credential left the broker boundary.
+9. Disable and re-enable the connection to confirm re-verification; disconnect it and separately revoke the key in Coinbase only when intentionally testing teardown.
 
 Guarded scheduler activation (never place an order):
 

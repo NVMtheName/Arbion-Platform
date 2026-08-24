@@ -25,10 +25,12 @@ var (
 )
 
 const (
-	MaxCredentialBytes = 4096
-	MaxPromptBytes     = 2000
-	InsightCreditLimit = 12
-	InsightWindow      = time.Hour
+	MaxCredentialBytes  = 4096
+	MaxPromptBytes      = 2000
+	InsightCreditLimit  = 12
+	InsightWindow       = time.Hour
+	ProposalCreditLimit = 12
+	ProposalWindow      = time.Hour
 )
 
 type Connection struct {
@@ -218,6 +220,80 @@ func (s *Service) Analyze(ctx context.Context, p authorization.Principal, prompt
 		extra["provider_request_id"] = result.Metadata.RequestID
 	}
 	s.record(ctx, p.UserID, "neural_insight.completed", c, extra)
+	return result, nil
+}
+
+// GenerateTradeProposal sends only normalized, non-credential account facts to
+// the selected Neural Engine. Its result is untrusted until the caller validates
+// it and runs it through Arbion's provider preview and deterministic risk gate.
+func (s *Service) GenerateTradeProposal(ctx context.Context, p authorization.Principal, input neural.TradeProposalRequest) (neural.TradeProposal, error) {
+	if !s.allowed(ctx, p, "neural_trade_proposal.rejected", "", "") {
+		return neural.TradeProposal{}, ErrForbidden
+	}
+	route, err := resolveInsightRoute(input.Profile)
+	if err != nil || route.Profile != InsightProfileCore {
+		return neural.TradeProposal{}, ErrInvalid
+	}
+	pref, err := s.store.GetPreference(ctx, p.UserID)
+	if err != nil {
+		return neural.TradeProposal{}, err
+	}
+	if pref == nil {
+		return neural.TradeProposal{}, ErrInactive
+	}
+	connection, err := s.store.Get(ctx, p.UserID, pref.ConnectionID)
+	if err != nil {
+		return neural.TradeProposal{}, err
+	}
+	if connection.Status != "active" {
+		return neural.TradeProposal{}, ErrInactive
+	}
+	if connection.Provider != route.Provider || s.limiter == nil {
+		return neural.TradeProposal{}, &neural.ProviderError{Code: neural.Unsupported}
+	}
+	client, ok := s.neural.(neural.TradeProposalClient)
+	if !ok {
+		return neural.TradeProposal{}, ErrProvider
+	}
+	allowed, err := s.limiter.AllowWeighted(ctx, "neural-trade-proposal:"+p.UserID, route.CreditUnits, ProposalCreditLimit, ProposalWindow)
+	if err != nil {
+		s.record(ctx, p.UserID, "neural_trade_proposal.failed", connection, routeAudit(route, "RATE_LIMITER_UNAVAILABLE"))
+		return neural.TradeProposal{}, ErrProvider
+	}
+	if !allowed {
+		s.record(ctx, p.UserID, "neural_trade_proposal.rate_limited", connection, routeAudit(route, "RATE_LIMITED"))
+		return neural.TradeProposal{}, ErrRateLimit
+	}
+	secret, err := s.vault.Retrieve(ctx, credential.Locator{ConnectionID: connection.ID, UserID: p.UserID, Class: credential.AI})
+	if err != nil {
+		return neural.TradeProposal{}, err
+	}
+	defer clear(secret)
+	digest := sha256.Sum256([]byte("arbion-neural:" + p.UserID))
+	started := time.Now()
+	result, err := client.ProposeTrade(ctx, connection.Provider, secret, input, hex.EncodeToString(digest[:]))
+	if err != nil {
+		code := neural.Code(err)
+		failed := routeAudit(route, code)
+		failed["latency_ms"] = time.Since(started).Milliseconds()
+		failed["symbol"] = input.Symbol
+		failed["side"] = input.Side
+		s.record(ctx, p.UserID, "neural_trade_proposal.failed", connection, failed)
+		return neural.TradeProposal{}, &neural.ProviderError{Code: code}
+	}
+	if result.Metadata.Provider != route.Provider || result.Metadata.Model != route.ModelID || result.Metadata.Profile != string(route.Profile) {
+		s.record(ctx, p.UserID, "neural_trade_proposal.failed", connection, routeAudit(route, neural.InternalError))
+		return neural.TradeProposal{}, &neural.ProviderError{Code: neural.InternalError}
+	}
+	extra := routeAudit(route, "COMPLETED")
+	extra["latency_ms"] = time.Since(started).Milliseconds()
+	extra["symbol"] = input.Symbol
+	extra["side"] = input.Side
+	extra["decision"] = result.Decision
+	if result.Metadata.RequestID != "" {
+		extra["provider_request_id"] = result.Metadata.RequestID
+	}
+	s.record(ctx, p.UserID, "neural_trade_proposal.completed", connection, extra)
 	return result, nil
 }
 

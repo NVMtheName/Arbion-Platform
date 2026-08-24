@@ -2725,6 +2725,100 @@ button:disabled {
   background: linear-gradient(110deg, #7cebb1, #57cce3);
   white-space: nowrap;
 }
+.arbion-ai-proposal {
+  position: relative;
+  margin-top: 22px;
+  padding: 22px;
+  overflow: hidden;
+  border: 1px solid rgba(124, 235, 177, 0.22);
+  border-radius: 15px;
+  background:
+    radial-gradient(
+      circle at 96% -20%,
+      rgba(87, 204, 227, 0.18),
+      transparent 42%
+    ),
+    linear-gradient(118deg, rgba(124, 235, 177, 0.065), transparent 48%),
+    rgba(2, 12, 8, 0.78);
+}
+.arbion-ai-proposal > header,
+.arbion-ai-proposal-result > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.arbion-ai-proposal h3 {
+  margin: 5px 0 7px;
+  color: #e7f5ee;
+}
+.arbion-ai-proposal > header p:last-child {
+  max-width: 720px;
+  margin: 0;
+  color: #8ca298;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+.arbion-ai-proposal > header > span {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid rgba(87, 204, 227, 0.25);
+  border-radius: 999px;
+  color: #8fe4f5;
+  background: rgba(87, 204, 227, 0.07);
+  font-size: 0.68rem;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+}
+.coinbase-order-preview .arbion-ai-proposal-form {
+  grid-template-columns: minmax(280px, 1.5fr) minmax(220px, 0.8fr) auto;
+  align-items: end;
+  margin-top: 18px;
+}
+.coinbase-order-preview .arbion-ai-proposal-form textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+}
+.arbion-ai-privacy {
+  margin: 13px 0 0;
+  color: #71877c;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+.arbion-ai-proposal-result {
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid rgba(124, 235, 177, 0.2);
+  border-radius: 14px;
+  background: rgba(2, 12, 8, 0.76);
+}
+.arbion-ai-proposal-result > header > div {
+  display: grid;
+  gap: 4px;
+}
+.arbion-ai-proposal-result > header span,
+.arbion-ai-proposal-result > header small {
+  color: #71877c;
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+}
+.arbion-ai-proposal-result > header strong {
+  color: #9ff1c2;
+}
+.arbion-ai-proposal-result > p,
+.arbion-ai-proposal-result li {
+  color: #a9beb4;
+  line-height: 1.55;
+}
+.arbion-ai-proposal-result ul {
+  margin: 12px 0;
+  padding-left: 20px;
+}
+.arbion-ai-proposal-result .arbion-ai-limitations {
+  color: #f3d79a;
+  font-size: 0.82rem;
+}
 .coinbase-preview-result {
   margin-top: 20px;
   padding: 20px;
@@ -4292,11 +4386,14 @@ button:disabled {
     padding: 22px;
   }
   .coinbase-order-preview > header,
+  .arbion-ai-proposal > header,
+  .arbion-ai-proposal-result > header,
   .coinbase-preview-result-heading {
     align-items: flex-start;
     flex-direction: column;
   }
   .coinbase-order-preview form,
+  .coinbase-order-preview .arbion-ai-proposal-form,
   .coinbase-preview-result dl {
     grid-template-columns: 1fr;
   }

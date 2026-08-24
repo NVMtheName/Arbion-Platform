@@ -236,7 +236,9 @@ describe("CoinbaseOrderPreview", () => {
     );
     expect(await screen.findByText("READY")).toBeInTheDocument();
     expect(
-      screen.getByText(/Create an active, non-reserve USD capital bucket/),
+      screen.getByText(
+        /Create an active, non-reserve USD capital bucket for this Coinbase account/,
+      ),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Save reviewable proposal" }),
@@ -452,5 +454,137 @@ describe("CoinbaseOrderPreview", () => {
     expect(
       screen.queryByRole("button", { name: /submit|place|confirm order/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("uses the Neural Engine as a bounded abstaining proposal layer", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        proposal: {
+          decision: "ABSTAIN",
+          requested_size: "0",
+          confidence: "LOW",
+          thesis: "The supplied facts do not support a cautious proposal.",
+          risk_flags: ["Crypto prices can move sharply."],
+          limitations: ["No external news feed was supplied."],
+          metadata: {
+            provider: "openai",
+            model: "gpt-5.6-terra",
+            profile: "core",
+            request_id: "resp-proposal",
+          },
+        },
+        order_intent: null,
+        proposal_scope: "PROPOSAL_ONLY",
+        approval_scope: "PROPOSAL_REVIEW_ONLY",
+        normalized_account_facts_shared: true,
+        financial_credentials_shared: false,
+        provider_order_created: false,
+        submission_available: false,
+        risk_approval_available: false,
+        ai_execution_authority: false,
+        live_execution_available: false,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <CoinbaseOrderPreview
+        accountID="coinbase-account"
+        capitalPolicies={capitalPolicies}
+        symbols={["BTC"]}
+        tradingAuthorized
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Coinbase preview amount"), {
+      target: { value: "50" },
+    });
+    fireEvent.change(screen.getByLabelText("AI trade proposal objective"), {
+      target: { value: "Keep risk low and preserve most available cash." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Arbion AI" }));
+
+    expect(await screen.findByText("ABSTAIN")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Financial account credentials stay inside Arbion/),
+    ).toBeInTheDocument();
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body as string) as {
+      symbol: string;
+      side: string;
+      max_size: string;
+      objective: string;
+      capital_bucket_id: string;
+      idempotency_key: string;
+    };
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "/api/accounts/coinbase-account/order-intents/ai-proposals",
+    );
+    expect(request).toMatchObject({
+      symbol: "BTC",
+      side: "BUY",
+      max_size: "50",
+      objective: "Keep risk low and preserve most available cash.",
+      capital_bucket_id: capitalPolicies[0].id,
+    });
+    expect(request.idempotency_key).toMatch(/^[0-9a-f-]{36}$/);
+    expect(screen.queryByText("DURABLE ORDER INTENT")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /submit|place|confirm order/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("rejects an AI proposal that exceeds the user's fixed ceiling", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          proposal: {
+            decision: "PROPOSE",
+            requested_size: "51",
+            confidence: "HIGH",
+            thesis: "Unsafe ceiling violation.",
+            risk_flags: [],
+            limitations: [],
+            metadata: {
+              provider: "openai",
+              model: "gpt-5.6-terra",
+              profile: "core",
+            },
+          },
+          order_intent: null,
+          proposal_scope: "PROPOSAL_ONLY",
+          approval_scope: "PROPOSAL_REVIEW_ONLY",
+          normalized_account_facts_shared: true,
+          financial_credentials_shared: false,
+          provider_order_created: false,
+          submission_available: false,
+          risk_approval_available: false,
+          ai_execution_authority: false,
+          live_execution_available: false,
+        }),
+      }),
+    );
+    render(
+      <CoinbaseOrderPreview
+        accountID="coinbase-account"
+        capitalPolicies={capitalPolicies}
+        symbols={["BTC"]}
+        tradingAuthorized
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Coinbase preview amount"), {
+      target: { value: "50" },
+    });
+    fireEvent.change(screen.getByLabelText("AI trade proposal objective"), {
+      target: { value: "Keep risk low." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Arbion AI" }));
+    expect(
+      await screen.findByText(
+        "Arbion rejected an unsafe AI proposal response.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("DURABLE ORDER INTENT")).not.toBeInTheDocument();
   });
 });

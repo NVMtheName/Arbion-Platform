@@ -138,6 +138,12 @@ func TestOrderIntentRoutesRequireAuthenticationAndApprovedOrigin(t *testing.T) {
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous intent route returned %d: %s", recorder.Code, recorder.Body.String())
 	}
+	request = httptest.NewRequest(http.MethodPost, "/api/accounts/account-1/order-intents/ai-proposals", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous AI proposal route returned %d: %s", recorder.Code, recorder.Body.String())
+	}
 
 	direct := &authHandler{cfg: cfg.Auth, orderIntents: intents}
 	request = httptest.NewRequest(http.MethodPost, "/api/order-intents/intent-1/review", nil)
@@ -145,5 +151,11 @@ func TestOrderIntentRoutesRequireAuthenticationAndApprovedOrigin(t *testing.T) {
 	direct.reviewOrderIntent(recorder, request)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("intent review without an approved origin returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/accounts/account-1/order-intents/ai-proposals", nil)
+	recorder = httptest.NewRecorder()
+	direct.createAIOrderProposal(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("AI proposal without an approved origin returned %d: %s", recorder.Code, recorder.Body.String())
 	}
 }

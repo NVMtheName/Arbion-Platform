@@ -31,6 +31,18 @@ type CreateCommand struct {
 	IdempotencyKey  string            `json:"idempotency_key"`
 }
 
+// AIProposalCommand contains user-owned constraints. The model may recommend a
+// smaller size or abstain, but it cannot change the asset, side, capital policy,
+// or maximum size.
+type AIProposalCommand struct {
+	Symbol          string            `json:"symbol"`
+	Side            string            `json:"side"`
+	MaxSize         financial.Decimal `json:"max_size"`
+	CapitalBucketID string            `json:"capital_bucket_id"`
+	Objective       string            `json:"objective"`
+	IdempotencyKey  string            `json:"idempotency_key"`
+}
+
 type ReviewCommand struct {
 	ExpectedVersion int64  `json:"expected_version"`
 	MFACode         string `json:"mfa_code"`

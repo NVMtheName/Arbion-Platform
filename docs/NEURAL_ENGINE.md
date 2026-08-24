@@ -6,7 +6,7 @@ The Neural Engine is Arbion's Python boundary for AI-assisted and quantitative c
 
 Ask Arbion is one input surface, not an AI-owned trading path. It interprets natural language into a structured Arbion Intent that joins the same Go domain commands used by the UI. Conversation state is not authoritative for mandates, strategies, approvals, orders, positions, or execution.
 
-Secure provider connection management, credential verification, model discovery, default provider/model preferences, and a bounded read-only Arbion Insight flow with explicit cost-aware model profiles are implemented. General chat, automatic intent routing, streaming, model tools, financial-data retrieval, order proposals, and execution remain unimplemented.
+Secure provider connection management, credential verification, model discovery, default provider/model preferences, a bounded read-only Arbion Insight flow, and one bounded proposal-only Coinbase research flow are implemented. General chat, automatic intent routing, streaming, model tools, arbitrary financial-data retrieval, execution approval, and execution remain unimplemented.
 
 ## Implemented provider connectivity
 
@@ -33,6 +33,14 @@ The implementation follows OpenAI's official [Responses API guidance](https://de
 The feature deliberately has no access to accounts, positions, portfolio data, broker credentials, quotes, news, or current market data. It cannot preview, place, approve, or authorize a trade. Audit records include safe operational metadata—provider, profile, model, charged credits, input byte count, token usage, outcome, latency, and provider request ID—but exclude prompt text, model output, credentials, and private chain-of-thought.
 
 The default Neural Engine preference is a durable user setting pointing to one active, owned AI connection and a model returned for that credential. Arbion Insight uses the selected connection while its request profile chooses the fixed GPT-5.6 route; it never mutates the saved preference. Future Automation Mandates may choose another connection/model under a separately approved policy. Logging out affects only the browser session and preserves both connections and this preference.
+
+## Implemented proposal-only trade research
+
+`POST /api/accounts/{id}/order-intents/ai-proposals` is a narrow authenticated, CSRF-protected Coinbase surface. The owner fixes one canonical asset, BUY/SELL side, exact maximum size, capital policy, and a 500-byte objective. Go independently refreshes normalized available USD cash and the target asset's total and tradable quantities; account IDs, provider account IDs, broker credentials, provider preview identifiers, and unrelated holdings are excluded from the Neural Engine request. The active saved OpenAI connection is reused, and the request is fixed to the Core/Terra route under a separate weighted Redis budget.
+
+Python sends a tool-free OpenAI Responses API request with `store: false`, explicit reasoning/output limits, a one-way safety identifier, fixed Arbion instructions that treat the objective and facts as untrusted data, and a strict JSON schema. The model may return only `PROPOSE` with a positive exact size no greater than the owner's maximum or `ABSTAIN` with size zero, plus bounded confidence, thesis, risk flags, limitations, and route metadata. Python validates those invariants before returning; Go validates them again, rejects a SELL above the provider-reported tradable quantity, and rejects any provider/model/profile mismatch. Prompt/objective and model text are excluded from audit metadata.
+
+An abstention creates no Coinbase preview and no Order Intent, but records a metadata-only audit event. An actionable proposal enters the existing `SourceAI` Order Intent method, which obtains a fresh Coinbase product/price preview, refreshes cash and holdings again, applies capital reservations and the deterministic Risk/Control Engine, and persists either a review-required or blocked non-executing record. The model cannot choose another account, asset, side, policy, or maximum; cannot see financial credentials; cannot receive a provider preview ID; cannot approve its own proposal; and has no broker-write interface. Every response and persisted intent explicitly keeps submission, risk approval, AI execution authority, and live execution unavailable.
 
 ## Connection lifecycle
 
@@ -95,7 +103,7 @@ Arbion may eventually expose controlled internal tools to models, including:
 - `run_backtest`
 - `calculate_risk`
 
-This is a conceptual catalog, not an implemented API. Arbion owns tool names, versioned input/output schemas, identity context, permissions, validation, timeouts, resource limits, data minimization, and audit records. A model can request a tool call; it cannot grant itself access or define the trusted meaning of its arguments.
+This remains a conceptual tool catalog, not an implemented general-purpose model API. The proposal-only Coinbase flow above is a fixed Go-orchestrated structured request, supplies no OpenAI tools, and cannot invoke these catalog entries. Arbion owns tool names, versioned input/output schemas, identity context, permissions, validation, timeouts, resource limits, data minimization, and audit records. A future model may request a tool call; it cannot grant itself access or define the trusted meaning of its arguments.
 
 Tool output is also untrusted at subsequent boundaries: external data can be stale or malicious, and model interpretation can be wrong. Results should carry provenance and freshness where relevant and must be validated before they influence a financial action.
 

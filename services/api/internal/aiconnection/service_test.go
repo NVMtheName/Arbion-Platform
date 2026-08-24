@@ -133,6 +133,27 @@ type fakeNeural struct {
 	seenProfile    *string
 }
 
+type proposalNeural struct {
+	fakeNeural
+	proposal     neural.TradeProposal
+	request      *neural.TradeProposalRequest
+	seenSecret   *[]byte
+	seenSafetyID *string
+}
+
+func (fake proposalNeural) ProposeTrade(_ context.Context, _ string, credential []byte, request neural.TradeProposalRequest, safetyIdentifier string) (neural.TradeProposal, error) {
+	if fake.request != nil {
+		*fake.request = request
+	}
+	if fake.seenSecret != nil {
+		*fake.seenSecret = credential
+	}
+	if fake.seenSafetyID != nil {
+		*fake.seenSafetyID = safetyIdentifier
+	}
+	return fake.proposal, fake.err
+}
+
 func (f fakeNeural) Verify(context.Context, string, []byte) error { return f.err }
 func (f fakeNeural) Models(context.Context, string, []byte) ([]neural.Model, error) {
 	return []neural.Model{{ID: "model-1", Provider: "openai"}}, f.err
@@ -443,5 +464,51 @@ func TestAnalyzeRejectsMismatchedRouteMetadata(t *testing.T) {
 	}
 	if len(recorded.actions) != 1 || recorded.actions[0] != "neural_insight.failed" {
 		t.Fatalf("mismatched route was not audited safely: %#v", recorded.actions)
+	}
+}
+
+func TestGenerateTradeProposalReusesEncryptedPreferenceAndAuditsMetadataOnly(t *testing.T) {
+	s, _, bs := setup(t)
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	s.neural = fakeNeural{}
+	connection, err := s.Create(context.Background(), p, "openai", "Mine", []byte("secret-value"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Verify(context.Background(), p, connection.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.SetPreference(context.Background(), p, connection.ID, "model-1"); err != nil {
+		t.Fatal(err)
+	}
+	seenRequest := neural.TradeProposalRequest{}
+	seenSecret := []byte{}
+	seenSafetyID := ""
+	s.neural = proposalNeural{fakeNeural: fakeNeural{}, proposal: neural.TradeProposal{
+		Decision: "PROPOSE", RequestedSize: "25.50", Confidence: "LOW", Thesis: "Bounded proposal.",
+		Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-terra", Profile: "core", RequestID: "resp-proposal"},
+	}, request: &seenRequest, seenSecret: &seenSecret, seenSafetyID: &seenSafetyID}
+	s.limiter = fakeLimiter{allowed: true}
+	recorded := &recordedAudit{}
+	s.audit = recorded
+	input := neural.TradeProposalRequest{Profile: "core", Objective: "private objective", Symbol: "BTC", Side: "BUY", MaxSize: "50", MaxSizeUnit: "USD", AvailableCash: "200", PositionQuantity: "0.012", PositionAvailableQuantity: "0.01", ObservedAt: time.Now().UTC()}
+	proposal, err := s.GenerateTradeProposal(context.Background(), p, input)
+	if err != nil || proposal.Decision != "PROPOSE" || seenRequest.Objective != input.Objective || len(seenSafetyID) != 64 {
+		t.Fatalf("trade proposal failed: proposal=%#v request=%#v err=%v", proposal, seenRequest, err)
+	}
+	for _, value := range seenSecret {
+		if value != 0 {
+			t.Fatal("retrieved plaintext credential was not cleared after use")
+		}
+	}
+	if strings.Contains(string(bs.data[connection.ID]), "secret-value") {
+		t.Fatal("vault persisted plaintext credential")
+	}
+	raw, err := json.Marshal(recorded.metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), input.Objective) || strings.Contains(string(raw), "secret-value") || !strings.Contains(string(raw), "resp-proposal") {
+		t.Fatalf("proposal audit metadata was unsafe or incomplete: %s", raw)
 	}
 }

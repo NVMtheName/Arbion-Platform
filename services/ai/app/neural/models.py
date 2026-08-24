@@ -74,3 +74,14 @@ class Insight:
     limitations: tuple[str, ...]
     requires_current_data: bool
     metadata: ResponseMetadata
+
+
+@dataclass(frozen=True)
+class TradeProposal:
+    decision: str
+    requested_size: str
+    confidence: str
+    thesis: str
+    risk_flags: tuple[str, ...]
+    limitations: tuple[str, ...]
+    metadata: ResponseMetadata

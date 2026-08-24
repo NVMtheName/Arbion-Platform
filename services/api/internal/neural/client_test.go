@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -63,5 +64,37 @@ func TestVerifyKeepsRequestBodyUntilTransportReadsIt(t *testing.T) {
 	client := NewHTTPClient("http://ai.internal", "internal-token", &http.Client{Transport: transport})
 	if err := client.Verify(context.Background(), "openai", []byte(secret)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestProposeTradeSendsOnlyBoundedNormalizedFacts(t *testing.T) {
+	const secret = "secret-value"
+	observedAt := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != "/internal/neural/trade-proposal" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["credential"] != secret || body["provider"] != "openai" || body["profile"] != "core" || body["symbol"] != "BTC" || body["side"] != "BUY" || body["max_size"] != "50" || body["max_size_unit"] != "USD" || body["available_cash"] != "200" || body["position_quantity"] != "0.012" || body["position_available_quantity"] != "0.01" || body["observed_at"] != observedAt.Format(time.RFC3339Nano) || body["safety_identifier"] != strings.Repeat("a", 64) {
+			t.Fatalf("unexpected proposal request fields: %#v", body)
+		}
+		if _, exposed := body["account_id"]; exposed {
+			t.Fatalf("account identifier escaped the API trust boundary: %#v", body)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: make(http.Header),
+			Body: io.NopCloser(strings.NewReader(`{"proposal":{"decision":"PROPOSE","requested_size":"25.50","confidence":"LOW","thesis":"Bounded proposal.","risk_flags":["Volatility"],"limitations":["No news feed"],"metadata":{"provider":"openai","model":"gpt-5.6-terra","profile":"core","request_id":"resp-proposal"}}}`)),
+		}, nil
+	})
+	client := NewHTTPClient("http://ai.internal", "internal-token", &http.Client{Transport: transport})
+	proposal, err := client.ProposeTrade(context.Background(), "openai", []byte(secret), TradeProposalRequest{
+		Profile: "core", Objective: "Keep risk low.", Symbol: "BTC", Side: "BUY", MaxSize: "50", MaxSizeUnit: "USD",
+		AvailableCash: "200", PositionQuantity: "0.012", PositionAvailableQuantity: "0.01", ObservedAt: observedAt,
+	}, strings.Repeat("a", 64))
+	if err != nil || proposal.Decision != "PROPOSE" || proposal.Metadata.RequestID != "resp-proposal" {
+		t.Fatalf("unexpected proposal response: %#v %v", proposal, err)
 	}
 }
