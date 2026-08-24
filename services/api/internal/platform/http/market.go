@@ -74,14 +74,16 @@ const (
 )
 
 type cryptoPortfolioPosition struct {
-	Symbol        string                         `json:"symbol"`
-	Quantity      financial.Decimal              `json:"quantity"`
-	UnitPrice     *financial.Money               `json:"unit_price,omitempty"`
-	Bid           *financial.Money               `json:"bid,omitempty"`
-	Ask           *financial.Money               `json:"ask,omitempty"`
-	MarketValue   *financial.Money               `json:"market_value,omitempty"`
-	PricingStatus string                         `json:"pricing_status"`
-	Provenance    *marketintelligence.Provenance `json:"provenance,omitempty"`
+	Symbol                     string                         `json:"symbol"`
+	Quantity                   financial.Decimal              `json:"quantity"`
+	AvailableQuantity          *financial.Decimal             `json:"available_quantity,omitempty"`
+	UnavailableToTradeQuantity *financial.Decimal             `json:"unavailable_to_trade_quantity,omitempty"`
+	UnitPrice                  *financial.Money               `json:"unit_price,omitempty"`
+	Bid                        *financial.Money               `json:"bid,omitempty"`
+	Ask                        *financial.Money               `json:"ask,omitempty"`
+	MarketValue                *financial.Money               `json:"market_value,omitempty"`
+	PricingStatus              string                         `json:"pricing_status"`
+	Provenance                 *marketintelligence.Provenance `json:"provenance,omitempty"`
 }
 
 type cryptoPortfolioSnapshot struct {
@@ -274,7 +276,13 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 	var pricingAsOf *time.Time
 	for _, position := range positions {
 		symbol := strings.ToUpper(strings.TrimSpace(position.Symbol))
-		item := cryptoPortfolioPosition{Symbol: symbol, Quantity: position.Quantity, PricingStatus: "UNAVAILABLE"}
+		item := cryptoPortfolioPosition{
+			Symbol:                     symbol,
+			Quantity:                   position.Quantity,
+			AvailableQuantity:          position.AvailableQuantity,
+			UnavailableToTradeQuantity: position.UnavailableToTradeQuantity,
+			PricingStatus:              "UNAVAILABLE",
+		}
 		observation, found := observations[symbol]
 		if found {
 			value, rational, valueErr := observedMarketValue(position.Quantity, observation.CurrentPrice, account.BaseCurrency)

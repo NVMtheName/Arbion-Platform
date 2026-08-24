@@ -4082,7 +4082,7 @@ button:disabled {
 }
 .crypto-position-table table {
   width: 100%;
-  min-width: 920px;
+  min-width: 1120px;
   border-collapse: collapse;
 }
 .crypto-position-table th {
@@ -4113,6 +4113,12 @@ button:disabled {
   color: #6e857a;
   font-size: 0.68rem;
   text-transform: capitalize;
+}
+.crypto-position-note {
+  margin: 18px 0 0;
+  color: #70877b;
+  font-size: 0.76rem;
+  line-height: 1.55;
 }
 .crypto-empty {
   margin: 24px 0 0;

@@ -20,6 +20,8 @@ type Provenance = {
 type PortfolioPosition = {
   symbol: string;
   quantity: string;
+  available_quantity?: string;
+  unavailable_to_trade_quantity?: string;
   unit_price?: Money;
   bid?: Money;
   ask?: Money;
@@ -2058,7 +2060,9 @@ export function CryptoPortfolioCommandCenter({
               <thead>
                 <tr>
                   <th>Asset</th>
-                  <th>Quantity</th>
+                  <th>Total quantity</th>
+                  <th>Available to trade</th>
+                  <th>Staked / unavailable</th>
                   <th>Last trade</th>
                   <th>Observed value</th>
                   <th>Bid / Ask</th>
@@ -2073,6 +2077,16 @@ export function CryptoPortfolioCommandCenter({
                       <small>{position.pricing_status}</small>
                     </td>
                     <td>{quantity(position.quantity)}</td>
+                    <td>
+                      {position.available_quantity === undefined
+                        ? "—"
+                        : quantity(position.available_quantity)}
+                    </td>
+                    <td>
+                      {position.unavailable_to_trade_quantity === undefined
+                        ? "—"
+                        : quantity(position.unavailable_to_trade_quantity)}
+                    </td>
                     <td>{money(position.unit_price)}</td>
                     <td>{money(position.market_value)}</td>
                     <td>
@@ -2104,6 +2118,11 @@ export function CryptoPortfolioCommandCenter({
             </table>
           </div>
         )}
+        <p className="crypto-position-note">
+          Coinbase reports total and available-to-trade quantities separately.
+          Their difference can include staking, open-order holds, or other
+          provider restrictions.
+        </p>
       </section>
 
       <CoinbaseOrderPreview
