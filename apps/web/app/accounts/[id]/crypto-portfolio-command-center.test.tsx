@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { renderToString } from "react-dom/server";
 
 import {
   CryptoPortfolioCommandCenter,
@@ -413,6 +414,19 @@ describe("CryptoPortfolioCommandCenter", () => {
     expect(
       screen.queryByRole("button", { name: "USDC" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("renders canonical UTC evidence before switching to the browser timezone", () => {
+    const serverHTML = renderToString(
+      <CryptoPortfolioCommandCenter
+        accountID="coinbase-1"
+        initialHistory={history}
+        initialSnapshot={snapshot}
+      />,
+    );
+
+    expect(serverHTML).toContain("Aug 21, 2:30:00 PM UTC");
+    expect(serverHTML).not.toContain("Aug 21, 10:30:00 AM EDT");
   });
 
   it("refreshes through only the protected read-only portfolio endpoint", async () => {

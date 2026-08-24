@@ -1,7 +1,13 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import {
   CoinbaseOrderPreview,
@@ -323,7 +329,7 @@ function feeRate(value: string) {
   }).format(parsed * 100)}%`;
 }
 
-function timestamp(value?: string) {
+function timestamp(value: string | undefined, browserTimeReady: boolean) {
   if (!value) return "No market observation";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.valueOf())) return value;
@@ -334,10 +340,11 @@ function timestamp(value?: string) {
     minute: "2-digit",
     second: "2-digit",
     timeZoneName: "short",
+    timeZone: browserTimeReady ? undefined : "UTC",
   }).format(parsed);
 }
 
-function clockTime(value: string) {
+function clockTime(value: string, browserTimeReady: boolean) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.valueOf())) return value;
   return new Intl.DateTimeFormat("en-US", {
@@ -346,6 +353,7 @@ function clockTime(value: string) {
     second: "2-digit",
     fractionalSecondDigits: 3,
     timeZoneName: "short",
+    timeZone: browserTimeReady ? undefined : "UTC",
   }).format(parsed);
 }
 
@@ -388,6 +396,18 @@ function digitalAssetValueLabel(
     return "Market observations + USDC 1:1";
   }
   return "Coinbase Exchange last trade";
+}
+
+function subscribeToBrowserClock() {
+  return () => undefined;
+}
+
+function browserClockReady() {
+  return true;
+}
+
+function serverClockReady() {
+  return false;
 }
 
 function historyChart(series?: CryptoCandleSeries) {
@@ -483,6 +503,11 @@ export function CryptoPortfolioCommandCenter({
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
+  const browserTimeReady = useSyncExternalStore(
+    subscribeToBrowserClock,
+    browserClockReady,
+    serverClockReady,
+  );
 
   const initialHistorySymbol = initialHistory?.symbol ?? "";
   const [selectedSymbol, setSelectedSymbol] = useState(
@@ -1080,7 +1105,7 @@ export function CryptoPortfolioCommandCenter({
             </div>
             <div>
               <dt>Oldest observation</dt>
-              <dd>{timestamp(snapshot.pricing_as_of)}</dd>
+              <dd>{timestamp(snapshot.pricing_as_of, browserTimeReady)}</dd>
             </div>
             <div>
               <dt>Delivery</dt>
@@ -1272,7 +1297,10 @@ export function CryptoPortfolioCommandCenter({
                 <div>
                   <dt>Latest interval</dt>
                   <dd>
-                    {timestamp(selectedHistory.provenance.provider_timestamp)}
+                    {timestamp(
+                      selectedHistory.provenance.provider_timestamp,
+                      browserTimeReady,
+                    )}
                   </dd>
                 </div>
                 <div>
@@ -1386,7 +1414,10 @@ export function CryptoPortfolioCommandCenter({
               <span>Coinbase Exchange · public product stats</span>
               <span>
                 Received by Arbion{" "}
-                {timestamp(selectedVenueStats.receipt.received_at)}
+                {timestamp(
+                  selectedVenueStats.receipt.received_at,
+                  browserTimeReady,
+                )}
               </span>
               <span>
                 {venueStatsCached[selectedSymbol]
@@ -1476,7 +1507,10 @@ export function CryptoPortfolioCommandCenter({
               <article>
                 <span>Observed</span>
                 <strong>
-                  {timestamp(selectedLiquidity.provenance.provider_timestamp)}
+                  {timestamp(
+                    selectedLiquidity.provenance.provider_timestamp,
+                    browserTimeReady,
+                  )}
                 </strong>
                 <small>
                   {liquidityCached[selectedSymbol]
@@ -1627,6 +1661,7 @@ export function CryptoPortfolioCommandCenter({
                 <strong>
                   {timestamp(
                     selectedMarketTrades.provenance.provider_timestamp,
+                    browserTimeReady,
                   )}
                 </strong>
                 <small>
@@ -1654,7 +1689,7 @@ export function CryptoPortfolioCommandCenter({
                 <tbody>
                   {selectedMarketTrades.trades.map((trade, index) => (
                     <tr key={`${trade.time}-${index}`}>
-                      <td>{clockTime(trade.time)}</td>
+                      <td>{clockTime(trade.time, browserTimeReady)}</td>
                       <td>
                         <span
                           className={`crypto-public-trade-side ${trade.side.toLowerCase()}`}
@@ -1731,7 +1766,9 @@ export function CryptoPortfolioCommandCenter({
                 </div>
                 <div>
                   <dt>Retrieved</dt>
-                  <dd>{timestamp(tradingCosts.retrieved_at)}</dd>
+                  <dd>
+                    {timestamp(tradingCosts.retrieved_at, browserTimeReady)}
+                  </dd>
                 </div>
                 <div>
                   <dt>Arbion order preview</dt>
@@ -1875,7 +1912,7 @@ export function CryptoPortfolioCommandCenter({
                     <tr
                       key={`${order.created_at}-${order.product_id}-${index}`}
                     >
-                      <td>{timestamp(order.created_at)}</td>
+                      <td>{timestamp(order.created_at, browserTimeReady)}</td>
                       <td>
                         <strong>{order.product_id}</strong>
                         <small>
@@ -1986,7 +2023,9 @@ export function CryptoPortfolioCommandCenter({
           >
             <div>
               <span>Latest execution</span>
-              <strong>{timestamp(activity.fills[0]?.trade_time)}</strong>
+              <strong>
+                {timestamp(activity.fills[0]?.trade_time, browserTimeReady)}
+              </strong>
             </div>
             <div>
               <span>Entries shown</span>
@@ -2042,7 +2081,7 @@ export function CryptoPortfolioCommandCenter({
               <tbody>
                 {activity.fills.map((fill, index) => (
                   <tr key={`${fill.trade_time}-${fill.product_id}-${index}`}>
-                    <td>{timestamp(fill.trade_time)}</td>
+                    <td>{timestamp(fill.trade_time, browserTimeReady)}</td>
                     <td>
                       <strong>{fill.product_id}</strong>
                       <small>Executed outside Arbion</small>
@@ -2140,7 +2179,10 @@ export function CryptoPortfolioCommandCenter({
                               .replaceAll("_", " ")
                               .toLowerCase()}{" "}
                             ·{" "}
-                            {timestamp(position.provenance.provider_timestamp)}
+                            {timestamp(
+                              position.provenance.provider_timestamp,
+                              browserTimeReady,
+                            )}
                           </small>
                         </>
                       ) : (
