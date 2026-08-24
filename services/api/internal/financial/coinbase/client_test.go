@@ -95,6 +95,11 @@ func TestClientConnectsViewOnlyPortfolioAndNormalizesHoldings(t *testing.T) {
 			} else {
 				_, _ = response.Write([]byte(`{"accounts":[{"uuid":"eth-wallet","currency":"ETH","available_balance":{"value":"2.5","currency":"ETH"},"hold":{"value":"0","currency":"ETH"},"active":true,"ready":true,"type":"CRYPTO"}],"has_next":false,"cursor":""}`))
 			}
+		case "/api/v3/brokerage/portfolios/portfolio-123":
+			if request.URL.Query().Get("currency") != "USD" {
+				t.Fatalf("missing portfolio display currency: %s", request.URL.RawQuery)
+			}
+			_, _ = response.Write([]byte(`{"breakdown":{"portfolio":{"uuid":"portfolio-123"},"spot_positions":[{"asset":"BTC","account_uuid":"btc-wallet","total_balance_crypto":0.12000000,"available_to_trade_crypto":0.10000000,"account_type":"ACCOUNT_TYPE_CRYPTO"},{"asset":"ETH","account_uuid":"eth-staked-wallet","total_balance_crypto":2.5,"available_to_trade_crypto":0,"account_type":"ACCOUNT_TYPE_CRYPTO"},{"asset":"ETH","account_uuid":"eth-wallet","total_balance_crypto":0.5,"available_to_trade_crypto":0.25,"account_type":"ACCOUNT_TYPE_CRYPTO"}]}}`))
 		default:
 			http.NotFound(response, request)
 		}
@@ -124,11 +129,39 @@ func TestClientConnectsViewOnlyPortfolioAndNormalizesHoldings(t *testing.T) {
 		t.Fatalf("unexpected balances: %#v %v", balances, err)
 	}
 	positions, err := client.GetPositions(context.Background(), &credentials, accounts[0].ProviderAccountID)
-	if err != nil || len(positions) != 2 || positions[0].Symbol != "BTC" || positions[0].Quantity != "0.12000000" || positions[0].AvailableQuantity == nil || *positions[0].AvailableQuantity != "0.10000000" || positions[1].Symbol != "ETH" {
+	if err != nil || len(positions) != 2 || positions[0].Symbol != "BTC" || positions[0].Quantity != "0.12000000" || positions[0].AvailableQuantity == nil || *positions[0].AvailableQuantity != "0.10000000" || positions[0].UnavailableToTradeQuantity == nil || *positions[0].UnavailableToTradeQuantity != "0.02000000" || positions[1].Symbol != "ETH" || positions[1].Quantity != "3.0" || positions[1].AvailableQuantity == nil || *positions[1].AvailableQuantity != "0.25" || positions[1].UnavailableToTradeQuantity == nil || *positions[1].UnavailableToTradeQuantity != "2.75" {
 		t.Fatalf("unexpected positions: %#v %v", positions, err)
 	}
-	if requests < 7 {
+	if requests < 9 {
 		t.Fatalf("expected permission and paginated account requests, got %d", requests)
+	}
+}
+
+func TestClientRejectsPortfolioBreakdownWithImpossibleAvailableQuantity(t *testing.T) {
+	credentials, key := testCredentials(t)
+	credentials.PortfolioID = "portfolio-123"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		verifyJWT(t, request, key, request.URL.Path)
+		response.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v3/brokerage/key_permissions":
+			_, _ = response.Write([]byte(`{"can_view":true,"can_trade":false,"can_transfer":false,"portfolio_uuid":"portfolio-123","portfolio_type":"CONSUMER"}`))
+		case "/api/v3/brokerage/portfolios/portfolio-123":
+			_, _ = response.Write([]byte(`{"breakdown":{"portfolio":{"uuid":"portfolio-123"},"spot_positions":[{"asset":"ETH","account_uuid":"eth-wallet","total_balance_crypto":1,"available_to_trade_crypto":2,"account_type":"ACCOUNT_TYPE_CRYPTO"}]}}`))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(Config{BaseURL: server.URL}, server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.GetPositions(context.Background(), &credentials, "portfolio:portfolio-123")
+	var providerError *financial.ProviderError
+	if !errors.As(err, &providerError) || providerError.Code != financial.InvalidProviderResponse {
+		t.Fatalf("expected impossible portfolio quantities to fail closed, got %v", err)
 	}
 }
 

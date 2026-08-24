@@ -132,6 +132,22 @@ type accountPage struct {
 	Cursor   string            `json:"cursor"`
 }
 
+type providerSpotPosition struct {
+	Asset                  string      `json:"asset"`
+	AccountUUID            string      `json:"account_uuid"`
+	TotalBalanceCrypto     json.Number `json:"total_balance_crypto"`
+	AvailableToTradeCrypto json.Number `json:"available_to_trade_crypto"`
+}
+
+type portfolioBreakdownResponse struct {
+	Breakdown struct {
+		Portfolio struct {
+			UUID string `json:"uuid"`
+		} `json:"portfolio"`
+		SpotPositions []providerSpotPosition `json:"spot_positions"`
+	} `json:"breakdown"`
+}
+
 type providerFill struct {
 	TradeTime          time.Time   `json:"trade_time"`
 	TradeType          string      `json:"trade_type"`
@@ -292,6 +308,25 @@ func (c *Client) providerAccounts(ctx context.Context, credentials *financial.Cr
 	return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
 }
 
+func (c *Client) providerPortfolioPositions(ctx context.Context, credentials *financial.Credentials) ([]providerSpotPosition, error) {
+	if err := c.VerifyConnection(ctx, credentials); err != nil {
+		return nil, err
+	}
+	portfolioID := strings.TrimSpace(credentials.PortfolioID)
+	if portfolioID == "" || len(portfolioID) > 200 {
+		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	path := "/api/v3/brokerage/portfolios/" + url.PathEscape(portfolioID) + "?currency=USD"
+	var response portfolioBreakdownResponse
+	if err := c.get(ctx, credentials, path, &response); err != nil {
+		return nil, err
+	}
+	if response.Breakdown.Portfolio.UUID != portfolioID || len(response.Breakdown.SpotPositions) > 250 {
+		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	return response.Breakdown.SpotPositions, nil
+}
+
 func portfolioAccount(credentials *financial.Credentials) (financial.FinancialAccount, error) {
 	portfolioID := strings.TrimSpace(credentials.PortfolioID)
 	if portfolioID == "" || len(portfolioID) > 200 {
@@ -400,17 +435,23 @@ func (c *Client) GetPositions(ctx context.Context, credentials *financial.Creden
 	if err := validateAccountID(credentials, id); err != nil {
 		return nil, err
 	}
-	accounts, err := c.providerAccounts(ctx, credentials)
+	providerPositions, err := c.providerPortfolioPositions(ctx, credentials)
 	if err != nil {
 		return nil, err
 	}
-	positions := make([]financial.Position, 0, len(accounts))
-	for _, account := range accounts {
-		currency := strings.ToUpper(strings.TrimSpace(account.Currency))
-		if account.UUID == "" || !currencyPattern.MatchString(currency) {
+	positions := make([]financial.Position, 0, len(providerPositions))
+	positionIndex := make(map[string]int, len(providerPositions))
+	for _, providerPosition := range providerPositions {
+		currency := strings.ToUpper(strings.TrimSpace(providerPosition.Asset))
+		if providerPosition.AccountUUID == "" || len(providerPosition.AccountUUID) > 200 || !currencyPattern.MatchString(currency) {
 			return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
 		}
-		quantity, err := addDecimals(account.AvailableBalance.Value, account.Hold.Value)
+		quantity, quantityOK := requiredNonnegativeProviderDecimal(providerPosition.TotalBalanceCrypto)
+		availableQuantity, availableOK := requiredNonnegativeProviderDecimal(providerPosition.AvailableToTradeCrypto)
+		if !quantityOK || !availableOK {
+			return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		}
+		unavailableQuantity, err := subtractDecimals(quantity, availableQuantity)
 		if err != nil {
 			return nil, err
 		}
@@ -421,22 +462,34 @@ func (c *Client) GetPositions(ctx context.Context, credentials *financial.Creden
 		if !nonzero || currency == "USD" {
 			continue
 		}
-		availableQuantity, err := normalizedDecimal(account.AvailableBalance.Value)
-		if err != nil {
-			return nil, err
+		if index, exists := positionIndex[currency]; exists {
+			combinedQuantity, combineErr := addDecimals(json.Number(positions[index].Quantity), json.Number(quantity))
+			if combineErr != nil || positions[index].AvailableQuantity == nil {
+				return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+			}
+			combinedAvailable, combineErr := addDecimals(json.Number(*positions[index].AvailableQuantity), json.Number(availableQuantity))
+			if combineErr != nil {
+				return nil, combineErr
+			}
+			combinedUnavailable, combineErr := subtractDecimals(combinedQuantity, combinedAvailable)
+			if combineErr != nil {
+				return nil, combineErr
+			}
+			positions[index].Quantity = combinedQuantity
+			positions[index].AvailableQuantity = &combinedAvailable
+			positions[index].UnavailableToTradeQuantity = &combinedUnavailable
+			continue
 		}
-		instrumentType := "CRYPTO"
-		if strings.EqualFold(account.Type, "FIAT") {
-			instrumentType = "CASH"
-		}
+		positionIndex[currency] = len(positions)
 		positions = append(positions, financial.Position{
-			AccountID:            id,
-			InstrumentType:       instrumentType,
-			Symbol:               currency,
-			Quantity:             quantity,
-			AvailableQuantity:    &availableQuantity,
-			Direction:            "long",
-			ProviderInstrumentID: account.UUID,
+			AccountID:                  id,
+			InstrumentType:             "CRYPTO",
+			Symbol:                     currency,
+			Quantity:                   quantity,
+			AvailableQuantity:          &availableQuantity,
+			UnavailableToTradeQuantity: &unavailableQuantity,
+			Direction:                  "long",
+			ProviderInstrumentID:       providerPosition.AccountUUID,
 		})
 	}
 	return positions, nil
@@ -1261,6 +1314,24 @@ func addDecimals(left, right json.Number) (financial.Decimal, error) {
 	leftRat, _ := new(big.Rat).SetString(string(l))
 	rightRat, _ := new(big.Rat).SetString(string(r))
 	return financial.Decimal(new(big.Rat).Add(leftRat, rightRat).FloatString(scale)), nil
+}
+
+func subtractDecimals(total, available financial.Decimal) (financial.Decimal, error) {
+	totalScale := decimalScale(string(total))
+	availableScale := decimalScale(string(available))
+	scale := totalScale
+	if availableScale > scale {
+		scale = availableScale
+	}
+	if scale > 32 {
+		return "", &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	totalRat, totalOK := new(big.Rat).SetString(string(total))
+	availableRat, availableOK := new(big.Rat).SetString(string(available))
+	if !totalOK || !availableOK || totalRat.Sign() < 0 || availableRat.Sign() < 0 || availableRat.Cmp(totalRat) > 0 {
+		return "", &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	}
+	return financial.Decimal(new(big.Rat).Sub(totalRat, availableRat).FloatString(scale)), nil
 }
 
 func decimalScale(value string) int {

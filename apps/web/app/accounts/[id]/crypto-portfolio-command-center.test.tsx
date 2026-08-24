@@ -37,6 +37,8 @@ const snapshot: CryptoPortfolioSnapshot = {
     {
       symbol: "BTC",
       quantity: "0.5",
+      available_quantity: "0.3",
+      unavailable_to_trade_quantity: "0.2",
       unit_price: { amount: "60000", currency: "USD" },
       bid: { amount: "59999", currency: "USD" },
       ask: { amount: "60001", currency: "USD" },
@@ -54,6 +56,8 @@ const snapshot: CryptoPortfolioSnapshot = {
     {
       symbol: "RARE",
       quantity: "10",
+      available_quantity: "0",
+      unavailable_to_trade_quantity: "10",
       pricing_status: "UNAVAILABLE",
     },
   ],
@@ -272,6 +276,16 @@ describe("CryptoPortfolioCommandCenter", () => {
     expect(screen.getByText("$30,025.00")).toBeInTheDocument();
     expect(screen.getByText("1/2")).toBeInTheDocument();
     expect(screen.getByText("RARE")).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "Available to trade" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "Staked / unavailable" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("0.2")).toBeInTheDocument();
+    expect(
+      screen.getByText(/difference can include staking, open-order holds/),
+    ).toBeInTheDocument();
     expect(screen.getByText("No approved USD product")).toBeInTheDocument();
     expect(screen.getByText("coinbase exchange")).toBeInTheDocument();
     expect(

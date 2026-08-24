@@ -169,7 +169,7 @@ Exit gate: IEX and indicative data are visibly labeled and cannot satisfy a cons
 
 - Implemented: a CoinGecko keyed adapter and authenticated top-markets route.
 - Implemented: a keyless Coinbase Exchange ticker adapter for bounded single-venue production snapshots.
-- Implemented: owner-scoped Coinbase portfolio observations that price up to 32 exact holdings against approved USD tickers, preserve per-position venue/time evidence, and expose partial coverage without estimates.
+- Implemented: owner-scoped Coinbase Portfolio Breakdown observations that retain exact total, available-to-trade, and staked-or-otherwise-unavailable quantities, price up to 32 holdings against approved USD tickers, preserve per-position venue/time evidence, and expose partial coverage without estimates.
 - Implemented: owner-scoped Coinbase Exchange 24-hour asset history using exactly 96 requested fifteen-minute intervals, exact decimal validation, one-minute caching, explicit single-venue provenance, and provider gaps that remain unfilled.
 - Implemented: owner-scoped Coinbase Exchange rolling product statistics with exact open/high/low/last, 24-hour base volume, 30-day base volume, a 30-second cache, and explicit Arbion-receipt-time semantics because the provider response has no event timestamp.
 - Implemented: a durable owner-scoped 12-asset crypto watchlist priced only from keyless Coinbase USD venue observations, with CSRF-protected preference changes and explicit partial/outage states.

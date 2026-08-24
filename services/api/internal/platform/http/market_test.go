@@ -152,7 +152,9 @@ func (fake *fakeBrokerMarketData) GetBalances(context.Context, authorization.Pri
 }
 
 func (fake *fakeBrokerMarketData) GetPositions(context.Context, authorization.Principal, string) ([]financial.Position, error) {
-	return []financial.Position{{InstrumentType: "CRYPTO", Symbol: "BTC", Quantity: "0.5", Direction: "long"}}, nil
+	available := financial.Decimal("0.3")
+	unavailable := financial.Decimal("0.2")
+	return []financial.Position{{InstrumentType: "CRYPTO", Symbol: "BTC", Quantity: "0.5", AvailableQuantity: &available, UnavailableToTradeQuantity: &unavailable, Direction: "long"}}, nil
 }
 
 func (fake *fakeBrokerMarketData) GetTradeFills(context.Context, authorization.Principal, string) (financial.TradeFillPage, error) {
@@ -390,7 +392,7 @@ func TestCryptoPortfolioCombinesHoldingsWithExplicitReadOnlyVenueObservations(t 
 	if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("unexpected portfolio response: status=%d cache=%q body=%s", recorder.Code, recorder.Header().Get("Cache-Control"), body)
 	}
-	for _, expected := range []string{`"observed_value":{"amount":"30025"`, `"digital_asset_value":{"amount":"30000"`, `"pricing_state":"READY"`, `"pricing_basis":"LAST_TRADE"`, `"venue":"coinbase_exchange"`, `"live_execution_available":false`} {
+	for _, expected := range []string{`"observed_value":{"amount":"30025"`, `"digital_asset_value":{"amount":"30000"`, `"available_quantity":"0.3"`, `"unavailable_to_trade_quantity":"0.2"`, `"pricing_state":"READY"`, `"pricing_basis":"LAST_TRADE"`, `"venue":"coinbase_exchange"`, `"live_execution_available":false`} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("portfolio evidence missing %s: %s", expected, body)
 		}
