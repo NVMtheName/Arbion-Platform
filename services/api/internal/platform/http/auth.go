@@ -244,6 +244,10 @@ func (h *authHandler) financialError(w stdhttp.ResponseWriter, e error) {
 		status = 400
 		code = "INVALID_ORDER_PREVIEW"
 		message = "Use a supported asset, BUY or SELL, and a positive decimal amount."
+	} else if errors.Is(e, financialconnection.ErrConnectionInUse) {
+		status = 409
+		code = "CONNECTION_IN_USE"
+		message = "Pause or archive the automation using this account before disabling or disconnecting it."
 	} else {
 		var pe *financial.ProviderError
 		if errors.As(e, &pe) {

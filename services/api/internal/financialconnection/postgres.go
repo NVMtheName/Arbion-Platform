@@ -16,6 +16,7 @@ type PostgresStore struct{ db *pgxpool.Pool }
 func NewPostgresStore(db *pgxpool.Pool) *PostgresStore { return &PostgresStore{db: db} }
 
 const connectionColumns = `id::text,provider_name,display_name,status,token_expires_at,authorization_expires_at,last_verified_at,credential_storage,created_at,updated_at`
+const joinedConnectionColumns = `p.id::text,p.provider_name,p.display_name,p.status,p.token_expires_at,p.authorization_expires_at,p.last_verified_at,p.credential_storage,p.created_at,p.updated_at`
 
 func scanConnection(row pgx.Row) (Connection, error) {
 	var c Connection
@@ -44,11 +45,48 @@ func (s *PostgresStore) ListConnections(ctx context.Context, user string) ([]Con
 func (s *PostgresStore) UpsertConnection(ctx context.Context, user, provider, displayName string, expires, authorizationExpires *time.Time) (Connection, error) {
 	return scanConnection(s.db.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status,token_expires_at,authorization_expires_at) VALUES($1,'financial',$2,$3,'pending',$4,$5) ON CONFLICT(user_id,provider_category,provider_name,display_name) DO UPDATE SET status='pending',token_expires_at=excluded.token_expires_at,authorization_expires_at=excluded.authorization_expires_at,updated_at=now() RETURNING `+connectionColumns, user, provider, displayName, expires, authorizationExpires))
 }
+func (s *PostgresStore) UpsertConnectionForAccount(ctx context.Context, user, provider, displayName, providerAccountID string, expires, authorizationExpires *time.Time) (Connection, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Connection{}, err
+	}
+	defer tx.Rollback(ctx)
+	lockKey := user + ":" + provider + ":" + providerAccountID
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, lockKey); err != nil {
+		return Connection{}, err
+	}
+	connection, err := scanConnection(tx.QueryRow(ctx, `SELECT `+joinedConnectionColumns+` FROM provider_connections p JOIN financial_accounts a ON a.provider_connection_id=p.id WHERE p.user_id=$1 AND p.provider_category='financial' AND p.provider_name=$2 AND a.provider_account_id=$3 LIMIT 1 FOR UPDATE OF p`, user, provider, providerAccountID))
+	if err == nil {
+		connection, err = scanConnection(tx.QueryRow(ctx, `UPDATE provider_connections SET status='pending',token_expires_at=$2,authorization_expires_at=$3,updated_at=now() WHERE id=$1 RETURNING `+connectionColumns, connection.ID, expires, authorizationExpires))
+	} else if errors.Is(err, ErrNotFound) {
+		connection, err = scanConnection(tx.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status,token_expires_at,authorization_expires_at) VALUES($1,'financial',$2,$3,'pending',$4,$5) ON CONFLICT(user_id,provider_category,provider_name,display_name) DO UPDATE SET status='pending',token_expires_at=excluded.token_expires_at,authorization_expires_at=excluded.authorization_expires_at,updated_at=now() RETURNING `+connectionColumns, user, provider, displayName, expires, authorizationExpires))
+	}
+	if err != nil {
+		return Connection{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Connection{}, err
+	}
+	return connection, nil
+}
 func (s *PostgresStore) GetConnection(ctx context.Context, user, id string) (Connection, error) {
 	return scanConnection(s.db.QueryRow(ctx, `SELECT `+connectionColumns+` FROM provider_connections WHERE id=$1 AND user_id=$2 AND provider_category='financial'`, id, user))
 }
 func (s *PostgresStore) SetStatus(ctx context.Context, user, id, status string, expires *time.Time) (Connection, error) {
 	return scanConnection(s.db.QueryRow(ctx, `UPDATE provider_connections SET status=$3,token_expires_at=COALESCE($4,token_expires_at),last_verified_at=CASE WHEN $3='active' THEN now() ELSE last_verified_at END,updated_at=now() WHERE id=$1 AND user_id=$2 AND provider_category='financial' RETURNING `+connectionColumns, id, user, status, expires))
+}
+func (s *PostgresStore) ConnectionInUse(ctx context.Context, user, id string) (bool, error) {
+	var inUse bool
+	err := s.db.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1
+		FROM financial_accounts a
+		JOIN provider_connections p ON p.id=a.provider_connection_id
+		WHERE p.id=$2 AND p.user_id=$1 AND p.provider_category='financial' AND (
+			EXISTS(SELECT 1 FROM automation_mandates m WHERE m.financial_account_id=a.id AND m.user_id=$1 AND m.status IN ('READY','PAUSED'))
+			OR EXISTS(SELECT 1 FROM strategy_instances i WHERE i.financial_account_id=a.id AND i.user_id=$1 AND i.status IN ('ACTIVE','PAUSED'))
+		)
+	)`, user, id).Scan(&inUse)
+	return inUse, err
 }
 func (s *PostgresStore) SyncAccounts(ctx context.Context, user, connection string, accounts []financial.FinancialAccount) error {
 	tx, e := s.db.Begin(ctx)

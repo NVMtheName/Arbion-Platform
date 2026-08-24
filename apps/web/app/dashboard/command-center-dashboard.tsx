@@ -101,8 +101,8 @@ function providerInitial(provider: string) {
 
 function availabilityLabel(account: DashboardAccountSummary) {
   if (account.availability === "ready") return "Live";
-  if (account.availability === "partial") return "Partial";
-  return "Refresh unavailable";
+  if (account.availability === "partial") return "Provider data partial";
+  return "Provider refresh unavailable";
 }
 
 export function CommandCenterDashboard({
