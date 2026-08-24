@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,6 +63,38 @@ func TestStartSchwabRejectsUnconfiguredProvider(t *testing.T) {
 	}
 	if got := recorder.Body.String(); got == "" {
 		t.Fatal("expected a safe provider-unavailable response")
+	}
+}
+
+func TestCoinbaseEnrollmentErrorsGiveSafeActionableGuidance(t *testing.T) {
+	for _, test := range []struct {
+		code        financial.ProviderErrorCode
+		status      int
+		messagePart string
+	}{
+		{code: financial.InvalidCredentialFormat, status: http.StatusBadRequest, messagePart: "ECDSA (ES256)"},
+		{code: financial.AuthorizationFailed, status: http.StatusBadRequest, messagePart: "same active key"},
+		{code: financial.PermissionDenied, status: http.StatusForbidden, messagePart: "Transfer disabled"},
+	} {
+		t.Run(string(test.code), func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			(&authHandler{}).financialError(recorder, &financial.ProviderError{Code: test.code})
+			var response struct {
+				Error struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+				t.Fatal(err)
+			}
+			if recorder.Code != test.status || response.Error.Code != string(test.code) || !strings.Contains(response.Error.Message, test.messagePart) {
+				t.Fatalf("unexpected safe error response: status=%d response=%+v", recorder.Code, response)
+			}
+			if strings.Contains(response.Error.Message, "organizations/test") || strings.Contains(response.Error.Message, "PRIVATE KEY") {
+				t.Fatalf("credential material appeared in public error: %q", response.Error.Message)
+			}
+		})
 	}
 }
 

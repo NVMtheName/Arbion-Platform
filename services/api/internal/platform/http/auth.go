@@ -250,12 +250,15 @@ func (h *authHandler) financialError(w stdhttp.ResponseWriter, e error) {
 			code = string(pe.Code)
 			status = 502
 			switch pe.Code {
+			case financial.InvalidCredentialFormat:
+				status = 400
+				message = "Use the full Coinbase API key name and an ECDSA (ES256) private key. Both pasted PEM lines and escaped \\n line breaks are accepted."
 			case financial.AuthorizationFailed:
 				status = 400
-				message = "The provider did not accept these credentials."
+				message = "Coinbase rejected this key pair. Confirm both values came from the same active key and that any IP allowlist includes Arbion."
 			case financial.PermissionDenied:
 				status = 403
-				message = "The provider permissions do not meet Arbion's safety requirements."
+				message = "This Coinbase key must have View enabled and Transfer disabled. Trade is optional."
 			case financial.AccountNotFound:
 				status = 404
 			case financial.RateLimited:

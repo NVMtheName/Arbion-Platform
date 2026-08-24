@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,6 +87,9 @@ type permissions struct {
 }
 
 func (c *Client) VerifyConnection(ctx context.Context, credentials *financial.Credentials) error {
+	if err := normalizeCredentials(credentials); err != nil {
+		return err
+	}
 	var value permissions
 	if err := c.get(ctx, credentials, "/api/v3/brokerage/key_permissions", &value); err != nil {
 		return err
@@ -1129,13 +1133,13 @@ func (c *Client) request(ctx context.Context, credentials *financial.Credentials
 }
 
 func (c *Client) jwt(credentials *financial.Credentials, method, path string) (string, error) {
-	keyName := strings.TrimSpace(credentials.APIKeyName)
-	if !keyNamePattern.MatchString(keyName) || len(credentials.APIPrivateKey) > 4096 {
-		return "", &financial.ProviderError{Code: financial.AuthorizationFailed}
+	if err := normalizeCredentials(credentials); err != nil {
+		return "", err
 	}
+	keyName := credentials.APIKeyName
 	key, err := parsePrivateKey(credentials.APIPrivateKey)
 	if err != nil {
-		return "", &financial.ProviderError{Code: financial.AuthorizationFailed}
+		return "", &financial.ProviderError{Code: financial.InvalidCredentialFormat}
 	}
 	nonce := make([]byte, 16)
 	if _, err := rand.Read(nonce); err != nil {
@@ -1162,6 +1166,45 @@ func (c *Client) jwt(credentials *financial.Credentials, method, path string) (s
 	r.FillBytes(signature[:32])
 	s.FillBytes(signature[32:])
 	return unsigned + "." + base64.RawURLEncoding.EncodeToString(signature), nil
+}
+
+// Coinbase presents the same ECDSA key in several copy formats: literal PEM,
+// a quoted JSON value, or one line with escaped newlines. Normalize those
+// documented representations before parsing and before encrypted storage.
+func normalizeCredentials(credentials *financial.Credentials) error {
+	if credentials == nil {
+		return &financial.ProviderError{Code: financial.InvalidCredentialFormat}
+	}
+	keyName := strings.TrimSpace(credentials.APIKeyName)
+	if unquoted, ok := unquoteCredentialValue(keyName); ok {
+		keyName = strings.TrimSpace(unquoted)
+	}
+	privateKey := strings.TrimSpace(credentials.APIPrivateKey)
+	if unquoted, ok := unquoteCredentialValue(privateKey); ok {
+		privateKey = strings.TrimSpace(unquoted)
+	}
+	privateKey = strings.ReplaceAll(privateKey, "\\r\\n", "\n")
+	privateKey = strings.ReplaceAll(privateKey, "\\n", "\n")
+	privateKey = strings.ReplaceAll(privateKey, "\\r", "\n")
+	privateKey = strings.ReplaceAll(privateKey, "\r\n", "\n")
+	privateKey = strings.TrimSpace(privateKey)
+	if !keyNamePattern.MatchString(keyName) || privateKey == "" || len(privateKey) > 4096 {
+		return &financial.ProviderError{Code: financial.InvalidCredentialFormat}
+	}
+	if _, err := parsePrivateKey(privateKey); err != nil {
+		return &financial.ProviderError{Code: financial.InvalidCredentialFormat}
+	}
+	credentials.APIKeyName = keyName
+	credentials.APIPrivateKey = privateKey
+	return nil
+}
+
+func unquoteCredentialValue(value string) (string, bool) {
+	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+		return "", false
+	}
+	unquoted, err := strconv.Unquote(value)
+	return unquoted, err == nil
 }
 
 func parsePrivateKey(value string) (*ecdsa.PrivateKey, error) {
