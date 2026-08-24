@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 )
 
 type ErrorCode string
@@ -57,6 +58,33 @@ type Client interface {
 	Analyze(context.Context, string, string, []byte, string, string) (Insight, error)
 }
 
+type TradeProposalRequest struct {
+	Profile                   string    `json:"profile"`
+	Objective                 string    `json:"objective"`
+	Symbol                    string    `json:"symbol"`
+	Side                      string    `json:"side"`
+	MaxSize                   string    `json:"max_size"`
+	MaxSizeUnit               string    `json:"max_size_unit"`
+	AvailableCash             string    `json:"available_cash"`
+	PositionQuantity          string    `json:"position_quantity"`
+	PositionAvailableQuantity string    `json:"position_available_quantity"`
+	ObservedAt                time.Time `json:"observed_at"`
+}
+
+type TradeProposal struct {
+	Decision      string          `json:"decision"`
+	RequestedSize string          `json:"requested_size"`
+	Confidence    string          `json:"confidence"`
+	Thesis        string          `json:"thesis"`
+	RiskFlags     []string        `json:"risk_flags"`
+	Limitations   []string        `json:"limitations"`
+	Metadata      InsightMetadata `json:"metadata"`
+}
+
+type TradeProposalClient interface {
+	ProposeTrade(context.Context, string, []byte, TradeProposalRequest, string) (TradeProposal, error)
+}
+
 type HTTPClient struct {
 	baseURL string
 	token   string
@@ -92,6 +120,21 @@ func (c *HTTPClient) Analyze(ctx context.Context, provider, profile string, cred
 		"prompt": prompt, "safety_identifier": safetyIdentifier,
 	}, &out)
 	return out.Insight, err
+}
+func (c *HTTPClient) ProposeTrade(ctx context.Context, provider string, credential []byte, input TradeProposalRequest, safetyIdentifier string) (TradeProposal, error) {
+	var out struct {
+		Proposal TradeProposal `json:"proposal"`
+	}
+	request := map[string]any{
+		"provider": provider, "credential": string(credential), "profile": input.Profile,
+		"objective": input.Objective, "symbol": input.Symbol, "side": input.Side,
+		"max_size": input.MaxSize, "max_size_unit": input.MaxSizeUnit,
+		"available_cash": input.AvailableCash, "position_quantity": input.PositionQuantity,
+		"position_available_quantity": input.PositionAvailableQuantity,
+		"observed_at":                 input.ObservedAt.UTC().Format(time.RFC3339Nano), "safety_identifier": safetyIdentifier,
+	}
+	err := c.call(ctx, "/internal/neural/trade-proposal", request, &out)
+	return out.Proposal, err
 }
 func (c *HTTPClient) call(ctx context.Context, path string, request, out any) error {
 	body, err := json.Marshal(request)

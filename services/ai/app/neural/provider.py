@@ -11,6 +11,7 @@ from .models import (
     Insight,
     NeuralProviderError,
     ProviderModel,
+    TradeProposal,
     VerificationResult,
 )
 
@@ -36,6 +37,15 @@ class NeuralProvider(ABC):
         prompt: str,
         safety_identifier: str,
     ) -> Insight:
+        raise NeuralProviderError(ErrorCode.UNSUPPORTED)
+
+    async def propose_trade(
+        self,
+        credential: str,
+        profile: str,
+        context: dict[str, str],
+        safety_identifier: str,
+    ) -> TradeProposal:
         raise NeuralProviderError(ErrorCode.UNSUPPORTED)
 
     async def generate(self, credential: str, model: str, request: Any) -> Any:

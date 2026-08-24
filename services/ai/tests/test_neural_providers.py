@@ -180,6 +180,119 @@ async def test_openai_insight_rejects_unknown_profile_without_provider_call() ->
 
 
 @pytest.mark.asyncio
+async def test_openai_trade_proposal_is_structured_bounded_and_tool_free() -> None:
+    context = {
+        "objective": "Keep a small long-term BTC allocation.",
+        "symbol": "BTC",
+        "side": "BUY",
+        "max_size": "50",
+        "max_size_unit": "USD",
+        "available_cash_usd": "200",
+        "position_quantity": "0.012",
+        "position_available_quantity": "0.01",
+        "observed_at": "2026-08-24T12:00:00+00:00",
+    }
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert request.url == "https://api.openai.com/v1/responses"
+        assert body["model"] == "gpt-5.6-terra"
+        assert body["store"] is False
+        assert body["reasoning"] == {"effort": "medium"}
+        assert body["max_output_tokens"] == 900
+        assert body["text"]["format"]["type"] == "json_schema"
+        assert body["text"]["format"]["strict"] is True
+        assert body["text"]["format"]["schema"]["additionalProperties"] is False
+        assert "tools" not in body
+        assert json.loads(body["input"]) == context
+        return httpx.Response(
+            200,
+            json={
+                "id": "resp-proposal-safe",
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "decision": "PROPOSE",
+                                        "requested_size": "25.50",
+                                        "confidence": "LOW",
+                                        "thesis": (
+                                            "A smaller amount stays within the user's "
+                                            "fixed ceiling."
+                                        ),
+                                        "risk_flags": ["Crypto prices can move sharply."],
+                                        "limitations": [
+                                            "No news or external market feed was supplied."
+                                        ],
+                                    }
+                                ),
+                            }
+                        ],
+                    }
+                ],
+                "usage": {"input_tokens": 80, "output_tokens": 55},
+            },
+        )
+
+    async with client(httpx.MockTransport(respond)) as http:
+        result = await OpenAIProvider(http).propose_trade("secret-value", "core", context, "a" * 64)
+    assert result.decision == "PROPOSE"
+    assert result.requested_size == "25.50"
+    assert result.metadata.provider == "openai"
+    assert result.metadata.model == "gpt-5.6-terra"
+    assert result.metadata.profile == "core"
+
+
+@pytest.mark.asyncio
+async def test_openai_trade_proposal_rejects_size_above_user_ceiling() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "id": "resp-unsafe",
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "decision": "PROPOSE",
+                                        "requested_size": "51",
+                                        "confidence": "HIGH",
+                                        "thesis": "Unsafe size",
+                                        "risk_flags": [],
+                                        "limitations": [],
+                                    }
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+    async with client(transport) as http:
+        with pytest.raises(NeuralProviderError) as caught:
+            await OpenAIProvider(http).propose_trade(
+                "secret-value",
+                "core",
+                {
+                    "max_size": "50",
+                },
+                "a" * 64,
+            )
+    assert caught.value.code == ErrorCode.INTERNAL_ERROR
+
+
+@pytest.mark.asyncio
 async def test_provider_response_is_rejected_at_streaming_size_limit() -> None:
     transport = httpx.MockTransport(
         lambda request: httpx.Response(200, content=b"x" * (MAX_RESPONSE_BYTES + 1))

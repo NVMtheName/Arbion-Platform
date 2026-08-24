@@ -4,7 +4,9 @@ import (
 	"errors"
 	stdhttp "net/http"
 
+	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/auth"
+	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/orderintent"
 )
 
@@ -14,6 +16,7 @@ func registerOrderIntentRoutes(mux *stdhttp.ServeMux, handler *authHandler) {
 	}
 	mux.Handle("GET /api/accounts/{id}/order-intents", handler.require(stdhttp.HandlerFunc(handler.listOrderIntents)))
 	mux.Handle("POST /api/accounts/{id}/order-intents", handler.require(stdhttp.HandlerFunc(handler.createOrderIntent)))
+	mux.Handle("POST /api/accounts/{id}/order-intents/ai-proposals", handler.require(stdhttp.HandlerFunc(handler.createAIOrderProposal)))
 	mux.Handle("POST /api/order-intents/{id}/review", handler.require(stdhttp.HandlerFunc(handler.reviewOrderIntent)))
 }
 
@@ -48,6 +51,34 @@ func (handler *authHandler) createOrderIntent(writer stdhttp.ResponseWriter, req
 	writeJSON(writer, stdhttp.StatusCreated, map[string]any{
 		"order_intent": intent, "approval_scope": orderintent.ProposalReviewOnly,
 		"provider_order_created": false, "submission_available": false, "risk_approval_available": false, "ai_execution_authority": false, "live_execution_available": false,
+	})
+}
+
+func (handler *authHandler) createAIOrderProposal(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	writer.Header().Set("Cache-Control", "no-store")
+	if !handler.csrf(request) {
+		writeError(writer, stdhttp.StatusForbidden, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var command orderintent.AIProposalCommand
+	if !decode(writer, request, &command) {
+		return
+	}
+	proposal, intent, err := handler.orderIntents.GenerateAIProposal(request.Context(), principal(request), request.PathValue("id"), command)
+	command.Objective = ""
+	if err != nil {
+		handler.orderIntentError(writer, err)
+		return
+	}
+	status := stdhttp.StatusOK
+	if intent != nil {
+		status = stdhttp.StatusCreated
+	}
+	writeJSON(writer, status, map[string]any{
+		"proposal": proposal, "order_intent": intent, "proposal_scope": "PROPOSAL_ONLY", "approval_scope": orderintent.ProposalReviewOnly,
+		"normalized_account_facts_shared": true, "financial_credentials_shared": false,
+		"provider_order_created": false, "submission_available": false, "risk_approval_available": false,
+		"ai_execution_authority": false, "live_execution_available": false,
 	})
 }
 
@@ -95,6 +126,12 @@ func (handler *authHandler) orderIntentError(writer stdhttp.ResponseWriter, err 
 		writeError(writer, stdhttp.StatusBadGateway, "UNSAFE_PROVIDER_PREVIEW", "Coinbase returned preview evidence that Arbion could not safely normalize.")
 	case errors.Is(err, orderintent.ErrUnsafeRiskEvidence):
 		writeError(writer, stdhttp.StatusBadGateway, "UNSAFE_RISK_EVIDENCE", "Arbion could not safely normalize the connected account's capital and risk evidence.")
+	case errors.Is(err, orderintent.ErrAIUnavailable):
+		writeError(writer, stdhttp.StatusServiceUnavailable, "AI_PROPOSAL_UNAVAILABLE", "The proposal-only Neural Engine is temporarily unavailable.")
+	case errors.Is(err, orderintent.ErrUnsafeAIProposal):
+		writeError(writer, stdhttp.StatusBadGateway, "UNSAFE_AI_PROPOSAL", "Arbion rejected a proposal that did not match your fixed trading constraints.")
+	case errors.Is(err, aiconnection.ErrForbidden), errors.Is(err, aiconnection.ErrNotFound), errors.Is(err, aiconnection.ErrInvalid), errors.Is(err, aiconnection.ErrConflict), errors.Is(err, aiconnection.ErrDisabled), errors.Is(err, aiconnection.ErrInactive), errors.Is(err, aiconnection.ErrRateLimit), errors.Is(err, aiconnection.ErrProvider), neural.Code(err) != neural.InternalError:
+		handler.aiError(writer, err)
 	case errors.Is(err, auth.ErrMFANotEnabled):
 		writeError(writer, stdhttp.StatusConflict, "MFA_REQUIRED", "Enable authenticator MFA before reviewing an order proposal.")
 	case errors.Is(err, auth.ErrInvalidMFACode):

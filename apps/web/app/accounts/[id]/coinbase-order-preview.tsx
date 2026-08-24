@@ -161,6 +161,32 @@ type OrderIntentResponse = {
   error?: { message?: string };
 };
 
+type AITradeProposal = {
+  decision: "PROPOSE" | "ABSTAIN";
+  requested_size: string;
+  confidence: "LOW" | "MEDIUM" | "HIGH";
+  thesis: string;
+  risk_flags: string[];
+  limitations: string[];
+  metadata: {
+    provider: "openai";
+    model: "gpt-5.6-terra";
+    profile: "core";
+    input_usage?: number;
+    output_usage?: number;
+    request_id?: string;
+    latency_ms?: number;
+  };
+};
+
+type AIProposalResponse = OrderIntentResponse & {
+  proposal?: AITradeProposal;
+  order_intent?: OrderIntent | null;
+  proposal_scope?: "PROPOSAL_ONLY";
+  normalized_account_facts_shared?: true;
+  financial_credentials_shared?: false;
+};
+
 function exactMoney(value?: Money) {
   return value ? `${value.amount} ${value.currency}` : "Unavailable";
 }
@@ -173,6 +199,16 @@ function canonicalDecimal(value: string) {
   const [whole, fraction] = value.split(".");
   const trimmed = fraction?.replace(/0+$/, "");
   return trimmed ? `${whole}.${trimmed}` : whole;
+}
+
+function decimalAtMost(value: string, maximum: string) {
+  if (!safeUnsignedDecimal(value) || !safePositiveDecimal(maximum))
+    return false;
+  const scaled = (input: string) => {
+    const [whole, fraction = ""] = input.split(".");
+    return BigInt(`${whole}${fraction.padEnd(18, "0")}`);
+  };
+  return scaled(value) <= scaled(maximum);
 }
 
 const productBlockReasons = new Set([
@@ -348,6 +384,7 @@ function safeIntentEnvelope(
   side: "BUY" | "SELL",
   size: string,
   policy: CoinbaseCapitalPolicy | undefined,
+  source: "UI" | "AI" = "UI",
 ) {
   const intent = body.order_intent;
   const requestedCurrency = side === "BUY" ? "USD" : symbol;
@@ -356,7 +393,7 @@ function safeIntentEnvelope(
       intent.id &&
       intent.financial_account_id === accountID &&
       intent.capital_bucket_id === policy?.id &&
-      intent.source === "UI" &&
+      intent.source === source &&
       intent.provider === "coinbase" &&
       intent.product_id === `${symbol}-USD` &&
       intent.base_asset === symbol &&
@@ -398,6 +435,69 @@ function safeIntentEnvelope(
   );
 }
 
+function safeAIProposalEnvelope(
+  body: AIProposalResponse,
+  accountID: string,
+  symbol: string,
+  side: "BUY" | "SELL",
+  maximum: string,
+  policy: CoinbaseCapitalPolicy | undefined,
+) {
+  const proposal = body.proposal;
+  if (
+    !proposal ||
+    typeof proposal.requested_size !== "string" ||
+    typeof proposal.thesis !== "string" ||
+    !proposal.metadata ||
+    !["PROPOSE", "ABSTAIN"].includes(proposal.decision) ||
+    !["LOW", "MEDIUM", "HIGH"].includes(proposal.confidence) ||
+    proposal.thesis.trim().length === 0 ||
+    proposal.thesis.length > 1000 ||
+    proposal.metadata.provider !== "openai" ||
+    proposal.metadata.model !== "gpt-5.6-terra" ||
+    proposal.metadata.profile !== "core" ||
+    ![proposal.risk_flags, proposal.limitations].every(
+      (items) =>
+        Array.isArray(items) &&
+        items.length <= 8 &&
+        new Set(items).size === items.length &&
+        items.every(
+          (item) =>
+            typeof item === "string" &&
+            item.trim().length > 0 &&
+            new Blob([item]).size <= 500,
+        ),
+    ) ||
+    body.proposal_scope !== "PROPOSAL_ONLY" ||
+    body.approval_scope !== "PROPOSAL_REVIEW_ONLY" ||
+    body.normalized_account_facts_shared !== true ||
+    body.financial_credentials_shared !== false ||
+    body.provider_order_created !== false ||
+    body.submission_available !== false ||
+    body.risk_approval_available !== false ||
+    body.ai_execution_authority !== false ||
+    body.live_execution_available !== false
+  ) {
+    return false;
+  }
+  if (proposal.decision === "ABSTAIN") {
+    return proposal.requested_size === "0" && body.order_intent == null;
+  }
+  return Boolean(
+    safePositiveDecimal(proposal.requested_size) &&
+      decimalAtMost(proposal.requested_size, maximum) &&
+      safeIntentEnvelope(
+        body,
+        accountID,
+        symbol,
+        side,
+        proposal.requested_size,
+        policy,
+        "AI",
+      ),
+  );
+}
+
 export function CoinbaseOrderPreview({
   accountID,
   symbols,
@@ -422,6 +522,10 @@ export function CoinbaseOrderPreview({
   const [intent, setIntent] = useState<OrderIntent>();
   const [intentBusy, setIntentBusy] = useState(false);
   const [intentError, setIntentError] = useState("");
+  const [aiObjective, setAIObjective] = useState("");
+  const [aiProposal, setAIProposal] = useState<AITradeProposal>();
+  const [aiBusy, setAIBusy] = useState(false);
+  const [aiError, setAIError] = useState("");
   const [mfaCode, setMFACode] = useState("");
   const [capitalBucketID, setCapitalBucketID] = useState(
     capitalPolicies[0]?.id ?? "",
@@ -437,6 +541,8 @@ export function CoinbaseOrderPreview({
     setPreview(undefined);
     setIntent(undefined);
     setIntentError("");
+    setAIProposal(undefined);
+    setAIError("");
     try {
       const response = await fetch(
         `/api/accounts/${encodeURIComponent(accountID)}/orders/preview`,
@@ -527,6 +633,64 @@ export function CoinbaseOrderPreview({
     }
   }
 
+  async function createAIProposal(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!symbol || !size || !selectedPolicy || !aiObjective.trim()) return;
+    setAIBusy(true);
+    setAIError("");
+    setAIProposal(undefined);
+    setIntent(undefined);
+    setIntentError("");
+    try {
+      const response = await fetch(
+        `/api/accounts/${encodeURIComponent(accountID)}/order-intents/ai-proposals`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbol,
+            side,
+            max_size: size,
+            capital_bucket_id: selectedPolicy.id,
+            objective: aiObjective.trim(),
+            idempotency_key: crypto.randomUUID(),
+          }),
+        },
+      );
+      const body = (await response.json()) as AIProposalResponse;
+      if (!response.ok) {
+        setAIError(
+          body.error?.message ??
+            "Arbion AI could not build a controlled proposal.",
+        );
+        return;
+      }
+      if (
+        !safeAIProposalEnvelope(
+          body,
+          accountID,
+          symbol,
+          side,
+          size,
+          selectedPolicy,
+        ) ||
+        !body.proposal
+      ) {
+        setAIError("Arbion rejected an unsafe AI proposal response.");
+        return;
+      }
+      setAIProposal(body.proposal);
+      if (body.proposal.decision === "PROPOSE" && body.order_intent) {
+        setSize(body.proposal.requested_size);
+        setIntent(body.order_intent);
+      }
+    } catch {
+      setAIError("The proposal-only Neural Engine is temporarily unavailable.");
+    } finally {
+      setAIBusy(false);
+    }
+  }
+
   async function reviewIntent() {
     if (!intent || intent.status !== "REVIEW_REQUIRED" || !mfaCode) return;
     setIntentBusy(true);
@@ -609,11 +773,13 @@ export function CoinbaseOrderPreview({
             aria-label="Coinbase preview asset"
             autoComplete="off"
             maxLength={16}
-            onChange={(event) =>
+            onChange={(event) => {
               setSymbol(
                 event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""),
-              )
-            }
+              );
+              setAIProposal(undefined);
+              setAIError("");
+            }}
             required
             spellCheck={false}
             value={symbol}
@@ -623,9 +789,11 @@ export function CoinbaseOrderPreview({
           Side
           <select
             aria-label="Coinbase preview side"
-            onChange={(event) =>
-              setSide(event.target.value === "SELL" ? "SELL" : "BUY")
-            }
+            onChange={(event) => {
+              setSide(event.target.value === "SELL" ? "SELL" : "BUY");
+              setAIProposal(undefined);
+              setAIError("");
+            }}
             value={side}
           >
             <option value="BUY">Buy</option>
@@ -638,7 +806,11 @@ export function CoinbaseOrderPreview({
             aria-label="Coinbase preview amount"
             autoComplete="off"
             inputMode="decimal"
-            onChange={(event) => setSize(event.target.value)}
+            onChange={(event) => {
+              setSize(event.target.value);
+              setAIProposal(undefined);
+              setAIError("");
+            }}
             placeholder={side === "BUY" ? "25.00" : "0.001"}
             required
             value={size}
@@ -648,6 +820,133 @@ export function CoinbaseOrderPreview({
           {busy ? "Requesting preview…" : "Preview with Coinbase"}
         </button>
       </form>
+
+      <section
+        className="arbion-ai-proposal"
+        aria-labelledby="arbion-ai-proposal-title"
+      >
+        <header>
+          <div>
+            <p className="eyebrow">ARBION NEURAL ENGINE · PROPOSAL ONLY</p>
+            <h3 id="arbion-ai-proposal-title">
+              Build a controlled AI proposal
+            </h3>
+            <p>
+              The asset, direction, and amount above become fixed constraints.
+              Arbion AI may recommend a smaller amount or abstain; it cannot
+              place, approve, or submit a trade.
+            </p>
+          </div>
+          <span>OPENAI · CORE</span>
+        </header>
+        <form className="arbion-ai-proposal-form" onSubmit={createAIProposal}>
+          <label>
+            Your objective
+            <textarea
+              aria-label="AI trade proposal objective"
+              maxLength={500}
+              onChange={(event) => {
+                setAIObjective(event.target.value);
+                setAIProposal(undefined);
+                setAIError("");
+              }}
+              placeholder="Example: Add a small long-term position while preserving most available cash."
+              required
+              rows={3}
+              value={aiObjective}
+            />
+          </label>
+          {capitalPolicies.length > 0 ? (
+            <label>
+              Capital policy
+              <select
+                aria-label="AI proposal capital policy"
+                disabled={Boolean(intent)}
+                onChange={(event) => {
+                  setCapitalBucketID(event.target.value);
+                  setAIProposal(undefined);
+                  setAIError("");
+                }}
+                value={capitalBucketID}
+              >
+                {capitalPolicies.map((policy) => (
+                  <option key={policy.id} value={policy.id}>
+                    {policy.name} · {policy.allocationValue}{" "}
+                    {policy.allocationType === "FIXED_AMOUNT" ? "USD" : "%"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <p className="coinbase-preview-blocks">
+              Create an active, non-reserve USD capital bucket before asking
+              Arbion AI for a proposal.{" "}
+              <Link href="/automations">Create capital policy</Link>
+            </p>
+          )}
+          <button
+            disabled={
+              aiBusy ||
+              Boolean(intent) ||
+              !selectedPolicy ||
+              !symbol ||
+              !size ||
+              !aiObjective.trim()
+            }
+            type="submit"
+          >
+            {aiBusy ? "Analyzing constraints…" : "Ask Arbion AI"}
+          </button>
+        </form>
+        <p className="arbion-ai-privacy">
+          Your objective plus only normalized cash and target-position facts are
+          shared. Financial account credentials stay inside Arbion&apos;s
+          encrypted broker boundary.
+        </p>
+      </section>
+
+      {aiError && (
+        <p className="crypto-command-error" role="alert">
+          {aiError}
+        </p>
+      )}
+
+      {aiProposal && (
+        <div className="arbion-ai-proposal-result" aria-live="polite">
+          <header>
+            <div>
+              <span>NEURAL DECISION</span>
+              <strong>{aiProposal.decision}</strong>
+            </div>
+            <small>{aiProposal.confidence} confidence · proposal only</small>
+          </header>
+          <p>{aiProposal.thesis}</p>
+          {aiProposal.decision === "PROPOSE" && (
+            <p>
+              Suggested constraint: {side.toLowerCase()}{" "}
+              {aiProposal.requested_size} {side === "BUY" ? "USD" : symbol}.
+              Coinbase and Arbion&apos;s deterministic controls re-evaluated it
+              before saving the intent.
+            </p>
+          )}
+          {aiProposal.risk_flags.length > 0 && (
+            <ul>
+              {aiProposal.risk_flags.map((riskFlag) => (
+                <li key={riskFlag}>{riskFlag}</li>
+              ))}
+            </ul>
+          )}
+          {aiProposal.limitations.length > 0 && (
+            <p className="arbion-ai-limitations">
+              Limits: {aiProposal.limitations.join(" · ")}
+            </p>
+          )}
+          <p className="coinbase-preview-lock">
+            <strong>Execution remains locked.</strong> This model output has no
+            broker authority and cannot bypass the capital or risk gate.
+          </p>
+        </div>
+      )}
 
       {error && (
         <p className="crypto-command-error" role="alert">
@@ -736,7 +1035,11 @@ export function CoinbaseOrderPreview({
                 <select
                   aria-label="Coinbase proposal capital policy"
                   disabled={Boolean(intent)}
-                  onChange={(event) => setCapitalBucketID(event.target.value)}
+                  onChange={(event) => {
+                    setCapitalBucketID(event.target.value);
+                    setAIProposal(undefined);
+                    setAIError("");
+                  }}
                   value={capitalBucketID}
                 >
                   {capitalPolicies.map((policy) => (

@@ -12,6 +12,7 @@ import (
 
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/risk"
 )
 
@@ -26,6 +27,8 @@ var (
 	ErrUnsafeProviderEvidence = errors.New("unsafe provider preview evidence")
 	ErrUnsafeRiskEvidence     = errors.New("unsafe deterministic risk evidence")
 	ErrReservationConflict    = errors.New("capital reservation state changed")
+	ErrAIUnavailable          = errors.New("ai trade proposal unavailable")
+	ErrUnsafeAIProposal       = errors.New("unsafe ai trade proposal")
 )
 
 var (
@@ -105,17 +108,26 @@ type Auditor interface {
 	Record(context.Context, *string, string, map[string]any) error
 }
 
+type AIProposalGenerator interface {
+	GenerateTradeProposal(context.Context, authorization.Principal, neural.TradeProposalRequest) (neural.TradeProposal, error)
+}
+
 type Service struct {
 	store     Store
 	financial FinancialService
 	stepUp    StepUpVerifier
 	audit     Auditor
+	ai        AIProposalGenerator
 	gate      *risk.Engine
 	now       func() time.Time
 }
 
-func NewService(store Store, financialService FinancialService, stepUp StepUpVerifier, audit Auditor) *Service {
-	return &Service{store: store, financial: financialService, stepUp: stepUp, audit: audit, gate: risk.NewEngine(), now: func() time.Time { return time.Now().UTC() }}
+func NewService(store Store, financialService FinancialService, stepUp StepUpVerifier, audit Auditor, generators ...AIProposalGenerator) *Service {
+	service := &Service{store: store, financial: financialService, stepUp: stepUp, audit: audit, gate: risk.NewEngine(), now: func() time.Time { return time.Now().UTC() }}
+	if len(generators) > 0 {
+		service.ai = generators[0]
+	}
+	return service
 }
 
 func (service *Service) CreateUI(ctx context.Context, principal authorization.Principal, accountID string, command CreateCommand) (Intent, error) {
@@ -126,6 +138,86 @@ func (service *Service) CreateUI(ctx context.Context, principal authorization.Pr
 // non-executing record as the UI and grants no approval or provider authority.
 func (service *Service) CreateAIProposal(ctx context.Context, principal authorization.Principal, accountID string, command CreateCommand) (Intent, error) {
 	return service.create(ctx, principal, accountID, SourceAI, command)
+}
+
+// GenerateAIProposal is a proposal-only coordinator. It gives the Neural Engine
+// normalized facts, validates its response against user-owned constraints, then
+// routes actionable output through the same Coinbase preview and deterministic
+// risk path as a UI proposal. No provider submission interface is reachable.
+func (service *Service) GenerateAIProposal(ctx context.Context, principal authorization.Principal, accountID string, command AIProposalCommand) (neural.TradeProposal, *Intent, error) {
+	if !authorization.CanConnectFinancialAccounts(principal) || !authorization.CanUseNeuralEngine(principal) {
+		return neural.TradeProposal{}, nil, ErrForbidden
+	}
+	command.Symbol = strings.ToUpper(strings.TrimSpace(command.Symbol))
+	command.Side = strings.ToUpper(strings.TrimSpace(command.Side))
+	command.MaxSize = financial.Decimal(strings.TrimSpace(string(command.MaxSize)))
+	command.CapitalBucketID = strings.ToLower(strings.TrimSpace(command.CapitalBucketID))
+	command.Objective = strings.TrimSpace(command.Objective)
+	command.IdempotencyKey = strings.TrimSpace(command.IdempotencyKey)
+	if service.ai == nil {
+		return neural.TradeProposal{}, nil, ErrAIUnavailable
+	}
+	maximum, maximumOK := new(big.Rat).SetString(string(command.MaxSize))
+	if !intentSymbolPattern.MatchString(command.Symbol) || command.Symbol == "USD" || (command.Side != "BUY" && command.Side != "SELL") || !intentSizePattern.MatchString(string(command.MaxSize)) || !maximumOK || maximum.Sign() <= 0 || !uuidPattern.MatchString(command.CapitalBucketID) || command.Objective == "" || len([]byte(command.Objective)) > 500 || !idempotencyPattern.MatchString(command.IdempotencyKey) {
+		return neural.TradeProposal{}, nil, ErrInvalid
+	}
+	account, err := service.financial.GetAccount(ctx, principal, accountID)
+	if err != nil {
+		return neural.TradeProposal{}, nil, err
+	}
+	if account.Provider != "coinbase" || account.Status != "active" || account.Capabilities["order_preview"] != financial.Supported || account.Capabilities["transfers"] != financial.Unsupported {
+		return neural.TradeProposal{}, nil, ErrBlocked
+	}
+	if _, _, err = service.store.ManualPolicy(ctx, principal.UserID, accountID, command.CapitalBucketID); err != nil {
+		return neural.TradeProposal{}, nil, ErrBlocked
+	}
+	balances, err := service.financial.GetBalances(ctx, principal, accountID)
+	if err != nil {
+		return neural.TradeProposal{}, nil, err
+	}
+	positions, err := service.financial.GetPositions(ctx, principal, accountID)
+	if err != nil {
+		return neural.TradeProposal{}, nil, err
+	}
+	availableCash := financial.Decimal("0")
+	if balances.AvailableCash != nil {
+		if balances.AvailableCash.Currency != "USD" || !storedDecimalPattern.MatchString(string(balances.AvailableCash.Amount)) {
+			return neural.TradeProposal{}, nil, ErrUnsafeRiskEvidence
+		}
+		availableCash = balances.AvailableCash.Amount
+	}
+	positionQuantity, positionAvailable, ok := proposalPositionFacts(command.Symbol, positions)
+	if !ok {
+		return neural.TradeProposal{}, nil, ErrUnsafeRiskEvidence
+	}
+	observedAt := service.now().UTC()
+	unit := command.Symbol
+	if command.Side == "BUY" {
+		unit = "USD"
+	}
+	proposal, err := service.ai.GenerateTradeProposal(ctx, principal, neural.TradeProposalRequest{
+		Profile: "core", Objective: command.Objective, Symbol: command.Symbol, Side: command.Side,
+		MaxSize: string(command.MaxSize), MaxSizeUnit: unit, AvailableCash: string(availableCash),
+		PositionQuantity: string(positionQuantity), PositionAvailableQuantity: string(positionAvailable), ObservedAt: observedAt,
+	})
+	if err != nil {
+		return neural.TradeProposal{}, nil, err
+	}
+	if !validAIProposal(proposal, command.MaxSize, positionAvailable, command.Side) {
+		return neural.TradeProposal{}, nil, ErrUnsafeAIProposal
+	}
+	if proposal.Decision == "ABSTAIN" {
+		service.recordAIAbstention(ctx, principal.UserID, accountID, command, proposal)
+		return proposal, nil, nil
+	}
+	intent, err := service.CreateAIProposal(ctx, principal, accountID, CreateCommand{
+		Symbol: command.Symbol, Side: command.Side, Size: financial.Decimal(proposal.RequestedSize),
+		CapitalBucketID: command.CapitalBucketID, IdempotencyKey: command.IdempotencyKey,
+	})
+	if err != nil {
+		return neural.TradeProposal{}, nil, err
+	}
+	return proposal, &intent, nil
 }
 
 func (service *Service) create(ctx context.Context, principal authorization.Principal, accountID, source string, command CreateCommand) (Intent, error) {
@@ -571,6 +663,85 @@ func appendUnique(values []string, value string) []string {
 		}
 	}
 	return append(values, value)
+}
+
+func proposalPositionFacts(symbol string, positions []financial.Position) (financial.Decimal, financial.Decimal, bool) {
+	total := financial.Decimal("0")
+	available := financial.Decimal("0")
+	for _, position := range positions {
+		if strings.ToUpper(strings.TrimSpace(position.Symbol)) != symbol {
+			continue
+		}
+		if !storedDecimalPattern.MatchString(string(position.Quantity)) {
+			return "", "", false
+		}
+		var ok bool
+		total, ok = addExactDecimals(total, position.Quantity)
+		if !ok {
+			return "", "", false
+		}
+		if position.AvailableQuantity == nil {
+			continue
+		}
+		if !storedDecimalPattern.MatchString(string(*position.AvailableQuantity)) {
+			return "", "", false
+		}
+		available, ok = addExactDecimals(available, *position.AvailableQuantity)
+		if !ok {
+			return "", "", false
+		}
+	}
+	return total, available, true
+}
+
+func validAIProposal(proposal neural.TradeProposal, maximum, available financial.Decimal, side string) bool {
+	if proposal.Metadata.Provider != "openai" || proposal.Metadata.Model != "gpt-5.6-terra" || proposal.Metadata.Profile != "core" || (proposal.Decision != "PROPOSE" && proposal.Decision != "ABSTAIN") || (proposal.Confidence != "LOW" && proposal.Confidence != "MEDIUM" && proposal.Confidence != "HIGH") || strings.TrimSpace(proposal.Thesis) == "" || len([]byte(proposal.Thesis)) > 1000 || !boundedProposalMessages(proposal.RiskFlags) || !boundedProposalMessages(proposal.Limitations) || !intentSizePattern.MatchString(proposal.RequestedSize) {
+		return false
+	}
+	size, sizeOK := new(big.Rat).SetString(proposal.RequestedSize)
+	limit, limitOK := new(big.Rat).SetString(string(maximum))
+	if !sizeOK || !limitOK {
+		return false
+	}
+	if proposal.Decision == "ABSTAIN" {
+		return proposal.RequestedSize == "0"
+	}
+	if size.Sign() <= 0 || size.Cmp(limit) > 0 {
+		return false
+	}
+	if side == "SELL" {
+		tradable, ok := new(big.Rat).SetString(string(available))
+		return ok && tradable.Sign() >= 0 && size.Cmp(tradable) <= 0
+	}
+	return side == "BUY"
+}
+
+func boundedProposalMessages(values []string) bool {
+	if len(values) > 8 {
+		return false
+	}
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" || len([]byte(value)) > 500 {
+			return false
+		}
+		if _, duplicate := seen[value]; duplicate {
+			return false
+		}
+		seen[value] = struct{}{}
+	}
+	return true
+}
+
+func (service *Service) recordAIAbstention(ctx context.Context, userID, accountID string, command AIProposalCommand, proposal neural.TradeProposal) {
+	if service.audit == nil {
+		return
+	}
+	_ = service.audit.Record(ctx, &userID, "order_intent.ai_abstained", map[string]any{
+		"financial_account_id": accountID, "product_id": command.Symbol + "-USD", "side": command.Side,
+		"confidence": proposal.Confidence, "submission_available": false, "risk_approval_available": false,
+		"ai_execution_authority": false, "live_execution_available": false,
+	})
 }
 
 func (service *Service) record(ctx context.Context, userID, action string, intent Intent, metadata map[string]any) {
