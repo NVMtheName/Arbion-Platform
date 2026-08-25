@@ -48,6 +48,23 @@ function strings(value: unknown) {
     : [];
 }
 
+function field(entry: RawDecision, key: string, legacy: string) {
+  const value = read(entry, key, legacy);
+  return typeof value === "string" ? value : undefined;
+}
+
+function decimal(value: string | undefined) {
+  if (!value || !/^-?\d+(\.\d+)?$/.test(value)) return "—";
+  const [whole, fraction = ""] = value.split(".");
+  const trimmed = fraction.replace(/0+$/, "");
+  return trimmed ? `${whole}.${trimmed}` : whole;
+}
+
+function dollars(value: string | undefined) {
+  const formatted = decimal(value);
+  return formatted === "—" ? formatted : `$${formatted}`;
+}
+
 export function AIDecisionJournal({ decisions }: { decisions: RawDecision[] }) {
   const entries = decisions
     .filter((entry) => read(entry, "source", "Source") === "AI")
@@ -81,6 +98,17 @@ export function AIDecisionJournal({ decisions }: { decisions: RawDecision[] }) {
             const executionRecorded = Boolean(
               read(entry, "execution_record_id", "ExecutionRecordID"),
             );
+            const riskDecision = field(entry, "risk_decision", "RiskDecision");
+            const executionStatus = field(
+              entry,
+              "execution_status",
+              "ExecutionStatus",
+            );
+            const executionSymbol = field(entry, "symbol", "Symbol");
+            const side = field(entry, "side", "Side");
+            const quantity = field(entry, "quantity", "Quantity");
+            const price = field(entry, "price", "Price");
+            const notional = field(entry, "notional", "Notional");
             const riskFlags = strings(facts.risk_flags);
             const limitations = strings(facts.limitations);
             const symbol =
@@ -141,6 +169,49 @@ export function AIDecisionJournal({ decisions }: { decisions: RawDecision[] }) {
                     <dd>{executionRecorded ? "Shadow record" : "None"}</dd>
                   </div>
                 </dl>
+
+                {executionRecorded && (
+                  <section
+                    className="journal-execution-evidence"
+                    aria-label="Hypothetical trade evidence"
+                  >
+                    <h4>Hypothetical trade evidence</h4>
+                    <p>
+                      Immutable SHADOW evidence of what Arbion would have
+                      attempted after deterministic risk checks.
+                    </p>
+                    <dl className="journal-facts journal-execution-facts">
+                      <div>
+                        <dt>Side</dt>
+                        <dd>{side ? label(side) : "—"}</dd>
+                      </div>
+                      <div>
+                        <dt>Quantity</dt>
+                        <dd>
+                          {decimal(quantity)} {executionSymbol ?? ""}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Reference price</dt>
+                        <dd>{dollars(price)}</dd>
+                      </div>
+                      <div>
+                        <dt>Recorded notional</dt>
+                        <dd>{dollars(notional)}</dd>
+                      </div>
+                      <div>
+                        <dt>Risk decision</dt>
+                        <dd>{riskDecision ? label(riskDecision) : "—"}</dd>
+                      </div>
+                      <div>
+                        <dt>Shadow status</dt>
+                        <dd>
+                          {executionStatus ? label(executionStatus) : "—"}
+                        </dd>
+                      </div>
+                    </dl>
+                  </section>
+                )}
 
                 {riskFlags.length > 0 && (
                   <div className="journal-reasons">

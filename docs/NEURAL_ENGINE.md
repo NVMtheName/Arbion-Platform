@@ -50,6 +50,8 @@ Go refreshes current balances and only allowlisted position facts. Schwab market
 
 The model may return `ABSTAIN`, or one `PROPOSE` decision containing an allowlisted symbol, BUY/SELL, and a positive notional no greater than the mandate ceiling. Python validates the schema and envelope; Go revalidates price, quantity, mandate/model metadata, and current SELL availability. Abstention appends an immutable `AI / ABSTAIN` Decision Journal entry with no risk or execution record. A proposal enters the same provider-independent deterministic risk engine used by other financial actions; an allowed result reaches only the Shadow adapter and is persisted as `WOULD_HAVE_SUBMITTED`. Denial is also journaled. Neither result changes broker holdings, creates a preview, reserves live capital, or calls an order endpoint.
 
+The owner-scoped mandate journal joins each proposal to its existing deterministic risk and non-live execution evidence. The UI may therefore show the hypothetical side, exact quantity, reference price, notional, risk decision, and `WOULD_HAVE_SUBMITTED` status without inventing a fill, return, or performance claim. This evidence remains an immutable SHADOW record and is never a broker order.
+
 ## Connection lifecycle
 
 Entitled users can create, rename, replace credentials for, verify, enable, disable, list, and delete their own AI connections. New and replaced credentials enter `pending`; encryption success is not verification. The documented lifecycle vocabulary is `pending`, `active`, `error`, `expired`, `revoked`, and `disabled`. Verification moves a pending connection to active or error after contacting only its registered provider adapter; failed verification preserves the stored credential so it can be replaced.
