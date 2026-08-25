@@ -1,9 +1,11 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { AIDecisionJournal } from "./ai-decision-journal";
 
 describe("AI Decision Journal", () => {
+  afterEach(cleanup);
+
   it("shows the latest AI rationale and explicit shadow boundary", () => {
     render(
       <AIDecisionJournal
@@ -22,6 +24,30 @@ describe("AI Decision Journal", () => {
               risk_flags: ["Buying power is unavailable."],
               limitations: ["No cost basis supplied."],
               market_observed_at: "2026-08-25T20:11:39Z",
+              input_evidence: {
+                provider: "coinbase",
+                available_cash_usd: "0.0000000000",
+                buying_power_usd: "0.0000000000",
+                observed_at: "2026-08-25T20:11:42Z",
+                positions: [
+                  {
+                    symbol: "XRP",
+                    quantity: "7.5000000000",
+                    available_quantity: "0.5000000000",
+                    market_value_usd: "10.7250000000",
+                  },
+                ],
+                markets: [
+                  {
+                    symbol: "XRP",
+                    mark: "1.4300000000",
+                    change_percent_24h: "-3.6200000000",
+                    feed: "rest_ticker",
+                    quality: "REAL_TIME_SINGLE_VENUE",
+                    observed_at: "2026-08-25T20:11:39Z",
+                  },
+                ],
+              },
             },
           },
         ]}
@@ -31,6 +57,25 @@ describe("AI Decision Journal", () => {
     expect(screen.getByText("Abstain · No action")).toBeInTheDocument();
     expect(screen.getByText("High")).toBeInTheDocument();
     expect(screen.getByText("Safe abstention")).toBeInTheDocument();
+    const evidence = screen
+      .getByText(
+        "Evidence considered · 1 allowlisted holding · 1 market snapshot",
+      )
+      .closest("details");
+    expect(evidence).not.toBeNull();
+    expect(within(evidence!).getAllByText("$0")).toHaveLength(2);
+    expect(
+      within(evidence!).getByText("7.5 held · 0.5 available"),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText("$10.725 observed value"),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText("24h -3.62% · Real Time Single Venue"),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText(/Rest Ticker · Aug 25, 2026, 8:11 PM UTC/),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         "No broker order was sent. Arbion has no live execution path for this engine.",
