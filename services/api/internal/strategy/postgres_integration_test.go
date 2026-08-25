@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/automation"
+	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/arbion/platform/services/api/migrations"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,6 +50,10 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		secondBucketID  = "77777777-7777-4777-8777-777777777777"
 		mandateID       = "55555555-5555-4555-8555-555555555555"
 		secondMandateID = "66666666-6666-4666-8666-666666666666"
+		aiConnectionID  = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+		aiAccountID     = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+		aiBucketID      = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+		aiMandateID     = "ffffffff-ffff-4fff-8fff-ffffffffffff"
 	)
 	statements := []string{
 		`INSERT INTO users(id,email,normalized_email,display_name,email_verified_at) VALUES('` + userID + `','test@example.com','test@example.com','Test',now())`,
@@ -61,6 +66,11 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) VALUES('` + mandateID + `',1,'` + userID + `','UI','{}','{}')`,
 		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + secondMandateID + `','` + userID + `','` + accountID + `','STRATEGY','wheel','` + secondBucketID + `','RESEARCH_ONLY','PAPER','READY',1,'{}','{}','{"symbols":[],"universe_ids":[]}','{"symbols":[]}',false,true,'{}',false)`,
 		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) VALUES('` + secondMandateID + `',1,'` + userID + `','UI','{}','{}')`,
+		`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES('` + aiConnectionID + `','` + userID + `','ai','openai','OpenAI','active')`,
+		`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES('` + aiAccountID + `','` + userID + `','` + connectionID + `','schwab','opaque-ai','Schwab AI Test','brokerage','USD','active','{"options":"UNSUPPORTED","margin":"UNSUPPORTED"}')`,
+		`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES('` + aiBucketID + `','` + userID + `','` + aiAccountID + `','AI shadow budget','FIXED_AMOUNT',10,'USD',0,'ACTIVE')`,
+		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,ai_provider_connection_id,ai_model_id,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + aiMandateID + `','` + userID + `','` + aiAccountID + `','AI_AUTONOMOUS','` + aiConnectionID + `','gpt-5.6-sol','` + aiBucketID + `','FULL_AUTONOMOUS','SHADOW','READY',1,'{"objective":"Preserve capital.","max_proposal_notional":"1"}','{}','{"symbols":["AAPL"],"universe_ids":[]}','{"symbols":[]}',false,false,'{}',false)`,
+		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) VALUES('` + aiMandateID + `',1,'` + userID + `','UI','{}','{}')`,
 	}
 	for _, statement := range statements {
 		if _, err = pool.Exec(ctx, statement); err != nil {
@@ -335,6 +345,93 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	}
 	assertCount(t, pool, `SELECT count(*) FROM strategy_instances`, 2)
 	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 13)
+
+	aiConnection, aiModel := aiConnectionID, "gpt-5.6-sol"
+	aiMandate := automation.Mandate{
+		ID: aiMandateID, UserID: userID, FinancialAccountID: aiAccountID,
+		AutomationType: "AI_AUTONOMOUS", AIProviderConnectionID: &aiConnection,
+		AIModelID: &aiModel, CapitalBucketID: aiBucketID, AutonomyLevel: "FULL_AUTONOMOUS",
+		ExecutionMode: "SHADOW", Status: "READY", CurrentVersion: 1,
+		ScheduleConditions: json.RawMessage(`{}`),
+	}
+	aiInstance, err := store.Initialize(ctx, userID, aiMandate, "0", AIMonitoring)
+	if err != nil || aiInstance.StrategyIdentifier != "ai_shadow" || aiInstance.ExecutionMode != Shadow {
+		t.Fatalf("AI shadow instance was not initialized safely: %#v %v", aiInstance, err)
+	}
+	aiEvaluationTime := time.Date(2026, 8, 25, 18, 0, 0, 0, time.UTC)
+	aiActionID := "ai-shadow:integration:proposal"
+	aiEventID := "scheduled:ai-shadow-integration"
+	aiState := string(aiInstance.CurrentState)
+	aiPrice, aiNotional := "2.0000000000", "1.0000000000"
+	aiAction := risk.ProposedAction{
+		ID: aiActionID, CorrelationID: aiEventID, FinancialAccountID: aiAccountID,
+		Source: risk.SourceAI, ActionType: risk.ActionSell, MandateID: &aiInstance.AutomationMandateID,
+		MandateVersion: &aiInstance.MandateVersion, Instrument: "AAPL", Side: "SELL",
+		Quantity: "0.5000000000", Notional: aiNotional, EstimatedPrice: &aiPrice,
+		StrategyInstanceID: &aiInstance.ID, StrategyState: &aiState, CreatedAt: aiEvaluationTime,
+	}
+	aiRisk := risk.RiskEvaluation{
+		ID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", UserID: userID, AccountID: aiAccountID,
+		MandateID: aiAction.MandateID, MandateVersion: aiAction.MandateVersion,
+		Timestamp: aiEvaluationTime, Decision: risk.Allow, Checks: []risk.RiskCheck{},
+		ReasonCodes: []risk.ReasonCode{risk.Allowed}, Mode: "SHADOW",
+	}
+	aiDecision := Decision{
+		ProposedAction: &aiAction, Source: "AI", InstrumentType: "EQUITY",
+		ProposedState: AIMonitoring, CandidateCount: 1, Reason: "integration",
+		Rationale: []byte(`{"decision":"PROPOSE","symbol":"AAPL","side":"SELL"}`),
+	}
+	aiResult := ExecutionResult{
+		Status: WouldHaveSubmitted, Price: &aiPrice, Notional: &aiNotional,
+		ExpectedState: AIMonitoring, Reason: "shadow_only_no_order_was_sent",
+	}
+	if err = store.CommitEvaluation(ctx, aiInstance, aiInstance.StateVersion, aiDecision, aiRisk, aiResult, aiEvaluationTime); err != nil {
+		t.Fatal(err)
+	}
+	markTime := aiEvaluationTime.Add(2 * time.Hour)
+	due, err := store.DueShadowOutcomes(ctx, aiInstance, markTime)
+	if err != nil || len(due) != 1 || due[0].Horizon != ShadowOutcomeOneHour {
+		t.Fatalf("one-hour AI shadow mark was not due exactly once: %#v %v", due, err)
+	}
+	mark, err := buildAIShadowOutcome(due[0], neural.ShadowMarketFact{
+		Symbol: "AAPL", Bid: "1.9000000000", Ask: "2.1000000000", Mark: "2.0000000000",
+		Last: "2.0000000000", Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: markTime,
+	}, markTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.RecordShadowOutcome(ctx, aiInstance, mark); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.RecordShadowOutcome(ctx, aiInstance, mark); err != nil {
+		t.Fatalf("AI shadow outcome retry was not idempotent: %v", err)
+	}
+	conflictingMark := mark
+	conflictingMark.ObservedPrice = "2.2000000000"
+	conflictingMark.DirectionalChangeUSD = "-0.1000000000"
+	conflictingMark.DirectionalChangePercent = "-10.0000000000"
+	if err = store.RecordShadowOutcome(ctx, aiInstance, conflictingMark); !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflicting AI shadow outcome retry was not rejected: %v", err)
+	}
+	marks, err := store.ShadowOutcomes(ctx, userID, aiInstance.ID)
+	if err != nil || len(marks) != 1 || marks[0].PricingBasis != "ASK_TO_CLOSE" || marks[0].DirectionalChangeUSD != "-0.0500000000" || marks[0].DirectionalChangePercent != "-5.0000000000" {
+		t.Fatalf("AI shadow outcome projection was incomplete: %#v %v", marks, err)
+	}
+	foreignMarks, err := store.ShadowOutcomes(ctx, "99999999-9999-4999-8999-999999999999", aiInstance.ID)
+	if err != nil || len(foreignMarks) != 0 {
+		t.Fatalf("AI shadow outcomes crossed their owner boundary: %#v %v", foreignMarks, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE shadow_execution_outcomes SET observed_price=3 WHERE id=$1`, marks[0].ID); err == nil {
+		t.Fatal("immutable AI shadow outcome was updated")
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM shadow_execution_outcomes WHERE id=$1`, marks[0].ID); err == nil {
+		t.Fatal("immutable AI shadow outcome was deleted")
+	}
+	due, err = store.DueShadowOutcomes(ctx, aiInstance, aiEvaluationTime.Add(25*time.Hour))
+	if err != nil || len(due) != 1 || due[0].Horizon != ShadowOutcomeTwentyFourHours {
+		t.Fatalf("24-hour AI shadow mark was not independently due: %#v %v", due, err)
+	}
+	assertCount(t, pool, `SELECT count(*) FROM shadow_execution_outcomes`, 1)
 }
 
 func proposedOption(instance Instance, eventID, actionID string) risk.ProposedAction {

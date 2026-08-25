@@ -16,11 +16,25 @@ import (
 )
 
 type evaluationStoreFake struct {
-	instance  Instance
-	facts     EvaluationFacts
-	commits   int
-	commitErr error
-	abstains  int
+	instance          Instance
+	facts             EvaluationFacts
+	commits           int
+	commitErr         error
+	abstains          int
+	outcomeCandidates []ShadowOutcomeCandidate
+	outcomeMarks      []ShadowOutcome
+	outcomeErr        error
+}
+
+func (f *evaluationStoreFake) DueShadowOutcomes(context.Context, Instance, time.Time) ([]ShadowOutcomeCandidate, error) {
+	return f.outcomeCandidates, f.outcomeErr
+}
+func (f *evaluationStoreFake) RecordShadowOutcome(_ context.Context, _ Instance, outcome ShadowOutcome) error {
+	if f.outcomeErr != nil {
+		return f.outcomeErr
+	}
+	f.outcomeMarks = append(f.outcomeMarks, outcome)
+	return nil
 }
 
 func (f *evaluationStoreFake) CommitAIAbstention(_ context.Context, _ Instance, _ string, _ json.RawMessage, _ time.Time) error {
@@ -277,6 +291,36 @@ func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
 	}
 	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" || ai.request.Markets[0].ChangePercent24H != "25.0000000000" || ai.request.Markets[0].Volume24H != "2500" || len(ai.request.Positions) != 1 || ai.request.Positions[0].MarketValueUSD != "1.0000000000" {
 		t.Fatalf("unexpected Coinbase boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
+	}
+}
+
+func TestCoinbaseAIShadowRecordsConservativeOneHourSellOutcomeBeforeNextDecision(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No new edge", RiskFlags: []string{}, Limitations: []string{}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, store, _, ai, principal := aiEvaluationFixture("coinbase", decision)
+	store.outcomeCandidates = []ShadowOutcomeCandidate{{ExecutionRecordID: "shadow-record", Horizon: ShadowOutcomeOneHour, Symbol: "BTC", Side: "SELL", Quantity: "0.0100000000", EntryPrice: "100.0000000000", CreatedAt: service.now().Add(-2 * time.Hour)}}
+
+	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "scheduled:outcome")
+	if err != nil || outcome.AIDecision != "ABSTAIN" || len(store.outcomeMarks) != 1 || ai.request.Objective == "" {
+		t.Fatalf("outcome tracking disrupted the next decision: outcome=%#v marks=%#v request=%#v err=%v", outcome, store.outcomeMarks, ai.request, err)
+	}
+	mark := store.outcomeMarks[0]
+	if mark.ExecutionRecordID != "shadow-record" || mark.PricingBasis != "ASK_TO_CLOSE" || mark.ObservedPrice != "101.0000000000" || mark.DirectionalChangeUSD != "-0.0100000000" || mark.DirectionalChangePercent != "-1.0000000000" || mark.ElapsedSeconds != 7200 {
+		t.Fatalf("conservative SELL outcome was incorrect: %#v", mark)
+	}
+}
+
+func TestSchwabAIShadowRecordsConservativeOneHourBuyOutcomeBeforeNextDecision(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No new edge", RiskFlags: []string{}, Limitations: []string{}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, store, _, ai, principal := aiEvaluationFixture("schwab", decision)
+	store.outcomeCandidates = []ShadowOutcomeCandidate{{ExecutionRecordID: "shadow-record", Horizon: ShadowOutcomeOneHour, Symbol: "BTC", Side: "BUY", Quantity: "0.0100000000", EntryPrice: "200.0000000000", CreatedAt: service.now().Add(-time.Hour)}}
+
+	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "scheduled:schwab-outcome")
+	if err != nil || outcome.AIDecision != "ABSTAIN" || len(store.outcomeMarks) != 1 || ai.request.Objective == "" {
+		t.Fatalf("Schwab outcome tracking disrupted the next decision: outcome=%#v marks=%#v request=%#v err=%v", outcome, store.outcomeMarks, ai.request, err)
+	}
+	mark := store.outcomeMarks[0]
+	if mark.ExecutionRecordID != "shadow-record" || mark.PricingBasis != "BID_TO_CLOSE" || mark.ObservedPrice != "199.9000000000" || mark.DirectionalChangeUSD != "-0.0010000000" || mark.DirectionalChangePercent != "-0.0500000000" || mark.MarketFeed != "schwab_market_data" || mark.MarketQuality != "BROKER_REALTIME" || mark.ElapsedSeconds != 3600 {
+		t.Fatalf("conservative Schwab BUY outcome was incorrect: %#v", mark)
 	}
 }
 

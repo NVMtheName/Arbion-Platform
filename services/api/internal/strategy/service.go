@@ -44,6 +44,10 @@ type Mandates interface {
 	Get(context.Context, authorization.Principal, string) (automation.Mandate, error)
 	GetBucket(context.Context, authorization.Principal, string) (automation.CapitalBucket, error)
 }
+
+type ShadowOutcomeReader interface {
+	ShadowOutcomes(context.Context, string, string) ([]ShadowOutcome, error)
+}
 type DecisionJournalEntry struct {
 	ID, StrategyInstanceID, StrategyState, Source, DecisionType           string
 	StructuredRationale                                                   json.RawMessage
@@ -247,6 +251,16 @@ func (s *InstanceService) Executions(c context.Context, p authorization.Principa
 		return nil, ErrForbidden
 	}
 	return s.store.Executions(c, p.UserID, id)
+}
+func (s *InstanceService) ShadowOutcomes(c context.Context, p authorization.Principal, id string) ([]ShadowOutcome, error) {
+	if !entitled(p) {
+		return nil, ErrForbidden
+	}
+	reader, ok := s.store.(ShadowOutcomeReader)
+	if !ok {
+		return nil, ErrInvalid
+	}
+	return reader.ShadowOutcomes(c, p.UserID, id)
 }
 
 func (s *InstanceService) PaperPortfolio(c context.Context, p authorization.Principal, id string) (PaperPortfolio, error) {

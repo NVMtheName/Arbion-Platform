@@ -159,6 +159,45 @@ type ExecutionResult struct {
 	Reason        string          `json:"reason,omitempty"`
 }
 
+type ShadowOutcomeHorizon string
+
+const (
+	ShadowOutcomeOneHour         ShadowOutcomeHorizon = "ONE_HOUR"
+	ShadowOutcomeTwentyFourHours ShadowOutcomeHorizon = "TWENTY_FOUR_HOURS"
+)
+
+type ShadowOutcomeCandidate struct {
+	ExecutionRecordID string
+	Horizon           ShadowOutcomeHorizon
+	Symbol            string
+	Side              string
+	Quantity          string
+	EntryPrice        string
+	CreatedAt         time.Time
+}
+
+// ShadowOutcome is an immutable, non-live mark of one hypothetical action.
+// It is directional evidence only: no fill, fee-adjusted return, or account
+// performance is inferred.
+type ShadowOutcome struct {
+	ID                       string               `json:"id"`
+	ExecutionRecordID        string               `json:"execution_record_id"`
+	Horizon                  ShadowOutcomeHorizon `json:"horizon"`
+	Symbol                   string               `json:"symbol"`
+	Side                     string               `json:"side"`
+	Quantity                 string               `json:"quantity"`
+	EntryPrice               string               `json:"entry_price"`
+	ObservedPrice            string               `json:"observed_price"`
+	DirectionalChangeUSD     string               `json:"directional_change_usd"`
+	DirectionalChangePercent string               `json:"directional_change_percent"`
+	PricingBasis             string               `json:"pricing_basis"`
+	MarketFeed               string               `json:"market_feed"`
+	MarketQuality            string               `json:"market_quality"`
+	MarketObservedAt         time.Time            `json:"market_observed_at"`
+	EvaluatedAt              time.Time            `json:"evaluated_at"`
+	ElapsedSeconds           int64                `json:"elapsed_seconds"`
+}
+
 // PaperPortfolio is the owner-facing, provider-independent projection of one
 // simulated ledger. It deliberately excludes provider and account identifiers.
 type PaperPortfolio struct {

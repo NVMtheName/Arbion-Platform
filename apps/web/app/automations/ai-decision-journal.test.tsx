@@ -75,6 +75,19 @@ describe("AI Decision Journal", () => {
             },
           },
         ]}
+        outcomes={[
+          {
+            id: "outcome-1",
+            execution_record_id: "execution-1",
+            horizon: "ONE_HOUR",
+            observed_price: "1.4400000000",
+            directional_change_usd: "-0.0100000000",
+            directional_change_percent: "-1.0000000000",
+            pricing_basis: "ASK_TO_CLOSE",
+            market_observed_at: "2026-08-25T22:12:01Z",
+            elapsed_seconds: 3600,
+          },
+        ]}
       />,
     );
 
@@ -85,5 +98,11 @@ describe("AI Decision Journal", () => {
     expect(screen.getByText("$1.43")).toBeInTheDocument();
     expect(screen.getByText("Would Have Submitted")).toBeInTheDocument();
     expect(screen.getByText("Allow")).toBeInTheDocument();
+    expect(screen.getByText("1-hour mark")).toBeInTheDocument();
+    expect(screen.getByText("-$0.01 (-1%)")).toBeInTheDocument();
+    expect(screen.getByText("Observed 1h after proposal")).toBeInTheDocument();
+    expect(
+      screen.getByText(/not a fill, realized return/i),
+    ).toBeInTheDocument();
   });
 });

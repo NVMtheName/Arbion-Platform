@@ -1375,6 +1375,38 @@ button:disabled {
 .journal-execution-facts {
   margin-bottom: 0;
 }
+.journal-outcomes {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid #604e8e;
+}
+.journal-outcomes h5 {
+  margin: 0 0 10px;
+  color: #d8ccff;
+}
+.journal-outcomes > p,
+.journal-outcome-grid small,
+.journal-outcome-grid time {
+  color: #9f94c7;
+}
+.journal-outcome-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.journal-outcome-grid article {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid #45396a;
+  border-radius: 10px;
+  background: #080e19;
+}
+.journal-outcome-grid span {
+  color: #f0edff;
+  font-size: 1.12rem;
+}
 .journal-reasons {
   padding: 16px;
   border-left: 3px solid #5ee0a0;
@@ -4324,6 +4356,7 @@ button:disabled {
   .journal-summary,
   .journal-facts,
   .journal-rationale,
+  .journal-outcome-grid,
   .paper-portfolio-summary,
   .paper-contract-facts {
     grid-template-columns: 1fr;

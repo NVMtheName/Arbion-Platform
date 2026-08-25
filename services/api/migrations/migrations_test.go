@@ -137,6 +137,23 @@ func TestAIShadowMigrationExtendsOnlyNonLiveStrategyHistory(t *testing.T) {
 	}
 }
 
+func TestAIShadowOutcomeMigrationIsImmutableAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00026_ai_shadow_outcomes.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"shadow_execution_outcomes", "ONE_HOUR", "TWENTY_FOUR_HOURS", "directional_change_usd", "pricing_basis", "WOULD_HAVE_SUBMITTED", "enforce_ai_shadow_outcome_source", "shadow_execution_outcomes_immutable", "cannot remove immutable AI shadow outcome history"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("AI shadow outcome migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order", "broker_order", "LIVE_EXECUTION"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("AI shadow outcome migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00013_paper_lifecycle_events.sql")
 	if err != nil {
