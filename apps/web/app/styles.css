@@ -1380,6 +1380,85 @@ button:disabled {
   padding-top: 18px;
   border-top: 1px solid #604e8e;
 }
+.shadow-scorecard {
+  margin: 26px 0;
+  padding: 24px;
+  border: 1px solid #45396a;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 90% 0%, rgb(123 92 255 / 14%), transparent 38%),
+    #0b111e;
+}
+.shadow-scorecard-total {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: #b9acd9;
+}
+.shadow-scorecard-total strong {
+  color: #f0edff;
+  font-size: 1.55rem;
+}
+.shadow-scorecard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+}
+.shadow-scorecard-grid > article {
+  padding: 18px;
+  border: 1px solid #3e345f;
+  border-radius: 13px;
+  background: rgb(5 10 20 / 82%);
+}
+.shadow-scorecard-grid header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.shadow-scorecard-grid h3 {
+  margin: 0;
+}
+.shadow-scorecard-grid header span {
+  padding: 5px 9px;
+  border: 1px solid #604e8e;
+  border-radius: 999px;
+  color: #d8ccff;
+  font-size: 0.76rem;
+}
+.shadow-scorecard-movement {
+  display: grid;
+  gap: 2px;
+  margin: 20px 0;
+}
+.shadow-scorecard-movement strong {
+  color: #f0edff;
+  font-size: 1.8rem;
+}
+.shadow-scorecard-movement small,
+.shadow-scorecard-grid > article > p,
+.shadow-scorecard-grid dt {
+  color: #9f94c7;
+}
+.shadow-scorecard-grid dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.shadow-scorecard-grid dl div {
+  padding: 10px;
+  border-radius: 9px;
+  background: #101827;
+}
+.shadow-scorecard-grid dt,
+.shadow-scorecard-grid dd {
+  margin: 0;
+}
+.shadow-scorecard-grid dd {
+  margin-top: 4px;
+  color: #f0edff;
+}
 .journal-outcomes h5 {
   margin: 0 0 10px;
   color: #d8ccff;
@@ -4357,6 +4436,7 @@ button:disabled {
   .journal-facts,
   .journal-rationale,
   .journal-outcome-grid,
+  .shadow-scorecard-grid,
   .paper-portfolio-summary,
   .paper-contract-facts {
     grid-template-columns: 1fr;

@@ -421,6 +421,20 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || len(foreignMarks) != 0 {
 		t.Fatalf("AI shadow outcomes crossed their owner boundary: %#v %v", foreignMarks, err)
 	}
+	scorecard, err := store.ShadowScorecard(ctx, userID, aiInstance.ID)
+	if err != nil || scorecard.TotalMarks != 1 || len(scorecard.Horizons) != 2 {
+		t.Fatalf("AI shadow scorecard was incomplete: %#v %v", scorecard, err)
+	}
+	oneHourScore, twentyFourHourScore := scorecard.Horizons[0], scorecard.Horizons[1]
+	if oneHourScore.Horizon != ShadowOutcomeOneHour || oneHourScore.SampleSize != 1 || oneHourScore.FavorableMarks != 0 || oneHourScore.UnfavorableMarks != 1 || oneHourScore.FlatMarks != 0 || oneHourScore.FavorableRatePercent == nil || *oneHourScore.FavorableRatePercent != "0.0000000000" || oneHourScore.AverageDirectionalChangePercent == nil || *oneHourScore.AverageDirectionalChangePercent != "-5.0000000000" || oneHourScore.Interpretation != "INSUFFICIENT_SAMPLE" || oneHourScore.MinimumSampleForObservationalLabel != ShadowScorecardMinimumSample || oneHourScore.FirstEvaluatedAt == nil || oneHourScore.LastEvaluatedAt == nil {
+		t.Fatalf("one-hour AI shadow score was incorrect: %#v", oneHourScore)
+	}
+	if twentyFourHourScore.Horizon != ShadowOutcomeTwentyFourHours || twentyFourHourScore.SampleSize != 0 || twentyFourHourScore.FavorableRatePercent != nil || twentyFourHourScore.AverageDirectionalChangePercent != nil || twentyFourHourScore.Interpretation != "INSUFFICIENT_SAMPLE" {
+		t.Fatalf("pending 24-hour AI shadow score was incorrect: %#v", twentyFourHourScore)
+	}
+	if _, err = store.ShadowScorecard(ctx, "99999999-9999-4999-8999-999999999999", aiInstance.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("AI shadow scorecard crossed its owner boundary: %v", err)
+	}
 	if _, err = pool.Exec(ctx, `UPDATE shadow_execution_outcomes SET observed_price=3 WHERE id=$1`, marks[0].ID); err == nil {
 		t.Fatal("immutable AI shadow outcome was updated")
 	}

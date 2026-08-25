@@ -48,6 +48,9 @@ type Mandates interface {
 type ShadowOutcomeReader interface {
 	ShadowOutcomes(context.Context, string, string) ([]ShadowOutcome, error)
 }
+type ShadowScorecardReader interface {
+	ShadowScorecard(context.Context, string, string) (ShadowScorecard, error)
+}
 type DecisionJournalEntry struct {
 	ID, StrategyInstanceID, StrategyState, Source, DecisionType           string
 	StructuredRationale                                                   json.RawMessage
@@ -261,6 +264,16 @@ func (s *InstanceService) ShadowOutcomes(c context.Context, p authorization.Prin
 		return nil, ErrInvalid
 	}
 	return reader.ShadowOutcomes(c, p.UserID, id)
+}
+func (s *InstanceService) ShadowScorecard(c context.Context, p authorization.Principal, id string) (ShadowScorecard, error) {
+	if !entitled(p) {
+		return ShadowScorecard{}, ErrForbidden
+	}
+	reader, ok := s.store.(ShadowScorecardReader)
+	if !ok {
+		return ShadowScorecard{}, ErrInvalid
+	}
+	return reader.ShadowScorecard(c, p.UserID, id)
 }
 
 func (s *InstanceService) PaperPortfolio(c context.Context, p authorization.Principal, id string) (PaperPortfolio, error) {
