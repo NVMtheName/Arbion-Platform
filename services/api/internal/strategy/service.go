@@ -115,6 +115,19 @@ func (s *InstanceService) Initialize(ctx context.Context, p authorization.Princi
 	if m.AutomationType == "HYBRID" {
 		return Instance{}, ErrInvalid
 	}
+	if m.AutomationType == "AI_AUTONOMOUS" {
+		if m.StrategyIdentifier != nil || m.AIProviderConnectionID == nil || m.AIModelID == nil || m.Status != "READY" || m.ExecutionMode != "SHADOW" || m.AutonomyLevel != "FULL_AUTONOMOUS" {
+			return Instance{}, ErrInvalid
+		}
+		if _, e = automation.ParseAIShadowParameters(m.StrategyParameters); e != nil {
+			return Instance{}, ErrInvalid
+		}
+		bucket, bucketErr := s.mandates.GetBucket(ctx, p, m.CapitalBucketID)
+		if bucketErr != nil || bucket.UserID != p.UserID || bucket.FinancialAccountID != m.FinancialAccountID || bucket.Status != "ACTIVE" || bucket.IsReserve {
+			return Instance{}, ErrInvalid
+		}
+		return s.store.Initialize(ctx, p.UserID, m, "", AIMonitoring)
+	}
 	if m.AutomationType != "STRATEGY" || m.StrategyIdentifier == nil || m.Status != "READY" || (*m.StrategyIdentifier != "wheel" && *m.StrategyIdentifier != "covered_call" && *m.StrategyIdentifier != "cash_secured_put") {
 		return Instance{}, ErrInvalid
 	}

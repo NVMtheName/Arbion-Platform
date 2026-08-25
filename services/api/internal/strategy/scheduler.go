@@ -7,9 +7,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/automationnotification"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/neural"
 )
 
 const (
@@ -81,7 +83,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 	completion := ScheduleCompletion{CompletedAt: now, NextRunAt: now.Add(time.Duration(run.IntervalMinutes) * time.Minute)}
 	if run.ExecutionMode != Paper && run.ExecutionMode != Shadow {
 		completion.Status, completion.ErrorCode = "FAILED", "UNSUPPORTED_MODE"
-	} else if !inRegularSession(now) {
+	} else if run.Session == "US_EQUITIES_REGULAR" && !inRegularSession(now) {
 		if nextRunAt, ok := nextRegularSession(now); ok {
 			completion.Status, completion.ErrorCode = "SKIPPED", "OUTSIDE_SESSION"
 			completion.NextRunAt = nextRunAt
@@ -89,6 +91,8 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 			completion.Status, completion.ErrorCode = "FAILED", "SESSION_CALENDAR_UNAVAILABLE"
 			completion.NextRunAt = now.Add(24 * time.Hour)
 		}
+	} else if run.Session != "US_EQUITIES_REGULAR" && run.Session != "CONTINUOUS" {
+		completion.Status, completion.ErrorCode = "FAILED", "UNSUPPORTED_SESSION"
 	} else if !actionableState(run.CurrentState) {
 		completion.Status, completion.ErrorCode = "SKIPPED", "WAITING_FOR_LIFECYCLE"
 	} else {
@@ -140,7 +144,7 @@ func scheduleNotification(run ScheduledRun, completion ScheduleCompletion) *auto
 }
 
 func actionableState(state State) bool {
-	return state == ReadyForPut || state == Cash || state == ReadyForCall || state == LongShares
+	return state == ReadyForPut || state == Cash || state == ReadyForCall || state == LongShares || state == AIMonitoring
 }
 
 func classifyScheduleError(err error) string {
@@ -166,6 +170,12 @@ func classifyScheduleError(err error) string {
 		return "NO_ELIGIBLE_OPTION_CONTRACTS"
 	case errors.Is(err, ErrInvalid):
 		return "INVALID"
+	case errors.Is(err, aiconnection.ErrRateLimit), neural.Code(err) == neural.RateLimited:
+		return "AI_RATE_LIMITED"
+	case errors.Is(err, aiconnection.ErrInactive), errors.Is(err, aiconnection.ErrDisabled), errors.Is(err, aiconnection.ErrNotFound), neural.Code(err) == neural.AuthenticationFailed:
+		return "AI_CONNECTION_UNAVAILABLE"
+	case errors.Is(err, aiconnection.ErrProvider), neural.Code(err) == neural.ProviderUnavailable, neural.Code(err) == neural.Timeout:
+		return "AI_PROVIDER_UNAVAILABLE"
 	case errors.Is(err, ErrConflict):
 		return "CONFLICT"
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):

@@ -37,6 +37,7 @@ type Props = {
   runtime?: StrategyScheduleStatus;
   schedulerEnabled: boolean;
   emailDeliveryAvailable: boolean;
+  financialProvider?: string;
 };
 
 function readableTime(value?: string) {
@@ -92,9 +93,12 @@ export function StrategyScheduleControls(props: Props) {
   const [enabled, setEnabled] = useState(Boolean(props.conditions.enabled));
 
   const eligible =
-    props.automationType === "STRATEGY" &&
-    props.autonomyLevel === "STRATEGY_AUTONOMOUS" &&
-    (props.executionMode === "PAPER" || props.executionMode === "SHADOW");
+    (props.automationType === "STRATEGY" &&
+      props.autonomyLevel === "STRATEGY_AUTONOMOUS" &&
+      (props.executionMode === "PAPER" || props.executionMode === "SHADOW")) ||
+    (props.automationType === "AI_AUTONOMOUS" &&
+      props.autonomyLevel === "FULL_AUTONOMOUS" &&
+      props.executionMode === "SHADOW");
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -103,7 +107,11 @@ export function StrategyScheduleControls(props: Props) {
       ? {
           enabled: true,
           interval_minutes: Number(form.get("interval_minutes")),
-          session: "US_EQUITIES_REGULAR",
+          session:
+            props.conditions.session ??
+            (props.financialProvider === "coinbase"
+              ? "CONTINUOUS"
+              : "US_EQUITIES_REGULAR"),
           notifications: {
             evaluation_completed:
               form.get("notify_evaluation_completed") === "on",
@@ -128,7 +136,7 @@ export function StrategyScheduleControls(props: Props) {
     setBusy(false);
     if (!response.ok) {
       setMessage(
-        "The schedule was not accepted. It requires a strategy-autonomous PAPER or SHADOW mandate.",
+        "The schedule was not accepted. Review the non-live autonomy and session controls.",
       );
       return;
     }
@@ -145,13 +153,14 @@ export function StrategyScheduleControls(props: Props) {
       <p className="eyebrow">GUARDED NON-LIVE SCHEDULE</p>
       <h2>Optional market-session evaluations</h2>
       <p>
-        The scheduler can create only PAPER or SHADOW records during the U.S.
-        regular market session. It cannot place a live order. A PAPER fill then
-        waits for an explicit lifecycle event before another evaluation.
+        The scheduler can create only PAPER or SHADOW records. Coinbase runs on
+        a continuous market clock; Schwab waits for the U.S. regular session. It
+        cannot place a live order.
       </p>
       {!eligible && (
         <p className="security-note">
-          Scheduling requires STRATEGY_AUTONOMOUS with PAPER or SHADOW mode.
+          Scheduling requires STRATEGY_AUTONOMOUS for a non-live deterministic
+          strategy, or FULL_AUTONOMOUS for an AI Shadow mandate.
         </p>
       )}
       <form onSubmit={save}>
@@ -179,8 +188,14 @@ export function StrategyScheduleControls(props: Props) {
           </select>
         </label>
         <p>
-          Session: 9:35 a.m.–3:55 p.m. America/New_York, weekdays. Provider
-          freshness checks fail closed on market holidays or stale data.
+          Session:{" "}
+          {(props.conditions.session ??
+            (props.financialProvider === "coinbase"
+              ? "CONTINUOUS"
+              : "US_EQUITIES_REGULAR")) === "CONTINUOUS"
+            ? "continuous crypto monitoring"
+            : "9:35 a.m.–3:55 p.m. America/New_York, weekdays"}
+          . Provider freshness checks fail closed on stale data.
         </p>
         <fieldset
           disabled={
@@ -198,16 +213,18 @@ export function StrategyScheduleControls(props: Props) {
             />{" "}
             Email after each scheduled evaluation
           </label>
-          <label>
-            <input
-              name="notify_lifecycle_required"
-              type="checkbox"
-              defaultChecked={Boolean(
-                props.conditions.notifications?.lifecycle_required,
-              )}
-            />{" "}
-            Email once when a PAPER option needs lifecycle review
-          </label>
+          {props.automationType === "STRATEGY" && (
+            <label>
+              <input
+                name="notify_lifecycle_required"
+                type="checkbox"
+                defaultChecked={Boolean(
+                  props.conditions.notifications?.lifecycle_required,
+                )}
+              />{" "}
+              Email once when a PAPER option needs lifecycle review
+            </label>
+          )}
           <label>
             <input
               name="notify_first_failure"

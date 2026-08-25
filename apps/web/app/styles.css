@@ -245,6 +245,23 @@ select {
   font-weight: 740;
   text-decoration: none;
 }
+.ai-shadow-banner {
+  position: relative;
+  overflow: hidden;
+  padding: 28px;
+  border-left-color: var(--brand-mint);
+  background:
+    radial-gradient(
+      circle at 88% 16%,
+      rgba(25, 201, 214, 0.18),
+      transparent 35%
+    ),
+    linear-gradient(135deg, rgba(94, 224, 160, 0.1), rgba(4, 14, 10, 0.78));
+}
+.ai-shadow-banner strong {
+  color: #f3fff8;
+  font-size: clamp(1.18rem, 3vw, 1.72rem);
+}
 .strategy-launch-section {
   min-width: 0;
   margin: 0;
@@ -298,6 +315,13 @@ select {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-top: 24px;
+}
+.strategy-objective {
+  grid-column: span 3;
+}
+.strategy-objective textarea {
+  min-height: 104px;
+  resize: vertical;
 }
 .strategy-picker {
   display: grid;

@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/automation"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/marketintelligence"
+	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/risk"
 )
 
@@ -17,10 +20,34 @@ type evaluationStoreFake struct {
 	facts     EvaluationFacts
 	commits   int
 	commitErr error
+	abstains  int
+}
+
+func (f *evaluationStoreFake) CommitAIAbstention(_ context.Context, _ Instance, _ string, _ json.RawMessage, _ time.Time) error {
+	f.abstains++
+	return f.commitErr
 }
 
 func (f *evaluationStoreFake) Get(context.Context, string, string) (Instance, error) {
 	return f.instance, nil
+}
+
+type evaluationAIFake struct {
+	decision neural.ShadowDecision
+	request  neural.ShadowDecisionRequest
+}
+
+func (f *evaluationAIFake) GenerateShadowDecision(_ context.Context, _ authorization.Principal, _, _ string, request neural.ShadowDecisionRequest) (neural.ShadowDecision, error) {
+	f.request = request
+	return f.decision, nil
+}
+
+type evaluationMarketsFake struct {
+	batch marketintelligence.CryptoMarketBatch
+}
+
+func (f *evaluationMarketsFake) CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error) {
+	return f.batch, false, nil
 }
 func (f *evaluationStoreFake) EvaluationFacts(context.Context, Instance, time.Time) (EvaluationFacts, error) {
 	return f.facts, nil
@@ -191,5 +218,60 @@ func TestManualEvaluationReportsInvalidSavedParameters(t *testing.T) {
 	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:invalid-parameters")
 	if !errors.Is(err, ErrEvaluationParametersInvalid) || store.commits != 0 || finances.quoteCalls != 0 {
 		t.Fatalf("invalid saved parameters were not identified before provider reads: %v", err)
+	}
+}
+
+func aiEvaluationFixture(provider string, decision neural.ShadowDecision) (*EvaluationService, *evaluationStoreFake, *evaluationFinancialFake, *evaluationAIFake, authorization.Principal) {
+	now := time.Date(2026, 8, 25, 14, 0, 0, 0, time.UTC)
+	instance := Instance{ID: "ai-instance", UserID: "user", AutomationMandateID: "ai-mandate", FinancialAccountID: "account", CapitalBucketID: "bucket", StrategyIdentifier: "ai_shadow", MandateVersion: 2, ExecutionMode: Shadow, CurrentState: AIMonitoring, StateVersion: 1, Status: "ACTIVE"}
+	connection, model := "ai-connection", "gpt-5.6-sol"
+	mandate := automation.Mandate{ID: "ai-mandate", UserID: "user", FinancialAccountID: "account", AutomationType: "AI_AUTONOMOUS", AIProviderConnectionID: &connection, AIModelID: &model, CapitalBucketID: "bucket", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", Status: "READY", CurrentVersion: 2, StrategyParameters: json.RawMessage(`{"objective":"Preserve capital while finding cautious opportunities.","max_proposal_notional":"1"}`), AllowedUniverse: automation.Universe{Symbols: []string{"BTC"}}, EffectiveFrom: now.Add(-time.Hour)}
+	store := &evaluationStoreFake{instance: instance, facts: EvaluationFacts{Breakers: []risk.CircuitBreaker{}}}
+	automations := &evaluationAutomationFake{mandate: mandate, bucket: automation.CapitalBucket{ID: "bucket", UserID: "user", FinancialAccountID: "account", Name: "AI budget", AllocationType: "FIXED_AMOUNT", AllocationValue: "10", Currency: "USD", ProtectedAmount: "0", Status: "ACTIVE"}}
+	cash, available, buyingPower := financial.Money{Amount: "100", Currency: "USD"}, financial.Money{Amount: "100", Currency: "USD"}, financial.Money{Amount: "100", Currency: "USD"}
+	finances := &evaluationFinancialFake{account: financial.FinancialAccount{ID: "account", UserID: "user", Provider: provider, Status: "active", BaseCurrency: "USD", Capabilities: financial.Capabilities{"options": financial.Unsupported, "margin": financial.Unsupported}}, balances: financial.Balances{Cash: &cash, AvailableCash: &available, BuyingPower: &buyingPower}, positions: []financial.Position{}, timestamp: now}
+	ai := &evaluationAIFake{decision: decision}
+	markets := &evaluationMarketsFake{batch: marketintelligence.CryptoMarketBatch{Markets: []marketintelligence.CryptoMarketObservation{{Symbol: "BTC", Currency: "USD", CurrentPrice: "100", Bid: marketDecimalPointer("99"), Ask: marketDecimalPointer("101"), Provenance: marketintelligence.Provenance{Provider: "coinbase", Feed: "exchange", Quality: marketintelligence.RealTimeSingleVenue, ProviderTimestamp: now, ReceivedAt: now}}}}}
+	service := NewEvaluationService(store, automations, finances)
+	service.ConfigureAIShadow(ai, markets)
+	service.now = func() time.Time { return now }
+	return service, store, finances, ai, authorization.Principal{UserID: "user", Entitlement: authorization.EntitlementFounder}
+}
+
+func marketDecimalPointer(value string) *marketintelligence.Decimal {
+	decimal := marketintelligence.Decimal(value)
+	return &decimal
+}
+
+func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", ProposedNotional: "1", Confidence: "LOW", Thesis: "Bounded test", RiskFlags: []string{"Volatility"}, Limitations: []string{"No news"}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, store, finances, ai, principal := aiEvaluationFixture("schwab", decision)
+	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:schwab")
+	if err != nil || outcome.AIDecision != "PROPOSE" || outcome.Execution.Status != WouldHaveSubmitted || outcome.RiskDecision != risk.Allow {
+		t.Fatalf("unexpected Schwab AI shadow outcome: %#v %v", outcome, err)
+	}
+	if store.commits != 1 || store.abstains != 0 || finances.quoteCalls != 1 || ai.request.Markets[0].Feed != "schwab_market_data" {
+		t.Fatalf("unexpected Schwab boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
+	}
+}
+
+func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "Insufficient evidence", RiskFlags: []string{}, Limitations: []string{"No edge"}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, store, finances, ai, principal := aiEvaluationFixture("coinbase", decision)
+	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:coinbase")
+	if err != nil || outcome.AIDecision != "ABSTAIN" || outcome.Execution.Status != ExecutionCanceled {
+		t.Fatalf("unexpected Coinbase abstention: %#v %v", outcome, err)
+	}
+	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" {
+		t.Fatalf("unexpected Coinbase boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
+	}
+}
+
+func TestAIShadowRejectsModelOutputAboveImmutableCeilingBeforeRisk(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", ProposedNotional: "1.01", Confidence: "HIGH", Thesis: "Unsafe", RiskFlags: []string{}, Limitations: []string{}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, store, _, _, principal := aiEvaluationFixture("coinbase", decision)
+	_, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:over-ceiling")
+	if !errors.Is(err, ErrInvalid) || store.commits != 0 || store.abstains != 0 {
+		t.Fatalf("over-ceiling model output reached persistence: commits=%d abstains=%d err=%v", store.commits, store.abstains, err)
 	}
 }

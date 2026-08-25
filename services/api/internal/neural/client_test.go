@@ -98,3 +98,29 @@ func TestProposeTradeSendsOnlyBoundedNormalizedFacts(t *testing.T) {
 		t.Fatalf("unexpected proposal response: %#v %v", proposal, err)
 	}
 }
+
+func TestProposeShadowExcludesAccountIdentifiersAndNormalizesDecision(t *testing.T) {
+	observedAt := time.Date(2026, 8, 25, 14, 0, 0, 0, time.UTC)
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != "/internal/neural/shadow-decision" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if _, exposed := body["account_id"]; exposed || body["max_proposal_notional"] != "1" || body["objective"] != "Preserve capital." {
+			t.Fatalf("unsafe or incomplete shadow request: %#v", body)
+		}
+		markets, ok := body["markets"].([]any)
+		if !ok || len(markets) != 1 || markets[0].(map[string]any)["symbol"] != "BTC" {
+			t.Fatalf("normalized markets missing: %#v", body)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"decision":{"decision":"ABSTAIN","symbol":"NONE","side":"NONE","proposed_notional":"0","confidence":"LOW","thesis":"No cautious edge.","risk_flags":["Volatility"],"limitations":["No news"],"metadata":{"provider":"openai","model":"gpt-5.6-sol","profile":"deep","request_id":"resp-shadow"}}}`))}, nil
+	})
+	client := NewHTTPClient("http://ai.internal", "internal-token", &http.Client{Transport: transport})
+	decision, err := client.ProposeShadow(context.Background(), "openai", []byte("secret-value"), ShadowDecisionRequest{Profile: "deep", Objective: "Preserve capital.", AllowedSymbols: []string{"BTC"}, MaxProposalNotional: "1", AvailableCashUSD: "100", BuyingPowerUSD: "100", Positions: []ShadowPositionFact{}, Markets: []ShadowMarketFact{{Symbol: "BTC", AssetClass: "CRYPTO", Currency: "USD", Bid: "99", Ask: "101", Mark: "100", Last: "100", Feed: "exchange", Quality: "REAL_TIME_SINGLE_VENUE", ObservedAt: observedAt}}, ObservedAt: observedAt}, strings.Repeat("a", 64))
+	if err != nil || decision.Decision != "ABSTAIN" || decision.Metadata.RequestID != "resp-shadow" {
+		t.Fatalf("unexpected shadow response: %#v %v", decision, err)
+	}
+}

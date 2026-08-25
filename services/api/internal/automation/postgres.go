@@ -17,7 +17,7 @@ func NewPostgresStore(db *pgxpool.Pool) *PostgresStore { return &PostgresStore{d
 func (s *PostgresStore) AccountFacts(c context.Context, u, id string) (AccountFacts, error) {
 	var caps []byte
 	var f AccountFacts
-	e := s.db.QueryRow(c, `SELECT capabilities FROM financial_accounts WHERE id=$1 AND user_id=$2 AND status='active'`, id, u).Scan(&caps)
+	e := s.db.QueryRow(c, `SELECT provider,capabilities FROM financial_accounts WHERE id=$1 AND user_id=$2 AND status='active'`, id, u).Scan(&f.Provider, &caps)
 	if e != nil {
 		return f, e
 	}
@@ -30,7 +30,7 @@ func (s *PostgresStore) AccountFacts(c context.Context, u, id string) (AccountFa
 }
 func (s *PostgresStore) AIFacts(c context.Context, u, id, model string) (AIFacts, error) {
 	var f AIFacts
-	e := s.db.QueryRow(c, `SELECT status='active', EXISTS(SELECT 1 FROM neural_engine_preferences n WHERE n.user_id=$2 AND n.provider_connection_id=p.id AND n.model_id=$3) FROM provider_connections p WHERE p.id=$1 AND p.user_id=$2 AND p.provider_category='ai'`, id, u, model).Scan(&f.Active, &f.ModelValid)
+	e := s.db.QueryRow(c, `SELECT p.provider,status='active', $3 IN ('gpt-5.6-luna','gpt-5.6-terra','gpt-5.6-sol') FROM provider_connections p WHERE p.id=$1 AND p.user_id=$2 AND p.provider_category='ai'`, id, u, model).Scan(&f.Provider, &f.Active, &f.ModelValid)
 	f.Owned = e == nil
 	return f, e
 }

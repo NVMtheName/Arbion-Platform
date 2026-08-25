@@ -141,6 +141,27 @@ type proposalNeural struct {
 	seenSafetyID *string
 }
 
+type shadowNeural struct {
+	fakeNeural
+	decision     neural.ShadowDecision
+	request      *neural.ShadowDecisionRequest
+	seenSecret   *[]byte
+	seenSafetyID *string
+}
+
+func (fake shadowNeural) ProposeShadow(_ context.Context, _ string, credential []byte, request neural.ShadowDecisionRequest, safetyIdentifier string) (neural.ShadowDecision, error) {
+	if fake.request != nil {
+		*fake.request = request
+	}
+	if fake.seenSecret != nil {
+		*fake.seenSecret = credential
+	}
+	if fake.seenSafetyID != nil {
+		*fake.seenSafetyID = safetyIdentifier
+	}
+	return fake.decision, fake.err
+}
+
 func (fake proposalNeural) ProposeTrade(_ context.Context, _ string, credential []byte, request neural.TradeProposalRequest, safetyIdentifier string) (neural.TradeProposal, error) {
 	if fake.request != nil {
 		*fake.request = request
@@ -510,5 +531,37 @@ func TestGenerateTradeProposalReusesEncryptedPreferenceAndAuditsMetadataOnly(t *
 	}
 	if strings.Contains(string(raw), input.Objective) || strings.Contains(string(raw), "secret-value") || !strings.Contains(string(raw), "resp-proposal") {
 		t.Fatalf("proposal audit metadata was unsafe or incomplete: %s", raw)
+	}
+}
+
+func TestGenerateShadowDecisionUsesExactMandateConnectionAndModelWithoutPreference(t *testing.T) {
+	s, ms, _ := setup(t)
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	s.neural = fakeNeural{}
+	connection, err := s.Create(context.Background(), p, "openai", "Mandate model", []byte("secret-value"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Verify(context.Background(), p, connection.ID); err != nil {
+		t.Fatal(err)
+	}
+	ms.preference = nil
+	seenRequest := neural.ShadowDecisionRequest{}
+	seenSecret := []byte{}
+	seenSafetyID := ""
+	s.neural = shadowNeural{decision: neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No edge", Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep", RequestID: "resp-shadow"}}, request: &seenRequest, seenSecret: &seenSecret, seenSafetyID: &seenSafetyID}
+	s.limiter = fakeLimiter{allowed: true}
+	input := neural.ShadowDecisionRequest{Objective: "private objective", AllowedSymbols: []string{"BTC"}, MaxProposalNotional: "1", AvailableCashUSD: "100", BuyingPowerUSD: "100", ObservedAt: time.Now().UTC()}
+	decision, err := s.GenerateShadowDecision(context.Background(), p, connection.ID, "gpt-5.6-sol", input)
+	if err != nil || decision.Decision != "ABSTAIN" || seenRequest.Profile != "deep" || len(seenSafetyID) != 64 {
+		t.Fatalf("shadow decision failed: decision=%#v request=%#v err=%v", decision, seenRequest, err)
+	}
+	for _, value := range seenSecret {
+		if value != 0 {
+			t.Fatal("retrieved plaintext credential was not cleared")
+		}
+	}
+	if _, err = s.GenerateShadowDecision(context.Background(), p, connection.ID, "unapproved-model", input); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unapproved mandate model was accepted: %v", err)
 	}
 }

@@ -293,6 +293,110 @@ async def test_openai_trade_proposal_rejects_size_above_user_ceiling() -> None:
 
 
 @pytest.mark.asyncio
+async def test_openai_shadow_decision_is_structured_tool_free_and_bounded() -> None:
+    context: dict[str, object] = {
+        "objective": "Preserve capital.",
+        "allowed_symbols": ["BTC", "ETH"],
+        "max_proposal_notional": "1",
+        "available_cash_usd": "100",
+        "buying_power_usd": "100",
+        "positions": [],
+        "markets": [{"symbol": "BTC", "bid": "99", "ask": "101"}],
+        "observed_at": "2026-08-25T14:00:00+00:00",
+    }
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["model"] == "gpt-5.6-sol"
+        assert body["store"] is False
+        assert body["reasoning"] == {"effort": "high"}
+        assert body["text"]["format"]["strict"] is True
+        assert body["text"]["format"]["schema"]["additionalProperties"] is False
+        assert "tools" not in body
+        assert json.loads(body["input"]) == context
+        return httpx.Response(
+            200,
+            json={
+                "id": "resp-shadow",
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "decision": "PROPOSE",
+                                        "symbol": "BTC",
+                                        "side": "BUY",
+                                        "proposed_notional": "1",
+                                        "confidence": "LOW",
+                                        "thesis": (
+                                            "The bounded proposal stays within the fixed ceiling."
+                                        ),
+                                        "risk_flags": ["Volatility"],
+                                        "limitations": ["No news feed"],
+                                    }
+                                ),
+                            }
+                        ],
+                    }
+                ],
+                "usage": {"input_tokens": 120, "output_tokens": 60},
+            },
+        )
+
+    async with client(httpx.MockTransport(respond)) as http:
+        result = await OpenAIProvider(http).propose_shadow(
+            "secret-value", "deep", context, "a" * 64
+        )
+    assert result.decision == "PROPOSE"
+    assert result.proposed_notional == "1"
+    assert result.metadata.model == "gpt-5.6-sol"
+
+
+@pytest.mark.asyncio
+async def test_openai_shadow_decision_rejects_symbol_outside_mandate() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "id": "resp-unsafe",
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "decision": "PROPOSE",
+                                        "symbol": "DOGE",
+                                        "side": "BUY",
+                                        "proposed_notional": "1",
+                                        "confidence": "LOW",
+                                        "thesis": "Unsafe",
+                                        "risk_flags": [],
+                                        "limitations": [],
+                                    }
+                                ),
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+    )
+    context: dict[str, object] = {"allowed_symbols": ["BTC"], "max_proposal_notional": "1"}
+    async with client(transport) as http:
+        with pytest.raises(NeuralProviderError) as caught:
+            await OpenAIProvider(http).propose_shadow("secret-value", "deep", context, "a" * 64)
+    assert caught.value.code == ErrorCode.INTERNAL_ERROR
+
+
+@pytest.mark.asyncio
 async def test_provider_response_is_rejected_at_streaming_size_limit() -> None:
     transport = httpx.MockTransport(
         lambda request: httpx.Response(200, content=b"x" * (MAX_RESPONSE_BYTES + 1))

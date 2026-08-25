@@ -24,6 +24,10 @@ import {
   AutomationCircuitBreakerControls,
   type AutomationCircuitBreaker,
 } from "../automation-circuit-breaker-controls";
+import {
+  AIShadowEvaluationControls,
+  type AIShadowParameters,
+} from "../ai-shadow-evaluation-controls";
 export default async function MandateReview({
   params,
 }: {
@@ -49,16 +53,21 @@ export default async function MandateReview({
     email_delivery_available?: boolean;
   };
   const m = automationResponse.automation;
-  const [instancesResponse, breakerResponse] = await Promise.all([
-    fetch(`${api}/api/strategy-instances`, {
-      headers: { cookie: jar.toString() },
-      cache: "no-store",
-    }),
-    fetch(`${api}/api/automations/${id}/circuit-breaker`, {
-      headers: { cookie: jar.toString() },
-      cache: "no-store",
-    }),
-  ]);
+  const [instancesResponse, breakerResponse, accountsResponse] =
+    await Promise.all([
+      fetch(`${api}/api/strategy-instances`, {
+        headers: { cookie: jar.toString() },
+        cache: "no-store",
+      }),
+      fetch(`${api}/api/automations/${id}/circuit-breaker`, {
+        headers: { cookie: jar.toString() },
+        cache: "no-store",
+      }),
+      fetch(`${api}/api/accounts`, {
+        headers: { cookie: jar.toString() },
+        cache: "no-store",
+      }),
+    ]);
   const instances = instancesResponse.ok
     ? ((
         (await instancesResponse.json()) as {
@@ -73,6 +82,13 @@ export default async function MandateReview({
         }
       ).circuit_breaker
     : null;
+  const accounts = accountsResponse.ok
+    ? ((
+        (await accountsResponse.json()) as {
+          accounts?: Record<string, unknown>[];
+        }
+      ).accounts ?? [])
+    : [];
   const currentVersion = Number(m.current_version ?? m.CurrentVersion ?? 0);
   const mandateInstances = instances.filter(
     (item) =>
@@ -126,11 +142,27 @@ export default async function MandateReview({
   const flag = (key: string, legacy: string) =>
     Boolean(m[key] ?? m[legacy] ?? false);
   const count = (value: unknown) => (Array.isArray(value) ? value.length : 0);
+  const automationType = read("automation_type", "AutomationType");
+  const financialAccountID = read("financial_account_id", "FinancialAccountID");
+  const financialAccount = accounts.find(
+    (item) => String(item.id ?? item.ID ?? "") === financialAccountID,
+  );
+  const financialProvider = String(
+    financialAccount?.provider ?? financialAccount?.Provider ?? "",
+  );
+  const allowedUniverse = (m.allowed_universe ?? m.AllowedUniverse ?? {}) as {
+    symbols?: string[];
+    Symbols?: string[];
+  };
   return (
     <main className="connections-page automation-page">
       <AppPageHeader backHref="/automations" backLabel="Automations" />
       <p className="eyebrow">AUTOMATION MANDATE REVIEW</p>
-      <h1>{read("automation_type", "AutomationType")}</h1>
+      <h1>
+        {automationType === "AI_AUTONOMOUS"
+          ? "AI Shadow Engine"
+          : automationType}
+      </h1>
       <section className="review-grid">
         <p>
           <strong>Account</strong>
@@ -173,31 +205,35 @@ export default async function MandateReview({
         strategyIdentifier={read("strategy_identifier", "StrategyIdentifier")}
         instanceExists={Boolean(instance)}
       />
-      <StrategyAutonomyControls
-        automationId={id}
-        currentVersion={currentVersion}
-        automationType={read("automation_type", "AutomationType")}
-        autonomyLevel={read("autonomy_level", "AutonomyLevel")}
-        executionMode={read("execution_mode", "ExecutionMode")}
-        hasActiveInstance={hasActiveInstance}
-      />
-      <PaperOptionsSimulationAttestationControls
-        automationId={id}
-        currentVersion={currentVersion}
-        automationType={read("automation_type", "AutomationType")}
-        executionMode={read("execution_mode", "ExecutionMode")}
-        optionsAllowed={flag("options_allowed", "OptionsAllowed")}
-        capabilityUnverified={flag(
-          "capability_unverified",
-          "CapabilityUnverified",
-        )}
-        attested={flag(
-          "paper_options_simulation_attested",
-          "PaperOptionsSimulationAttested",
-        )}
-        hasActiveInstance={hasActiveInstance}
-      />
-      {read("automation_type", "AutomationType") === "STRATEGY" && (
+      {automationType === "STRATEGY" && (
+        <StrategyAutonomyControls
+          automationId={id}
+          currentVersion={currentVersion}
+          automationType={read("automation_type", "AutomationType")}
+          autonomyLevel={read("autonomy_level", "AutonomyLevel")}
+          executionMode={read("execution_mode", "ExecutionMode")}
+          hasActiveInstance={hasActiveInstance}
+        />
+      )}
+      {automationType === "STRATEGY" && (
+        <PaperOptionsSimulationAttestationControls
+          automationId={id}
+          currentVersion={currentVersion}
+          automationType={read("automation_type", "AutomationType")}
+          executionMode={read("execution_mode", "ExecutionMode")}
+          optionsAllowed={flag("options_allowed", "OptionsAllowed")}
+          capabilityUnverified={flag(
+            "capability_unverified",
+            "CapabilityUnverified",
+          )}
+          attested={flag(
+            "paper_options_simulation_attested",
+            "PaperOptionsSimulationAttested",
+          )}
+          hasActiveInstance={hasActiveInstance}
+        />
+      )}
+      {automationType === "STRATEGY" && (
         <>
           <StrategyEvaluationControls
             automationId={id}
@@ -228,6 +264,7 @@ export default async function MandateReview({
               scheduleResponse.email_delivery_available ??
                 automationResponse.email_delivery_available,
             )}
+            financialProvider={financialProvider}
             conditions={
               (m.schedule_conditions ??
                 m.ScheduleConditions ??
@@ -265,6 +302,54 @@ export default async function MandateReview({
                 )}
               />
             </>
+          )}
+        </>
+      )}
+      {automationType === "AI_AUTONOMOUS" && (
+        <>
+          <AIShadowEvaluationControls
+            status={read("status", "Status")}
+            instanceId={instanceID}
+            instanceStatus={String(instance?.Status ?? instance?.status ?? "")}
+            parameters={
+              (m.strategy_parameters ??
+                m.StrategyParameters ??
+                {}) as AIShadowParameters
+            }
+            symbols={allowedUniverse.symbols ?? allowedUniverse.Symbols ?? []}
+          />
+          <StrategyScheduleControls
+            automationId={id}
+            currentVersion={currentVersion}
+            automationType={automationType}
+            autonomyLevel={read("autonomy_level", "AutonomyLevel")}
+            executionMode={read("execution_mode", "ExecutionMode")}
+            instanceId={instanceID}
+            schedulerEnabled={Boolean(scheduleResponse.scheduler_enabled)}
+            emailDeliveryAvailable={Boolean(
+              scheduleResponse.email_delivery_available ??
+                automationResponse.email_delivery_available,
+            )}
+            financialProvider={financialProvider}
+            conditions={
+              (m.schedule_conditions ??
+                m.ScheduleConditions ??
+                {}) as StrategyScheduleConditions
+            }
+            runtime={
+              scheduleResponse.schedule as unknown as
+                | StrategyScheduleStatus
+                | undefined
+            }
+          />
+          {instance && (
+            <StrategyInstanceControls
+              instanceId={instanceID}
+              status={String(instance.Status ?? instance.status ?? "")}
+              stateVersion={Number(
+                instance.StateVersion ?? instance.state_version ?? 0,
+              )}
+            />
           )}
         </>
       )}

@@ -7,54 +7,33 @@ type Item = {
   id: string;
   display_name?: string;
   name?: string;
+  provider?: string;
   status?: string;
   is_reserve?: boolean;
   financial_account_id?: string;
 };
+type Model = { id: string; display_name: string };
 
-type Model = {
-  id: string;
-  display_name: string;
-};
+const shadowModels = new Set(["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]);
 
-const strategies = [
-  {
-    id: "wheel",
-    name: "Wheel",
-    description:
-      "Sell cash-secured puts, then covered calls if shares are assigned.",
-  },
-  {
-    id: "covered_call",
-    name: "Covered Call",
-    description: "Generate option premium from shares you already hold.",
-  },
-  {
-    id: "cash_secured_put",
-    name: "Cash-Secured Put",
-    description:
-      "Target an entry price while keeping the required cash set aside.",
-  },
-] as const;
-
-function accountItem(account: Record<string, unknown>): Item {
+function accountItem(value: Record<string, unknown>): Item {
   return {
-    id: String(account.id ?? account.ID ?? ""),
+    id: String(value.id ?? value.ID ?? ""),
     display_name: String(
-      account.display_name ?? account.DisplayName ?? "Financial account",
+      value.display_name ?? value.DisplayName ?? "Financial account",
     ),
-    status: String(account.status ?? account.Status ?? ""),
+    provider: String(value.provider ?? value.Provider ?? ""),
+    status: String(value.status ?? value.Status ?? ""),
   };
 }
-
-function bucketItem(bucket: Record<string, unknown>): Item {
+function bucketItem(value: Record<string, unknown>): Item {
   return {
-    id: String(bucket.id ?? bucket.ID ?? ""),
-    name: String(bucket.name ?? bucket.Name ?? "Trading budget"),
-    status: String(bucket.status ?? bucket.Status ?? ""),
-    is_reserve: Boolean(bucket.is_reserve ?? bucket.IsReserve),
+    id: String(value.id ?? value.ID ?? ""),
+    name: String(value.name ?? value.Name ?? "Trading budget"),
+    status: String(value.status ?? value.Status ?? ""),
+    is_reserve: Boolean(value.is_reserve ?? value.IsReserve),
     financial_account_id: String(
-      bucket.financial_account_id ?? bucket.FinancialAccountID ?? "",
+      value.financial_account_id ?? value.FinancialAccountID ?? "",
     ),
   };
 }
@@ -62,26 +41,27 @@ function bucketItem(bucket: Record<string, unknown>): Item {
 export default function AutomationBuilder() {
   const [accounts, setAccounts] = useState<Item[]>([]);
   const [buckets, setBuckets] = useState<Item[]>([]);
-  const [ai, setAI] = useState<Item[]>([]);
+  const [connections, setConnections] = useState<Item[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [accountID, setAccountID] = useState("");
-  const [aiID, setAIID] = useState("");
+  const [connectionID, setConnectionID] = useState("");
   const [modelID, setModelID] = useState("");
   const [preferredModelID, setPreferredModelID] = useState("");
-  const [strategy, setStrategy] = useState("wheel");
   const [bucketID, setBucketID] = useState("");
   const [budgetAmount, setBudgetAmount] = useState("");
-  const [mode, setMode] = useState("PAPER");
-  const [autonomy, setAutonomy] = useState("CONFIRM_EACH");
-  const [marginAllowed, setMarginAllowed] = useState(false);
-  const [message, setMessage] = useState("");
-  const [budgetMessage, setBudgetMessage] = useState("");
-  const [createdAutomationID, setCreatedAutomationID] = useState("");
+  const [objective, setObjective] = useState(
+    "Look for cautious, risk-aware opportunities while preserving capital.",
+  );
+  const [symbols, setSymbols] = useState("");
+  const [maxNotional, setMaxNotional] = useState("1");
+  const [scheduled, setScheduled] = useState(false);
+  const [intervalMinutes, setIntervalMinutes] = useState(60);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(false);
-  const [budgetBusy, setBudgetBusy] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [message, setMessage] = useState("");
+  const [createdID, setCreatedID] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -108,6 +88,9 @@ export default function AutomationBuilder() {
                     connection.DisplayName ??
                     "AI provider",
                 ),
+                provider: String(
+                  connection.provider ?? connection.Provider ?? "",
+                ),
                 status: String(connection.status ?? connection.Status ?? ""),
               }),
             )
@@ -116,53 +99,53 @@ export default function AutomationBuilder() {
           (account: Item) => account.status === "active",
         );
         const activeAI = aiItems.filter(
-          (connection: Item) => connection.status === "active",
+          (connection: Item) =>
+            connection.status === "active" && connection.provider === "openai",
         );
         const preference = preferencePayload.preference as
           | { connection_id?: string; model_id?: string }
           | null
           | undefined;
-        const preferredAI =
+        const selectedAI =
           activeAI.find(
-            (connection: Item) => connection.id === preference?.connection_id,
+            (item: Item) => item.id === preference?.connection_id,
           ) ?? activeAI[0];
         setAccounts(accountItems);
         setBuckets(bucketItems);
-        setAI(aiItems);
+        setConnections(aiItems);
         setAccountID(activeAccounts[0]?.id ?? "");
-        setModelsLoading(Boolean(preferredAI));
-        setAIID(preferredAI?.id ?? "");
+        setConnectionID(selectedAI?.id ?? "");
         setPreferredModelID(preference?.model_id ?? "");
+        setModelsLoading(Boolean(selectedAI));
       })
-      .catch(() => {
-        if (active) setLoadError(true);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+      .catch(() => active && setLoadError(true))
+      .finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
   }, []);
 
   useEffect(() => {
-    if (!aiID) {
-      return;
-    }
+    if (!connectionID) return;
     let active = true;
-    void fetch(`/api/connections/ai/${aiID}/models`)
+    void fetch(`/api/connections/ai/${connectionID}/models`)
       .then((response) => response.json())
       .then((payload) => {
         if (!active) return;
-        const items = Array.isArray(payload.models)
-          ? payload.models.map((model: Record<string, unknown>) => ({
-              id: String(model.id ?? ""),
-              display_name: String(model.display_name ?? model.id ?? "Model"),
-            }))
+        const items: Model[] = Array.isArray(payload.models)
+          ? payload.models
+              .map((model: Record<string, unknown>) => ({
+                id: String(model.id ?? ""),
+                display_name: String(
+                  model.display_name ?? model.id ?? "Arbion model",
+                ),
+              }))
+              .filter((model: Model) => shadowModels.has(model.id))
           : [];
         setModels(items);
         setModelID(
-          items.find((model: Model) => model.id === preferredModelID)?.id ??
+          items.find((model) => model.id === preferredModelID)?.id ??
+            items.find((model) => model.id === "gpt-5.6-sol")?.id ??
             items[0]?.id ??
             "",
         );
@@ -173,18 +156,17 @@ export default function AutomationBuilder() {
           setModelID("");
         }
       })
-      .finally(() => {
-        if (active) setModelsLoading(false);
-      });
+      .finally(() => active && setModelsLoading(false));
     return () => {
       active = false;
     };
-  }, [aiID, preferredModelID]);
+  }, [connectionID, preferredModelID]);
 
-  const activeAccounts = accounts.filter(
-    (account) => account.status === "active",
+  const activeAccounts = accounts.filter((item) => item.status === "active");
+  const activeAI = connections.filter(
+    (item) => item.status === "active" && item.provider === "openai",
   );
-  const activeAI = ai.filter((connection) => connection.status === "active");
+  const account = activeAccounts.find((item) => item.id === accountID);
   const eligibleBuckets = useMemo(
     () =>
       buckets.filter(
@@ -195,7 +177,6 @@ export default function AutomationBuilder() {
       ),
     [accountID, buckets],
   );
-
   const selectedBucketID = eligibleBuckets.some(
     (bucket) => bucket.id === bucketID,
   )
@@ -204,16 +185,15 @@ export default function AutomationBuilder() {
 
   async function createBudget() {
     if (!accountID || !budgetAmount) return;
-    setBudgetBusy(true);
-    setBudgetMessage("");
-    const selectedStrategy = strategies.find((item) => item.id === strategy);
+    setBusy(true);
+    setMessage("");
     try {
       const response = await fetch("/api/capital-buckets", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           financial_account_id: accountID,
-          name: `${selectedStrategy?.name ?? "Strategy"} budget`,
+          name: "AI Shadow budget",
           allocation_type: "FIXED_AMOUNT",
           allocation_value: budgetAmount,
           currency: "USD",
@@ -230,163 +210,181 @@ export default function AutomationBuilder() {
       setBuckets((current) => [...current, item]);
       setBucketID(item.id);
       setBudgetAmount("");
-      setBudgetMessage("Trading budget saved for this account.");
+      setMessage("AI Shadow budget saved for this account.");
     } catch {
-      setBudgetMessage(
-        "The trading budget could not be saved. Check the amount and try again.",
+      setMessage(
+        "The budget could not be saved. Check the amount and try again.",
       );
     } finally {
-      setBudgetBusy(false);
+      setBusy(false);
     }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSubmitting(true);
+    const allowedSymbols = symbols
+      .split(",")
+      .map((symbol) => symbol.trim().toUpperCase())
+      .filter(Boolean);
+    setBusy(true);
     setMessage("");
-    setCreatedAutomationID("");
+    setCreatedID("");
     try {
       const response = await fetch("/api/automations", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           financial_account_id: accountID,
-          automation_type: "HYBRID",
-          strategy_identifier: strategy,
-          ai_provider_connection_id: aiID,
+          automation_type: "AI_AUTONOMOUS",
+          strategy_identifier: null,
+          ai_provider_connection_id: connectionID,
           ai_model_id: modelID,
           capital_bucket_id: selectedBucketID,
-          autonomy_level: autonomy,
-          execution_mode: mode,
-          margin_allowed: marginAllowed,
-          options_allowed: true,
-          strategy_parameters: {},
+          autonomy_level: "FULL_AUTONOMOUS",
+          execution_mode: "SHADOW",
+          margin_allowed: false,
+          options_allowed: false,
+          strategy_parameters: {
+            objective,
+            max_proposal_notional: maxNotional,
+          },
           risk_parameters: {},
-          allowed_universe: { symbols: [], universe_ids: [] },
+          allowed_universe: { symbols: allowedSymbols, universe_ids: [] },
           prohibited_universe: { symbols: [] },
-          schedule_conditions: {},
+          schedule_conditions: scheduled
+            ? {
+                enabled: true,
+                interval_minutes: intervalMinutes,
+                session:
+                  account?.provider === "coinbase"
+                    ? "CONTINUOUS"
+                    : "US_EQUITIES_REGULAR",
+                notifications: {
+                  evaluation_completed: true,
+                  first_failure: true,
+                },
+              }
+            : { enabled: false },
         }),
       });
-      if (!response.ok) throw new Error("strategy rejected");
+      if (!response.ok) throw new Error("automation rejected");
       const payload = (await response.json()) as {
         automation?: { id?: string; ID?: string };
       };
-      setCreatedAutomationID(
-        String(payload.automation?.id ?? payload.automation?.ID ?? ""),
-      );
+      const id = String(payload.automation?.id ?? payload.automation?.ID ?? "");
+      setCreatedID(id);
       setMessage(
-        "Strategy draft created. Review it before enabling any evaluation.",
+        "AI Shadow draft created. Review the immutable controls, then mark it ready. No broker order was sent.",
       );
     } catch {
       setMessage(
-        "The strategy draft could not be created. Review the selected account, model, and budget.",
+        "The AI Shadow draft could not be created. Review the account, model, symbols, and budget.",
       );
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   }
 
   const ready =
     !loading &&
     !loadError &&
-    Boolean(accountID && aiID && modelID && selectedBucketID);
+    Boolean(
+      accountID &&
+        connectionID &&
+        modelID &&
+        selectedBucketID &&
+        objective.trim() &&
+        symbols.trim() &&
+        Number(maxNotional) > 0,
+    );
 
   return (
     <form className="strategy-launch" onSubmit={submit}>
-      {loading && <p>Loading your connected accounts and models…</p>}
-      {loadError && (
-        <p className="form-error" role="alert">
-          Your connections could not be loaded. Try again shortly.
+      <section className="strategy-prerequisite ai-shadow-banner">
+        <p className="eyebrow">ARBION AUTONOMOUS ENGINE</p>
+        <strong>One intelligence layer. Every connected account.</strong>
+        <p>
+          Build the same bounded AI decision loop for Coinbase or Schwab. This
+          milestone watches real portfolios and real market data, then records
+          shadow decisions without sending orders.
         </p>
+      </section>
+      {loading && <p>Loading your command center connections…</p>}
+      {loadError && (
+        <p className="form-error">Connections could not be loaded.</p>
       )}
-
-      {!loading && !loadError && activeAccounts.length === 0 && (
+      {!loading && activeAccounts.length === 0 && (
         <section className="strategy-prerequisite">
-          <strong>Connect a financial account first</strong>
-          <p>Your strategy needs an account whose portfolio it can evaluate.</p>
-          <Link href="/connections#financial-accounts">
-            Open connection hub →
-          </Link>
+          <strong>Connect Coinbase or Schwab first</strong>
+          <Link href="/connections">Open connection hub →</Link>
+        </section>
+      )}
+      {!loading && activeAI.length === 0 && (
+        <section className="strategy-prerequisite">
+          <strong>Connect and verify OpenAI first</strong>
+          <Link href="/connections#ai-providers">Open AI connections →</Link>
         </section>
       )}
 
-      {!loading && !loadError && activeAI.length === 0 && (
-        <section className="strategy-prerequisite">
-          <strong>Connect an AI provider first</strong>
-          <p>Add OpenAI, Claude, or Gemini and select a verified model.</p>
-          <Link href="/connections#ai-providers">Open connection hub →</Link>
-        </section>
-      )}
-
-      <section
-        className="strategy-launch-section"
-        aria-labelledby="engine-title"
-      >
+      <section className="strategy-launch-section">
         <header>
           <span>01</span>
           <div>
-            <h2 id="engine-title">Choose the account and intelligence</h2>
-            <p>These can be changed before the strategy is activated.</p>
+            <h2>Choose the live account context</h2>
+            <p>
+              Each account gets an isolated mandate, budget, journal, and kill
+              switch.
+            </p>
           </div>
         </header>
         <div className="strategy-launch-grid">
           <label>
             Financial account
             <select
-              disabled={activeAccounts.length === 0}
               required
               value={accountID}
-              onChange={(event) => setAccountID(event.target.value)}
-            >
-              {activeAccounts.length === 0 && (
-                <option value="">No connected accounts</option>
-              )}
-              {activeAccounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.display_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            AI provider
-            <select
-              disabled={activeAI.length === 0}
-              required
-              value={aiID}
               onChange={(event) => {
-                setPreferredModelID("");
-                setModels([]);
-                setModelID("");
-                setModelsLoading(Boolean(event.target.value));
-                setAIID(event.target.value);
+                setAccountID(event.target.value);
+                setBucketID("");
+                setSymbols("");
               }}
             >
-              {activeAI.length === 0 && (
-                <option value="">No connected AI providers</option>
-              )}
-              {activeAI.map((connection) => (
-                <option key={connection.id} value={connection.id}>
-                  {connection.display_name}
+              <option value="">Choose an account</option>
+              {activeAccounts.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.display_name} · {item.provider}
                 </option>
               ))}
             </select>
           </label>
           <label>
-            AI model
+            Arbion intelligence
             <select
-              disabled={!aiID || modelsLoading || models.length === 0}
               required
+              value={connectionID}
+              onChange={(event) => {
+                setModelsLoading(true);
+                setConnectionID(event.target.value);
+              }}
+            >
+              {activeAI.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Decision model
+            <select
+              required
+              disabled={modelsLoading || models.length === 0}
               value={modelID}
               onChange={(event) => setModelID(event.target.value)}
             >
-              {models.length === 0 && (
-                <option value="">
-                  {modelsLoading
-                    ? "Loading verified models…"
-                    : "No models loaded"}
-                </option>
-              )}
+              <option value="">
+                {modelsLoading ? "Loading models…" : "Choose a model"}
+              </option>
               {models.map((model) => (
                 <option key={model.id} value={model.id}>
                   {model.display_name}
@@ -397,47 +395,64 @@ export default function AutomationBuilder() {
         </div>
       </section>
 
-      <fieldset className="strategy-launch-section strategy-picker">
-        <legend>
+      <section className="strategy-launch-section">
+        <header>
           <span>02</span>
-          <span>
-            <strong>Choose a trading strategy</strong>
-            <small>Start with one clear, repeatable playbook.</small>
-          </span>
-        </legend>
-        <div className="strategy-choice-grid">
-          {strategies.map((option) => (
-            <label
-              className={strategy === option.id ? "is-selected" : ""}
-              key={option.id}
-            >
-              <input
-                checked={strategy === option.id}
-                name="strategy"
-                onChange={() => setStrategy(option.id)}
-                type="radio"
-                value={option.id}
-              />
-              <span>
-                <strong>{option.name}</strong>
-                <small>{option.description}</small>
-              </span>
-            </label>
-          ))}
+          <div>
+            <h2>Define the AI mandate</h2>
+            <p>
+              The model may choose only from these symbols and may never exceed
+              the per-decision ceiling.
+            </p>
+          </div>
+        </header>
+        <div className="strategy-launch-grid">
+          <label className="strategy-objective">
+            Trading objective
+            <textarea
+              required
+              maxLength={500}
+              value={objective}
+              onChange={(event) => setObjective(event.target.value)}
+            />
+          </label>
+          <label>
+            Allowed symbols
+            <input
+              required
+              placeholder={
+                account?.provider === "coinbase"
+                  ? "BTC, ETH, XRP"
+                  : "SPY, QQQ, AAPL"
+              }
+              value={symbols}
+              onChange={(event) => setSymbols(event.target.value)}
+            />
+            <span className="field-hint">Up to 8, comma separated.</span>
+          </label>
+          <label>
+            Maximum per shadow proposal (USD)
+            <input
+              required
+              inputMode="decimal"
+              min="0.01"
+              step="any"
+              type="number"
+              value={maxNotional}
+              onChange={(event) => setMaxNotional(event.target.value)}
+            />
+          </label>
         </div>
-      </fieldset>
+      </section>
 
-      <section
-        className="strategy-launch-section"
-        aria-labelledby="budget-title"
-      >
+      <section className="strategy-launch-section">
         <header>
           <span>03</span>
           <div>
-            <h2 id="budget-title">Set the trading budget</h2>
+            <h2>Bind capital and monitoring</h2>
             <p>
-              This is the most Arbion may allocate to the strategy—not
-              permission to spend the rest of the account.
+              The account budget is a hard boundary, not permission to use the
+              rest of the portfolio.
             </p>
           </div>
         </header>
@@ -459,89 +474,70 @@ export default function AutomationBuilder() {
         ) : (
           <div className="strategy-budget-create">
             <label>
-              Amount available to this strategy (USD)
+              New AI Shadow budget (USD)
               <input
                 inputMode="decimal"
                 min="1"
-                onChange={(event) => setBudgetAmount(event.target.value)}
-                placeholder="1,000"
                 step="any"
                 type="number"
                 value={budgetAmount}
+                onChange={(event) => setBudgetAmount(event.target.value)}
               />
             </label>
             <button
-              disabled={!accountID || !budgetAmount || budgetBusy}
+              disabled={busy || !budgetAmount}
               onClick={createBudget}
               type="button"
             >
-              {budgetBusy ? "Saving…" : "Save trading budget"}
+              Save isolated budget
             </button>
           </div>
         )}
-        {budgetMessage && <p role="status">{budgetMessage}</p>}
-      </section>
-
-      <details className="strategy-advanced">
-        <summary>Advanced controls</summary>
         <div className="strategy-launch-grid">
-          <label>
-            Starting mode
-            <select
-              value={mode}
-              onChange={(event) => setMode(event.target.value)}
-            >
-              <option value="PAPER">Paper portfolio</option>
-              <option value="SHADOW">Shadow decisions only</option>
-              <option value="BACKTEST">Backtest configuration</option>
-            </select>
-          </label>
-          <label>
-            Approval style
-            <select
-              value={autonomy}
-              onChange={(event) => setAutonomy(event.target.value)}
-            >
-              <option value="CONFIRM_EACH">
-                Confirm every proposed action
-              </option>
-              <option value="SUGGEST">Suggestions only</option>
-              <option value="RESEARCH_ONLY">Research only</option>
-            </select>
-          </label>
           <label className="checkbox-row">
             <input
-              checked={marginAllowed}
-              onChange={(event) => setMarginAllowed(event.target.checked)}
               type="checkbox"
+              checked={scheduled}
+              onChange={(event) => setScheduled(event.target.checked)}
             />
-            Allow the strategy to consider margin
+            Run guarded evaluations automatically
           </label>
+          {scheduled && (
+            <label>
+              Evaluation interval
+              <select
+                value={intervalMinutes}
+                onChange={(event) =>
+                  setIntervalMinutes(Number(event.target.value))
+                }
+              >
+                <option value={30}>Every 30 minutes</option>
+                <option value={60}>Every hour</option>
+                <option value={240}>Every 4 hours</option>
+                <option value={1440}>Once a day</option>
+              </select>
+            </label>
+          )}
         </div>
-      </details>
+      </section>
 
       <footer className="strategy-launch-footer">
         <div>
-          <strong>Creates a reviewable draft</strong>
+          <strong>Shadow-only launch</strong>
           <span>
-            No trade is submitted and no strategy starts automatically.
+            Real data in. Decision journal out. No Coinbase or Schwab order
+            route exists.
           </span>
         </div>
-        <button disabled={!ready || submitting} type="submit">
-          {submitting ? "Creating…" : "Create strategy draft"}
+        <button disabled={!ready || busy} type="submit">
+          {busy ? "Creating…" : "Create AI Shadow draft"}
         </button>
       </footer>
-
       {message && (
-        <p
-          className={createdAutomationID ? "form-success" : "form-error"}
-          role="status"
-        >
+        <p className={createdID ? "form-success" : "form-error"} role="status">
           {message}{" "}
-          {createdAutomationID && (
-            <Link href={`/automations/${createdAutomationID}`}>
-              Review strategy →
-            </Link>
+          {createdID && (
+            <Link href={`/automations/${createdID}`}>Review AI engine →</Link>
           )}
         </p>
       )}

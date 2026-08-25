@@ -37,7 +37,11 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 		return Instance{}, e
 	}
 	defer tx.Rollback(c)
-	i, e := scanInstance(tx.QueryRow(c, `INSERT INTO strategy_instances(user_id,automation_mandate_id,mandate_version,financial_account_id,capital_bucket_id,strategy_identifier,strategy_definition_version,execution_mode,current_state) VALUES($1,$2,$3,$4,$5,$6,1,$7,$8) RETURNING `+instanceColumns, u, m.ID, m.CurrentVersion, m.FinancialAccountID, m.CapitalBucketID, *m.StrategyIdentifier, m.ExecutionMode, state))
+	identifier := "ai_shadow"
+	if m.StrategyIdentifier != nil {
+		identifier = *m.StrategyIdentifier
+	}
+	i, e := scanInstance(tx.QueryRow(c, `INSERT INTO strategy_instances(user_id,automation_mandate_id,mandate_version,financial_account_id,capital_bucket_id,strategy_identifier,strategy_definition_version,execution_mode,current_state) VALUES($1,$2,$3,$4,$5,$6,1,$7,$8) RETURNING `+instanceColumns, u, m.ID, m.CurrentVersion, m.FinancialAccountID, m.CapitalBucketID, identifier, m.ExecutionMode, state))
 	if e != nil {
 		var postgresError *pgconn.PgError
 		if errors.As(e, &postgresError) && postgresError.Code == "23505" {
@@ -369,6 +373,17 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 		return ErrInvalid
 	}
 	action := *decision.ProposedAction
+	source := decision.Source
+	if source == "" {
+		source = "STRATEGY"
+	}
+	instrumentType := decision.InstrumentType
+	if instrumentType == "" {
+		instrumentType = "OPTION"
+	}
+	if (source != "STRATEGY" && source != "AI") || (instrumentType != "OPTION" && instrumentType != "EQUITY" && instrumentType != "CRYPTO") || (source == "AI" && instance.StrategyIdentifier != "ai_shadow") {
+		return ErrInvalid
+	}
 	if action.FinancialAccountID != instance.FinancialAccountID || evaluation.UserID != instance.UserID || evaluation.AccountID != instance.FinancialAccountID || action.MandateID == nil || *action.MandateID != instance.AutomationMandateID || action.MandateVersion == nil || *action.MandateVersion != instance.MandateVersion {
 		return ErrInvalid
 	}
@@ -421,7 +436,7 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 		notional = &action.Notional
 	}
 	var executionID string
-	err = tx.QueryRow(c, `INSERT INTO nonlive_execution_records(idempotency_key,user_id,strategy_instance_id,mandate_id,mandate_version,proposed_action_id,risk_evaluation_id,mode,status,symbol,instrument,side,quantity,price,notional,metadata,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'OPTION',$11,$12,$13,$14,$15,$16,$16) RETURNING id::text`, action.ID, instance.UserID, instance.ID, instance.AutomationMandateID, instance.MandateVersion, action.ID, evaluation.ID, instance.ExecutionMode, result.Status, action.Instrument, action.Side, action.Quantity, price, notional, executionMetadata, evaluatedAt).Scan(&executionID)
+	err = tx.QueryRow(c, `INSERT INTO nonlive_execution_records(idempotency_key,user_id,strategy_instance_id,mandate_id,mandate_version,proposed_action_id,risk_evaluation_id,mode,status,symbol,instrument,side,quantity,price,notional,metadata,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17) RETURNING id::text`, action.ID, instance.UserID, instance.ID, instance.AutomationMandateID, instance.MandateVersion, action.ID, evaluation.ID, instance.ExecutionMode, result.Status, action.Instrument, instrumentType, action.Side, action.Quantity, price, notional, executionMetadata, evaluatedAt).Scan(&executionID)
 	if err != nil {
 		return err
 	}
@@ -455,7 +470,7 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 	}
 
 	decisionType := fmt.Sprintf("%s_%s", evaluation.Decision, result.Status)
-	_, err = tx.Exec(c, `INSERT INTO decision_journal_entries(user_id,financial_account_id,mandate_id,mandate_version,strategy_instance_id,strategy_state,source,decision_type,structured_rationale,proposed_action_id,risk_evaluation_id,execution_record_id,resulting_state,created_at) VALUES($1,$2,$3,$4,$5,$6,'STRATEGY',$7,$8,$9,$10,$11,$12,$13)`, instance.UserID, instance.FinancialAccountID, instance.AutomationMandateID, instance.MandateVersion, instance.ID, instance.CurrentState, decisionType, decision.Rationale, action.ID, evaluation.ID, executionID, resultingState, evaluatedAt)
+	_, err = tx.Exec(c, `INSERT INTO decision_journal_entries(user_id,financial_account_id,mandate_id,mandate_version,strategy_instance_id,strategy_state,source,decision_type,structured_rationale,proposed_action_id,risk_evaluation_id,execution_record_id,resulting_state,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, instance.UserID, instance.FinancialAccountID, instance.AutomationMandateID, instance.MandateVersion, instance.ID, instance.CurrentState, source, decisionType, decision.Rationale, action.ID, evaluation.ID, executionID, resultingState, evaluatedAt)
 	if err != nil {
 		return err
 	}
@@ -480,6 +495,37 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 		if err == pgx.ErrNoRows {
 			return ErrConflict
 		}
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit(c)
+}
+
+func (s *PostgresStore) CommitAIAbstention(c context.Context, instance Instance, eventID string, rationale json.RawMessage, evaluatedAt time.Time) error {
+	if instance.StrategyIdentifier != "ai_shadow" || instance.ExecutionMode != Shadow || instance.CurrentState != AIMonitoring || !evaluationEventID.MatchString(eventID) || !json.Valid(rationale) || len(rationale) == 0 || rationale[0] != '{' || evaluatedAt.IsZero() {
+		return ErrInvalid
+	}
+	tx, err := s.db.Begin(c)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(c)
+	claimed, err := tx.Exec(c, `INSERT INTO strategy_evaluation_events(strategy_instance_id,event_id,status,created_at,completed_at) VALUES($1,$2,'COMMITTED',$3,$3) ON CONFLICT DO NOTHING`, instance.ID, eventID, evaluatedAt)
+	if err != nil {
+		return err
+	}
+	if claimed.RowsAffected() != 1 {
+		return ErrDuplicate
+	}
+	_, err = tx.Exec(c, `INSERT INTO decision_journal_entries(user_id,financial_account_id,mandate_id,mandate_version,strategy_instance_id,strategy_state,source,decision_type,structured_rationale,resulting_state,created_at) VALUES($1,$2,$3,$4,$5,$6,'AI','ABSTAIN',$7,$6,$8)`, instance.UserID, instance.FinancialAccountID, instance.AutomationMandateID, instance.MandateVersion, instance.ID, instance.CurrentState, rationale, evaluatedAt)
+	if err != nil {
+		return err
+	}
+	var id string
+	err = tx.QueryRow(c, `UPDATE strategy_instances SET last_evaluated_at=$4,updated_at=$4 WHERE id=$1 AND user_id=$2 AND state_version=$3 AND current_state='AI_MONITORING' AND status='ACTIVE' RETURNING id::text`, instance.ID, instance.UserID, instance.StateVersion, evaluatedAt).Scan(&id)
+	if err == pgx.ErrNoRows {
+		return ErrConflict
 	}
 	if err != nil {
 		return err

@@ -40,3 +40,13 @@ func resolveInsightRoute(raw string) (InsightRoute, error) {
 	}
 	return route, nil
 }
+
+func resolveModelRoute(modelID string) (InsightRoute, error) {
+	modelID = strings.TrimSpace(modelID)
+	for _, route := range insightRoutes {
+		if route.ModelID == modelID {
+			return route, nil
+		}
+	}
+	return InsightRoute{}, ErrInvalid
+}

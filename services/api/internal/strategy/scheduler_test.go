@@ -96,6 +96,23 @@ func TestSchedulerFailsClosedOutsideSessionAndWhileWaitingForLifecycle(t *testin
 	}
 }
 
+func TestSchedulerRunsContinuousAIShadowOutsideEquitiesSession(t *testing.T) {
+	now := time.Date(2026, 8, 22, 15, 0, 0, 0, time.UTC) // Saturday.
+	run := scheduledRun(AIMonitoring, now)
+	run.ExecutionMode = Shadow
+	run.Session = "CONTINUOUS"
+	store := &scheduleStoreFake{run: run}
+	evaluator := &scheduledEvaluatorFake{}
+	scheduler := NewScheduler(store, evaluator)
+	scheduler.now = func() time.Time { return now }
+	if claimed, err := scheduler.RunOnce(context.Background()); err != nil || !claimed {
+		t.Fatalf("continuous AI shadow run failed: %v", err)
+	}
+	if evaluator.calls != 1 || store.completion.Status != "SUCCEEDED" {
+		t.Fatalf("continuous AI shadow was improperly session-gated: calls=%d completion=%#v", evaluator.calls, store.completion)
+	}
+}
+
 func TestSchedulerFailsClosedWhenSessionCalendarIsUnavailable(t *testing.T) {
 	now := time.Date(2029, 1, 2, 16, 0, 0, 0, time.UTC)
 	store := &scheduleStoreFake{run: scheduledRun(ReadyForPut, now)}

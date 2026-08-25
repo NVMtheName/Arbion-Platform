@@ -4,12 +4,13 @@ import AutomationBuilder from "./automation-builder";
 export default function NewAutomation() {
   return (
     <main className="connections-page automation-page">
-      <AppPageHeader backHref="/automations" backLabel="Strategies" />
-      <p className="eyebrow">STRATEGY SETUP</p>
-      <h1>Choose how Arbion should work.</h1>
+      <AppPageHeader backHref="/automations" backLabel="Automations" />
+      <p className="eyebrow">ARBION AI ENGINE</p>
+      <h1>Launch an autonomous shadow analyst.</h1>
       <p className="lede">
-        Select a connected account, the AI model you trust, a strategy, and the
-        amount of capital it may use. Advanced controls stay out of the way.
+        Connect real portfolio context to a bounded AI mandate, then watch every
+        proposed decision pass through Arbion&apos;s deterministic risk
+        controls.
       </p>
       <AutomationBuilder />
     </main>

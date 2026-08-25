@@ -10,10 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import AutomationBuilder from "./automation-builder";
 
 function response(payload: unknown, ok = true) {
-  return {
-    ok,
-    json: async () => payload,
-  } as Response;
+  return { ok, json: async () => payload } as Response;
 }
 
 type Fixtures = {
@@ -27,287 +24,148 @@ type Fixtures = {
 function fetchFixtures(fixtures: Fixtures = {}) {
   return vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
-    if (url.includes("/models")) {
+    if (url.includes("/models"))
       return response({ models: fixtures.models ?? [] });
-    }
-    if (url.includes("settings/neural-engine")) {
+    if (url.includes("settings/neural-engine"))
       return response({ preference: fixtures.preference ?? null });
-    }
-    if (url.includes("capital-buckets")) {
-      return response({ capital_buckets: fixtures.buckets ?? null });
-    }
-    if (url.includes("connections/ai")) {
-      return response({ connections: fixtures.connections ?? null });
-    }
-    return response({ accounts: fixtures.accounts ?? null });
+    if (url.includes("capital-buckets"))
+      return response({ capital_buckets: fixtures.buckets ?? [] });
+    if (url.includes("connections/ai"))
+      return response({ connections: fixtures.connections ?? [] });
+    return response({ accounts: fixtures.accounts ?? [] });
   });
 }
 
-describe("AutomationBuilder strategy launch", () => {
+const connected: Fixtures = {
+  accounts: [
+    {
+      id: "account-1",
+      display_name: "Coinbase",
+      provider: "coinbase",
+      status: "active",
+    },
+  ],
+  buckets: [
+    {
+      id: "budget-1",
+      name: "$1 AI test",
+      status: "ACTIVE",
+      is_reserve: false,
+      financial_account_id: "account-1",
+    },
+  ],
+  connections: [
+    {
+      id: "ai-1",
+      display_name: "OpenAI",
+      provider: "openai",
+      status: "active",
+    },
+  ],
+  preference: { connection_id: "ai-1", model_id: "gpt-5.6-sol" },
+  models: [
+    { id: "gpt-4.1", display_name: "Unsupported" },
+    { id: "gpt-5.6-sol", display_name: "GPT-5.6 Sol" },
+  ],
+};
+
+describe("AutomationBuilder AI Shadow launch", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
   });
 
-  it("directs a new user to connect the required account and AI provider", async () => {
+  it("directs a new owner to connect accounts and OpenAI", async () => {
     vi.stubGlobal("fetch", fetchFixtures());
-
     render(<AutomationBuilder />);
-
     expect(
-      await screen.findByText(/connect a financial account first/i),
+      await screen.findByText(/connect coinbase or schwab first/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/connect an AI provider first/i),
+      screen.getByText(/connect and verify openai first/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /create strategy draft/i }),
-    ).toBeDisabled();
-    expect(
-      screen.getAllByRole("link", { name: /open connection hub/i })[0],
-    ).toHaveAttribute("href", "/connections#financial-accounts");
-  });
-
-  it("keeps protected reserves out of the selectable trading budget", async () => {
-    vi.stubGlobal(
-      "fetch",
-      fetchFixtures({
-        accounts: [
-          {
-            id: "account-1",
-            display_name: "Schwab account",
-            status: "active",
-          },
-        ],
-        buckets: [
-          {
-            ID: "reserve-1",
-            Name: "Never touch",
-            Status: "ACTIVE",
-            IsReserve: true,
-            FinancialAccountID: "account-1",
-          },
-        ],
-      }),
-    );
-
-    render(<AutomationBuilder />);
-
-    expect(
-      await screen.findByLabelText(/amount available to this strategy/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("option", { name: "Never touch" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /create strategy draft/i }),
+      screen.getByRole("button", { name: /create ai shadow draft/i }),
     ).toBeDisabled();
   });
 
-  it("offers only budgets owned by the selected financial account", async () => {
-    vi.stubGlobal(
-      "fetch",
-      fetchFixtures({
-        accounts: [
-          {
-            id: "account-1",
-            display_name: "First account",
-            status: "active",
-          },
-          {
-            id: "account-2",
-            display_name: "Second account",
-            status: "active",
-          },
-        ],
-        buckets: [
-          {
-            ID: "bucket-1",
-            Name: "First budget",
-            Status: "ACTIVE",
-            IsReserve: false,
-            FinancialAccountID: "account-1",
-          },
-          {
-            ID: "bucket-2",
-            Name: "Second budget",
-            Status: "ACTIVE",
-            IsReserve: false,
-            FinancialAccountID: "account-2",
-          },
-        ],
-      }),
-    );
-
+  it("shows only approved Arbion shadow models", async () => {
+    vi.stubGlobal("fetch", fetchFixtures(connected));
     render(<AutomationBuilder />);
-
     expect(
-      await screen.findByRole("option", { name: "First budget" }),
+      await screen.findByRole("option", { name: "GPT-5.6 Sol" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("option", { name: "Second budget" }),
-    ).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText(/financial account/i), {
-      target: { value: "account-2" },
-    });
-
-    expect(
-      screen.getByRole("option", { name: "Second budget" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("option", { name: "First budget" }),
+      screen.queryByRole("option", { name: "Unsupported" }),
     ).not.toBeInTheDocument();
   });
 
-  it("uses the saved AI preference and creates a non-executing strategy draft", async () => {
-    const fixtureFetch = fetchFixtures({
-      accounts: [
-        {
-          id: "account-1",
-          display_name: "Schwab brokerage",
-          status: "active",
-        },
-      ],
-      buckets: [
-        {
-          id: "budget-1",
-          name: "$1 wheel test",
-          status: "ACTIVE",
-          is_reserve: false,
-          financial_account_id: "account-1",
-        },
-      ],
-      connections: [
-        {
-          id: "ai-1",
-          display_name: "OpenAI",
-          status: "active",
-        },
-      ],
-      preference: { connection_id: "ai-1", model_id: "gpt-5" },
-      models: [
-        { id: "gpt-5-mini", display_name: "GPT-5 mini" },
-        { id: "gpt-5", display_name: "GPT-5" },
-      ],
-    });
+  it("creates an isolated Coinbase continuous AI Shadow mandate", async () => {
+    const fixtureFetch = fetchFixtures(connected);
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         if (String(input) === "/api/automations" && init?.method === "POST") {
-          return response({ automation: { id: "strategy-1" } });
+          return response({ automation: { id: "engine-1" } });
         }
         return fixtureFetch(input);
       }),
     );
-
     render(<AutomationBuilder />);
-
-    expect(
-      await screen.findByRole("option", { name: "GPT-5" }),
-    ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByLabelText(/ai model/i)).toHaveValue("gpt-5"),
-    );
-    const createButton = screen.getByRole("button", {
-      name: /create strategy draft/i,
+    fireEvent.change(await screen.findByLabelText(/allowed symbols/i), {
+      target: { value: "BTC, ETH" },
     });
-    await waitFor(() => expect(createButton).toBeEnabled());
-
-    fireEvent.click(createButton);
-
+    fireEvent.click(
+      screen.getByLabelText(/run guarded evaluations automatically/i),
+    );
+    const button = screen.getByRole("button", {
+      name: /create ai shadow draft/i,
+    });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
     expect(
-      await screen.findByRole("link", { name: /review strategy/i }),
-    ).toHaveAttribute("href", "/automations/strategy-1");
-    const postCall = vi
+      await screen.findByRole("link", { name: /review ai engine/i }),
+    ).toHaveAttribute("href", "/automations/engine-1");
+    const call = vi
       .mocked(fetch)
       .mock.calls.find(
         ([input, init]) =>
           String(input) === "/api/automations" && init?.method === "POST",
       );
-    const body = JSON.parse(String(postCall?.[1]?.body));
-    expect(body).toMatchObject({
-      financial_account_id: "account-1",
-      automation_type: "HYBRID",
-      strategy_identifier: "wheel",
-      ai_provider_connection_id: "ai-1",
-      ai_model_id: "gpt-5",
-      capital_bucket_id: "budget-1",
-      autonomy_level: "CONFIRM_EACH",
-      execution_mode: "PAPER",
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      automation_type: "AI_AUTONOMOUS",
+      strategy_identifier: null,
+      autonomy_level: "FULL_AUTONOMOUS",
+      execution_mode: "SHADOW",
+      options_allowed: false,
+      ai_model_id: "gpt-5.6-sol",
+      allowed_universe: { symbols: ["BTC", "ETH"] },
+      schedule_conditions: { session: "CONTINUOUS" },
     });
   });
 
-  it("creates the first trading budget without leaving strategy setup", async () => {
-    const fixtureFetch = fetchFixtures({
-      accounts: [
-        {
-          id: "coinbase-1",
-          display_name: "Coinbase Advanced",
-          status: "active",
-        },
-      ],
-      connections: [
-        {
-          id: "ai-1",
-          display_name: "OpenAI",
-          status: "active",
-        },
-      ],
-      models: [{ id: "gpt-5", display_name: "GPT-5" }],
-    });
+  it("keeps reserve buckets unavailable", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-        if (
-          String(input) === "/api/capital-buckets" &&
-          init?.method === "POST"
-        ) {
-          return response({
-            capital_bucket: {
-              id: "budget-1",
-              name: "Wheel budget",
-              status: "ACTIVE",
-              is_reserve: false,
-              financial_account_id: "coinbase-1",
-            },
-          });
-        }
-        return fixtureFetch(input);
+      fetchFixtures({
+        ...connected,
+        buckets: [
+          {
+            id: "reserve",
+            name: "Never touch",
+            status: "ACTIVE",
+            is_reserve: true,
+            financial_account_id: "account-1",
+          },
+        ],
       }),
     );
-
     render(<AutomationBuilder />);
-
-    const amount = await screen.findByLabelText(
-      /amount available to this strategy/i,
-    );
-    fireEvent.change(amount, { target: { value: "100" } });
-    fireEvent.click(
-      screen.getByRole("button", { name: /save trading budget/i }),
-    );
-
     expect(
-      await screen.findByText(/trading budget saved for this account/i),
+      await screen.findByLabelText(/new ai shadow budget/i),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText(/^trading budget$/i)).toHaveValue("budget-1");
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /create strategy draft/i }),
-      ).toBeEnabled(),
-    );
-    const budgetCall = vi
-      .mocked(fetch)
-      .mock.calls.find(
-        ([input, init]) =>
-          String(input) === "/api/capital-buckets" && init?.method === "POST",
-      );
-    expect(JSON.parse(String(budgetCall?.[1]?.body))).toMatchObject({
-      financial_account_id: "coinbase-1",
-      allocation_type: "FIXED_AMOUNT",
-      allocation_value: "100",
-      protected_amount: "0",
-      is_reserve: false,
-    });
+    expect(
+      screen.queryByRole("option", { name: "Never touch" }),
+    ).not.toBeInTheDocument();
   });
 });

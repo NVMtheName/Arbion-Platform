@@ -108,6 +108,31 @@ func TestAutonomy(t *testing.T) {
 		t.Fatal("valid deterministic strategy denied")
 	}
 }
+
+func TestAutonomousAISellCannotExceedAvailableHolding(t *testing.T) {
+	c, action := fixture()
+	c.Mandate.AutomationType = "AI_AUTONOMOUS"
+	c.Mandate.AutonomyLevel = "FULL_AUTONOMOUS"
+	c.Mandate.ExecutionMode = "SHADOW"
+	c.Mandate.MaxSinglePositionPercentage = nil
+	c.Mandate.MaxDailyLoss = nil
+	c.Mandate.MaxTradesPerDay = nil
+	c.Account.CurrentExposure = "0"
+	c.Account.Positions = []Position{{Instrument: "AAPL", Exposure: "2000", AvailableQuantity: "2"}}
+	action.Source = SourceAI
+	action.ActionType = ActionSell
+	action.Side = "SELL"
+	action.Quantity = "3"
+	action.Notional = "300"
+	denied := NewEngine().Evaluate(c, action)
+	if denied.Decision != Deny || !reason(denied, InsufficientPosition) {
+		t.Fatalf("AI sell exceeded the provider-reported holding: %#v", denied)
+	}
+	action.Quantity = "2"
+	if allowed := NewEngine().Evaluate(c, action); allowed.Decision != Allow {
+		t.Fatalf("covered AI shadow sell was denied: %#v", allowed)
+	}
+}
 func TestCapitalPositionActivityUniverseAndStaleness(t *testing.T) {
 	tests := []struct {
 		name   string

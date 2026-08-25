@@ -92,9 +92,11 @@ export function MandateControls(props: MandateControlsProps) {
 
   const canInitialize =
     props.status === "READY" &&
-    props.automationType === "STRATEGY" &&
     (props.executionMode === "PAPER" || props.executionMode === "SHADOW") &&
-    initializableStrategies.has(props.strategyIdentifier) &&
+    ((props.automationType === "STRATEGY" &&
+      initializableStrategies.has(props.strategyIdentifier)) ||
+      (props.automationType === "AI_AUTONOMOUS" &&
+        props.executionMode === "SHADOW")) &&
     !props.instanceExists;
 
   return (
@@ -151,7 +153,10 @@ export function MandateControls(props: MandateControlsProps) {
             </label>
           )}
           <button type="submit" disabled={busy}>
-            Initialize {props.executionMode} Strategy
+            Initialize {props.executionMode}{" "}
+            {props.automationType === "AI_AUTONOMOUS"
+              ? "AI Engine"
+              : "Strategy"}
           </button>
         </form>
       )}

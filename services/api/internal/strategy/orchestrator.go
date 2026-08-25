@@ -52,3 +52,18 @@ func (o *Orchestrator) Evaluate(ctx context.Context, i Instance, in EvaluationIn
 	}
 	return EvaluationOutcome{Execution: result, RiskDecision: re.Decision, RiskReasonCodes: re.ReasonCodes, RiskChecks: re.Checks, ApprovalRequired: re.ApprovalRequired, LiveExecutionAvailable: false}, nil
 }
+
+func (o *Orchestrator) EvaluateDecision(ctx context.Context, i Instance, d Decision, rc risk.EvaluationContext, evaluatedAt time.Time) (EvaluationOutcome, error) {
+	if d.ProposedAction == nil || i.ExecutionMode != Shadow {
+		return EvaluationOutcome{}, ErrInvalid
+	}
+	re := o.Risk.Evaluate(rc, *d.ProposedAction)
+	result, err := o.Shadow.Execute(*d.ProposedAction, re, MarketSnapshot{}, d.ProposedState)
+	if err != nil {
+		return EvaluationOutcome{Execution: result}, err
+	}
+	if err = o.Store.CommitEvaluation(ctx, i, i.StateVersion, d, re, result, evaluatedAt); err != nil {
+		return EvaluationOutcome{Execution: result}, err
+	}
+	return EvaluationOutcome{Execution: result, RiskDecision: re.Decision, RiskReasonCodes: re.ReasonCodes, RiskChecks: re.Checks, ApprovalRequired: re.ApprovalRequired, LiveExecutionAvailable: false}, nil
+}

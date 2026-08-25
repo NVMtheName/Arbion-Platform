@@ -188,6 +188,19 @@ func TestShadowInitializationBindsBucketWithoutCreatingPaperCash(t *testing.T) {
 	}
 }
 
+func TestAIShadowInitializationCreatesMonitoringStateWithoutPaperCash(t *testing.T) {
+	connection, model := "ai", "gpt-5.6-sol"
+	mandates := &instanceMandatesFake{
+		mandate: automation.Mandate{ID: "ai-mandate", UserID: "owner", FinancialAccountID: "account", CapitalBucketID: "bucket", AutomationType: "AI_AUTONOMOUS", AIProviderConnectionID: &connection, AIModelID: &model, Status: "READY", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`)},
+		bucket:  automation.CapitalBucket{ID: "bucket", UserID: "owner", FinancialAccountID: "account", AllocationType: "FIXED_AMOUNT", AllocationValue: "10", ProtectedAmount: "0", Status: "ACTIVE"},
+	}
+	store := &journalPersistenceFake{}
+	instance, err := NewInstanceService(store, mandates).Initialize(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "ai-mandate", "999")
+	if err != nil || instance.CurrentState != AIMonitoring || store.initializedCash != "" {
+		t.Fatalf("AI shadow initialization was not isolated: instance=%#v cash=%q err=%v", instance, store.initializedCash, err)
+	}
+}
+
 func TestFinishRequiresExplicitConfirmationAndAuditsReleasedClaim(t *testing.T) {
 	now := time.Date(2026, 8, 19, 13, 0, 0, 0, time.UTC)
 	store := &journalPersistenceFake{finishResult: Instance{ID: "instance", UserID: "owner", AutomationMandateID: "mandate", FinancialAccountID: "account", ExecutionMode: Paper, Status: "COMPLETED", StateVersion: 4}}

@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"encoding/json"
 	"math/big"
 	"regexp"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/automation"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/marketintelligence"
+	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/risk"
 )
 
@@ -44,12 +47,31 @@ type EvaluationFinancial interface {
 	GetOptionChain(context.Context, authorization.Principal, string, financial.OptionChainRequest) (financial.OptionChain, error)
 }
 
+type EvaluationAI interface {
+	GenerateShadowDecision(context.Context, authorization.Principal, string, string, neural.ShadowDecisionRequest) (neural.ShadowDecision, error)
+}
+
+type EvaluationMarkets interface {
+	CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error)
+}
+
+type AIAbstentionStore interface {
+	CommitAIAbstention(context.Context, Instance, string, json.RawMessage, time.Time) error
+}
+
 type EvaluationService struct {
 	store        EvaluationStore
 	automation   EvaluationAutomation
 	financial    EvaluationFinancial
 	now          func() time.Time
 	orchestrator *Orchestrator
+	ai           EvaluationAI
+	markets      EvaluationMarkets
+}
+
+func (s *EvaluationService) ConfigureAIShadow(ai EvaluationAI, markets EvaluationMarkets) {
+	s.ai = ai
+	s.markets = markets
 }
 
 func NewEvaluationService(store EvaluationStore, automations EvaluationAutomation, finances EvaluationFinancial) *EvaluationService {
@@ -96,7 +118,13 @@ func (s *EvaluationService) Evaluate(ctx context.Context, principal authorizatio
 	if err != nil {
 		return EvaluationOutcome{}, ErrNotFound
 	}
-	if mandate.ID != instance.AutomationMandateID || mandate.UserID != principal.UserID || mandate.FinancialAccountID != instance.FinancialAccountID || mandate.CapitalBucketID != instance.CapitalBucketID || mandate.CurrentVersion != instance.MandateVersion || mandate.Status != "READY" || mandate.StrategyIdentifier == nil || *mandate.StrategyIdentifier != instance.StrategyIdentifier || mandate.ExecutionMode != string(instance.ExecutionMode) {
+	if mandate.ID != instance.AutomationMandateID || mandate.UserID != principal.UserID || mandate.FinancialAccountID != instance.FinancialAccountID || mandate.CapitalBucketID != instance.CapitalBucketID || mandate.CurrentVersion != instance.MandateVersion || mandate.Status != "READY" || mandate.ExecutionMode != string(instance.ExecutionMode) {
+		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
+	}
+	if instance.StrategyIdentifier == "ai_shadow" {
+		return s.evaluateAIShadow(ctx, principal, instance, mandate, eventID)
+	}
+	if mandate.StrategyIdentifier == nil || *mandate.StrategyIdentifier != instance.StrategyIdentifier {
 		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
 	}
 	parameters, err := ParseParameters(mandate.StrategyParameters)
@@ -290,7 +318,7 @@ func (s *EvaluationService) accountSnapshots(ctx context.Context, principal auth
 	}
 	buyingPower, ok := moneyAmount(balances.BuyingPower, account.BaseCurrency)
 	if !ok {
-		return AccountSnapshot{}, risk.AccountRiskSnapshot{}, ErrInvalid
+		buyingPower = available
 	}
 	strategyPositions := make([]Position, 0, len(positions))
 	riskPositions := make([]risk.Position, 0, len(positions))
@@ -312,9 +340,298 @@ func (s *EvaluationService) accountSnapshots(ctx context.Context, principal auth
 			exposure.Neg(exposure)
 		}
 		totalExposure.Add(totalExposure, exposure)
-		riskPositions = append(riskPositions, risk.Position{Instrument: strings.ToUpper(position.Symbol), Exposure: exposure.FloatString(10)})
+		availableQuantity := quantity
+		if position.AvailableQuantity != nil {
+			availableQuantity = string(*position.AvailableQuantity)
+		}
+		riskPositions = append(riskPositions, risk.Position{Instrument: strings.ToUpper(position.Symbol), Exposure: exposure.FloatString(10), AvailableQuantity: availableQuantity})
 	}
 	return AccountSnapshot{Timestamp: now, AvailableCash: available, Positions: strategyPositions}, risk.AccountRiskSnapshot{AccountID: account.ID, Currency: account.BaseCurrency, Timestamp: now, Cash: cash, AvailableCash: available, BuyingPower: buyingPower, CurrentExposure: totalExposure.FloatString(10), Positions: riskPositions, Options: capabilities("options"), Margin: capabilities("margin")}, nil
+}
+
+func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal authorization.Principal, instance Instance, mandate automation.Mandate, eventID string) (EvaluationOutcome, error) {
+	if s.ai == nil || mandate.AutomationType != "AI_AUTONOMOUS" || mandate.AutonomyLevel != "FULL_AUTONOMOUS" || mandate.ExecutionMode != "SHADOW" || mandate.StrategyIdentifier != nil || mandate.AIProviderConnectionID == nil || mandate.AIModelID == nil || instance.CurrentState != AIMonitoring {
+		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
+	}
+	parameters, err := automation.ParseAIShadowParameters(mandate.StrategyParameters)
+	if err != nil || len(mandate.AllowedUniverse.Symbols) == 0 || len(mandate.AllowedUniverse.Symbols) > 8 {
+		return EvaluationOutcome{}, ErrEvaluationParametersInvalid
+	}
+	bucket, err := s.automation.GetBucket(ctx, principal, instance.CapitalBucketID)
+	if err != nil || bucket.UserID != principal.UserID || bucket.FinancialAccountID != instance.FinancialAccountID || bucket.Status != "ACTIVE" || bucket.IsReserve {
+		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
+	}
+	account, err := s.financial.GetAccount(ctx, principal, instance.FinancialAccountID)
+	if err != nil || account.ID != instance.FinancialAccountID || account.UserID != principal.UserID || account.Status != "active" || (account.Provider != "coinbase" && account.Provider != "schwab") || account.BaseCurrency != "USD" {
+		if err != nil {
+			return EvaluationOutcome{}, err
+		}
+		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
+	}
+	now := s.now().UTC()
+	facts, err := s.store.EvaluationFacts(ctx, instance, now)
+	if err != nil {
+		return EvaluationOutcome{}, err
+	}
+	request, riskAccount, err := s.aiAccountFacts(ctx, principal, account, mandate.AllowedUniverse.Symbols, now)
+	if err != nil {
+		return EvaluationOutcome{}, err
+	}
+	markets, err := s.aiMarketFacts(ctx, principal, account, mandate.AllowedUniverse.Symbols, now)
+	if err != nil {
+		return EvaluationOutcome{}, err
+	}
+	request.Profile = ""
+	request.Objective = parameters.Objective
+	request.AllowedSymbols = append([]string(nil), mandate.AllowedUniverse.Symbols...)
+	request.MaxProposalNotional = parameters.MaxProposalNotional
+	request.Markets = markets
+	request.ObservedAt = now
+	decision, err := s.ai.GenerateShadowDecision(ctx, principal, *mandate.AIProviderConnectionID, *mandate.AIModelID, request)
+	if err != nil {
+		return EvaluationOutcome{}, err
+	}
+	if !validAIShadowDecision(decision, mandate.AllowedUniverse.Symbols, parameters.MaxProposalNotional) {
+		return EvaluationOutcome{}, ErrInvalid
+	}
+	rationale, err := json.Marshal(map[string]any{
+		"decision": decision.Decision, "symbol": decision.Symbol, "side": decision.Side,
+		"proposed_notional": decision.ProposedNotional, "confidence": decision.Confidence,
+		"thesis": decision.Thesis, "risk_flags": decision.RiskFlags, "limitations": decision.Limitations,
+		"model_id": decision.Metadata.Model, "profile": decision.Metadata.Profile,
+		"objective": parameters.Objective, "market_observed_at": oldestAIMarketTimestamp(markets),
+	})
+	if err != nil {
+		return EvaluationOutcome{}, err
+	}
+	if decision.Decision == "ABSTAIN" {
+		store, ok := s.store.(AIAbstentionStore)
+		if !ok {
+			return EvaluationOutcome{}, ErrInvalid
+		}
+		if err := store.CommitAIAbstention(ctx, instance, eventID, rationale, now); err != nil {
+			return EvaluationOutcome{}, err
+		}
+		return EvaluationOutcome{Execution: ExecutionResult{Status: ExecutionCanceled, Reason: "ai_abstained_no_order_was_sent"}, LiveExecutionAvailable: false, AIDecision: "ABSTAIN", Confidence: decision.Confidence}, nil
+	}
+	market, ok := findAIMarket(markets, decision.Symbol)
+	if !ok || (decision.Side != "BUY" && decision.Side != "SELL") {
+		return EvaluationOutcome{}, ErrInvalid
+	}
+	price := market.Ask
+	if decision.Side == "SELL" {
+		price = market.Bid
+	}
+	if price == "" {
+		price = market.Mark
+	}
+	if price == "" {
+		price = market.Last
+	}
+	priceRat, priceOK := new(big.Rat).SetString(price)
+	notionalRat, notionalOK := new(big.Rat).SetString(decision.ProposedNotional)
+	if !priceOK || priceRat.Sign() <= 0 || !notionalOK || notionalRat.Sign() <= 0 {
+		return EvaluationOutcome{}, ErrInvalid
+	}
+	quantity := floorRat(new(big.Rat).Quo(notionalRat, priceRat), 10)
+	if quantity == "0.0000000000" {
+		return EvaluationOutcome{}, ErrInvalid
+	}
+	actionType := risk.ActionBuy
+	if decision.Side == "SELL" {
+		actionType = risk.ActionSell
+	}
+	state := string(instance.CurrentState)
+	actionID := instance.ID + ":" + eventID
+	action := risk.ProposedAction{ID: actionID, CorrelationID: eventID, FinancialAccountID: instance.FinancialAccountID, Source: risk.SourceAI, ActionType: actionType, MandateID: &instance.AutomationMandateID, MandateVersion: &instance.MandateVersion, Instrument: decision.Symbol, Side: decision.Side, Quantity: quantity, Notional: decision.ProposedNotional, EstimatedPrice: &price, StrategyInstanceID: &instance.ID, StrategyState: &state, CreatedAt: now}
+	riskMandate := risk.Mandate{ID: mandate.ID, UserID: mandate.UserID, AccountID: mandate.FinancialAccountID, BucketID: instance.CapitalBucketID, Status: mandate.Status, AutomationType: mandate.AutomationType, AutonomyLevel: mandate.AutonomyLevel, ExecutionMode: mandate.ExecutionMode, Version: mandate.CurrentVersion, EffectiveFrom: mandate.EffectiveFrom, EffectiveUntil: mandate.EffectiveUntil, AllowedSymbols: mandate.AllowedUniverse.Symbols, ProhibitedSymbols: mandate.ProhibitedUniverse.Symbols, UniverseIDs: mandate.AllowedUniverse.UniverseIDs, MarginAllowed: false, OptionsAllowed: false, MaxCapitalDeployed: mandate.Risk.MaxCapitalDeployed, MaxSinglePositionAmount: mandate.Risk.MaxSinglePositionAmount, MaxSinglePositionPercentage: mandate.Risk.MaxSinglePositionPercentage, MaxDailyLoss: mandate.Risk.MaxDailyLoss, MinimumCashReserve: mandate.Risk.MinimumCashReserve, MaxTradesPerDay: mandate.Risk.MaxTradesPerDay}
+	riskBucket := risk.CapitalBucket{ID: bucket.ID, UserID: bucket.UserID, AccountID: bucket.FinancialAccountID, Name: bucket.Name, AllocationType: bucket.AllocationType, AllocationValue: bucket.AllocationValue, Currency: bucket.Currency, ProtectedAmount: bucket.ProtectedAmount, AllocationLimit: bucket.AllocationLimit, Status: bucket.Status, IsReserve: bucket.IsReserve}
+	actionsToday := facts.ActionsToday
+	riskContext := risk.EvaluationContext{UserID: principal.UserID, AccountOwned: true, FinancialEntitled: authorization.CanConnectFinancialAccounts(principal), AutomationEntitled: authorization.CanUseAutomation(principal), ConnectionUsable: true, Mandate: &riskMandate, Bucket: &riskBucket, Account: &riskAccount, Activity: &risk.RiskActivitySnapshot{Timestamp: now, ActionsToday: &actionsToday}, Breakers: facts.Breakers, Now: now, MaxStaleness: 2 * time.Minute}
+	instrument := "EQUITY"
+	if account.Provider == "coinbase" {
+		instrument = "CRYPTO"
+	}
+	outcome, err := s.orchestrator.EvaluateDecision(ctx, instance, Decision{ProposedAction: &action, Source: "AI", InstrumentType: instrument, ProposedState: AIMonitoring, Reason: "bounded_ai_shadow_decision", Rationale: rationale}, riskContext, now)
+	outcome.AIDecision = "PROPOSE"
+	outcome.Confidence = decision.Confidence
+	return outcome, err
+}
+
+func (s *EvaluationService) aiAccountFacts(ctx context.Context, principal authorization.Principal, account financial.FinancialAccount, allowed []string, now time.Time) (neural.ShadowDecisionRequest, risk.AccountRiskSnapshot, error) {
+	balances, err := s.financial.GetBalances(ctx, principal, account.ID)
+	if err != nil {
+		return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, err
+	}
+	positions, err := s.financial.GetPositions(ctx, principal, account.ID)
+	if err != nil {
+		return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, err
+	}
+	available, ok := moneyAmount(balances.AvailableCash, "USD")
+	if !ok {
+		return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, ErrInvalid
+	}
+	cash, ok := moneyAmount(balances.Cash, "USD")
+	if !ok {
+		cash = available
+	}
+	buyingPower, ok := moneyAmount(balances.BuyingPower, "USD")
+	if !ok {
+		buyingPower = available
+	}
+	allowedSet := map[string]bool{}
+	for _, symbol := range allowed {
+		allowedSet[strings.ToUpper(symbol)] = true
+	}
+	request := neural.ShadowDecisionRequest{AvailableCashUSD: available, BuyingPowerUSD: buyingPower, Positions: []neural.ShadowPositionFact{}}
+	riskPositions := []risk.Position{}
+	for _, position := range positions {
+		symbol := strings.ToUpper(position.Symbol)
+		if !allowedSet[symbol] {
+			continue
+		}
+		quantity := string(position.Quantity)
+		if position.Direction == "short" && !strings.HasPrefix(quantity, "-") {
+			quantity = "-" + quantity
+		}
+		availableQuantity := "0"
+		if position.AvailableQuantity != nil {
+			availableQuantity = string(*position.AvailableQuantity)
+		} else if !strings.HasPrefix(quantity, "-") {
+			availableQuantity = quantity
+		}
+		marketValue := "0"
+		if position.MarketValue != nil && position.MarketValue.Currency == "USD" {
+			marketValue = string(position.MarketValue.Amount)
+		}
+		instrument := strings.ToUpper(position.InstrumentType)
+		if account.Provider == "coinbase" {
+			instrument = "CRYPTO"
+		}
+		request.Positions = append(request.Positions, neural.ShadowPositionFact{Symbol: symbol, Instrument: instrument, Quantity: quantity, AvailableQuantity: availableQuantity, MarketValueUSD: marketValue})
+		exposure := marketValue
+		if strings.HasPrefix(exposure, "-") {
+			exposure = strings.TrimPrefix(exposure, "-")
+		}
+		riskPositions = append(riskPositions, risk.Position{Instrument: symbol, Exposure: exposure, AvailableQuantity: availableQuantity})
+	}
+	capability := func(name string) risk.CapabilityState {
+		if account.Capabilities[name] == financial.Supported {
+			return risk.CapabilitySupported
+		}
+		if account.Capabilities[name] == financial.Unsupported {
+			return risk.CapabilityUnsupported
+		}
+		return risk.CapabilityUnknown
+	}
+	riskAccount := risk.AccountRiskSnapshot{AccountID: account.ID, Currency: "USD", Timestamp: now, Cash: cash, AvailableCash: available, BuyingPower: buyingPower, CurrentExposure: "0", Positions: riskPositions, Options: capability("options"), Margin: capability("margin")}
+	return request, riskAccount, nil
+}
+
+func (s *EvaluationService) aiMarketFacts(ctx context.Context, principal authorization.Principal, account financial.FinancialAccount, symbols []string, now time.Time) ([]neural.ShadowMarketFact, error) {
+	facts := make([]neural.ShadowMarketFact, 0, len(symbols))
+	if account.Provider == "schwab" {
+		for _, symbol := range symbols {
+			quote, err := s.financial.GetQuote(ctx, principal, account.ID, symbol)
+			if err != nil {
+				return nil, err
+			}
+			if !freshMarketTimestamp(quote.ProviderTimestamp, now) {
+				return nil, ErrEvaluationMarketDataStale
+			}
+			facts = append(facts, neural.ShadowMarketFact{Symbol: strings.ToUpper(symbol), AssetClass: "EQUITY", Currency: "USD", Bid: financialDecimal(quote.Bid), Ask: financialDecimal(quote.Ask), Mark: financialDecimal(quote.Mark), Last: financialDecimal(quote.Last), Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: quote.ProviderTimestamp})
+		}
+		return facts, nil
+	}
+	if s.markets == nil {
+		return nil, ErrInvalid
+	}
+	batch, _, err := s.markets.CryptoMarkets(ctx, "USD", symbols)
+	if err != nil {
+		return nil, err
+	}
+	if len(batch.UnavailableSymbols) > 0 || len(batch.Markets) != len(symbols) {
+		return nil, ErrEvaluationNoEligibleContracts
+	}
+	for _, market := range batch.Markets {
+		if !freshMarketTimestamp(market.Provenance.ProviderTimestamp, now) {
+			return nil, ErrEvaluationMarketDataStale
+		}
+		facts = append(facts, neural.ShadowMarketFact{Symbol: strings.ToUpper(market.Symbol), AssetClass: "CRYPTO", Currency: "USD", Bid: marketDecimal(market.Bid), Ask: marketDecimal(market.Ask), Mark: string(market.CurrentPrice), Last: string(market.CurrentPrice), ChangePercent24H: marketDecimal(market.ChangePercent24H), Volume24H: marketDecimal(market.Volume24H), Feed: market.Provenance.Feed, Quality: string(market.Provenance.Quality), ObservedAt: market.Provenance.ProviderTimestamp})
+	}
+	return facts, nil
+}
+
+func financialDecimal(value *financial.Decimal) string {
+	if value == nil {
+		return ""
+	}
+	return string(*value)
+}
+func marketDecimal(value *marketintelligence.Decimal) string {
+	if value == nil {
+		return ""
+	}
+	return string(*value)
+}
+func findAIMarket(markets []neural.ShadowMarketFact, symbol string) (neural.ShadowMarketFact, bool) {
+	for _, market := range markets {
+		if strings.EqualFold(market.Symbol, symbol) {
+			return market, true
+		}
+	}
+	return neural.ShadowMarketFact{}, false
+}
+func oldestAIMarketTimestamp(markets []neural.ShadowMarketFact) time.Time {
+	var result time.Time
+	for _, market := range markets {
+		if result.IsZero() || market.ObservedAt.Before(result) {
+			result = market.ObservedAt
+		}
+	}
+	return result
+}
+
+func validAIShadowDecision(decision neural.ShadowDecision, allowed []string, maximum string) bool {
+	if decision.Confidence != "LOW" && decision.Confidence != "MEDIUM" && decision.Confidence != "HIGH" {
+		return false
+	}
+	if strings.TrimSpace(decision.Thesis) == "" || len([]byte(decision.Thesis)) > 1000 || len(decision.RiskFlags) > 8 || len(decision.Limitations) > 8 {
+		return false
+	}
+	for _, values := range [][]string{decision.RiskFlags, decision.Limitations} {
+		seen := map[string]bool{}
+		for _, value := range values {
+			if strings.TrimSpace(value) == "" || len([]byte(value)) > 500 || seen[value] {
+				return false
+			}
+			seen[value] = true
+		}
+	}
+	if decision.Decision == "ABSTAIN" {
+		return decision.Symbol == "NONE" && decision.Side == "NONE" && decision.ProposedNotional == "0"
+	}
+	if decision.Decision != "PROPOSE" || (decision.Side != "BUY" && decision.Side != "SELL") {
+		return false
+	}
+	notional, ok := new(big.Rat).SetString(decision.ProposedNotional)
+	limit, limitOK := new(big.Rat).SetString(maximum)
+	if !ok || !limitOK || notional.Sign() <= 0 || notional.Cmp(limit) > 0 {
+		return false
+	}
+	for _, symbol := range allowed {
+		if symbol == decision.Symbol {
+			return true
+		}
+	}
+	return false
+}
+
+func floorRat(value *big.Rat, precision int) string {
+	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(precision)), nil)
+	scaled := new(big.Rat).Mul(value, new(big.Rat).SetInt(scale))
+	integer := new(big.Int).Quo(scaled.Num(), scaled.Denom())
+	return new(big.Rat).Quo(new(big.Rat).SetInt(integer), new(big.Rat).SetInt(scale)).FloatString(precision)
 }
 
 func moneyAmount(value *financial.Money, currency string) (string, bool) {

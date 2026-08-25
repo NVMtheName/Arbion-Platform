@@ -22,9 +22,13 @@ var (
 
 type AccountFacts struct {
 	Owned           bool
+	Provider        string
 	Options, Margin string
 }
-type AIFacts struct{ Owned, Active, ModelValid bool }
+type AIFacts struct {
+	Owned, Active, ModelValid bool
+	Provider                  string
+}
 type Store interface {
 	AccountFacts(context.Context, string, string) (AccountFacts, error)
 	AIFacts(context.Context, string, string, string) (AIFacts, error)
@@ -68,6 +72,30 @@ func decimal(v string, positive bool) (*big.Rat, bool) {
 }
 
 var strategySymbol = regexp.MustCompile(`^[A-Z][A-Z0-9.-]{0,9}$`)
+
+var aiShadowModels = map[string]bool{
+	"gpt-5.6-luna":  true,
+	"gpt-5.6-terra": true,
+	"gpt-5.6-sol":   true,
+}
+
+func ParseAIShadowParameters(raw json.RawMessage) (AIShadowParameters, error) {
+	var parameters AIShadowParameters
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&parameters); err != nil {
+		return AIShadowParameters{}, ErrInvalid
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return AIShadowParameters{}, ErrInvalid
+	}
+	parameters.Objective = strings.TrimSpace(parameters.Objective)
+	maximum, ok := decimal(parameters.MaxProposalNotional, true)
+	if parameters.Objective == "" || len([]byte(parameters.Objective)) > 500 || !ok || maximum.Cmp(big.NewRat(1_000_000_000, 1)) > 0 {
+		return AIShadowParameters{}, ErrInvalid
+	}
+	return parameters, nil
+}
 
 func ValidateStrategyParameters(p StrategyParameters) error {
 	if len(p.Symbols) == 0 || len(p.Symbols) > 10 || p.MinimumDTE < 0 || p.MaximumDTE < p.MinimumDTE || p.MaximumDTE > 730 || p.MaximumContracts < 1 || p.MaximumContracts > 100 {
@@ -121,7 +149,7 @@ func ValidateScheduleConditions(schedule ScheduleConditions) error {
 		}
 		return nil
 	}
-	if schedule.IntervalMinutes < 30 || schedule.IntervalMinutes > 1440 || schedule.Session != "US_EQUITIES_REGULAR" {
+	if schedule.IntervalMinutes < 30 || schedule.IntervalMinutes > 1440 || (schedule.Session != "US_EQUITIES_REGULAR" && schedule.Session != "CONTINUOUS") {
 		return ErrInvalid
 	}
 	return nil
@@ -265,7 +293,7 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 			return false, ErrForbidden
 		}
 		facts, e := s.store.AIFacts(ctx, p.UserID, *c.AIProviderConnectionID, *c.AIModelID)
-		if e != nil || !facts.Owned || !facts.Active || !facts.ModelValid {
+		if e != nil || !facts.Owned || !facts.Active || !facts.ModelValid || facts.Provider != "openai" || !aiShadowModels[*c.AIModelID] {
 			return false, ErrInvalid
 		}
 	}
@@ -276,6 +304,9 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 		return false, ErrInvalid
 	}
 	if ready && c.AutonomyLevel == "FULL_AUTONOMOUS" && c.AutomationType == "STRATEGY" {
+		return false, ErrInvalid
+	}
+	if c.AutomationType == "AI_AUTONOMOUS" && (c.StrategyIdentifier != nil || c.ExecutionMode != "SHADOW" || c.AutonomyLevel != "FULL_AUTONOMOUS" || c.MarginAllowed || c.OptionsAllowed) {
 		return false, ErrInvalid
 	}
 	if _, ok := map[string]bool{"BACKTEST": true, "PAPER": true, "SHADOW": true, "LIVE": true}[c.ExecutionMode]; !ok {
@@ -292,11 +323,26 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 			return false, e
 		}
 	}
+	if ready && c.AutomationType == "AI_AUTONOMOUS" {
+		if _, e = ParseAIShadowParameters(c.StrategyParameters); e != nil || len(c.AllowedUniverse.Symbols) == 0 || len(c.AllowedUniverse.Symbols) > 8 || len(c.AllowedUniverse.UniverseIDs) != 0 {
+			return false, ErrInvalid
+		}
+		seen := map[string]bool{}
+		for _, symbol := range c.AllowedUniverse.Symbols {
+			canonical := strings.ToUpper(strings.TrimSpace(symbol))
+			if symbol != canonical || !strategySymbol.MatchString(canonical) || seen[canonical] {
+				return false, ErrInvalid
+			}
+			seen[canonical] = true
+		}
+	}
 	schedule, err := ParseScheduleConditions(c.ScheduleConditions)
 	if err != nil {
 		return false, err
 	}
-	if schedule.Enabled && (c.AutomationType != "STRATEGY" || c.AutonomyLevel != "STRATEGY_AUTONOMOUS" || (c.ExecutionMode != "PAPER" && c.ExecutionMode != "SHADOW")) {
+	validStrategySchedule := c.AutomationType == "STRATEGY" && c.AutonomyLevel == "STRATEGY_AUTONOMOUS" && (c.ExecutionMode == "PAPER" || c.ExecutionMode == "SHADOW") && schedule.Session == "US_EQUITIES_REGULAR"
+	validAIShadowSchedule := c.AutomationType == "AI_AUTONOMOUS" && c.AutonomyLevel == "FULL_AUTONOMOUS" && c.ExecutionMode == "SHADOW" && ((af.Provider == "coinbase" && schedule.Session == "CONTINUOUS") || (af.Provider == "schwab" && schedule.Session == "US_EQUITIES_REGULAR"))
+	if schedule.Enabled && !validStrategySchedule && !validAIShadowSchedule {
 		return false, ErrInvalid
 	}
 	for _, v := range []*string{c.Risk.MaxCapitalDeployed, c.Risk.MaxSinglePositionAmount, c.Risk.MaxSinglePositionPercentage, c.Risk.MaxDailyLoss, c.Risk.MinimumCashReserve} {
@@ -468,7 +514,7 @@ func (s *Service) UpdateStrategyParameters(c context.Context, p authorization.Pr
 	if err != nil {
 		return Mandate{}, ErrNotFound
 	}
-	if old.AutomationType != "STRATEGY" || old.StrategyIdentifier == nil {
+	if (old.AutomationType != "STRATEGY" || old.StrategyIdentifier == nil) && old.AutomationType != "AI_AUTONOMOUS" {
 		return Mandate{}, ErrInvalid
 	}
 	raw, err := json.Marshal(parameters)

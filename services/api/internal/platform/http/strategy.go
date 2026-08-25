@@ -9,7 +9,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/strategy"
 )
 
@@ -113,8 +115,14 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 422, "MARKET_DATA_STALE", "Schwab market data is missing a current provider timestamp.")
 	case errors.Is(e, strategy.ErrEvaluationNoEligibleContracts):
 		writeError(w, 422, "NO_ELIGIBLE_OPTION_CONTRACTS", "No option contract matched the saved symbol, expiration, delta, and premium filters.")
+	case errors.Is(e, aiconnection.ErrRateLimit), neural.Code(e) == neural.RateLimited:
+		writeError(w, 429, "AI_RATE_LIMITED", "The AI decision budget is temporarily exhausted. No broker order was sent.")
+	case errors.Is(e, aiconnection.ErrInactive), errors.Is(e, aiconnection.ErrDisabled), errors.Is(e, aiconnection.ErrNotFound), neural.Code(e) == neural.AuthenticationFailed:
+		writeError(w, 409, "AI_CONNECTION_UNAVAILABLE", "The mandate's AI connection is not currently usable. No broker order was sent.")
+	case errors.Is(e, aiconnection.ErrProvider), neural.Code(e) == neural.ProviderUnavailable, neural.Code(e) == neural.Timeout:
+		writeError(w, 503, "AI_PROVIDER_UNAVAILABLE", "The AI provider is temporarily unavailable. No broker order was sent.")
 	case errors.Is(e, strategy.ErrInvalid):
-		writeError(w, 422, "INVALID_STRATEGY", "The deterministic strategy request is invalid or unsupported.")
+		writeError(w, 422, "INVALID_STRATEGY", "The saved non-live automation request is invalid or unsupported.")
 	case errors.Is(e, strategy.ErrCapitalLimit):
 		writeError(w, 422, "PAPER_CAPITAL_LIMIT", "Starting simulated cash exceeds the selected capital bucket's protected capacity.")
 	case errors.Is(e, strategy.ErrAccountInUse):
