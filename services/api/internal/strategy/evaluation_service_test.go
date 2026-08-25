@@ -21,6 +21,8 @@ type evaluationStoreFake struct {
 	commits           int
 	commitErr         error
 	abstains          int
+	decision          Decision
+	abstainRationale  json.RawMessage
 	outcomeCandidates []ShadowOutcomeCandidate
 	outcomeMarks      []ShadowOutcome
 	outcomeErr        error
@@ -37,8 +39,9 @@ func (f *evaluationStoreFake) RecordShadowOutcome(_ context.Context, _ Instance,
 	return nil
 }
 
-func (f *evaluationStoreFake) CommitAIAbstention(_ context.Context, _ Instance, _ string, _ json.RawMessage, _ time.Time) error {
+func (f *evaluationStoreFake) CommitAIAbstention(_ context.Context, _ Instance, _ string, rationale json.RawMessage, _ time.Time) error {
 	f.abstains++
+	f.abstainRationale = append(json.RawMessage(nil), rationale...)
 	return f.commitErr
 }
 
@@ -74,8 +77,9 @@ func (f *evaluationMarketsFake) CryptoVenueStats(_ context.Context, symbol, _ st
 func (f *evaluationStoreFake) EvaluationFacts(context.Context, Instance, time.Time) (EvaluationFacts, error) {
 	return f.facts, nil
 }
-func (f *evaluationStoreFake) CommitEvaluation(_ context.Context, _ Instance, _ int, _ Decision, _ risk.RiskEvaluation, _ ExecutionResult, _ time.Time) error {
+func (f *evaluationStoreFake) CommitEvaluation(_ context.Context, _ Instance, _ int, decision Decision, _ risk.RiskEvaluation, _ ExecutionResult, _ time.Time) error {
 	f.commits++
+	f.decision = decision
 	return f.commitErr
 }
 
@@ -278,6 +282,7 @@ func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testin
 	if store.commits != 1 || store.abstains != 0 || finances.quoteCalls != 1 || ai.request.Markets[0].Feed != "schwab_market_data" {
 		t.Fatalf("unexpected Schwab boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
+	assertAIInputEvidence(t, store.decision.Rationale, "schwab", "100", 0, 1)
 }
 
 func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
@@ -291,6 +296,28 @@ func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
 	}
 	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" || ai.request.Markets[0].ChangePercent24H != "25.0000000000" || ai.request.Markets[0].Volume24H != "2500" || len(ai.request.Positions) != 1 || ai.request.Positions[0].MarketValueUSD != "1.0000000000" {
 		t.Fatalf("unexpected Coinbase boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
+	}
+	assertAIInputEvidence(t, store.abstainRationale, "coinbase", "100", 1, 1)
+}
+
+func assertAIInputEvidence(t *testing.T, rationale json.RawMessage, provider, buyingPower string, positionCount, marketCount int) {
+	t.Helper()
+	var payload struct {
+		InputEvidence struct {
+			Provider      string                      `json:"provider"`
+			AvailableCash string                      `json:"available_cash_usd"`
+			BuyingPower   string                      `json:"buying_power_usd"`
+			Positions     []neural.ShadowPositionFact `json:"positions"`
+			Markets       []neural.ShadowMarketFact   `json:"markets"`
+			ObservedAt    time.Time                   `json:"observed_at"`
+		} `json:"input_evidence"`
+	}
+	if err := json.Unmarshal(rationale, &payload); err != nil {
+		t.Fatalf("AI input evidence was not valid JSON: %v", err)
+	}
+	evidence := payload.InputEvidence
+	if evidence.Provider != provider || evidence.AvailableCash != "100" || evidence.BuyingPower != buyingPower || len(evidence.Positions) != positionCount || len(evidence.Markets) != marketCount || evidence.ObservedAt.IsZero() {
+		t.Fatalf("AI input evidence was incomplete: %#v", evidence)
 	}
 }
 

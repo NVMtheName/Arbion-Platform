@@ -414,6 +414,11 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 		"thesis": decision.Thesis, "risk_flags": decision.RiskFlags, "limitations": decision.Limitations,
 		"model_id": decision.Metadata.Model, "profile": decision.Metadata.Profile,
 		"objective": parameters.Objective, "market_observed_at": oldestAIMarketTimestamp(markets),
+		"input_evidence": map[string]any{
+			"provider": account.Provider, "available_cash_usd": request.AvailableCashUSD,
+			"buying_power_usd": request.BuyingPowerUSD, "positions": request.Positions,
+			"markets": request.Markets, "observed_at": request.ObservedAt,
+		},
 	})
 	if err != nil {
 		return EvaluationOutcome{}, err

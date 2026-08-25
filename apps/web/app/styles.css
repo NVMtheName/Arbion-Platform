@@ -1431,6 +1431,52 @@ button:disabled {
   border-radius: 14px;
   background: rgba(96, 78, 142, 0.08);
 }
+.journal-input-evidence {
+  padding: 16px 18px;
+  border: 1px solid #315447;
+  border-radius: 14px;
+  background: rgba(35, 89, 67, 0.08);
+}
+.journal-input-evidence > p,
+.journal-context-grid p,
+.journal-context-grid small,
+.journal-context-grid time {
+  color: #8ba198;
+}
+.journal-context-grid time {
+  font-size: 0.72rem;
+}
+.journal-input-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+.journal-context-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.journal-context-grid > section {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #244237;
+  border-radius: 12px;
+  background: #07110e;
+}
+.journal-context-grid h4 {
+  margin: 0;
+  color: #cfe4da;
+}
+.journal-context-grid article {
+  display: grid;
+  gap: 4px;
+  padding-top: 10px;
+  border-top: 1px solid #1c342c;
+}
+.journal-context-grid article > span {
+  color: var(--brand-ivory);
+}
 .journal-execution-evidence h4 {
   margin: 0 0 6px;
   color: #d8ccff;
@@ -4502,6 +4548,8 @@ button:disabled {
   .journal-summary,
   .journal-facts,
   .journal-rationale,
+  .journal-input-summary,
+  .journal-context-grid,
   .journal-outcome-grid,
   .shadow-scorecard-grid,
   .paper-portfolio-summary,

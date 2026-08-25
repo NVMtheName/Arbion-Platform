@@ -10,6 +10,7 @@ type Rationale = {
   risk_flags?: string[];
   limitations?: string[];
   market_observed_at?: string;
+  input_evidence?: Record<string, unknown>;
 };
 
 function read(entry: RawDecision, key: string, legacy: string) {
@@ -48,6 +49,15 @@ function strings(value: unknown) {
     : [];
 }
 
+function records(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object" && !Array.isArray(item),
+      )
+    : [];
+}
+
 function field(entry: RawDecision, key: string, legacy: string) {
   const value = read(entry, key, legacy);
   return typeof value === "string" ? value : undefined;
@@ -78,6 +88,17 @@ function signedPercent(value: string | undefined) {
   if (formatted === "—") return formatted;
   if (formatted.startsWith("-") || formatted === "0") return `${formatted}%`;
   return `+${formatted}%`;
+}
+
+function contextValue(entry: Record<string, unknown>, key: string) {
+  const value = entry[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function marketPrice(market: Record<string, unknown>) {
+  return ["mark", "last", "bid", "ask"]
+    .map((key) => contextValue(market, key))
+    .find((value) => value && value !== "0");
 }
 
 function elapsedLabel(value: unknown) {
@@ -143,6 +164,9 @@ export function AIDecisionJournal({
             const notional = field(entry, "notional", "Notional");
             const riskFlags = strings(facts.risk_flags);
             const limitations = strings(facts.limitations);
+            const inputEvidence = facts.input_evidence;
+            const evidencePositions = records(inputEvidence?.positions);
+            const evidenceMarkets = records(inputEvidence?.markets);
             const symbol =
               facts.symbol && facts.symbol !== "NONE"
                 ? facts.symbol
@@ -219,6 +243,126 @@ export function AIDecisionJournal({
                     <dd>{executionRecorded ? "Shadow record" : "None"}</dd>
                   </div>
                 </dl>
+
+                {inputEvidence && (
+                  <details className="journal-input-evidence">
+                    <summary>
+                      Evidence considered · {evidencePositions.length}{" "}
+                      allowlisted holding
+                      {evidencePositions.length === 1 ? "" : "s"} ·{" "}
+                      {evidenceMarkets.length} market snapshot
+                      {evidenceMarkets.length === 1 ? "" : "s"}
+                    </summary>
+                    <p>
+                      Sanitized account and market facts frozen with this
+                      decision. Credentials, provider account IDs, unrelated
+                      holdings, and raw provider responses are excluded.
+                    </p>
+                    <dl className="journal-facts journal-input-summary">
+                      <div>
+                        <dt>Available cash</dt>
+                        <dd>
+                          {dollars(
+                            contextValue(inputEvidence, "available_cash_usd"),
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Buying power</dt>
+                        <dd>
+                          {dollars(
+                            contextValue(inputEvidence, "buying_power_usd"),
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Financial source</dt>
+                        <dd>
+                          {label(
+                            contextValue(inputEvidence, "provider") ??
+                              "connected_account",
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Context assembled</dt>
+                        <dd>
+                          {timestamp(
+                            contextValue(inputEvidence, "observed_at"),
+                          )}{" "}
+                          UTC
+                        </dd>
+                      </div>
+                    </dl>
+                    <div className="journal-context-grid">
+                      <section>
+                        <h4>Allowlisted holdings</h4>
+                        {evidencePositions.length === 0 ? (
+                          <p>No allowlisted holdings were present.</p>
+                        ) : (
+                          evidencePositions.map((position, positionIndex) => (
+                            <article
+                              key={`${contextValue(position, "symbol") ?? "position"}-${positionIndex}`}
+                            >
+                              <strong>
+                                {contextValue(position, "symbol") ?? "—"}
+                              </strong>
+                              <span>
+                                {decimal(contextValue(position, "quantity"))}{" "}
+                                held ·{" "}
+                                {decimal(
+                                  contextValue(position, "available_quantity"),
+                                )}{" "}
+                                available
+                              </span>
+                              <small>
+                                {dollars(
+                                  contextValue(position, "market_value_usd"),
+                                )}{" "}
+                                observed value
+                              </small>
+                            </article>
+                          ))
+                        )}
+                      </section>
+                      <section>
+                        <h4>Market context</h4>
+                        {evidenceMarkets.map((market, marketIndex) => (
+                          <article
+                            key={`${contextValue(market, "symbol") ?? "market"}-${marketIndex}`}
+                          >
+                            <strong>
+                              {contextValue(market, "symbol") ?? "—"}
+                            </strong>
+                            <span>{dollars(marketPrice(market))}</span>
+                            <small>
+                              24h{" "}
+                              {signedPercent(
+                                contextValue(market, "change_percent_24h"),
+                              )}{" "}
+                              ·{" "}
+                              {label(
+                                contextValue(market, "quality") ?? "unknown",
+                              )}
+                            </small>
+                            <time
+                              dateTime={
+                                contextValue(market, "observed_at") ?? ""
+                              }
+                            >
+                              {label(
+                                contextValue(market, "feed") ??
+                                  "market_observation",
+                              )}{" "}
+                              · {timestamp(contextValue(market, "observed_at"))}{" "}
+                              UTC
+                            </time>
+                          </article>
+                        ))}
+                      </section>
+                    </div>
+                  </details>
+                )}
 
                 {executionRecorded && (
                   <section
