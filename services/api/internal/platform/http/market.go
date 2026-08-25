@@ -88,7 +88,11 @@ type cryptoPortfolioPosition struct {
 	Bid                        *financial.Money               `json:"bid,omitempty"`
 	Ask                        *financial.Money               `json:"ask,omitempty"`
 	MarketValue                *financial.Money               `json:"market_value,omitempty"`
+	ChangeAmount24H            *financial.Money               `json:"change_amount_24h,omitempty"`
+	ChangePercent24H           *financial.Decimal             `json:"change_percent_24h,omitempty"`
+	PositionChange24H          *financial.Money               `json:"position_change_24h,omitempty"`
 	PricingStatus              string                         `json:"pricing_status"`
+	CostBasisStatus            string                         `json:"cost_basis_status"`
 	ValuationBasis             string                         `json:"valuation_basis,omitempty"`
 	Provenance                 *marketintelligence.Provenance `json:"provenance,omitempty"`
 }
@@ -296,6 +300,7 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 	for _, observation := range batch.Markets {
 		observations[strings.ToUpper(observation.Symbol)] = observation
 	}
+	venueStats := portfolioVenueStats(request.Context(), h.markets, requested)
 	view := make([]cryptoPortfolioPosition, 0, len(positions))
 	assetValue := new(big.Rat)
 	priced := 0
@@ -310,6 +315,7 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 			AvailableQuantity:          position.AvailableQuantity,
 			UnavailableToTradeQuantity: position.UnavailableToTradeQuantity,
 			PricingStatus:              "UNAVAILABLE",
+			CostBasisStatus:            "UNAVAILABLE_FROM_PROVIDER",
 		}
 		if isUSDCUSDRedemptionReference(symbol, account.BaseCurrency) {
 			value, rational, valueErr := observedMarketValue(position.Quantity, "1", account.BaseCurrency)
@@ -318,6 +324,10 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 				item.MarketValue = value
 				item.PricingStatus = "PRICED"
 				item.ValuationBasis = valuationBasisUSDCUSDRedemption
+				zero := financial.Decimal("0")
+				item.ChangeAmount24H = &financial.Money{Amount: zero, Currency: strings.ToUpper(account.BaseCurrency)}
+				item.ChangePercent24H = &zero
+				item.PositionChange24H = &financial.Money{Amount: zero, Currency: strings.ToUpper(account.BaseCurrency)}
 				assetValue.Add(assetValue, rational)
 				priced++
 				redemptionValued = true
@@ -337,6 +347,9 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 				item.ValuationBasis = valuationBasisVenueLastTrade
 				provenance := observation.Provenance
 				item.Provenance = &provenance
+				if stats, available := venueStats[symbol]; available {
+					item.ChangeAmount24H, item.ChangePercent24H, item.PositionChange24H = cryptoPositionChange(observation.CurrentPrice, stats.Open, position.Quantity, account.BaseCurrency)
+				}
 				assetValue.Add(assetValue, rational)
 				priced++
 				venueValued = true
@@ -408,6 +421,61 @@ func (h *authHandler) cryptoPortfolio(writer stdhttp.ResponseWriter, request *st
 		PricingAsOf: pricingAsOf, MarketDataCached: cached,
 	}
 	writeJSON(writer, stdhttp.StatusOK, map[string]any{"portfolio": snapshot, "live_execution_available": false})
+}
+
+func portfolioVenueStats(ctx context.Context, markets MarketIntelligence, symbols []string) map[string]marketintelligence.CryptoVenueStats {
+	result := make(map[string]marketintelligence.CryptoVenueStats, len(symbols))
+	if markets == nil || len(symbols) == 0 {
+		return result
+	}
+	type observation struct {
+		symbol string
+		stats  marketintelligence.CryptoVenueStats
+		valid  bool
+	}
+	observations := make([]observation, len(symbols))
+	semaphore := make(chan struct{}, 4)
+	var wait sync.WaitGroup
+	for index, symbol := range symbols {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-ctx.Done():
+				return
+			}
+			stats, _, err := markets.CryptoVenueStats(ctx, symbol, "USD")
+			if err == nil && strings.EqualFold(stats.Symbol, symbol) && strings.EqualFold(stats.Currency, "USD") {
+				observations[index] = observation{symbol: symbol, stats: stats, valid: true}
+			}
+		}()
+	}
+	wait.Wait()
+	for _, item := range observations {
+		if item.valid {
+			result[item.symbol] = item.stats
+		}
+	}
+	return result
+}
+
+func cryptoPositionChange(current, open marketintelligence.Decimal, quantity financial.Decimal, currency string) (*financial.Money, *financial.Decimal, *financial.Money) {
+	currentValue, currentOK := new(big.Rat).SetString(string(current))
+	openValue, openOK := new(big.Rat).SetString(string(open))
+	quantityValue, quantityOK := new(big.Rat).SetString(string(quantity))
+	if !currentOK || !openOK || !quantityOK || currentValue.Sign() < 0 || openValue.Sign() <= 0 || quantityValue.Sign() < 0 {
+		return nil, nil, nil
+	}
+	change := new(big.Rat).Sub(currentValue, openValue)
+	percent := new(big.Rat).Mul(new(big.Rat).Quo(new(big.Rat).Set(change), openValue), big.NewRat(100, 1))
+	positionChange := new(big.Rat).Mul(new(big.Rat).Set(change), quantityValue)
+	normalizedCurrency := strings.ToUpper(currency)
+	changeMoney := &financial.Money{Amount: financial.Decimal(formatObservedMoney(change)), Currency: normalizedCurrency}
+	changePercent := financial.Decimal(formatObservedMoney(percent))
+	positionMoney := &financial.Money{Amount: financial.Decimal(formatObservedMoney(positionChange)), Currency: normalizedCurrency}
+	return changeMoney, &changePercent, positionMoney
 }
 
 func providerCredentialError(err error) bool {

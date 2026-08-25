@@ -24,7 +24,7 @@ func TestAuthorizationURLAndAccountNormalization(t *testing.T) {
 			_, _ = w.Write([]byte(`[{"accountNumber":"1234564821","hashValue":"opaque-one"},{"accountNumber":"9184","hashValue":"opaque-two"}]`))
 		case "/accounts/opaque-one":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"securitiesAccount":{"type":"MARGIN","currentBalances":{"cashBalance": "1000.00000001","availableFunds":"900.12","buyingPower":"1800.2400","liquidationValue":"2500.99","equity":"2400.88"},"positions":[{"longQuantity":"0.123456789012345678","shortQuantity":"0.0","marketValue":"12.345678901","averagePrice":"99.0001","instrument":{"assetType":"COLLECTIVE_INVESTMENT","symbol":"FUND","cusip":"sensitive-id"}},{"longQuantity":0.0,"shortQuantity":2.500,"marketValue":"20.00","averagePrice":"8.00","instrument":{"assetType":"EQUITY","symbol":"SHORT","cusip":"second-id"}},{"longQuantity":0.00,"shortQuantity":0.000,"marketValue":"0","averagePrice":"0","instrument":{"assetType":"EQUITY","symbol":"ZERO","cusip":"zero-id"}}]}}`))
+			_, _ = w.Write([]byte(`{"securitiesAccount":{"type":"MARGIN","currentBalances":{"cashBalance": "1000.00000001","availableFunds":"900.12","buyingPower":"1800.2400","liquidationValue":"2500.99","equity":"2400.88"},"positions":[{"longQuantity":"0.123456789012345678","shortQuantity":"0.0","marketValue":"12.345678901","averagePrice":"99.0001","currentDayProfitLoss":"0.345678901","currentDayProfitLossPercentage":"2.8800123456","longOpenProfitLoss":"0.123456789","instrument":{"assetType":"COLLECTIVE_INVESTMENT","symbol":"FUND","cusip":"sensitive-id"}},{"longQuantity":0.0,"shortQuantity":2.500,"marketValue":"20.00","averagePrice":"8.00","currentDayProfitLoss":"-1.25","currentDayProfitLossPercentage":"-5.8823529412","shortOpenProfitLoss":"-2.50","instrument":{"assetType":"EQUITY","symbol":"SHORT","cusip":"second-id"}},{"longQuantity":0.00,"shortQuantity":0.000,"marketValue":"0","averagePrice":"0","instrument":{"assetType":"EQUITY","symbol":"ZERO","cusip":"zero-id"}}]}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -50,6 +50,12 @@ func TestAuthorizationURLAndAccountNormalization(t *testing.T) {
 	p, e := c.GetPositions(context.Background(), cr, "opaque-one")
 	if e != nil || len(p) != 2 || p[0].Quantity != "0.123456789012345678" || p[0].Direction != "long" || p[0].InstrumentType != "COLLECTIVE_INVESTMENT" || p[1].Quantity != "2.500" || p[1].Direction != "short" {
 		t.Fatalf("positions: %v %#v", e, p)
+	}
+	if p[0].CurrentPrice == nil || p[0].CurrentPrice.Amount != "99.9999999981" || p[0].DayProfitLoss == nil || p[0].DayProfitLoss.Amount != "0.345678901" || p[0].DayProfitLossPercent == nil || *p[0].DayProfitLossPercent != "2.8800123456" || p[0].OpenProfitLoss == nil || p[0].OpenProfitLoss.Amount != "0.123456789" || p[0].OpenProfitLossPercent == nil {
+		t.Fatalf("provider position performance was not normalized: %#v", p[0])
+	}
+	if p[1].CurrentPrice == nil || p[1].CurrentPrice.Amount != "8.0000000000" || p[1].DayProfitLoss == nil || p[1].DayProfitLoss.Amount != "-1.25" || p[1].OpenProfitLoss == nil || p[1].OpenProfitLoss.Amount != "-2.50" || p[1].OpenProfitLossPercent == nil || *p[1].OpenProfitLossPercent != "-12.5000000000" {
+		t.Fatalf("short position performance was not normalized: %#v", p[1])
 	}
 	caps, e := c.GetCapabilities(context.Background(), cr, "opaque-one")
 	if e != nil || caps["margin"] != financial.Supported || caps["options"] != financial.Unknown {
@@ -79,6 +85,20 @@ func TestNonZeroQuantityParsing(t *testing.T) {
 	}
 	if _, err := nonZero("not-a-decimal"); err == nil {
 		t.Fatal("expected malformed quantity to fail closed")
+	}
+}
+
+func TestPositionPerformanceDerivationsUseTheInstrumentMultiplier(t *testing.T) {
+	price, err := impliedPositionPrice("1250", "1", "OPTION")
+	if err != nil || price == nil || price.Amount != "12.5000000000" {
+		t.Fatalf("option price derivation: %v %#v", err, price)
+	}
+	percentage, err := profitLossPercent("125", "10", "1", "OPTION")
+	if err != nil || percentage == nil || *percentage != "12.5000000000" {
+		t.Fatalf("option return derivation: %v %#v", err, percentage)
+	}
+	if _, err := impliedPositionPrice("not-a-number", "1", "EQUITY"); err == nil {
+		t.Fatal("expected malformed provider market value to fail closed")
 	}
 }
 

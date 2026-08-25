@@ -15,6 +15,10 @@ import {
   type CryptoVenueStats,
 } from "./crypto-portfolio-command-center";
 import type { CoinbaseCapitalPolicy } from "./coinbase-order-preview";
+import {
+  PortfolioHoldingsLedger,
+  type PortfolioHolding,
+} from "../portfolio-holdings-ledger";
 type Money = { amount: string; currency: string };
 type Account = {
   id: string;
@@ -36,6 +40,12 @@ type Position = {
   direction: string;
   market_value?: Money;
   cost_basis?: Money;
+  current_price?: Money;
+  day_profit_loss?: Money;
+  day_profit_loss_percent?: string;
+  open_profit_loss?: Money;
+  open_profit_loss_percent?: string;
+  price_basis?: string;
 };
 const show = (m?: Money) =>
   m
@@ -300,8 +310,30 @@ export default async function AccountPage({
   const positions = pr.ok
     ? ((await pr.json()) as { positions: Position[] }).positions
     : [];
+  const holdings: PortfolioHolding[] = positions.map((position, index) => ({
+    key: `${account.id}-${position.symbol}-${index}`,
+    accountID: account.id,
+    accountName: account.display_name,
+    provider: "schwab",
+    symbol: position.symbol,
+    instrumentType: position.instrument_type,
+    direction: position.direction,
+    quantity: position.quantity,
+    averagePrice: position.cost_basis,
+    currentPrice: position.current_price,
+    dayProfitLoss: position.day_profit_loss,
+    dayProfitLossPercent: position.day_profit_loss_percent,
+    marketValue: position.market_value,
+    totalProfitLoss: position.open_profit_loss,
+    totalProfitLossPercent: position.open_profit_loss_percent,
+    changeWindow: "DAY",
+    costBasisStatus: position.cost_basis
+      ? "AVAILABLE"
+      : "UNAVAILABLE_FROM_PROVIDER",
+    priceBasis: position.price_basis,
+  }));
   return (
-    <main className="connections-page">
+    <main className="connections-page portfolio-ledger-page schwab-account-page">
       <AppPageHeader backHref="/accounts" backLabel="Accounts" />
       <p className="eyebrow">CHARLES SCHWAB · CONNECTED ACCOUNT</p>
       <h1>{account.display_name}</h1>
@@ -319,23 +351,10 @@ export default async function AccountPage({
           <p>{show(balances.buying_power)}</p>
         </article>
       </section>
-      <h2>Positions</h2>
-      {positions.length === 0 ? (
-        <p>No positions reported.</p>
-      ) : (
-        <section className="provider-list">
-          {positions.map((p, i) => (
-            <article key={`${p.symbol}-${i}`}>
-              <h3>{p.symbol}</h3>
-              <p>
-                {p.quantity} · {p.direction} · {p.instrument_type}
-              </p>
-              <p>Market value: {show(p.market_value)}</p>
-              {p.cost_basis && <p>Average basis: {show(p.cost_basis)}</p>}
-            </article>
-          ))}
-        </section>
-      )}
+      <PortfolioHoldingsLedger
+        holdings={holdings}
+        unavailableAccounts={pr.ok ? [] : [account.display_name]}
+      />
       <p className="security-note">
         Connected-account data is informational. This page cannot place orders
         or move assets.

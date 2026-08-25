@@ -6244,6 +6244,404 @@ h1 {
   }
 }
 
+.portfolio-ledger-page {
+  width: min(1520px, calc(100% - 36px));
+  max-width: none;
+  padding-top: 5vh;
+}
+.portfolio-ledger-hero {
+  padding: 52px 0 38px;
+}
+.portfolio-ledger-hero h1 {
+  max-width: 1100px;
+  margin: 12px 0 20px;
+  font-size: clamp(3.2rem, 7vw, 7rem);
+  line-height: 0.94;
+  letter-spacing: -0.065em;
+}
+.portfolio-ledger-hero .lede {
+  max-width: 790px;
+  color: #8da49a;
+  font-size: 1.02rem;
+  line-height: 1.7;
+}
+.holdings-command {
+  padding: clamp(22px, 3vw, 38px);
+  overflow: hidden;
+  border: 1px solid rgba(94, 224, 160, 0.2);
+  border-radius: 22px;
+  background:
+    radial-gradient(
+      circle at 92% 0%,
+      rgba(25, 201, 214, 0.1),
+      transparent 28rem
+    ),
+    linear-gradient(145deg, rgba(13, 37, 28, 0.82), rgba(5, 16, 12, 0.95));
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.22);
+}
+.holdings-command-header,
+.portfolio-connected-accounts > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 32px;
+}
+.holdings-command-header h2,
+.portfolio-connected-accounts h2 {
+  margin: 7px 0 10px;
+  font-size: clamp(1.9rem, 3.7vw, 3.5rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+.holdings-command-header > div > p:last-child {
+  max-width: 760px;
+  margin: 0;
+  color: #81988d;
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+.holdings-live-state {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid rgba(94, 224, 160, 0.26);
+  border-radius: 999px;
+  color: #8ce8b5;
+  background: rgba(94, 224, 160, 0.06);
+  font-size: 0.68rem;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.holdings-live-state i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5ee0a0;
+  box-shadow: 0 0 12px rgba(94, 224, 160, 0.75);
+}
+.holdings-value-rail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 30px;
+  overflow: hidden;
+  border: 1px solid rgba(139, 181, 163, 0.14);
+  border-radius: 15px;
+  background: rgba(2, 12, 8, 0.48);
+}
+.holdings-value-rail article {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 20px;
+  border-right: 1px solid rgba(139, 181, 163, 0.12);
+}
+.holdings-value-rail article:last-child {
+  border-right: 0;
+}
+.holdings-value-rail span,
+.holdings-value-rail small {
+  overflow: hidden;
+  color: #71877c;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.holdings-value-rail span {
+  font-size: 0.62rem;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.holdings-value-rail strong {
+  color: #eff9f4;
+  font-size: clamp(1.35rem, 2.5vw, 2rem);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.035em;
+}
+.holdings-value-rail small {
+  font-size: 0.66rem;
+}
+.holdings-partial {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(225, 189, 121, 0.24);
+  border-radius: 9px;
+  color: #d8bd88;
+  background: rgba(225, 189, 121, 0.055);
+  font-size: 0.75rem;
+}
+.holdings-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 22px;
+}
+.holdings-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.holdings-toolbar button {
+  padding: 8px 13px;
+  border: 1px solid rgba(139, 181, 163, 0.15);
+  border-radius: 999px;
+  color: #7e9489;
+  background: rgba(3, 14, 10, 0.45);
+  font-size: 0.7rem;
+}
+.holdings-toolbar button.is-active {
+  border-color: rgba(94, 224, 160, 0.3);
+  color: #baf3d4;
+  background: rgba(94, 224, 160, 0.1);
+}
+.holdings-toolbar label {
+  display: grid;
+  gap: 6px;
+  color: #71877c;
+  font-size: 0.64rem;
+  font-weight: 720;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.holdings-toolbar input {
+  width: min(280px, 32vw);
+  min-height: 39px;
+  border-color: rgba(139, 181, 163, 0.16);
+  background: rgba(2, 12, 8, 0.58);
+}
+.holdings-table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
+  border: 1px solid rgba(139, 181, 163, 0.12);
+  border-radius: 14px;
+  background: rgba(2, 10, 7, 0.36);
+}
+.holdings-table-wrap table {
+  width: 100%;
+  min-width: 1300px;
+  border-collapse: collapse;
+}
+.holdings-table-wrap th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 13px 15px;
+  color: #657d72;
+  background: #07150f;
+  font-size: 0.61rem;
+  letter-spacing: 0.085em;
+  text-align: right;
+  text-transform: uppercase;
+}
+.holdings-table-wrap th:first-child,
+.holdings-table-wrap th:nth-child(2),
+.holdings-table-wrap td:first-child,
+.holdings-table-wrap td:nth-child(2) {
+  text-align: left;
+}
+.holdings-table-wrap td {
+  padding: 16px 15px;
+  border-top: 1px solid rgba(139, 181, 163, 0.1);
+  color: #cfe0d7;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.holdings-table-wrap tbody tr:hover {
+  background: rgba(94, 224, 160, 0.035);
+}
+.holdings-table-wrap td strong,
+.holdings-table-wrap td small,
+.holdings-table-wrap td a {
+  display: block;
+}
+.holdings-table-wrap td strong {
+  color: #edf8f2;
+  font-size: 0.79rem;
+}
+.holdings-table-wrap td small {
+  margin-top: 4px;
+  color: #687f74;
+  font-size: 0.63rem;
+  text-transform: capitalize;
+}
+.holdings-table-wrap td a {
+  overflow: hidden;
+  max-width: 180px;
+  color: #dcebe4;
+  font-weight: 720;
+  text-decoration: none;
+  text-overflow: ellipsis;
+}
+.holdings-table-wrap .is-positive strong,
+.holdings-value-rail strong.is-positive,
+.crypto-position-table .is-positive strong {
+  color: #5ee0a0;
+}
+.holdings-table-wrap .is-negative strong,
+.holdings-value-rail strong.is-negative,
+.crypto-position-table .is-negative strong {
+  color: #ee8976;
+}
+.holdings-table-wrap .is-flat strong,
+.holdings-value-rail strong.is-flat,
+.crypto-position-table .is-flat strong {
+  color: #b8cbc1;
+}
+.holdings-no-match {
+  margin: 0;
+  padding: 28px;
+  color: #789087;
+  text-align: center;
+}
+.holdings-command > footer {
+  margin-top: 15px;
+  color: #657c71;
+  font-size: 0.67rem;
+  line-height: 1.55;
+}
+.holdings-empty {
+  display: grid;
+  gap: 9px;
+  margin-top: 28px;
+  padding: 24px;
+  border: 1px dashed rgba(139, 181, 163, 0.22);
+  border-radius: 13px;
+}
+.holdings-empty p {
+  margin: 0;
+  color: #7b9287;
+}
+.holdings-empty a {
+  color: var(--brand-cyan);
+  font-size: 0.75rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.portfolio-connected-accounts {
+  margin-top: 70px;
+  padding-bottom: 70px;
+}
+.portfolio-connected-accounts > header > a {
+  color: var(--brand-cyan);
+  font-size: 0.75rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.portfolio-connected-accounts .provider-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 22px;
+}
+.portfolio-connected-accounts .provider-list article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 18px;
+}
+.portfolio-connected-accounts h3,
+.portfolio-connected-accounts p {
+  margin: 0;
+}
+.portfolio-connected-accounts h3 {
+  overflow: hidden;
+  color: #e7f3ed;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.portfolio-connected-accounts p {
+  margin-top: 4px;
+  color: #71877c;
+  font-size: 0.68rem;
+  text-transform: capitalize;
+}
+.portfolio-connected-accounts article > a {
+  color: var(--brand-mint);
+  font-size: 0.7rem;
+  font-weight: 720;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.schwab-account-page .dashboard-grid {
+  margin: 28px 0 16px;
+}
+.schwab-account-page .holdings-command {
+  margin-top: 16px;
+}
+.crypto-position-table td:nth-child(2),
+.crypto-position-table td:nth-child(3),
+.crypto-position-table td:nth-child(4),
+.crypto-position-table td:nth-child(8),
+.crypto-position-table td:nth-child(9) {
+  display: table-cell;
+}
+.crypto-position-table td:nth-child(2) strong,
+.crypto-position-table td:nth-child(2) small,
+.crypto-position-table td:nth-child(3) strong,
+.crypto-position-table td:nth-child(3) small,
+.crypto-position-table td:nth-child(4) strong,
+.crypto-position-table td:nth-child(4) small,
+.crypto-position-table td:nth-child(8) strong,
+.crypto-position-table td:nth-child(8) small {
+  display: block;
+}
+
+@media (max-width: 900px) {
+  .portfolio-ledger-page {
+    width: min(100% - 24px, 1520px);
+  }
+  .portfolio-ledger-hero {
+    padding-top: 32px;
+  }
+  .holdings-command-header,
+  .portfolio-connected-accounts > header,
+  .holdings-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .holdings-value-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .holdings-value-rail article:nth-child(2) {
+    border-right: 0;
+  }
+  .holdings-value-rail article:nth-child(-n + 2) {
+    border-bottom: 1px solid rgba(139, 181, 163, 0.12);
+  }
+  .holdings-toolbar label,
+  .holdings-toolbar input {
+    width: 100%;
+  }
+  .portfolio-connected-accounts .provider-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .holdings-value-rail {
+    grid-template-columns: 1fr;
+  }
+  .holdings-value-rail article,
+  .holdings-value-rail article:nth-child(2) {
+    border-right: 0;
+    border-bottom: 1px solid rgba(139, 181, 163, 0.12);
+  }
+  .holdings-value-rail article:last-child {
+    border-bottom: 0;
+  }
+  .portfolio-connected-accounts .provider-list article {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .portfolio-connected-accounts article > a {
+    grid-column: 2;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
