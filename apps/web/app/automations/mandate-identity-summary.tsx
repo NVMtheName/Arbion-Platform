@@ -26,12 +26,24 @@ function strategyLabel(automationType: string, strategyIdentifier: string) {
   return humanize(strategyIdentifier) || "Configured strategy";
 }
 
+function conciseDecimal(value: string) {
+  if (!/^-?\d+(\.\d+)?$/.test(value)) return value;
+  const [whole, fraction = ""] = value.split(".");
+  const trimmedFraction = fraction.replace(/0+$/, "");
+  return trimmedFraction ? `${whole}.${trimmedFraction}` : whole;
+}
+
 function allocationLabel(bucket: Entity) {
   const type = read(bucket, "allocation_type", "AllocationType");
   const value = read(bucket, "allocation_value", "AllocationValue");
   const currency = read(bucket, "currency", "Currency", "USD");
   if (!value) return "Protected by its saved allocation policy";
-  if (type === "FIXED_AMOUNT") return `${currency} ${value} fixed allocation`;
+  if (type === "FIXED_AMOUNT") {
+    const amount = conciseDecimal(value);
+    return currency === "USD"
+      ? `$${amount} fixed allocation`
+      : `${currency} ${amount} fixed allocation`;
+  }
   if (type === "PERCENT_OF_AVAILABLE_CASH") {
     return `${value}% of available cash`;
   }

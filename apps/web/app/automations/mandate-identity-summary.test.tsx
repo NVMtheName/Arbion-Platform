@@ -20,7 +20,7 @@ describe("mandate identity summary", () => {
         capitalBucket={{
           name: "AI Shadow budget",
           allocation_type: "FIXED_AMOUNT",
-          allocation_value: "25",
+          allocation_value: "25.0000000000",
           currency: "USD",
         }}
         strategyIdentifier=""
@@ -39,7 +39,7 @@ describe("mandate identity summary", () => {
     expect(screen.getByText("Coinbase")).toBeInTheDocument();
     expect(screen.getByText("AI Shadow Engine")).toBeInTheDocument();
     expect(screen.getByText("AI Shadow budget")).toBeInTheDocument();
-    expect(screen.getByText("USD 25 fixed allocation")).toBeInTheDocument();
+    expect(screen.getByText("$25 fixed allocation")).toBeInTheDocument();
     expect(screen.getByText("gpt-5.6-sol")).toBeInTheDocument();
     expect(screen.getByText("Full Autonomous")).toBeInTheDocument();
     expect(screen.getByText("Shadow only")).toBeInTheDocument();
