@@ -1357,6 +1357,24 @@ button:disabled {
   margin: 0;
   overflow-wrap: anywhere;
 }
+.journal-execution-evidence {
+  margin: 24px 0;
+  padding: 18px;
+  border: 1px solid #604e8e;
+  border-radius: 14px;
+  background: rgba(96, 78, 142, 0.08);
+}
+.journal-execution-evidence h4 {
+  margin: 0 0 6px;
+  color: #d8ccff;
+}
+.journal-execution-evidence > p {
+  margin: 0;
+  color: #9f94c7;
+}
+.journal-execution-facts {
+  margin-bottom: 0;
+}
 .journal-reasons {
   padding: 16px;
   border-left: 3px solid #5ee0a0;

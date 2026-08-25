@@ -48,6 +48,10 @@ type DecisionJournalEntry struct {
 	ID, StrategyInstanceID, StrategyState, Source, DecisionType           string
 	StructuredRationale                                                   json.RawMessage
 	ProposedActionID, RiskEvaluationID, ExecutionRecordID, ResultingState *string
+	RiskDecision                                                          *string
+	ApprovalRequired                                                      *bool
+	RiskReasonCodes, RiskChecks                                           json.RawMessage
+	ExecutionStatus, Symbol, Instrument, Side, Quantity, Price, Notional  *string
 	CreatedAt                                                             time.Time
 }
 type InstanceService struct {

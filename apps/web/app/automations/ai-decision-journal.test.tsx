@@ -45,4 +45,45 @@ describe("AI Decision Journal", () => {
       screen.getByText(/No AI decision has completed yet/),
     ).toBeInTheDocument();
   });
+
+  it("shows immutable risk and hypothetical trade evidence for a proposal", () => {
+    render(
+      <AIDecisionJournal
+        decisions={[
+          {
+            ID: "decision-2",
+            Source: "AI",
+            DecisionType: "ALLOW_WOULD_HAVE_SUBMITTED",
+            CreatedAt: "2026-08-25T21:12:04Z",
+            RiskEvaluationID: "risk-1",
+            ExecutionRecordID: "execution-1",
+            RiskDecision: "ALLOW",
+            ExecutionStatus: "WOULD_HAVE_SUBMITTED",
+            Symbol: "XRP",
+            Side: "SELL",
+            Quantity: "0.6993006993",
+            Price: "1.4300000000",
+            Notional: "1.0000000000",
+            StructuredRationale: {
+              decision: "PROPOSE",
+              symbol: "XRP",
+              side: "SELL",
+              proposed_notional: "1",
+              confidence: "LOW",
+              thesis: "Cautiously trim the weakest performer.",
+              market_observed_at: "2026-08-25T21:12:01Z",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Hypothetical trade evidence" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("0.6993006993 XRP")).toBeInTheDocument();
+    expect(screen.getByText("$1.43")).toBeInTheDocument();
+    expect(screen.getByText("Would Have Submitted")).toBeInTheDocument();
+    expect(screen.getByText("Allow")).toBeInTheDocument();
+  });
 });

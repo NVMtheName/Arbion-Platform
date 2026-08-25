@@ -190,6 +190,16 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || len(decisions) != 2 || decisions[0].CreatedAt.IsZero() {
 		t.Fatalf("per-instance journal timestamps are missing: %#v %v", decisions, err)
 	}
+	latestDecision := decisions[0]
+	if latestDecision.RiskDecision == nil || *latestDecision.RiskDecision != string(risk.Allow) ||
+		latestDecision.ExecutionStatus == nil || *latestDecision.ExecutionStatus != string(SimulatedFilled) ||
+		latestDecision.Symbol == nil || *latestDecision.Symbol != "AAPL" ||
+		latestDecision.Side == nil || *latestDecision.Side != "SELL_TO_OPEN" ||
+		latestDecision.Quantity == nil || *latestDecision.Quantity != "1.0000000000" ||
+		latestDecision.Price == nil || *latestDecision.Price != price ||
+		latestDecision.Notional == nil || *latestDecision.Notional != premium {
+		t.Fatalf("per-instance journal omitted linked risk or execution evidence: %#v", latestDecision)
+	}
 	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 3)
 	facts, err := store.EvaluationFacts(ctx, Instance{ID: instance.ID, UserID: userID, FinancialAccountID: accountID, AutomationMandateID: mandateID, ExecutionMode: Paper}, fillTime)
 	if err != nil || facts.Paper == nil || facts.Paper.CurrentExposure != "19000.0000000000" || facts.ActionsToday != 2 {
