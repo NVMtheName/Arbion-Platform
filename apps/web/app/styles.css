@@ -1320,6 +1320,10 @@ button:disabled {
   color: #c8b5ff;
   border-color: #604e8e;
 }
+.journal-decision.abstain {
+  color: #f3d79a;
+  border-color: #7c6540;
+}
 .journal-decision.deny {
   color: #ffb0b0;
   border-color: #7e4242;

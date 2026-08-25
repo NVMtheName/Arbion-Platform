@@ -28,6 +28,7 @@ import {
   AIShadowEvaluationControls,
   type AIShadowParameters,
 } from "../ai-shadow-evaluation-controls";
+import { AIDecisionJournal } from "../ai-decision-journal";
 export default async function MandateReview({
   params,
 }: {
@@ -343,13 +344,22 @@ export default async function MandateReview({
             }
           />
           {instance && (
-            <StrategyInstanceControls
-              instanceId={instanceID}
-              status={String(instance.Status ?? instance.status ?? "")}
-              stateVersion={Number(
-                instance.StateVersion ?? instance.state_version ?? 0,
-              )}
-            />
+            <>
+              <StrategyInstanceControls
+                instanceId={instanceID}
+                status={String(instance.Status ?? instance.status ?? "")}
+                stateVersion={Number(
+                  instance.StateVersion ?? instance.state_version ?? 0,
+                )}
+              />
+              <AIDecisionJournal
+                decisions={
+                  Array.isArray(decisions.decisions)
+                    ? (decisions.decisions as Record<string, unknown>[])
+                    : []
+                }
+              />
+            </>
           )}
         </>
       )}
