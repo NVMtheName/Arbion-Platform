@@ -198,6 +198,30 @@ type ShadowOutcome struct {
 	ElapsedSeconds           int64                `json:"elapsed_seconds"`
 }
 
+const ShadowScorecardMinimumSample = 20
+
+// ShadowHorizonScore summarizes immutable hypothetical marks at one horizon.
+// It is descriptive evidence only and never represents realized performance.
+type ShadowHorizonScore struct {
+	Horizon                            ShadowOutcomeHorizon `json:"horizon"`
+	SampleSize                         int                  `json:"sample_size"`
+	FavorableMarks                     int                  `json:"favorable_marks"`
+	UnfavorableMarks                   int                  `json:"unfavorable_marks"`
+	FlatMarks                          int                  `json:"flat_marks"`
+	FavorableRatePercent               *string              `json:"favorable_rate_percent,omitempty"`
+	AverageDirectionalChangePercent    *string              `json:"average_directional_change_percent,omitempty"`
+	FirstEvaluatedAt                   *time.Time           `json:"first_evaluated_at,omitempty"`
+	LastEvaluatedAt                    *time.Time           `json:"last_evaluated_at,omitempty"`
+	Interpretation                     string               `json:"interpretation"`
+	MinimumSampleForObservationalLabel int                  `json:"minimum_sample_for_observational_label"`
+}
+
+type ShadowScorecard struct {
+	StrategyInstanceID string               `json:"strategy_instance_id"`
+	TotalMarks         int                  `json:"total_marks"`
+	Horizons           []ShadowHorizonScore `json:"horizons"`
+}
+
 // PaperPortfolio is the owner-facing, provider-independent projection of one
 // simulated ledger. It deliberately excludes provider and account identifiers.
 type PaperPortfolio struct {

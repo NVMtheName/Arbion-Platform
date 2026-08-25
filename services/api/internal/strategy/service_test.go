@@ -25,6 +25,9 @@ type journalPersistenceFake struct {
 	portfolio          PaperPortfolio
 	portfolioError     error
 	portfolioCalls     int
+	scorecard          ShadowScorecard
+	scorecardError     error
+	scorecardCalls     int
 	requestedID        string
 	initializedUser    string
 	initializedCash    string
@@ -90,6 +93,15 @@ func (*journalPersistenceFake) Decisions(context.Context, string, string) ([]Dec
 }
 func (*journalPersistenceFake) Executions(context.Context, string, string) ([]ExecutionRecord, error) {
 	return nil, nil
+}
+func (*journalPersistenceFake) ShadowOutcomes(context.Context, string, string) ([]ShadowOutcome, error) {
+	return nil, nil
+}
+func (f *journalPersistenceFake) ShadowScorecard(_ context.Context, userID, instanceID string) (ShadowScorecard, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	f.scorecardCalls++
+	return f.scorecard, f.scorecardError
 }
 func (f *journalPersistenceFake) PaperPortfolio(_ context.Context, userID, instanceID string) (PaperPortfolio, error) {
 	f.requestedUser = userID
@@ -304,6 +316,22 @@ func TestPaperPortfolioIsOwnerScopedAndPaperOnly(t *testing.T) {
 
 	if _, err = service.PaperPortfolio(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, "instance-1"); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("unentitled portfolio request was accepted: %v", err)
+	}
+}
+
+func TestShadowScorecardIsOwnerScopedAndEntitled(t *testing.T) {
+	store := &journalPersistenceFake{scorecard: ShadowScorecard{
+		StrategyInstanceID: "instance-1", TotalMarks: 1,
+		Horizons: []ShadowHorizonScore{{Horizon: ShadowOutcomeOneHour, SampleSize: 1}},
+	}}
+	service := NewInstanceService(store, nil)
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+	scorecard, err := service.ShadowScorecard(context.Background(), principal, "instance-1")
+	if err != nil || scorecard.TotalMarks != 1 || store.requestedUser != "owner" || store.requestedID != "instance-1" || store.scorecardCalls != 1 {
+		t.Fatalf("shadow scorecard owner boundary changed: scorecard=%#v store=%#v err=%v", scorecard, store, err)
+	}
+	if _, err = service.ShadowScorecard(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, "instance-1"); !errors.Is(err, ErrForbidden) || store.scorecardCalls != 1 {
+		t.Fatalf("unentitled shadow scorecard request reached persistence: calls=%d err=%v", store.scorecardCalls, err)
 	}
 }
 

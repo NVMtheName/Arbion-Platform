@@ -29,6 +29,7 @@ import {
   type AIShadowParameters,
 } from "../ai-shadow-evaluation-controls";
 import { AIDecisionJournal } from "../ai-decision-journal";
+import { AIShadowScorecard } from "../ai-shadow-scorecard";
 export default async function MandateReview({
   params,
 }: {
@@ -115,6 +116,7 @@ export default async function MandateReview({
     decisions,
     executions,
     outcomes,
+    scorecardResponse,
     scheduleResponse,
     portfolioResponse,
   ] = instanceID
@@ -124,6 +126,7 @@ export default async function MandateReview({
           "decisions",
           "executions",
           "shadow-outcomes",
+          "shadow-scorecard",
           "schedule",
           "paper-portfolio",
         ].map(async (suffix) => {
@@ -136,7 +139,7 @@ export default async function MandateReview({
             : {};
         }),
       )
-    : [{}, {}, {}, {}, {}, {}];
+    : [{}, {}, {}, {}, {}, {}, {}];
   const paperPortfolio = portfolioResponse.paper_portfolio as
     | PaperPortfolio
     | undefined;
@@ -358,6 +361,13 @@ export default async function MandateReview({
                 stateVersion={Number(
                   instance.StateVersion ?? instance.state_version ?? 0,
                 )}
+              />
+              <AIShadowScorecard
+                scorecard={
+                  scorecardResponse.scorecard as
+                    | Record<string, unknown>
+                    | undefined
+                }
               />
               <AIDecisionJournal
                 decisions={

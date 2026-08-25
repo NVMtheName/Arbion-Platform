@@ -95,3 +95,58 @@ func (s *PostgresStore) ShadowOutcomes(ctx context.Context, userID, instanceID s
 	}
 	return outcomes, rows.Err()
 }
+
+func (s *PostgresStore) ShadowScorecard(ctx context.Context, userID, instanceID string) (ShadowScorecard, error) {
+	rows, err := s.db.Query(ctx, `WITH horizons(horizon,ordinal) AS (
+		VALUES ('ONE_HOUR'::text,1),('TWENTY_FOUR_HOURS'::text,2)
+	)
+	SELECT i.id::text,h.horizon,
+		COUNT(o.id)::integer,
+		(COUNT(*) FILTER (WHERE o.directional_change_percent>0))::integer,
+		(COUNT(*) FILTER (WHERE o.directional_change_percent<0))::integer,
+		(COUNT(*) FILTER (WHERE o.directional_change_percent=0))::integer,
+		COALESCE(round(((COUNT(*) FILTER (WHERE o.directional_change_percent>0))::numeric / NULLIF(COUNT(o.id),0)::numeric)*100,10)::text,''),
+		COALESCE(round(avg(o.directional_change_percent),10)::text,''),
+		min(o.evaluated_at),max(o.evaluated_at)
+	FROM strategy_instances i
+	CROSS JOIN horizons h
+	LEFT JOIN shadow_execution_outcomes o
+	  ON o.strategy_instance_id=i.id AND o.user_id=i.user_id AND o.horizon=h.horizon
+	WHERE i.id=$1 AND i.user_id=$2 AND i.strategy_identifier='ai_shadow' AND i.execution_mode='SHADOW'
+	GROUP BY i.id,h.horizon,h.ordinal
+	ORDER BY h.ordinal`, instanceID, userID)
+	if err != nil {
+		return ShadowScorecard{}, err
+	}
+	defer rows.Close()
+	scorecard := ShadowScorecard{StrategyInstanceID: instanceID, Horizons: []ShadowHorizonScore{}}
+	for rows.Next() {
+		var score ShadowHorizonScore
+		var favorableRate, averageChange string
+		if err = rows.Scan(&scorecard.StrategyInstanceID, &score.Horizon, &score.SampleSize,
+			&score.FavorableMarks, &score.UnfavorableMarks, &score.FlatMarks,
+			&favorableRate, &averageChange, &score.FirstEvaluatedAt, &score.LastEvaluatedAt); err != nil {
+			return ShadowScorecard{}, err
+		}
+		if favorableRate != "" {
+			score.FavorableRatePercent = &favorableRate
+		}
+		if averageChange != "" {
+			score.AverageDirectionalChangePercent = &averageChange
+		}
+		score.Interpretation = "INSUFFICIENT_SAMPLE"
+		if score.SampleSize >= ShadowScorecardMinimumSample {
+			score.Interpretation = "OBSERVATIONAL"
+		}
+		score.MinimumSampleForObservationalLabel = ShadowScorecardMinimumSample
+		scorecard.TotalMarks += score.SampleSize
+		scorecard.Horizons = append(scorecard.Horizons, score)
+	}
+	if err = rows.Err(); err != nil {
+		return ShadowScorecard{}, err
+	}
+	if len(scorecard.Horizons) == 0 {
+		return ShadowScorecard{}, ErrNotFound
+	}
+	return scorecard, nil
+}
