@@ -267,7 +267,15 @@ export default function AutomationBuilder() {
             : { enabled: false },
         }),
       });
-      if (!response.ok) throw new Error("automation rejected");
+      if (!response.ok) {
+        const rejected = (await response.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+        throw new Error(
+          rejected?.error?.message ??
+            "The AI Shadow draft could not be created. Review the account, model, symbols, and budget.",
+        );
+      }
       const payload = (await response.json()) as {
         automation?: { id?: string; ID?: string };
       };
@@ -276,9 +284,11 @@ export default function AutomationBuilder() {
       setMessage(
         "AI Shadow draft created. Review the immutable controls, then mark it ready. No broker order was sent.",
       );
-    } catch {
+    } catch (error) {
       setMessage(
-        "The AI Shadow draft could not be created. Review the account, model, symbols, and budget.",
+        error instanceof Error
+          ? error.message
+          : "The AI Shadow draft could not be created. Review the account, model, symbols, and budget.",
       );
     } finally {
       setBusy(false);

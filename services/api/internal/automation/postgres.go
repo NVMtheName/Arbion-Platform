@@ -17,7 +17,7 @@ func NewPostgresStore(db *pgxpool.Pool) *PostgresStore { return &PostgresStore{d
 func (s *PostgresStore) AccountFacts(c context.Context, u, id string) (AccountFacts, error) {
 	var caps []byte
 	var f AccountFacts
-	e := s.db.QueryRow(c, `SELECT provider,capabilities FROM financial_accounts WHERE id=$1 AND user_id=$2 AND status='active'`, id, u).Scan(&f.Provider, &caps)
+	e := s.db.QueryRow(c, `SELECT provider_name,capabilities FROM financial_accounts WHERE id=$1 AND user_id=$2 AND status='active'`, id, u).Scan(&f.Provider, &caps)
 	if e != nil {
 		return f, e
 	}

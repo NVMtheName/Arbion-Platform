@@ -144,6 +144,39 @@ describe("AutomationBuilder AI Shadow launch", () => {
     });
   });
 
+  it("shows the API's safe rejection reason", async () => {
+    const fixtureFetch = fetchFixtures(connected);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input) === "/api/automations" && init?.method === "POST") {
+          return response(
+            {
+              error: {
+                code: "NOT_FOUND",
+                message: "The selected financial account could not be found.",
+              },
+            },
+            false,
+          );
+        }
+        return fixtureFetch(input);
+      }),
+    );
+    render(<AutomationBuilder />);
+    fireEvent.change(await screen.findByLabelText(/allowed symbols/i), {
+      target: { value: "BTC" },
+    });
+    const button = screen.getByRole("button", {
+      name: /create ai shadow draft/i,
+    });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    expect(
+      await screen.findByText(/selected financial account could not be found/i),
+    ).toBeInTheDocument();
+  });
+
   it("keeps reserve buckets unavailable", async () => {
     vi.stubGlobal(
       "fetch",
