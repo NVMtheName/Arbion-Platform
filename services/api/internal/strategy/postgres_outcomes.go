@@ -15,7 +15,7 @@ func (s *PostgresStore) DueShadowOutcomes(ctx context.Context, instance Instance
 		LEFT JOIN shadow_execution_outcomes o ON o.execution_record_id=x.id AND o.horizon=h.horizon
 		WHERE x.user_id=$1 AND x.strategy_instance_id=$2 AND x.mode='SHADOW' AND x.status='WOULD_HAVE_SUBMITTED'
 		  AND i.strategy_identifier='ai_shadow' AND i.execution_mode='SHADOW'
-		  AND x.price IS NOT NULL AND x.created_at <= $3-h.minimum_age AND o.id IS NULL
+		  AND x.price IS NOT NULL AND x.created_at <= $3::timestamptz-h.minimum_age AND o.id IS NULL
 		ORDER BY x.created_at,h.minimum_age LIMIT 32`, instance.UserID, instance.ID, nowTime)
 	if err != nil {
 		return nil, err
