@@ -26,7 +26,11 @@ type PortfolioPosition = {
   bid?: Money;
   ask?: Money;
   market_value?: Money;
+  change_amount_24h?: Money;
+  change_percent_24h?: string;
+  position_change_24h?: Money;
   pricing_status: "PRICED" | "UNAVAILABLE";
+  cost_basis_status?: "UNAVAILABLE_FROM_PROVIDER";
   valuation_basis?: "VENUE_LAST_TRADE" | "COINBASE_USDC_USD_REDEMPTION";
   provenance?: Provenance;
 };
@@ -296,6 +300,29 @@ function money(value?: Money, compact = false) {
     notation: compact ? "compact" : "standard",
     maximumFractionDigits: compact ? 2 : Math.abs(parsed) < 1 ? 6 : 2,
   }).format(parsed);
+}
+
+function signedMoney(value?: Money) {
+  if (!value) return "—";
+  const parsed = Number(value.amount);
+  const formatted = money(value);
+  return Number.isFinite(parsed) && parsed > 0 ? `+${formatted}` : formatted;
+}
+
+function signedPercent(value?: string) {
+  if (value === undefined) return "—";
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return `${value}%`;
+  return `${parsed > 0 ? "+" : ""}${new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(parsed)}%`;
+}
+
+function movementClass(value?: Money) {
+  const parsed = Number(value?.amount);
+  if (!Number.isFinite(parsed) || parsed === 0) return "is-flat";
+  return parsed > 0 ? "is-positive" : "is-negative";
 }
 
 function quantity(value: string) {
@@ -2135,12 +2162,13 @@ export function CryptoPortfolioCommandCenter({
               <thead>
                 <tr>
                   <th>Asset</th>
-                  <th>Total quantity</th>
-                  <th>Available to trade</th>
-                  <th>Staked / unavailable</th>
-                  <th>Last trade</th>
-                  <th>Observed value</th>
+                  <th>Quantity</th>
+                  <th>Avg. purchase price</th>
+                  <th>Current price</th>
+                  <th>24h change</th>
+                  <th>Market value</th>
                   <th>Bid / Ask</th>
+                  <th>Total return</th>
                   <th>Evidence</th>
                 </tr>
               </thead>
@@ -2151,23 +2179,47 @@ export function CryptoPortfolioCommandCenter({
                       <strong>{position.symbol}</strong>
                       <small>{position.pricing_status}</small>
                     </td>
-                    <td>{quantity(position.quantity)}</td>
                     <td>
-                      {position.available_quantity === undefined
-                        ? "—"
-                        : quantity(position.available_quantity)}
+                      <strong>{quantity(position.quantity)}</strong>
+                      <small>
+                        {position.available_quantity === undefined
+                          ? "Availability not supplied"
+                          : `${quantity(position.available_quantity)} available`}
+                        {position.unavailable_to_trade_quantity === undefined
+                          ? ""
+                          : ` · ${quantity(position.unavailable_to_trade_quantity)} staked / unavailable`}
+                      </small>
                     </td>
                     <td>
-                      {position.unavailable_to_trade_quantity === undefined
-                        ? "—"
-                        : quantity(position.unavailable_to_trade_quantity)}
+                      <strong>—</strong>
+                      <small>Not supplied by Coinbase</small>
                     </td>
-                    <td>{money(position.unit_price)}</td>
+                    <td>
+                      <strong>{money(position.unit_price)}</strong>
+                      <small>
+                        {position.valuation_basis ===
+                        "COINBASE_USDC_USD_REDEMPTION"
+                          ? "USDC 1:1 reference"
+                          : "Coinbase Exchange last trade"}
+                      </small>
+                    </td>
+                    <td className={movementClass(position.position_change_24h)}>
+                      <strong>
+                        {signedMoney(position.position_change_24h)}
+                      </strong>
+                      <small>
+                        {signedPercent(position.change_percent_24h)} · position
+                      </small>
+                    </td>
                     <td>{money(position.market_value)}</td>
                     <td>
                       {position.bid || position.ask
                         ? `${money(position.bid)} / ${money(position.ask)}`
                         : "—"}
+                    </td>
+                    <td>
+                      <strong>—</strong>
+                      <small>Cost basis unavailable</small>
                     </td>
                     <td>
                       {position.provenance ? (
@@ -2206,7 +2258,11 @@ export function CryptoPortfolioCommandCenter({
           unavailable is the difference between that inventory and the quantity
           Advanced Trade explicitly reports as tradable; it can include rewards
           balances, staking, vaults, open-order holds, or other provider
-          restrictions.
+          restrictions. Coinbase spot does not supply authoritative tax-lot cost
+          basis through this connection, so Arbion leaves purchase price and
+          total return blank instead of inferring them from partial fill
+          history. Current prices and 24h movement use Coinbase Exchange
+          observations and are not executable quotes.
         </p>
       </section>
 

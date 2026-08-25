@@ -408,7 +408,7 @@ func TestCryptoPortfolioCombinesHoldingsWithExplicitReadOnlyVenueObservations(t 
 	if recorder.Code != stdhttp.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("unexpected portfolio response: status=%d cache=%q body=%s", recorder.Code, recorder.Header().Get("Cache-Control"), body)
 	}
-	for _, expected := range []string{`"observed_value":{"amount":"30025"`, `"digital_asset_value":{"amount":"30000"`, `"available_quantity":"0.3"`, `"unavailable_to_trade_quantity":"0.2"`, `"pricing_state":"READY"`, `"pricing_basis":"LAST_TRADE"`, `"venue":"coinbase_exchange"`, `"live_execution_available":false`} {
+	for _, expected := range []string{`"observed_value":{"amount":"30025"`, `"digital_asset_value":{"amount":"30000"`, `"available_quantity":"0.3"`, `"unavailable_to_trade_quantity":"0.2"`, `"change_amount_24h":{"amount":"-12715.34"`, `"change_percent_24h":"-17.48646159"`, `"position_change_24h":{"amount":"-6357.67"`, `"cost_basis_status":"UNAVAILABLE_FROM_PROVIDER"`, `"pricing_state":"READY"`, `"pricing_basis":"LAST_TRADE"`, `"venue":"coinbase_exchange"`, `"live_execution_available":false`} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("portfolio evidence missing %s: %s", expected, body)
 		}
@@ -437,7 +437,7 @@ func TestCryptoPortfolioIncludesCoinbaseUSDCAtExplicitRedemptionReference(t *tes
 	for _, expected := range []string{
 		`"observed_value":{"amount":"47565.0263083"`,
 		`"digital_asset_value":{"amount":"47540.0263083"`,
-		`"symbol":"USDC","quantity":"17540.0263083","available_quantity":"5.3263083","unavailable_to_trade_quantity":"17534.7","unit_price":{"amount":"1","currency":"USD"},"market_value":{"amount":"17540.0263083","currency":"USD"},"pricing_status":"PRICED","valuation_basis":"COINBASE_USDC_USD_REDEMPTION"`,
+		`"symbol":"USDC","quantity":"17540.0263083","available_quantity":"5.3263083","unavailable_to_trade_quantity":"17534.7","unit_price":{"amount":"1","currency":"USD"},"market_value":{"amount":"17540.0263083","currency":"USD"},"change_amount_24h":{"amount":"0","currency":"USD"},"change_percent_24h":"0","position_change_24h":{"amount":"0","currency":"USD"},"pricing_status":"PRICED","cost_basis_status":"UNAVAILABLE_FROM_PROVIDER","valuation_basis":"COINBASE_USDC_USD_REDEMPTION"`,
 		`"priced_positions":2`,
 		`"pricing_complete":true`,
 		`"pricing_basis":"LAST_TRADE_AND_USDC_USD_REDEMPTION"`,

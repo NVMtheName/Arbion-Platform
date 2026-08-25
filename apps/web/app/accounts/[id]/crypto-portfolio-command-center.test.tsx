@@ -49,7 +49,11 @@ const snapshot: CryptoPortfolioSnapshot = {
       bid: { amount: "59999", currency: "USD" },
       ask: { amount: "60001", currency: "USD" },
       market_value: { amount: "30000", currency: "USD" },
+      change_amount_24h: { amount: "1000", currency: "USD" },
+      change_percent_24h: "1.6949152542",
+      position_change_24h: { amount: "500", currency: "USD" },
       pricing_status: "PRICED",
+      cost_basis_status: "UNAVAILABLE_FROM_PROVIDER",
       provenance: {
         provider: "coinbase",
         feed: "rest_ticker",
@@ -65,6 +69,7 @@ const snapshot: CryptoPortfolioSnapshot = {
       available_quantity: "0",
       unavailable_to_trade_quantity: "10",
       pricing_status: "UNAVAILABLE",
+      cost_basis_status: "UNAVAILABLE_FROM_PROVIDER",
     },
   ],
   priced_positions: 1,
@@ -283,12 +288,17 @@ describe("CryptoPortfolioCommandCenter", () => {
     expect(screen.getByText("1/2")).toBeInTheDocument();
     expect(screen.getByText("RARE")).toBeInTheDocument();
     expect(
-      screen.getByRole("columnheader", { name: "Available to trade" }),
+      screen.getByRole("columnheader", { name: "Avg. purchase price" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("columnheader", { name: "Staked / unavailable" }),
+      screen.getByRole("columnheader", { name: "24h change" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("0.2")).toBeInTheDocument();
+    expect(screen.getByText(/0.2 staked \/ unavailable/)).toBeInTheDocument();
+    expect(screen.getByText("+$500.00")).toBeInTheDocument();
+    expect(screen.getByText("+1.69% · position")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("Not supplied by Coinbase").length,
+    ).toBeGreaterThan(0);
     expect(
       screen.getByText(
         /Total holdings include Coinbase App wallets and vaults/,
@@ -437,7 +447,9 @@ describe("CryptoPortfolioCommandCenter", () => {
 
     expect(screen.getByText("$47,565.03")).toBeInTheDocument();
     expect(screen.getByText("17,540.0263083")).toBeInTheDocument();
-    expect(screen.getByText("17,534.7")).toBeInTheDocument();
+    expect(
+      screen.getByText(/17,534.7 staked \/ unavailable/),
+    ).toBeInTheDocument();
     expect(
       screen.getByText("Coinbase USDC · 1:1 USD redemption reference"),
     ).toBeInTheDocument();

@@ -109,6 +109,12 @@ type Position struct {
 	Direction                  string   `json:"direction"`
 	MarketValue                *Money   `json:"market_value,omitempty"`
 	CostBasis                  *Money   `json:"cost_basis,omitempty"`
+	CurrentPrice               *Money   `json:"current_price,omitempty"`
+	DayProfitLoss              *Money   `json:"day_profit_loss,omitempty"`
+	DayProfitLossPercent       *Decimal `json:"day_profit_loss_percent,omitempty"`
+	OpenProfitLoss             *Money   `json:"open_profit_loss,omitempty"`
+	OpenProfitLossPercent      *Decimal `json:"open_profit_loss_percent,omitempty"`
+	PriceBasis                 string   `json:"price_basis,omitempty"`
 	ProviderInstrumentID       string   `json:"-"`
 }
 

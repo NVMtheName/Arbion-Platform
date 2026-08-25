@@ -136,11 +136,15 @@ type accountEnvelope struct {
 			MarginBalance    decimal `json:"marginBalance"`
 		} `json:"currentBalances"`
 		Positions []struct {
-			LongQuantity  decimal `json:"longQuantity"`
-			ShortQuantity decimal `json:"shortQuantity"`
-			MarketValue   decimal `json:"marketValue"`
-			AveragePrice  decimal `json:"averagePrice"`
-			Instrument    struct {
+			LongQuantity                decimal `json:"longQuantity"`
+			ShortQuantity               decimal `json:"shortQuantity"`
+			MarketValue                 decimal `json:"marketValue"`
+			AveragePrice                decimal `json:"averagePrice"`
+			CurrentDayProfitLoss        decimal `json:"currentDayProfitLoss"`
+			CurrentDayProfitLossPercent decimal `json:"currentDayProfitLossPercentage"`
+			LongOpenProfitLoss          decimal `json:"longOpenProfitLoss"`
+			ShortOpenProfitLoss         decimal `json:"shortOpenProfitLoss"`
+			Instrument                  struct {
 				AssetType string `json:"assetType"`
 				Symbol    string `json:"symbol"`
 				CUSIP     string `json:"cusip"`
@@ -191,9 +195,76 @@ func (c *Client) GetPositions(ctx context.Context, cr *financial.Credentials, id
 			q = p.ShortQuantity
 			dir = "short"
 		}
-		out = append(out, financial.Position{AccountID: id, InstrumentType: p.Instrument.AssetType, Symbol: p.Instrument.Symbol, Quantity: financial.Decimal(q.String()), Direction: dir, MarketValue: money(p.MarketValue), CostBasis: money(p.AveragePrice), ProviderInstrumentID: p.Instrument.CUSIP})
+		dayPercent, err := providerDecimal(p.CurrentDayProfitLossPercent)
+		if err != nil {
+			return nil, err
+		}
+		openProfitLoss := p.LongOpenProfitLoss
+		if short {
+			openProfitLoss = p.ShortOpenProfitLoss
+		}
+		openPercent, err := profitLossPercent(openProfitLoss, p.AveragePrice, q, p.Instrument.AssetType)
+		if err != nil {
+			return nil, err
+		}
+		currentPrice, err := impliedPositionPrice(p.MarketValue, q, p.Instrument.AssetType)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, financial.Position{
+			AccountID: id, InstrumentType: p.Instrument.AssetType, Symbol: p.Instrument.Symbol,
+			Quantity: financial.Decimal(q.String()), Direction: dir, MarketValue: money(p.MarketValue),
+			CostBasis: money(p.AveragePrice), CurrentPrice: currentPrice,
+			DayProfitLoss: money(p.CurrentDayProfitLoss), DayProfitLossPercent: dayPercent,
+			OpenProfitLoss: money(openProfitLoss), OpenProfitLossPercent: openPercent,
+			PriceBasis: "PROVIDER_POSITION_MARKET_VALUE_PER_UNIT", ProviderInstrumentID: p.Instrument.CUSIP,
+		})
 	}
 	return out, nil
+}
+
+func positionMultiplier(assetType string) *big.Rat {
+	if strings.EqualFold(strings.TrimSpace(assetType), "OPTION") {
+		return big.NewRat(100, 1)
+	}
+	return big.NewRat(1, 1)
+}
+
+func impliedPositionPrice(marketValue, quantity decimal, assetType string) (*financial.Money, error) {
+	if marketValue == "" || quantity == "" {
+		return nil, nil
+	}
+	value, valueOK := new(big.Rat).SetString(marketValue.String())
+	units, unitsOK := new(big.Rat).SetString(quantity.String())
+	if !valueOK || !unitsOK || units.Sign() == 0 {
+		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("provider position price inputs are malformed")}
+	}
+	value.Abs(value)
+	units.Abs(units)
+	denominator := new(big.Rat).Mul(units, positionMultiplier(assetType))
+	price := new(big.Rat).Quo(value, denominator)
+	return &financial.Money{Amount: financial.Decimal(price.FloatString(10)), Currency: "USD"}, nil
+}
+
+func profitLossPercent(profitLoss, averagePrice, quantity decimal, assetType string) (*financial.Decimal, error) {
+	if profitLoss == "" || averagePrice == "" || quantity == "" {
+		return nil, nil
+	}
+	change, changeOK := new(big.Rat).SetString(profitLoss.String())
+	average, averageOK := new(big.Rat).SetString(averagePrice.String())
+	units, unitsOK := new(big.Rat).SetString(quantity.String())
+	if !changeOK || !averageOK || !unitsOK {
+		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("provider profit/loss inputs are malformed")}
+	}
+	average.Abs(average)
+	units.Abs(units)
+	cost := new(big.Rat).Mul(new(big.Rat).Mul(average, units), positionMultiplier(assetType))
+	if cost.Sign() == 0 {
+		return nil, nil
+	}
+	percentage := new(big.Rat).Mul(new(big.Rat).Quo(change, cost), big.NewRat(100, 1))
+	result := financial.Decimal(percentage.FloatString(10))
+	return &result, nil
 }
 func nonZero(n decimal) (bool, error) {
 	if n == "" {
