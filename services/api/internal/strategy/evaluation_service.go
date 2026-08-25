@@ -53,6 +53,7 @@ type EvaluationAI interface {
 
 type EvaluationMarkets interface {
 	CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error)
+	CryptoVenueStats(context.Context, string, string) (marketintelligence.CryptoVenueStats, bool, error)
 }
 
 type AIAbstentionStore interface {
@@ -373,11 +374,11 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	if err != nil {
 		return EvaluationOutcome{}, err
 	}
-	request, riskAccount, err := s.aiAccountFacts(ctx, principal, account, mandate.AllowedUniverse.Symbols, now)
+	markets, err := s.aiMarketFacts(ctx, principal, account, mandate.AllowedUniverse.Symbols, now)
 	if err != nil {
 		return EvaluationOutcome{}, err
 	}
-	markets, err := s.aiMarketFacts(ctx, principal, account, mandate.AllowedUniverse.Symbols, now)
+	request, riskAccount, err := s.aiAccountFacts(ctx, principal, account, mandate.AllowedUniverse.Symbols, markets, now)
 	if err != nil {
 		return EvaluationOutcome{}, err
 	}
@@ -458,7 +459,7 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	return outcome, err
 }
 
-func (s *EvaluationService) aiAccountFacts(ctx context.Context, principal authorization.Principal, account financial.FinancialAccount, allowed []string, now time.Time) (neural.ShadowDecisionRequest, risk.AccountRiskSnapshot, error) {
+func (s *EvaluationService) aiAccountFacts(ctx context.Context, principal authorization.Principal, account financial.FinancialAccount, allowed []string, markets []neural.ShadowMarketFact, now time.Time) (neural.ShadowDecisionRequest, risk.AccountRiskSnapshot, error) {
 	balances, err := s.financial.GetBalances(ctx, principal, account.ID)
 	if err != nil {
 		return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, err
@@ -501,7 +502,18 @@ func (s *EvaluationService) aiAccountFacts(ctx context.Context, principal author
 			availableQuantity = quantity
 		}
 		marketValue := "0"
-		if position.MarketValue != nil && position.MarketValue.Currency == "USD" {
+		if account.Provider == "coinbase" {
+			if price, found := aiMarketPrice(markets, symbol); found {
+				quantityValue, quantityOK := new(big.Rat).SetString(quantity)
+				priceValue, priceOK := new(big.Rat).SetString(price)
+				if quantityOK && priceOK && priceValue.Sign() > 0 {
+					if quantityValue.Sign() < 0 {
+						quantityValue.Neg(quantityValue)
+					}
+					marketValue = new(big.Rat).Mul(quantityValue, priceValue).FloatString(10)
+				}
+			}
+		} else if position.MarketValue != nil && position.MarketValue.Currency == "USD" {
 			marketValue = string(position.MarketValue.Amount)
 		}
 		instrument := strings.ToUpper(position.InstrumentType)
@@ -557,9 +569,40 @@ func (s *EvaluationService) aiMarketFacts(ctx context.Context, principal authori
 		if !freshMarketTimestamp(market.Provenance.ProviderTimestamp, now) {
 			return nil, ErrEvaluationMarketDataStale
 		}
-		facts = append(facts, neural.ShadowMarketFact{Symbol: strings.ToUpper(market.Symbol), AssetClass: "CRYPTO", Currency: "USD", Bid: marketDecimal(market.Bid), Ask: marketDecimal(market.Ask), Mark: string(market.CurrentPrice), Last: string(market.CurrentPrice), ChangePercent24H: marketDecimal(market.ChangePercent24H), Volume24H: marketDecimal(market.Volume24H), Feed: market.Provenance.Feed, Quality: string(market.Provenance.Quality), ObservedAt: market.Provenance.ProviderTimestamp})
+		fact := neural.ShadowMarketFact{Symbol: strings.ToUpper(market.Symbol), AssetClass: "CRYPTO", Currency: "USD", Bid: marketDecimal(market.Bid), Ask: marketDecimal(market.Ask), Mark: string(market.CurrentPrice), Last: string(market.CurrentPrice), ChangePercent24H: marketDecimal(market.ChangePercent24H), Volume24H: marketDecimal(market.Volume24H), Feed: market.Provenance.Feed, Quality: string(market.Provenance.Quality), ObservedAt: market.Provenance.ProviderTimestamp}
+		if stats, _, statsErr := s.markets.CryptoVenueStats(ctx, fact.Symbol, "USD"); statsErr == nil {
+			fact.Volume24H = string(stats.Volume24H)
+			fact.ChangePercent24H = percentageChange(string(stats.Open), string(stats.Last))
+		}
+		facts = append(facts, fact)
 	}
 	return facts, nil
+}
+
+func aiMarketPrice(markets []neural.ShadowMarketFact, symbol string) (string, bool) {
+	for _, market := range markets {
+		if !strings.EqualFold(market.Symbol, symbol) {
+			continue
+		}
+		for _, candidate := range []string{market.Mark, market.Last, market.Bid, market.Ask} {
+			value, ok := new(big.Rat).SetString(candidate)
+			if ok && value.Sign() > 0 {
+				return candidate, true
+			}
+		}
+	}
+	return "", false
+}
+
+func percentageChange(open, last string) string {
+	openValue, openOK := new(big.Rat).SetString(open)
+	lastValue, lastOK := new(big.Rat).SetString(last)
+	if !openOK || !lastOK || openValue.Sign() <= 0 || lastValue.Sign() <= 0 {
+		return ""
+	}
+	change := new(big.Rat).Sub(lastValue, openValue)
+	change.Mul(change, big.NewRat(100, 1))
+	return change.Quo(change, openValue).FloatString(10)
 }
 
 func financialDecimal(value *financial.Decimal) string {

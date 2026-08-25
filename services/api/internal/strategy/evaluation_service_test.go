@@ -44,10 +44,18 @@ func (f *evaluationAIFake) GenerateShadowDecision(_ context.Context, _ authoriza
 
 type evaluationMarketsFake struct {
 	batch marketintelligence.CryptoMarketBatch
+	stats map[string]marketintelligence.CryptoVenueStats
 }
 
 func (f *evaluationMarketsFake) CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error) {
 	return f.batch, false, nil
+}
+func (f *evaluationMarketsFake) CryptoVenueStats(_ context.Context, symbol, _ string) (marketintelligence.CryptoVenueStats, bool, error) {
+	stats, ok := f.stats[symbol]
+	if !ok {
+		return marketintelligence.CryptoVenueStats{}, false, errors.New("stats unavailable")
+	}
+	return stats, false, nil
 }
 func (f *evaluationStoreFake) EvaluationFacts(context.Context, Instance, time.Time) (EvaluationFacts, error) {
 	return f.facts, nil
@@ -231,7 +239,10 @@ func aiEvaluationFixture(provider string, decision neural.ShadowDecision) (*Eval
 	cash, available, buyingPower := financial.Money{Amount: "100", Currency: "USD"}, financial.Money{Amount: "100", Currency: "USD"}, financial.Money{Amount: "100", Currency: "USD"}
 	finances := &evaluationFinancialFake{account: financial.FinancialAccount{ID: "account", UserID: "user", Provider: provider, Status: "active", BaseCurrency: "USD", Capabilities: financial.Capabilities{"options": financial.Unsupported, "margin": financial.Unsupported}}, balances: financial.Balances{Cash: &cash, AvailableCash: &available, BuyingPower: &buyingPower}, positions: []financial.Position{}, timestamp: now}
 	ai := &evaluationAIFake{decision: decision}
-	markets := &evaluationMarketsFake{batch: marketintelligence.CryptoMarketBatch{Markets: []marketintelligence.CryptoMarketObservation{{Symbol: "BTC", Currency: "USD", CurrentPrice: "100", Bid: marketDecimalPointer("99"), Ask: marketDecimalPointer("101"), Provenance: marketintelligence.Provenance{Provider: "coinbase", Feed: "exchange", Quality: marketintelligence.RealTimeSingleVenue, ProviderTimestamp: now, ReceivedAt: now}}}}}
+	markets := &evaluationMarketsFake{
+		batch: marketintelligence.CryptoMarketBatch{Markets: []marketintelligence.CryptoMarketObservation{{Symbol: "BTC", Currency: "USD", CurrentPrice: "100", Bid: marketDecimalPointer("99"), Ask: marketDecimalPointer("101"), Provenance: marketintelligence.Provenance{Provider: "coinbase", Feed: "exchange", Quality: marketintelligence.RealTimeSingleVenue, ProviderTimestamp: now, ReceivedAt: now}}}},
+		stats: map[string]marketintelligence.CryptoVenueStats{"BTC": {Symbol: "BTC", Currency: "USD", Open: "80", Last: "100", Volume24H: "2500"}},
+	}
 	service := NewEvaluationService(store, automations, finances)
 	service.ConfigureAIShadow(ai, markets)
 	service.now = func() time.Time { return now }
@@ -258,11 +269,13 @@ func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testin
 func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
 	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "Insufficient evidence", RiskFlags: []string{}, Limitations: []string{"No edge"}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
 	service, store, finances, ai, principal := aiEvaluationFixture("coinbase", decision)
+	quantity, available := financial.Decimal("0.01"), financial.Decimal("0.01")
+	finances.positions = []financial.Position{{Symbol: "BTC", InstrumentType: "crypto", Direction: "long", Quantity: quantity, AvailableQuantity: &available}}
 	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:coinbase")
 	if err != nil || outcome.AIDecision != "ABSTAIN" || outcome.Execution.Status != ExecutionCanceled {
 		t.Fatalf("unexpected Coinbase abstention: %#v %v", outcome, err)
 	}
-	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" {
+	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" || ai.request.Markets[0].ChangePercent24H != "25.0000000000" || ai.request.Markets[0].Volume24H != "2500" || len(ai.request.Positions) != 1 || ai.request.Positions[0].MarketValueUSD != "1.0000000000" {
 		t.Fatalf("unexpected Coinbase boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
 }
