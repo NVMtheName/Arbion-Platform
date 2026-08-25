@@ -28,6 +28,7 @@ const (
 	Completed     State = "COMPLETED"
 	Paused        State = "PAUSED"
 	Error         State = "ERROR"
+	AIMonitoring  State = "AI_MONITORING"
 )
 
 type ExecutionMode string
@@ -83,6 +84,8 @@ type EvaluationInput struct {
 }
 type Decision struct {
 	ProposedAction *risk.ProposedAction
+	Source         string
+	InstrumentType string
 	ProposedState  State
 	CandidateCount int
 	Selected       *OptionCandidate
@@ -271,4 +274,6 @@ type EvaluationOutcome struct {
 	RiskChecks             []risk.RiskCheck  `json:"risk_checks"`
 	ApprovalRequired       bool              `json:"approval_required"`
 	LiveExecutionAvailable bool              `json:"live_execution_available"`
+	AIDecision             string            `json:"ai_decision,omitempty"`
+	Confidence             string            `json:"confidence,omitempty"`
 }

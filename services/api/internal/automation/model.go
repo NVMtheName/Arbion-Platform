@@ -38,6 +38,14 @@ type StrategyParameters struct {
 	AssignmentHandlingPolicy string   `json:"assignment_handling_policy"`
 }
 
+// AIShadowParameters is the deliberately small, immutable decision envelope for
+// autonomous AI research. The model may choose one symbol and BUY/SELL, but it
+// can never exceed MaxProposalNotional and the execution mode remains SHADOW.
+type AIShadowParameters struct {
+	Objective           string `json:"objective"`
+	MaxProposalNotional string `json:"max_proposal_notional"`
+}
+
 type ScheduleNotifications struct {
 	EvaluationCompleted bool `json:"evaluation_completed,omitempty"`
 	LifecycleRequired   bool `json:"lifecycle_required,omitempty"`

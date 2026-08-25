@@ -11,6 +11,7 @@ from .models import (
     Insight,
     NeuralProviderError,
     ProviderModel,
+    ShadowDecision,
     TradeProposal,
     VerificationResult,
 )
@@ -46,6 +47,15 @@ class NeuralProvider(ABC):
         context: dict[str, str],
         safety_identifier: str,
     ) -> TradeProposal:
+        raise NeuralProviderError(ErrorCode.UNSUPPORTED)
+
+    async def propose_shadow(
+        self,
+        credential: str,
+        profile: str,
+        context: dict[str, object],
+        safety_identifier: str,
+    ) -> ShadowDecision:
         raise NeuralProviderError(ErrorCode.UNSUPPORTED)
 
     async def generate(self, credential: str, model: str, request: Any) -> Any:

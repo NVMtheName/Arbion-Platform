@@ -1,4 +1,5 @@
 import os
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -51,6 +52,42 @@ class TradeProposalRequest(ProviderRequest):
     available_cash: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
     position_quantity: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
     position_available_quantity: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    observed_at: datetime
+    safety_identifier: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+
+
+class ShadowPositionFact(BaseModel):
+    symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Z][A-Z0-9.-]{0,15}$")
+    instrument: Literal["EQUITY", "CRYPTO"]
+    quantity: str = Field(pattern=r"^-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    available_quantity: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    market_value_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+
+
+class ShadowMarketFact(BaseModel):
+    symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Z][A-Z0-9.-]{0,15}$")
+    asset_class: Literal["EQUITY", "CRYPTO"]
+    currency: Literal["USD"]
+    bid: str = Field(pattern=r"^(|0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    ask: str = Field(pattern=r"^(|0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    mark: str = Field(pattern=r"^(|0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    last: str = Field(pattern=r"^(|0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    change_percent_24h: str = Field(pattern=r"^(|-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?)$")
+    volume_24h: str = Field(pattern=r"^(|0|[1-9][0-9]{0,29})(\.[0-9]{1,18})?$")
+    feed: str = Field(min_length=1, max_length=64)
+    quality: str = Field(min_length=1, max_length=64)
+    observed_at: datetime
+
+
+class ShadowDecisionRequest(ProviderRequest):
+    profile: Literal["fast", "core", "deep"]
+    objective: str = Field(min_length=1, max_length=500)
+    allowed_symbols: list[str] = Field(min_length=1, max_length=8)
+    max_proposal_notional: str = Field(pattern=r"^(0|[1-9][0-9]{0,17})(\.[0-9]{1,18})?$")
+    available_cash_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    buying_power_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    positions: list[ShadowPositionFact] = Field(max_length=200)
+    markets: list[ShadowMarketFact] = Field(min_length=1, max_length=8)
     observed_at: datetime
     safety_identifier: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
 
@@ -165,6 +202,61 @@ async def trade_proposal(
             "proposal": {
                 "decision": result.decision,
                 "requested_size": result.requested_size,
+                "confidence": result.confidence,
+                "thesis": result.thesis,
+                "risk_flags": list(result.risk_flags),
+                "limitations": list(result.limitations),
+                "metadata": {
+                    "provider": result.metadata.provider,
+                    "model": result.metadata.model,
+                    "profile": result.metadata.profile,
+                    "input_usage": result.metadata.input_usage,
+                    "output_usage": result.metadata.output_usage,
+                    "request_id": result.metadata.request_id,
+                    "latency_ms": result.metadata.latency_ms,
+                },
+            }
+        }
+    except NeuralProviderError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code.value}) from None
+
+
+@app.post("/internal/neural/shadow-decision")
+async def shadow_decision(
+    request: ShadowDecisionRequest, authorization: str | None = Header(None)
+) -> dict[str, object]:
+    authorize(authorization)
+    allowed = [symbol.strip().upper() for symbol in request.allowed_symbols]
+    if len(set(allowed)) != len(allowed) or any(
+        not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,15}", symbol) for symbol in allowed
+    ):
+        raise HTTPException(status_code=422, detail="allowed_symbols are invalid")
+    if request.observed_at.tzinfo is None or any(
+        market.observed_at.tzinfo is None for market in request.markets
+    ):
+        raise HTTPException(status_code=422, detail="timestamps must include a timezone")
+    try:
+        if Decimal(request.max_proposal_notional) <= 0:
+            raise HTTPException(status_code=422, detail="max_proposal_notional must be positive")
+    except InvalidOperation:
+        raise HTTPException(
+            status_code=422, detail="max_proposal_notional must be a decimal"
+        ) from None
+    context = request.model_dump(
+        exclude={"provider", "credential", "profile", "safety_identifier"}, mode="json"
+    )
+    context["objective"] = request.objective.strip()
+    context["allowed_symbols"] = allowed
+    try:
+        result = await registry.get(request.provider).propose_shadow(
+            request.credential, request.profile, context, request.safety_identifier
+        )
+        return {
+            "decision": {
+                "decision": result.decision,
+                "symbol": result.symbol,
+                "side": result.side,
+                "proposed_notional": result.proposed_notional,
                 "confidence": result.confidence,
                 "thesis": result.thesis,
                 "risk_flags": list(result.risk_flags),

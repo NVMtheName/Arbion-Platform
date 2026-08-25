@@ -85,3 +85,16 @@ class TradeProposal:
     risk_flags: tuple[str, ...]
     limitations: tuple[str, ...]
     metadata: ResponseMetadata
+
+
+@dataclass(frozen=True)
+class ShadowDecision:
+    decision: str
+    symbol: str
+    side: str
+    proposed_notional: str
+    confidence: str
+    thesis: str
+    risk_flags: tuple[str, ...]
+    limitations: tuple[str, ...]
+    metadata: ResponseMetadata

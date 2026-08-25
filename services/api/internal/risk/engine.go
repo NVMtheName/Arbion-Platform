@@ -256,11 +256,11 @@ func mustPositive(s string) *big.Rat {
 }
 
 func holdingRule(c *EvaluationContext, a ProposedAction) RiskCheck {
-	if c.Mandate != nil || (a.ActionType != ActionSell && a.ActionType != ActionCloseOption) {
+	if (a.ActionType != ActionSell && a.ActionType != ActionCloseOption) || (c.Mandate != nil && a.Source != SourceAI) {
 		return check(InsufficientPosition, true, "No manual holding-quantity check is required.")
 	}
 	quantity := mustPositive(a.Quantity)
-	if quantity == nil || c.Account == nil || c.Reservations == nil || !c.Reservations.Timestamp.Equal(c.Now) || !strings.EqualFold(c.Reservations.TargetInstrument, a.Instrument) {
+	if quantity == nil || c.Account == nil {
 		return check(InsufficientPosition, false, "The requested sell quantity or account holdings are unavailable.")
 	}
 	available := rat("0")
@@ -273,7 +273,13 @@ func holdingRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 			available = add(available, value)
 		}
 	}
-	reserved := rat(c.Reservations.TargetReservedQuantity)
+	reserved := rat("0")
+	if c.Mandate == nil {
+		if c.Reservations == nil || !c.Reservations.Timestamp.Equal(c.Now) || !strings.EqualFold(c.Reservations.TargetInstrument, a.Instrument) {
+			return check(InsufficientPosition, false, "Current holding reservations are unavailable.")
+		}
+		reserved = rat(c.Reservations.TargetReservedQuantity)
+	}
 	if reserved == nil || reserved.Sign() < 0 || sub(available, reserved).Cmp(quantity) < 0 {
 		return check(InsufficientPosition, false, "The requested sell exceeds the current available holding.")
 	}

@@ -85,6 +85,57 @@ type TradeProposalClient interface {
 	ProposeTrade(context.Context, string, []byte, TradeProposalRequest, string) (TradeProposal, error)
 }
 
+type ShadowPositionFact struct {
+	Symbol            string `json:"symbol"`
+	Instrument        string `json:"instrument"`
+	Quantity          string `json:"quantity"`
+	AvailableQuantity string `json:"available_quantity"`
+	MarketValueUSD    string `json:"market_value_usd"`
+}
+
+type ShadowMarketFact struct {
+	Symbol           string    `json:"symbol"`
+	AssetClass       string    `json:"asset_class"`
+	Currency         string    `json:"currency"`
+	Bid              string    `json:"bid"`
+	Ask              string    `json:"ask"`
+	Mark             string    `json:"mark"`
+	Last             string    `json:"last"`
+	ChangePercent24H string    `json:"change_percent_24h"`
+	Volume24H        string    `json:"volume_24h"`
+	Feed             string    `json:"feed"`
+	Quality          string    `json:"quality"`
+	ObservedAt       time.Time `json:"observed_at"`
+}
+
+type ShadowDecisionRequest struct {
+	Profile             string               `json:"profile"`
+	Objective           string               `json:"objective"`
+	AllowedSymbols      []string             `json:"allowed_symbols"`
+	MaxProposalNotional string               `json:"max_proposal_notional"`
+	AvailableCashUSD    string               `json:"available_cash_usd"`
+	BuyingPowerUSD      string               `json:"buying_power_usd"`
+	Positions           []ShadowPositionFact `json:"positions"`
+	Markets             []ShadowMarketFact   `json:"markets"`
+	ObservedAt          time.Time            `json:"observed_at"`
+}
+
+type ShadowDecision struct {
+	Decision         string          `json:"decision"`
+	Symbol           string          `json:"symbol"`
+	Side             string          `json:"side"`
+	ProposedNotional string          `json:"proposed_notional"`
+	Confidence       string          `json:"confidence"`
+	Thesis           string          `json:"thesis"`
+	RiskFlags        []string        `json:"risk_flags"`
+	Limitations      []string        `json:"limitations"`
+	Metadata         InsightMetadata `json:"metadata"`
+}
+
+type ShadowDecisionClient interface {
+	ProposeShadow(context.Context, string, []byte, ShadowDecisionRequest, string) (ShadowDecision, error)
+}
+
 type HTTPClient struct {
 	baseURL string
 	token   string
@@ -135,6 +186,20 @@ func (c *HTTPClient) ProposeTrade(ctx context.Context, provider string, credenti
 	}
 	err := c.call(ctx, "/internal/neural/trade-proposal", request, &out)
 	return out.Proposal, err
+}
+func (c *HTTPClient) ProposeShadow(ctx context.Context, provider string, credential []byte, input ShadowDecisionRequest, safetyIdentifier string) (ShadowDecision, error) {
+	var out struct {
+		Decision ShadowDecision `json:"decision"`
+	}
+	request := map[string]any{
+		"provider": provider, "credential": string(credential), "profile": input.Profile,
+		"objective": input.Objective, "allowed_symbols": input.AllowedSymbols,
+		"max_proposal_notional": input.MaxProposalNotional, "available_cash_usd": input.AvailableCashUSD,
+		"buying_power_usd": input.BuyingPowerUSD, "positions": input.Positions, "markets": input.Markets,
+		"observed_at": input.ObservedAt.UTC().Format(time.RFC3339Nano), "safety_identifier": safetyIdentifier,
+	}
+	err := c.call(ctx, "/internal/neural/shadow-decision", request, &out)
+	return out.Decision, err
 }
 func (c *HTTPClient) call(ctx context.Context, path string, request, out any) error {
 	body, err := json.Marshal(request)

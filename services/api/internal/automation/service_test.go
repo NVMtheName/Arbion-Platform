@@ -90,7 +90,7 @@ func (f *fakeStore) Version(context.Context, string, string, int) (Version, erro
 var founder = authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
 
 func baseStore() *fakeStore {
-	return &fakeStore{account: AccountFacts{Owned: true, Options: "SUPPORTED"}, bucket: CapitalBucket{ID: "b", FinancialAccountID: "a", Status: "ACTIVE"}, ai: AIFacts{Owned: true, Active: true, ModelValid: true}}
+	return &fakeStore{account: AccountFacts{Owned: true, Provider: "schwab", Options: "SUPPORTED"}, bucket: CapitalBucket{ID: "b", FinancialAccountID: "a", Status: "ACTIVE"}, ai: AIFacts{Owned: true, Active: true, ModelValid: true, Provider: "openai"}}
 }
 func baseCommand() MandateCommand {
 	s := "wheel"
@@ -128,9 +128,12 @@ func TestMandateTypesCapabilitiesAutonomyAndNoExecution(t *testing.T) {
 	c.AutomationType = "AI_AUTONOMOUS"
 	c.StrategyIdentifier = nil
 	ai := "ai"
-	model := "model"
+	model := "gpt-5.6-sol"
 	c.AIProviderConnectionID = &ai
 	c.AIModelID = &model
+	c.ExecutionMode = "SHADOW"
+	c.AutonomyLevel = "FULL_AUTONOMOUS"
+	c.OptionsAllowed = false
 	if _, e = s.Create(ctx, founder, c); e != nil {
 		t.Fatalf("valid AI mandate rejected: %v", e)
 	}
@@ -161,6 +164,30 @@ func TestMandateTypesCapabilitiesAutonomyAndNoExecution(t *testing.T) {
 	m, e = s.Create(ctx, founder, c)
 	if e != nil || !m.CapabilityUnverified {
 		t.Fatal("unknown capability did not produce warning")
+	}
+}
+
+func TestAIShadowReadyMandateBindsProviderSessionAndBoundedParameters(t *testing.T) {
+	connection, model := "ai", "gpt-5.6-sol"
+	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`), AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR"}`)}
+	store := baseStore()
+	service := NewService(store, nil)
+	if _, err := service.validate(context.Background(), founder, command, true); err != nil {
+		t.Fatalf("valid Schwab AI shadow mandate rejected: %v", err)
+	}
+	store.account.Provider = "coinbase"
+	command.ScheduleConditions = []byte(`{"enabled":true,"interval_minutes":60,"session":"CONTINUOUS"}`)
+	if _, err := service.validate(context.Background(), founder, command, true); err != nil {
+		t.Fatalf("valid Coinbase AI shadow mandate rejected: %v", err)
+	}
+	command.ScheduleConditions = []byte(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR"}`)
+	if _, err := service.validate(context.Background(), founder, command, true); err != ErrInvalid {
+		t.Fatalf("Coinbase equities session mismatch accepted: %v", err)
+	}
+	command.ScheduleConditions = []byte(`{"enabled":false}`)
+	command.StrategyParameters = []byte(`{"objective":"Preserve capital.","max_proposal_notional":"0"}`)
+	if _, err := service.validate(context.Background(), founder, command, true); err != ErrInvalid {
+		t.Fatalf("zero AI proposal ceiling accepted: %v", err)
 	}
 }
 func TestOwnershipEntitlementReserveAndDurability(t *testing.T) {

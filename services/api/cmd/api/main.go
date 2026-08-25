@@ -91,7 +91,6 @@ func main() {
 	automations := automation.NewService(automation.NewPostgresStore(pool), users)
 	strategyStore := strategy.NewPostgresStore(pool)
 	strategies := strategy.NewInstanceService(strategyStore, automations, users)
-	evaluations := strategy.NewEvaluationService(strategyStore, automations, financialConnections)
 	breakers := risk.NewBreakerService(risk.NewPostgresBreakerStore(pool), users)
 	markets, err := newMarketIntelligenceService(cfg.MarketData, marketintelligence.NewPostgresHealthStore(pool), marketintelligence.NewPostgresWatchlistStore(pool))
 	if err != nil {
@@ -108,6 +107,8 @@ func main() {
 		}
 	}
 	slog.Info("market intelligence initialized", "available_sources", availableSources)
+	evaluations := strategy.NewEvaluationService(strategyStore, automations, financialConnections)
+	evaluations.ConfigureAIShadow(aiConnections, markets)
 	if cfg.Scheduler.Enabled {
 		notifications := automationnotification.NewEmailSender(emailSender, cfg.Email.PublicBaseURL)
 		scheduler := strategy.NewScheduler(strategyStore, evaluations, notifications)

@@ -92,4 +92,4 @@ Material baseline costs are NAT gateways/data processing, ALB/LCUs, continuously
 
 ## Trading safety
 
-AWS production does not imply live trading. This foundation adds no `PlaceOrder`, broker submission, cancellation/replacement, live adapter/switch, or autonomous worker. PAPER simulation and SHADOW intent recording remain the only execution modes; Schwab remains read-only.
+AWS production does not imply live trading. This foundation adds no `PlaceOrder`, broker submission, cancellation/replacement, or live adapter/switch. PAPER simulation and SHADOW intent recording remain the only execution modes. The optional autonomous AI worker is restricted to SHADOW: it can read current Coinbase or Schwab facts, abstain, or journal one risk-gated proposal, but it cannot create a provider order. Schwab remains read-only.

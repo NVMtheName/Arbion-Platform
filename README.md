@@ -1,6 +1,6 @@
 # Arbion Platform
 
-Production-oriented foundation for Arbion. The Schwab integration is read-only, Arbion Insight provides bounded educational analysis of user-supplied text through explicit Fast/Core/Deep model profiles, and strategy execution is limited to PAPER and SHADOW. An opt-in server-side scheduler can invoke that same non-live evaluation path; no live broker-write adapter or live-trading worker exists.
+Production-oriented foundation for Arbion. Coinbase and Schwab supply owner-scoped read-only portfolio context to a shared AI Shadow Engine, Arbion Insight provides bounded educational analysis through explicit Fast/Core/Deep model profiles, and execution remains limited to PAPER and SHADOW. The AI engine can autonomously observe, abstain, or propose one mandate-bounded action; every proposal crosses the deterministic Risk/Control Engine and becomes only Decision Journal evidence. An opt-in server-side scheduler can invoke the same non-live path. No live broker-write adapter or live-trading worker exists.
 
 ## Repository layout
 

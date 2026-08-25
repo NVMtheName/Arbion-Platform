@@ -39,13 +39,12 @@ Shadow Mode must never submit an order. It records the intended order, expected 
 
 ## Evaluation and state advancement
 
-The implemented manual or guarded scheduled evaluation follows this path, with AI, live preview, and broker submission intentionally absent:
+The deterministic strategy path and autonomous AI Shadow path share account, mandate, risk, journal, scheduler, and non-live adapter controls. The AI path deliberately does not alter deterministic option-strategy state machines. Evaluation follows this path, with live preview and broker submission intentionally absent:
 
 1. loads the active immutable mandate version and reconciled strategy state;
 2. obtains mode-appropriate, provenance-bearing account and market inputs;
-3. determines legal candidate transitions;
-4. rejects Hybrid/AI evaluation in this milestone;
-5. emits a structured proposal;
+3. either determines a legal deterministic candidate or obtains one schema-constrained AI shadow decision from normalized allowlisted facts;
+4. records an AI abstention without creating an action, or emits one bounded structured proposal;
 6. submits it to the authoritative control/risk engine;
 7. records any approval requirement without creating a broker preview;
 8. sends an allowed proposal only to the PAPER or SHADOW non-live adapter; and
@@ -65,7 +64,7 @@ See [Automation Engine](AUTOMATION_ENGINE.md), [Risk and Control Engine](RISK_CO
 
 ## Deferred decisions
 
-The remaining strategy-definition format, complete transition/event taxonomy, production-grade fill simulation, corporate actions, broker-authoritative assignment/exercise ingestion, multi-leg atomicity, authoritative unscheduled-closure ingestion and calendar-horizon maintenance, deterministic replay requirements, state migration, mode-switch policy, broader orchestration, and backtester remain for later design. The current implementation is deliberately limited to explicit manual or opt-in scheduled PAPER/SHADOW evaluation plus owner-attested PAPER Wheel lifecycle events.
+The remaining strategy-definition format, complete transition/event taxonomy, production-grade fill simulation, corporate actions, broker-authoritative assignment/exercise ingestion, multi-leg atomicity, authoritative unscheduled-closure ingestion and calendar-horizon maintenance, deterministic replay requirements, state migration, mode-switch policy, live AI trading approval/execution, broader orchestration, and backtester remain for later design. The current implementation is limited to explicit manual or opt-in scheduled PAPER/SHADOW evaluation plus owner-attested PAPER Wheel lifecycle events.
 
 ## Implemented configuration registry
 

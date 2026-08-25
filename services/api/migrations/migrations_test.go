@@ -120,6 +120,23 @@ func TestNonLiveSchedulerMigrationUsesDurableLeasesAndExactMandateVersions(t *te
 	}
 }
 
+func TestAIShadowMigrationExtendsOnlyNonLiveStrategyHistory(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00025_ai_shadow_engine.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"ai_shadow", "source IN ('STRATEGY','LIFECYCLE','AI')", "'US_EQUITIES_REGULAR','CONTINUOUS'", "cannot remove AI shadow schema while AI shadow history exists"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("AI shadow migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"broker_orders", "provider_order", "LIVE_EXECUTION", "PlaceOrder"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("AI shadow migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00013_paper_lifecycle_events.sql")
 	if err != nil {

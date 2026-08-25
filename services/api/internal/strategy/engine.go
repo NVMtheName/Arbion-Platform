@@ -174,7 +174,7 @@ func (e *Engine) Evaluate(instance Instance, in EvaluationInput) (Decision, erro
 	state := string(instance.CurrentState)
 	a.StrategyState = &state
 	rationale, _ := json.Marshal(map[string]any{"strategy": instance.StrategyIdentifier, "state": instance.CurrentState, "symbol": c.Underlying, "candidate_count": count, "selected_reason": "closest_to_target_delta_then_expiration_then_strike", "expiration": c.Expiration, "strike": c.Strike, "delta": c.Delta})
-	return Decision{&a, proposed, count, c, "closest_to_target_delta_then_expiration_then_strike", rationale}, nil
+	return Decision{ProposedAction: &a, Source: "STRATEGY", InstrumentType: "OPTION", ProposedState: proposed, CandidateCount: count, Selected: c, Reason: "closest_to_target_delta_then_expiration_then_strike", Rationale: rationale}, nil
 }
 
 func ApplyLifecycle(identifier string, state State, event LifecycleEvent) (State, error) {

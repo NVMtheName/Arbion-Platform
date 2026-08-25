@@ -297,6 +297,74 @@ func (s *Service) GenerateTradeProposal(ctx context.Context, p authorization.Pri
 	return result, nil
 }
 
+// GenerateShadowDecision uses the exact active AI connection and model frozen
+// into the mandate. Only normalized facts cross the internal boundary; account
+// identifiers and provider credentials never appear in the model input.
+func (s *Service) GenerateShadowDecision(ctx context.Context, p authorization.Principal, connectionID, modelID string, input neural.ShadowDecisionRequest) (neural.ShadowDecision, error) {
+	if !s.allowed(ctx, p, "neural_shadow_decision.rejected", connectionID, "") {
+		return neural.ShadowDecision{}, ErrForbidden
+	}
+	route, err := resolveModelRoute(modelID)
+	if err != nil {
+		return neural.ShadowDecision{}, ErrInvalid
+	}
+	connection, err := s.store.Get(ctx, p.UserID, connectionID)
+	if err != nil {
+		return neural.ShadowDecision{}, err
+	}
+	if connection.Status != "active" {
+		return neural.ShadowDecision{}, ErrInactive
+	}
+	if connection.Provider != route.Provider || s.limiter == nil {
+		return neural.ShadowDecision{}, &neural.ProviderError{Code: neural.Unsupported}
+	}
+	client, ok := s.neural.(neural.ShadowDecisionClient)
+	if !ok {
+		return neural.ShadowDecision{}, ErrProvider
+	}
+	allowed, err := s.limiter.AllowWeighted(ctx, "neural-shadow-decision:"+p.UserID, route.CreditUnits, ProposalCreditLimit, ProposalWindow)
+	if err != nil {
+		s.record(ctx, p.UserID, "neural_shadow_decision.failed", connection, routeAudit(route, "RATE_LIMITER_UNAVAILABLE"))
+		return neural.ShadowDecision{}, ErrProvider
+	}
+	if !allowed {
+		s.record(ctx, p.UserID, "neural_shadow_decision.rate_limited", connection, routeAudit(route, "RATE_LIMITED"))
+		return neural.ShadowDecision{}, ErrRateLimit
+	}
+	secret, err := s.vault.Retrieve(ctx, credential.Locator{ConnectionID: connection.ID, UserID: p.UserID, Class: credential.AI})
+	if err != nil {
+		return neural.ShadowDecision{}, err
+	}
+	defer clear(secret)
+	input.Profile = string(route.Profile)
+	digest := sha256.Sum256([]byte("arbion-neural:" + p.UserID))
+	started := time.Now()
+	result, err := client.ProposeShadow(ctx, connection.Provider, secret, input, hex.EncodeToString(digest[:]))
+	if err != nil {
+		code := neural.Code(err)
+		failed := routeAudit(route, code)
+		failed["latency_ms"] = time.Since(started).Milliseconds()
+		s.record(ctx, p.UserID, "neural_shadow_decision.failed", connection, failed)
+		return neural.ShadowDecision{}, &neural.ProviderError{Code: code}
+	}
+	if result.Metadata.Provider != route.Provider || result.Metadata.Model != route.ModelID || result.Metadata.Profile != string(route.Profile) {
+		s.record(ctx, p.UserID, "neural_shadow_decision.failed", connection, routeAudit(route, neural.InternalError))
+		return neural.ShadowDecision{}, &neural.ProviderError{Code: neural.InternalError}
+	}
+	extra := routeAudit(route, "COMPLETED")
+	extra["latency_ms"] = time.Since(started).Milliseconds()
+	extra["decision"] = result.Decision
+	if result.Decision == "PROPOSE" {
+		extra["symbol"] = result.Symbol
+		extra["side"] = result.Side
+	}
+	if result.Metadata.RequestID != "" {
+		extra["provider_request_id"] = result.Metadata.RequestID
+	}
+	s.record(ctx, p.UserID, "neural_shadow_decision.completed", connection, extra)
+	return result, nil
+}
+
 func routeAudit(route InsightRoute, outcome any) map[string]any {
 	return map[string]any{
 		"profile": route.Profile, "model_id": route.ModelID, "credit_units": route.CreditUnits, "outcome": outcome,
