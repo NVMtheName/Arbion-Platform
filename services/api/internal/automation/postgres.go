@@ -30,7 +30,7 @@ func (s *PostgresStore) AccountFacts(c context.Context, u, id string) (AccountFa
 }
 func (s *PostgresStore) AIFacts(c context.Context, u, id, model string) (AIFacts, error) {
 	var f AIFacts
-	e := s.db.QueryRow(c, `SELECT p.provider,status='active', $3 IN ('gpt-5.6-luna','gpt-5.6-terra','gpt-5.6-sol') FROM provider_connections p WHERE p.id=$1 AND p.user_id=$2 AND p.provider_category='ai'`, id, u, model).Scan(&f.Provider, &f.Active, &f.ModelValid)
+	e := s.db.QueryRow(c, `SELECT p.provider_name,status='active', $3 IN ('gpt-5.6-luna','gpt-5.6-terra','gpt-5.6-sol') FROM provider_connections p WHERE p.id=$1 AND p.user_id=$2 AND p.provider_category='ai'`, id, u, model).Scan(&f.Provider, &f.Active, &f.ModelValid)
 	f.Owned = e == nil
 	return f, e
 }
