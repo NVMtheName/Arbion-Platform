@@ -448,6 +448,73 @@ select {
   border: 1px solid #244237;
   border-radius: 12px;
 }
+.mandate-identity-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+.mandate-identity-summary article {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid #244237;
+  border-radius: 12px;
+  background:
+    linear-gradient(145deg, rgba(21, 63, 49, 0.23), transparent 62%), #07110e;
+}
+.mandate-identity-summary article > strong {
+  color: var(--brand-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.mandate-identity-summary article > span,
+.mandate-identity-summary article > a {
+  color: var(--brand-ivory);
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.08rem;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.mandate-identity-summary article > a:hover {
+  color: var(--brand-mint);
+}
+.mandate-identity-summary article > small {
+  color: var(--brand-muted);
+  line-height: 1.45;
+}
+.mandate-technical-references {
+  margin: 0 0 34px;
+  padding: 12px 16px;
+  border: 1px solid #1c342c;
+  border-radius: 10px;
+  color: var(--brand-muted);
+  font-size: 0.78rem;
+}
+.mandate-technical-references summary {
+  cursor: pointer;
+  color: var(--brand-muted);
+}
+.mandate-technical-references dl {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 2px;
+}
+.mandate-technical-references dl > div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+}
+.mandate-technical-references dt {
+  color: var(--brand-muted);
+}
+.mandate-technical-references dd {
+  margin: 0;
+  color: var(--brand-ivory);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
 .paper-portfolio-card {
   margin: 34px 0;
   padding: 24px;
@@ -6038,6 +6105,9 @@ h1 {
 }
 
 @media (max-width: 1100px) {
+  .mandate-identity-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .landing-hero {
     grid-template-columns: 1fr;
     padding-top: 90px;
@@ -6087,6 +6157,13 @@ h1 {
 }
 
 @media (max-width: 760px) {
+  .mandate-identity-summary {
+    grid-template-columns: 1fr;
+  }
+  .mandate-technical-references dl > div {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
   .automation-page {
     padding-top: 34px;
   }

@@ -30,6 +30,7 @@ import {
 } from "../ai-shadow-evaluation-controls";
 import { AIDecisionJournal } from "../ai-decision-journal";
 import { AIShadowScorecard } from "../ai-shadow-scorecard";
+import { MandateIdentitySummary } from "../mandate-identity-summary";
 export default async function MandateReview({
   params,
 }: {
@@ -55,21 +56,29 @@ export default async function MandateReview({
     email_delivery_available?: boolean;
   };
   const m = automationResponse.automation;
-  const [instancesResponse, breakerResponse, accountsResponse] =
-    await Promise.all([
-      fetch(`${api}/api/strategy-instances`, {
-        headers: { cookie: jar.toString() },
-        cache: "no-store",
-      }),
-      fetch(`${api}/api/automations/${id}/circuit-breaker`, {
-        headers: { cookie: jar.toString() },
-        cache: "no-store",
-      }),
-      fetch(`${api}/api/accounts`, {
-        headers: { cookie: jar.toString() },
-        cache: "no-store",
-      }),
-    ]);
+  const [
+    instancesResponse,
+    breakerResponse,
+    accountsResponse,
+    bucketsResponse,
+  ] = await Promise.all([
+    fetch(`${api}/api/strategy-instances`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+    fetch(`${api}/api/automations/${id}/circuit-breaker`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+    fetch(`${api}/api/accounts`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+    fetch(`${api}/api/capital-buckets`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+  ]);
   const instances = instancesResponse.ok
     ? ((
         (await instancesResponse.json()) as {
@@ -90,6 +99,13 @@ export default async function MandateReview({
           accounts?: Record<string, unknown>[];
         }
       ).accounts ?? [])
+    : [];
+  const capitalBuckets = bucketsResponse.ok
+    ? ((
+        (await bucketsResponse.json()) as {
+          capital_buckets?: Record<string, unknown>[];
+        }
+      ).capital_buckets ?? [])
     : [];
   const currentVersion = Number(m.current_version ?? m.CurrentVersion ?? 0);
   const mandateInstances = instances.filter(
@@ -161,6 +177,10 @@ export default async function MandateReview({
   const financialProvider = String(
     financialAccount?.provider ?? financialAccount?.Provider ?? "",
   );
+  const capitalBucketID = read("capital_bucket_id", "CapitalBucketID");
+  const capitalBucket = capitalBuckets.find(
+    (item) => String(item.id ?? item.ID ?? "") === capitalBucketID,
+  );
   const allowedUniverse = (m.allowed_universe ?? m.AllowedUniverse ?? {}) as {
     symbols?: string[];
     Symbols?: string[];
@@ -174,33 +194,21 @@ export default async function MandateReview({
           ? "AI Shadow Engine"
           : automationType}
       </h1>
-      <section className="review-grid">
-        <p>
-          <strong>Account</strong>
-          {read("financial_account_id", "FinancialAccountID")}
-        </p>
-        <p>
-          <strong>Strategy</strong>
-          {read("strategy_identifier", "StrategyIdentifier")}
-        </p>
-        <p>
-          <strong>Capital Bucket</strong>
-          {read("capital_bucket_id", "CapitalBucketID")}
-        </p>
-        <p>
-          <strong>Autonomy</strong>
-          {read("autonomy_level", "AutonomyLevel")}
-        </p>
-        <p>
-          <strong>Execution</strong>
-          {read("execution_mode", "ExecutionMode")}
-        </p>
-        <p>
-          <strong>Status / Version</strong>
-          {read("status", "Status")} /{" "}
-          {read("current_version", "CurrentVersion")}
-        </p>
-      </section>
+      <MandateIdentitySummary
+        mandateId={id}
+        automationType={automationType}
+        financialAccountId={financialAccountID}
+        financialAccount={financialAccount}
+        capitalBucketId={capitalBucketID}
+        capitalBucket={capitalBucket}
+        strategyIdentifier={read("strategy_identifier", "StrategyIdentifier")}
+        aiModelId={read("ai_model_id", "AIModelID")}
+        autonomyLevel={read("autonomy_level", "AutonomyLevel")}
+        executionMode={read("execution_mode", "ExecutionMode")}
+        status={read("status", "Status")}
+        currentVersion={currentVersion}
+        strategyInstanceId={instanceID}
+      />
       <p className="security-note">
         Capability checks are conservative: UNKNOWN is not treated as broker
         support. A separately confirmed attestation may permit PAPER-only
