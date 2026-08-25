@@ -68,7 +68,7 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 		return i, e
 	}
 	if schedule.Enabled {
-		_, e = tx.Exec(c, `INSERT INTO nonlive_strategy_schedules(strategy_instance_id,user_id,mandate_id,mandate_version,interval_minutes,session,next_run_at) VALUES($1,$2,$3,$4,$5,$6,now())`, i.ID, u, m.ID, m.CurrentVersion, schedule.IntervalMinutes, schedule.Session)
+		_, e = tx.Exec(c, `INSERT INTO nonlive_strategy_schedules(strategy_instance_id,user_id,mandate_id,mandate_version,interval_minutes,session,next_run_at) VALUES($1,$2,$3,$4,$5::integer,$6,now()+($5::integer * interval '1 minute'))`, i.ID, u, m.ID, m.CurrentVersion, schedule.IntervalMinutes, schedule.Session)
 		if e != nil {
 			return i, e
 		}

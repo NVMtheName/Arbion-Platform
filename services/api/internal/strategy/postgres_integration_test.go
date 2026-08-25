@@ -89,7 +89,11 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		t.Fatalf("financial account was reused by a second active strategy: %v", err)
 	}
 	assertCount(t, pool, `SELECT count(*) FROM strategy_instances`, 1)
-	claimAt := time.Now().UTC().Add(time.Minute)
+	earlyClaimAt := time.Now().UTC().Add(59 * time.Minute)
+	if scheduled, claimErr := store.ClaimDueSchedule(ctx, earlyClaimAt, scheduleLeaseDuration); claimErr != nil || scheduled != nil {
+		t.Fatalf("new schedule ran before its configured interval: %#v %v", scheduled, claimErr)
+	}
+	claimAt := time.Now().UTC().Add(61 * time.Minute)
 	scheduled, err := store.ClaimDueSchedule(ctx, claimAt, scheduleLeaseDuration)
 	if err != nil || scheduled == nil {
 		t.Fatalf("guarded schedule was not claimed: %#v %v", scheduled, err)
