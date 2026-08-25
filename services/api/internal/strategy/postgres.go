@@ -27,6 +27,18 @@ func scanInstance(r pgx.Row) (i Instance, e error) {
 	e = r.Scan(&i.ID, &i.UserID, &i.AutomationMandateID, &i.MandateVersion, &i.FinancialAccountID, &i.CapitalBucketID, &i.StrategyIdentifier, &i.DefinitionVersion, &i.ExecutionMode, &i.CurrentState, &i.StateVersion, &i.Status, &i.StartedAt, &i.UpdatedAt, &i.PausedAt, &i.CompletedAt, &i.LastEvaluatedAt)
 	return
 }
+
+func initializeError(err error) error {
+	var postgresError *pgconn.PgError
+	if !errors.As(err, &postgresError) || postgresError.Code != "23505" {
+		return err
+	}
+	if postgresError.ConstraintName == "strategy_one_active_account_idx" || postgresError.ConstraintName == "strategy_one_active_bucket_idx" {
+		return ErrAccountInUse
+	}
+	return ErrConflict
+}
+
 func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Mandate, cash string, state State) (Instance, error) {
 	schedule, e := automation.ParseScheduleConditions(m.ScheduleConditions)
 	if e != nil {
@@ -43,14 +55,7 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 	}
 	i, e := scanInstance(tx.QueryRow(c, `INSERT INTO strategy_instances(user_id,automation_mandate_id,mandate_version,financial_account_id,capital_bucket_id,strategy_identifier,strategy_definition_version,execution_mode,current_state) VALUES($1,$2,$3,$4,$5,$6,1,$7,$8) RETURNING `+instanceColumns, u, m.ID, m.CurrentVersion, m.FinancialAccountID, m.CapitalBucketID, identifier, m.ExecutionMode, state))
 	if e != nil {
-		var postgresError *pgconn.PgError
-		if errors.As(e, &postgresError) && postgresError.Code == "23505" {
-			if postgresError.ConstraintName == "strategy_one_active_account_idx" {
-				return i, ErrAccountInUse
-			}
-			return i, ErrConflict
-		}
-		return i, e
+		return i, initializeError(e)
 	}
 	if m.ExecutionMode == "PAPER" {
 		if _, e = tx.Exec(c, `INSERT INTO paper_portfolios(user_id,strategy_instance_id,currency,starting_cash,cash) SELECT $1,$2,b.currency,$3,$3 FROM capital_buckets b WHERE b.id=$4`, u, i.ID, cash, m.CapitalBucketID); e != nil {
