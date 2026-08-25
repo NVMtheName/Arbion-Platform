@@ -65,7 +65,36 @@ function dollars(value: string | undefined) {
   return formatted === "—" ? formatted : `$${formatted}`;
 }
 
-export function AIDecisionJournal({ decisions }: { decisions: RawDecision[] }) {
+function signedDollars(value: string | undefined) {
+  const formatted = decimal(value);
+  if (formatted === "—") return formatted;
+  if (formatted.startsWith("-")) return `-$${formatted.slice(1)}`;
+  if (formatted === "0") return "$0";
+  return `+$${formatted}`;
+}
+
+function signedPercent(value: string | undefined) {
+  const formatted = decimal(value);
+  if (formatted === "—") return formatted;
+  if (formatted.startsWith("-") || formatted === "0") return `${formatted}%`;
+  return `+${formatted}%`;
+}
+
+function elapsedLabel(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0)
+    return "Elapsed time unavailable";
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  return `Observed ${hours}h${minutes ? ` ${minutes}m` : ""} after proposal`;
+}
+
+export function AIDecisionJournal({
+  decisions,
+  outcomes = [],
+}: {
+  decisions: RawDecision[];
+  outcomes?: RawDecision[];
+}) {
   const entries = decisions
     .filter((entry) => read(entry, "source", "Source") === "AI")
     .slice(0, 5);
@@ -95,9 +124,12 @@ export function AIDecisionJournal({ decisions }: { decisions: RawDecision[] }) {
             const riskReached = Boolean(
               read(entry, "risk_evaluation_id", "RiskEvaluationID"),
             );
-            const executionRecorded = Boolean(
-              read(entry, "execution_record_id", "ExecutionRecordID"),
+            const executionRecordID = field(
+              entry,
+              "execution_record_id",
+              "ExecutionRecordID",
             );
+            const executionRecorded = Boolean(executionRecordID);
             const riskDecision = field(entry, "risk_decision", "RiskDecision");
             const executionStatus = field(
               entry,
@@ -116,6 +148,24 @@ export function AIDecisionJournal({ decisions }: { decisions: RawDecision[] }) {
                 ? facts.symbol
                 : "No action";
             const entryID = String(read(entry, "id", "ID") ?? index);
+            const outcomeMarks = executionRecordID
+              ? outcomes
+                  .filter(
+                    (outcome) =>
+                      field(
+                        outcome,
+                        "execution_record_id",
+                        "ExecutionRecordID",
+                      ) === executionRecordID,
+                  )
+                  .sort((left, right) =>
+                    field(left, "horizon", "Horizon") === "ONE_HOUR"
+                      ? -1
+                      : field(right, "horizon", "Horizon") === "ONE_HOUR"
+                        ? 1
+                        : 0,
+                  )
+              : [];
 
             return (
               <article className="journal-entry" key={entryID}>
@@ -210,6 +260,102 @@ export function AIDecisionJournal({ decisions }: { decisions: RawDecision[] }) {
                         </dd>
                       </div>
                     </dl>
+                    <div className="journal-outcomes">
+                      <h5>Outcome marks</h5>
+                      {outcomeMarks.length === 0 ? (
+                        <p>
+                          The 1-hour directional mark is pending. Arbion records
+                          it after the horizon receives a fresh market
+                          observation.
+                        </p>
+                      ) : (
+                        <div className="journal-outcome-grid">
+                          {outcomeMarks.map((outcome, outcomeIndex) => {
+                            const horizon = field(
+                              outcome,
+                              "horizon",
+                              "Horizon",
+                            );
+                            const change = field(
+                              outcome,
+                              "directional_change_usd",
+                              "DirectionalChangeUSD",
+                            );
+                            const changePercent = field(
+                              outcome,
+                              "directional_change_percent",
+                              "DirectionalChangePercent",
+                            );
+                            return (
+                              <article
+                                key={String(
+                                  read(outcome, "id", "ID") ?? outcomeIndex,
+                                )}
+                              >
+                                <strong>
+                                  {horizon === "TWENTY_FOUR_HOURS"
+                                    ? "24-hour mark"
+                                    : "1-hour mark"}
+                                </strong>
+                                <span>
+                                  {signedDollars(change)} (
+                                  {signedPercent(changePercent)})
+                                </span>
+                                <small>
+                                  {dollars(
+                                    field(
+                                      outcome,
+                                      "observed_price",
+                                      "ObservedPrice",
+                                    ),
+                                  )}{" "}
+                                  via{" "}
+                                  {label(
+                                    field(
+                                      outcome,
+                                      "pricing_basis",
+                                      "PricingBasis",
+                                    ) ?? "MARK_FALLBACK",
+                                  )}
+                                </small>
+                                <time
+                                  dateTime={
+                                    field(
+                                      outcome,
+                                      "market_observed_at",
+                                      "MarketObservedAt",
+                                    ) ?? ""
+                                  }
+                                >
+                                  {timestamp(
+                                    field(
+                                      outcome,
+                                      "market_observed_at",
+                                      "MarketObservedAt",
+                                    ),
+                                  )}{" "}
+                                  UTC
+                                </time>
+                                <small>
+                                  {elapsedLabel(
+                                    read(
+                                      outcome,
+                                      "elapsed_seconds",
+                                      "ElapsedSeconds",
+                                    ),
+                                  )}
+                                </small>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <p>
+                        Directional SHADOW evidence only. It excludes fees and
+                        slippage and is not a fill, realized return, or account
+                        P&amp;L.
+                      </p>
+                    </div>
                   </section>
                 )}
 

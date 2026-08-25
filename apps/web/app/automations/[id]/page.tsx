@@ -110,26 +110,33 @@ export default async function MandateReview({
     const status = String(item.Status ?? item.status ?? "");
     return status === "ACTIVE" || status === "PAUSED";
   });
-  const [history, decisions, executions, scheduleResponse, portfolioResponse] =
-    instanceID
-      ? await Promise.all(
-          [
-            "history",
-            "decisions",
-            "executions",
-            "schedule",
-            "paper-portfolio",
-          ].map(async (suffix) => {
-            const response = await fetch(
-              `${api}/api/strategy-instances/${instanceID}/${suffix}`,
-              { headers: { cookie: jar.toString() }, cache: "no-store" },
-            );
-            return response.ok
-              ? ((await response.json()) as Record<string, unknown>)
-              : {};
-          }),
-        )
-      : [{}, {}, {}, {}, {}];
+  const [
+    history,
+    decisions,
+    executions,
+    outcomes,
+    scheduleResponse,
+    portfolioResponse,
+  ] = instanceID
+    ? await Promise.all(
+        [
+          "history",
+          "decisions",
+          "executions",
+          "shadow-outcomes",
+          "schedule",
+          "paper-portfolio",
+        ].map(async (suffix) => {
+          const response = await fetch(
+            `${api}/api/strategy-instances/${instanceID}/${suffix}`,
+            { headers: { cookie: jar.toString() }, cache: "no-store" },
+          );
+          return response.ok
+            ? ((await response.json()) as Record<string, unknown>)
+            : {};
+        }),
+      )
+    : [{}, {}, {}, {}, {}, {}];
   const paperPortfolio = portfolioResponse.paper_portfolio as
     | PaperPortfolio
     | undefined;
@@ -356,6 +363,11 @@ export default async function MandateReview({
                 decisions={
                   Array.isArray(decisions.decisions)
                     ? (decisions.decisions as Record<string, unknown>[])
+                    : []
+                }
+                outcomes={
+                  Array.isArray(outcomes.outcomes)
+                    ? (outcomes.outcomes as Record<string, unknown>[])
                     : []
                 }
               />

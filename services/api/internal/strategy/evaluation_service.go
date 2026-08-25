@@ -60,6 +60,11 @@ type AIAbstentionStore interface {
 	CommitAIAbstention(context.Context, Instance, string, json.RawMessage, time.Time) error
 }
 
+type AIShadowOutcomeStore interface {
+	DueShadowOutcomes(context.Context, Instance, time.Time) ([]ShadowOutcomeCandidate, error)
+	RecordShadowOutcome(context.Context, Instance, ShadowOutcome) error
+}
+
 type EvaluationService struct {
 	store        EvaluationStore
 	automation   EvaluationAutomation
@@ -68,6 +73,7 @@ type EvaluationService struct {
 	orchestrator *Orchestrator
 	ai           EvaluationAI
 	markets      EvaluationMarkets
+	outcomes     AIShadowOutcomeStore
 }
 
 func (s *EvaluationService) ConfigureAIShadow(ai EvaluationAI, markets EvaluationMarkets) {
@@ -76,7 +82,7 @@ func (s *EvaluationService) ConfigureAIShadow(ai EvaluationAI, markets Evaluatio
 }
 
 func NewEvaluationService(store EvaluationStore, automations EvaluationAutomation, finances EvaluationFinancial) *EvaluationService {
-	return &EvaluationService{
+	service := &EvaluationService{
 		store:      store,
 		automation: automations,
 		financial:  finances,
@@ -89,6 +95,10 @@ func NewEvaluationService(store EvaluationStore, automations EvaluationAutomatio
 			Shadow: ShadowExecutionAdapter{},
 		},
 	}
+	if outcomes, ok := store.(AIShadowOutcomeStore); ok {
+		service.outcomes = outcomes
+	}
+	return service
 }
 
 var evaluationEventID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$`)
@@ -378,6 +388,9 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	if err != nil {
 		return EvaluationOutcome{}, err
 	}
+	if err = s.recordDueAIShadowOutcomes(ctx, instance, markets, now); err != nil {
+		return EvaluationOutcome{}, err
+	}
 	request, riskAccount, err := s.aiAccountFacts(ctx, principal, account, mandate.AllowedUniverse.Symbols, markets, now)
 	if err != nil {
 		return EvaluationOutcome{}, err
@@ -457,6 +470,95 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	outcome.AIDecision = "PROPOSE"
 	outcome.Confidence = decision.Confidence
 	return outcome, err
+}
+
+func (s *EvaluationService) recordDueAIShadowOutcomes(ctx context.Context, instance Instance, markets []neural.ShadowMarketFact, now time.Time) error {
+	if s.outcomes == nil {
+		return nil
+	}
+	candidates, err := s.outcomes.DueShadowOutcomes(ctx, instance, now)
+	if err != nil {
+		return err
+	}
+	for _, candidate := range candidates {
+		market, ok := findAIMarket(markets, candidate.Symbol)
+		if !ok {
+			return ErrEvaluationMarketDataStale
+		}
+		outcome, err := buildAIShadowOutcome(candidate, market, now)
+		if err != nil {
+			return err
+		}
+		if err = s.outcomes.RecordShadowOutcome(ctx, instance, outcome); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func buildAIShadowOutcome(candidate ShadowOutcomeCandidate, market neural.ShadowMarketFact, now time.Time) (ShadowOutcome, error) {
+	minimumAge := time.Hour
+	if candidate.Horizon == ShadowOutcomeTwentyFourHours {
+		minimumAge = 24 * time.Hour
+	} else if candidate.Horizon != ShadowOutcomeOneHour {
+		return ShadowOutcome{}, ErrInvalid
+	}
+	elapsed := now.Sub(candidate.CreatedAt)
+	if candidate.ExecutionRecordID == "" || !strings.EqualFold(candidate.Symbol, market.Symbol) || elapsed < minimumAge || now.IsZero() || !freshMarketTimestamp(market.ObservedAt, now) {
+		return ShadowOutcome{}, ErrInvalid
+	}
+
+	var prices []struct {
+		value, basis string
+	}
+	switch candidate.Side {
+	case "BUY":
+		prices = []struct{ value, basis string }{{market.Bid, "BID_TO_CLOSE"}, {market.Mark, "MARK_FALLBACK"}, {market.Last, "LAST_FALLBACK"}}
+	case "SELL":
+		prices = []struct{ value, basis string }{{market.Ask, "ASK_TO_CLOSE"}, {market.Mark, "MARK_FALLBACK"}, {market.Last, "LAST_FALLBACK"}}
+	default:
+		return ShadowOutcome{}, ErrInvalid
+	}
+	observedPrice, pricingBasis := "", ""
+	for _, price := range prices {
+		value, ok := new(big.Rat).SetString(price.value)
+		if ok && value.Sign() > 0 {
+			observedPrice, pricingBasis = price.value, price.basis
+			break
+		}
+	}
+	entry, entryOK := new(big.Rat).SetString(candidate.EntryPrice)
+	observed, observedOK := new(big.Rat).SetString(observedPrice)
+	quantity, quantityOK := new(big.Rat).SetString(candidate.Quantity)
+	if !entryOK || entry.Sign() <= 0 || !observedOK || observed.Sign() <= 0 || !quantityOK || quantity.Sign() <= 0 || market.Feed == "" || market.Quality == "" {
+		return ShadowOutcome{}, ErrInvalid
+	}
+	difference := new(big.Rat)
+	if candidate.Side == "BUY" {
+		difference.Sub(observed, entry)
+	} else {
+		difference.Sub(entry, observed)
+	}
+	change := new(big.Rat).Mul(difference, quantity)
+	entryNotional := new(big.Rat).Mul(new(big.Rat).Set(entry), quantity)
+	changePercent := new(big.Rat).Mul(new(big.Rat).Quo(change, entryNotional), big.NewRat(100, 1))
+	return ShadowOutcome{
+		ExecutionRecordID:        candidate.ExecutionRecordID,
+		Horizon:                  candidate.Horizon,
+		Symbol:                   strings.ToUpper(candidate.Symbol),
+		Side:                     candidate.Side,
+		Quantity:                 quantity.FloatString(10),
+		EntryPrice:               entry.FloatString(10),
+		ObservedPrice:            observed.FloatString(10),
+		DirectionalChangeUSD:     change.FloatString(10),
+		DirectionalChangePercent: changePercent.FloatString(10),
+		PricingBasis:             pricingBasis,
+		MarketFeed:               market.Feed,
+		MarketQuality:            market.Quality,
+		MarketObservedAt:         market.ObservedAt,
+		EvaluatedAt:              now,
+		ElapsedSeconds:           int64(elapsed / time.Second),
+	}, nil
 }
 
 func (s *EvaluationService) aiAccountFacts(ctx context.Context, principal authorization.Principal, account financial.FinancialAccount, allowed []string, markets []neural.ShadowMarketFact, now time.Time) (neural.ShadowDecisionRequest, risk.AccountRiskSnapshot, error) {
