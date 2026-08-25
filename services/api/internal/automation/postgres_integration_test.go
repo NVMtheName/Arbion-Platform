@@ -12,7 +12,7 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-func TestPostgresAccountFactsReadsProviderName(t *testing.T) {
+func TestPostgresAutomationFactsReadProviderNames(t *testing.T) {
 	databaseURL := os.Getenv("STRATEGY_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("STRATEGY_TEST_DATABASE_URL is not set")
@@ -37,9 +37,10 @@ func TestPostgresAccountFactsReadsProviderName(t *testing.T) {
 	defer pool.Close()
 
 	const (
-		userID       = "f1111111-1111-4111-8111-111111111111"
-		connectionID = "f2222222-2222-4222-8222-222222222222"
-		accountID    = "f3333333-3333-4333-8333-333333333333"
+		userID         = "f1111111-1111-4111-8111-111111111111"
+		connectionID   = "f2222222-2222-4222-8222-222222222222"
+		accountID      = "f3333333-3333-4333-8333-333333333333"
+		aiConnectionID = "f4444444-4444-4444-8444-444444444444"
 	)
 	if _, err = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, userID); err != nil {
 		t.Fatal(err)
@@ -48,6 +49,7 @@ func TestPostgresAccountFactsReadsProviderName(t *testing.T) {
 	statements := []string{
 		`INSERT INTO users(id,email,normalized_email,display_name,email_verified_at) VALUES('` + userID + `','automation-account-facts@example.com','automation-account-facts@example.com','Automation Account Facts',now())`,
 		`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES('` + connectionID + `','` + userID + `','financial','coinbase','Coinbase','active')`,
+		`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES('` + aiConnectionID + `','` + userID + `','ai','openai','OpenAI','active')`,
 		`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES('` + accountID + `','` + userID + `','` + connectionID + `','coinbase','portfolio:test','Coinbase Test','digital_asset_portfolio','USD','active','{"options":"UNSUPPORTED","margin":"UNSUPPORTED"}')`,
 	}
 	for _, statement := range statements {
@@ -62,5 +64,12 @@ func TestPostgresAccountFactsReadsProviderName(t *testing.T) {
 	}
 	if !facts.Owned || facts.Provider != "coinbase" || facts.Options != "UNSUPPORTED" || facts.Margin != "UNSUPPORTED" {
 		t.Fatalf("financial account facts were not loaded from provider_name and capabilities: %#v", facts)
+	}
+	aiFacts, err := NewPostgresStore(pool).AIFacts(ctx, userID, aiConnectionID, "gpt-5.6-sol")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !aiFacts.Owned || !aiFacts.Active || !aiFacts.ModelValid || aiFacts.Provider != "openai" {
+		t.Fatalf("AI connection facts were not loaded from provider_name: %#v", aiFacts)
 	}
 }
