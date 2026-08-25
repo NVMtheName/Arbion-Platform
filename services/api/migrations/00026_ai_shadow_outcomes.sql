@@ -55,7 +55,16 @@ CREATE INDEX shadow_execution_outcomes_instance_time_idx
 CREATE FUNCTION enforce_ai_shadow_outcome_source() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   execution_created_at timestamptz;
+  minimum_age interval;
 BEGIN
+  IF NEW.horizon='ONE_HOUR' THEN
+    minimum_age := interval '1 hour';
+  ELSIF NEW.horizon='TWENTY_FOUR_HOURS' THEN
+    minimum_age := interval '24 hours';
+  ELSE
+    RAISE EXCEPTION 'invalid AI shadow outcome horizon';
+  END IF;
+
   SELECT x.created_at INTO execution_created_at
   FROM nonlive_execution_records x
   JOIN strategy_instances i ON i.id=x.strategy_instance_id AND i.user_id=x.user_id
@@ -72,12 +81,12 @@ BEGIN
     AND i.execution_mode='SHADOW';
 
   IF execution_created_at IS NULL OR
-     NEW.evaluated_at < execution_created_at + CASE NEW.horizon WHEN 'ONE_HOUR' THEN interval '1 hour' ELSE interval '24 hours' END OR
+     NEW.evaluated_at < execution_created_at + minimum_age OR
      NEW.elapsed_seconds <> floor(extract(epoch FROM (NEW.evaluated_at-execution_created_at)))::bigint THEN
     RAISE EXCEPTION 'invalid AI shadow outcome source or horizon';
   END IF;
   RETURN NEW;
-END $$;
+END; $$;
 -- +goose StatementEnd
 
 CREATE TRIGGER shadow_execution_outcomes_source_guard
