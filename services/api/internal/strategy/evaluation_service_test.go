@@ -327,6 +327,20 @@ func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
 	assertAIInputEvidence(t, store.abstainRationale, "coinbase", "100", 1, 1)
 }
 
+func TestAIShadowRepeatProposalIsDeniedBeforeShadowExecution(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", ProposedNotional: "1", Confidence: "MEDIUM", Thesis: "Repeat the prior direction", RiskFlags: []string{}, Limitations: []string{}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, store, _, _, principal := aiEvaluationFixture("coinbase", decision)
+	store.facts.RecentActions = []risk.RecentAction{{Instrument: "BTC", Side: "BUY", OccurredAt: service.now().Add(-30 * time.Minute)}}
+
+	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:repeat")
+	if err != nil || outcome.AIDecision != "PROPOSE" || outcome.Execution.Status != RiskDenied || outcome.RiskDecision != risk.Deny || len(outcome.RiskReasonCodes) != 1 || outcome.RiskReasonCodes[0] != risk.RepeatActionCooldownActive {
+		t.Fatalf("repeat proposal did not stop at the deterministic risk gate: %#v %v", outcome, err)
+	}
+	if store.commits != 1 || store.abstains != 0 {
+		t.Fatalf("repeat proposal produced the wrong immutable evidence: commits=%d abstains=%d", store.commits, store.abstains)
+	}
+}
+
 func TestAIHistoryFactsNeverFillProviderCandleGaps(t *testing.T) {
 	now := time.Date(2026, 8, 25, 14, 0, 0, 0, time.UTC)
 	series := aiHistorySeries(now, 24)

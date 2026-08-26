@@ -108,6 +108,54 @@ describe("AI Decision Journal", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows when deterministic controls hold a repeated shadow proposal", () => {
+    render(
+      <AIDecisionJournal
+        decisions={[
+          {
+            ID: "decision-repeat",
+            Source: "AI",
+            DecisionType: "DENY_RISK_DENIED",
+            CreatedAt: "2026-08-26T00:40:00Z",
+            RiskEvaluationID: "risk-repeat",
+            ExecutionRecordID: "execution-repeat",
+            RiskDecision: "DENY",
+            RiskReasonCodes: ["REPEAT_ACTION_COOLDOWN_ACTIVE"],
+            ExecutionStatus: "RISK_DENIED",
+            Symbol: "XRP",
+            Side: "SELL",
+            Quantity: "0.6993",
+            Price: "1.43",
+            Notional: "1",
+            StructuredRationale: {
+              decision: "PROPOSE",
+              symbol: "XRP",
+              side: "SELL",
+              proposed_notional: "1",
+              confidence: "MEDIUM",
+              thesis: "The signal still favors reducing exposure.",
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Held by controls")).toBeInTheDocument();
+    expect(
+      screen.getByText("Repeat Action Cooldown Active"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Held by controls · XRP")).toBeInTheDocument();
+    expect(screen.getByText("Control denial")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", { name: "Hypothetical trade evidence" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "No broker order was sent. Arbion has no live execution path for this engine.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("shows immutable risk and hypothetical trade evidence for a proposal", () => {
     render(
       <AIDecisionJournal

@@ -53,6 +53,8 @@ Automation Mandate versions now preserve validated exact-decimal configuration f
 
 The Go `internal/risk` package defines provider-independent `ProposedAction`, normalized account and daily-activity snapshots, stable reason codes, structured `RiskEvaluation` evidence, and an ordered rule registry. Exact decimal arithmetic avoids binary floating point, and security-critical unknowns fail closed. Migration `00007_risk_control.sql` adds durable scoped circuit-breaker and compact evaluation evidence tables. `LIVE` remains configuration metadata and every result reports platform execution unavailable.
 
+Autonomous AI SHADOW proposals additionally carry a bounded list of prior same-instance `WOULD_HAVE_SUBMITTED` actions from the last hour. The deterministic gate denies an identical symbol and side until that one-hour cooldown expires, records `REPEAT_ACTION_COOLDOWN_ACTIVE`, and fails closed when the required recent-action snapshot is missing or invalid. Other symbols and the opposite side remain independently evaluable. The guard limits repetitive model churn; it does not decide that any action is desirable and does not create broker authority.
+
 **The Risk/Control Engine authorizes or denies proposed actions; it never decides that a trade is desirable.**
 
 **A successful risk evaluation does not execute a trade.**

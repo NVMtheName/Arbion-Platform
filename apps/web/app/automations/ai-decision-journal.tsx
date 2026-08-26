@@ -168,11 +168,17 @@ export function AIDecisionJournal({
             );
             const executionRecorded = Boolean(executionRecordID);
             const riskDecision = field(entry, "risk_decision", "RiskDecision");
+            const riskDenied = riskDecision === "DENY";
+            const controlReasons = strings(
+              read(entry, "risk_reason_codes", "RiskReasonCodes"),
+            );
             const executionStatus = field(
               entry,
               "execution_status",
               "ExecutionStatus",
             );
+            const shadowAttemptRecorded =
+              executionRecorded && executionStatus === "WOULD_HAVE_SUBMITTED";
             const executionSymbol = field(entry, "symbol", "Symbol");
             const side = field(entry, "side", "Side");
             const quantity = field(entry, "quantity", "Quantity");
@@ -219,16 +225,21 @@ export function AIDecisionJournal({
                       {timestamp(read(entry, "created_at", "CreatedAt"))} UTC
                     </time>
                     <h3>
-                      {label(decisionType)} · {symbol}
+                      {riskDenied ? "Held by controls" : label(decisionType)} ·{" "}
+                      {symbol}
                     </h3>
                     <p>{facts.thesis ?? "No thesis was recorded."}</p>
                   </div>
                   <div className="journal-badges">
                     <span className="journal-mode shadow">SHADOW</span>
                     <span
-                      className={`journal-decision ${riskReached ? "allow" : "abstain"}`}
+                      className={`journal-decision ${riskDenied ? "deny" : riskReached ? "allow" : "abstain"}`}
                     >
-                      {riskReached ? "Risk checked" : "Safe abstention"}
+                      {riskDenied
+                        ? "Held by controls"
+                        : riskReached
+                          ? "Risk checked"
+                          : "Safe abstention"}
                     </span>
                   </div>
                 </header>
@@ -256,9 +267,26 @@ export function AIDecisionJournal({
                   </div>
                   <div>
                     <dt>Execution evidence</dt>
-                    <dd>{executionRecorded ? "Shadow record" : "None"}</dd>
+                    <dd>
+                      {riskDenied
+                        ? "Control denial"
+                        : shadowAttemptRecorded
+                          ? "Shadow record"
+                          : "None"}
+                    </dd>
                   </div>
                 </dl>
+
+                {riskDenied && controlReasons.length > 0 && (
+                  <div className="journal-reasons">
+                    <strong>Control gate</strong>
+                    <ul>
+                      {controlReasons.map((reason) => (
+                        <li key={reason}>{label(reason)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {inputEvidence && (
                   <details className="journal-input-evidence">
@@ -408,7 +436,7 @@ export function AIDecisionJournal({
                   </details>
                 )}
 
-                {executionRecorded && (
+                {shadowAttemptRecorded && (
                   <section
                     className="journal-execution-evidence"
                     aria-label="Hypothetical trade evidence"

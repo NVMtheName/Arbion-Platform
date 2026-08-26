@@ -55,10 +55,15 @@ export function AIShadowEvaluationControls(props: Props) {
       return;
     }
     const result = body.evaluation;
+    const repeatHeld = result.risk_reason_codes?.includes(
+      "REPEAT_ACTION_COOLDOWN_ACTIVE",
+    );
     setMessage(
       result.ai_decision === "ABSTAIN"
         ? `Arbion abstained (${result.confidence ?? "unknown"} confidence). The reason is in the Decision Journal; no order was sent.`
-        : `Shadow proposal recorded: ${result.risk_decision} · ${result.execution?.status}. No order was sent.`,
+        : repeatHeld
+          ? "The model proposed repeating the same symbol and side inside one hour. Arbion held it at the deterministic control gate and journaled the evidence; no order was sent."
+          : `Shadow proposal recorded: ${result.risk_decision} · ${result.execution?.status}. No order was sent.`,
     );
     router.refresh();
   }
@@ -82,6 +87,9 @@ export function AIShadowEvaluationControls(props: Props) {
         </p>
         <p>
           <strong>Execution result</strong>Shadow journal only
+        </p>
+        <p>
+          <strong>Repeat-action guard</strong>One hour · same symbol and side
         </p>
       </div>
       <button disabled={!canEvaluate || busy} onClick={evaluate}>

@@ -62,7 +62,21 @@ type RiskActivitySnapshot struct {
 	Timestamp                       time.Time
 	RealizedDailyPL, CurrentDailyPL *string
 	ActionsToday                    *int
+	RecentActions                   []RecentAction
 }
+
+// RecentAction is bounded, provider-neutral control evidence. It carries no
+// provider account identifier, credential, model rationale, or execution ID.
+type RecentAction struct {
+	Instrument string
+	Side       string
+	OccurredAt time.Time
+}
+
+// AIRepeatActionCooldown is a platform safety invariant for autonomous SHADOW
+// proposals. It does not grant execution authority or imply strategy quality.
+const AIRepeatActionCooldown = time.Hour
+
 type CapitalBucket struct {
 	ID, UserID, AccountID, Name, AllocationType, AllocationValue, Currency, ProtectedAmount, Status string
 	AllocationLimit                                                                                 *string

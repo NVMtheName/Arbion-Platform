@@ -133,6 +133,49 @@ func TestAutonomousAISellCannotExceedAvailableHolding(t *testing.T) {
 		t.Fatalf("covered AI shadow sell was denied: %#v", allowed)
 	}
 }
+
+func TestAutonomousAIRepeatActionCooldownIsDeterministic(t *testing.T) {
+	c, action := fixture()
+	c.Mandate.AutomationType = "AI_AUTONOMOUS"
+	c.Mandate.AutonomyLevel = "FULL_AUTONOMOUS"
+	c.Mandate.ExecutionMode = "SHADOW"
+	c.Mandate.MaxSinglePositionPercentage = nil
+	c.Mandate.MaxDailyLoss = nil
+	c.Mandate.MaxTradesPerDay = nil
+	c.Account.CurrentExposure = "0"
+	action.Source = SourceAI
+	action.Notional = "1"
+	c.Activity.RecentActions = []RecentAction{{Instrument: "AAPL", Side: "BUY", OccurredAt: c.Now.Add(-59 * time.Minute)}}
+
+	denied := NewEngine().Evaluate(c, action)
+	if denied.Decision != Deny || !reason(denied, RepeatActionCooldownActive) {
+		t.Fatalf("identical AI shadow action bypassed cooldown: %#v", denied)
+	}
+
+	c.Activity.RecentActions[0].OccurredAt = c.Now.Add(-AIRepeatActionCooldown)
+	if allowed := NewEngine().Evaluate(c, action); allowed.Decision != Allow {
+		t.Fatalf("action at exact cooldown boundary was denied: %#v", allowed)
+	}
+
+	c.Activity.RecentActions[0] = RecentAction{Instrument: "NVDA", Side: "BUY", OccurredAt: c.Now.Add(-time.Minute)}
+	if allowed := NewEngine().Evaluate(c, action); allowed.Decision != Allow {
+		t.Fatalf("different-symbol action was incorrectly treated as a repeat: %#v", allowed)
+	}
+}
+
+func TestAutonomousAIRepeatActionFailsClosedWithoutCurrentHistory(t *testing.T) {
+	c, action := fixture()
+	c.Mandate.AutomationType = "AI_AUTONOMOUS"
+	c.Mandate.AutonomyLevel = "FULL_AUTONOMOUS"
+	c.Mandate.ExecutionMode = "SHADOW"
+	action.Source = SourceAI
+	c.Activity = nil
+
+	denied := NewEngine().Evaluate(c, action)
+	if denied.Decision != Deny || !reason(denied, ActivityDataUnavailable) {
+		t.Fatalf("AI shadow action passed without repeat-action evidence: %#v", denied)
+	}
+}
 func TestCapitalPositionActivityUniverseAndStaleness(t *testing.T) {
 	tests := []struct {
 		name   string

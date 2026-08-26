@@ -388,6 +388,14 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err = store.CommitEvaluation(ctx, aiInstance, aiInstance.StateVersion, aiDecision, aiRisk, aiResult, aiEvaluationTime); err != nil {
 		t.Fatal(err)
 	}
+	aiFacts, err := store.EvaluationFacts(ctx, aiInstance, aiEvaluationTime.Add(30*time.Minute))
+	if err != nil || len(aiFacts.RecentActions) != 1 || aiFacts.RecentActions[0].Instrument != "AAPL" || aiFacts.RecentActions[0].Side != "SELL" || !aiFacts.RecentActions[0].OccurredAt.Equal(aiEvaluationTime) {
+		t.Fatalf("AI repeat-action evidence was not reconstructed safely: %#v %v", aiFacts.RecentActions, err)
+	}
+	aiFacts, err = store.EvaluationFacts(ctx, aiInstance, aiEvaluationTime.Add(risk.AIRepeatActionCooldown+time.Second))
+	if err != nil || len(aiFacts.RecentActions) != 0 {
+		t.Fatalf("expired AI repeat-action evidence remained active: %#v %v", aiFacts.RecentActions, err)
+	}
 	markTime := aiEvaluationTime.Add(2 * time.Hour)
 	due, err := store.DueShadowOutcomes(ctx, aiInstance, markTime)
 	if err != nil || len(due) != 1 || due[0].Horizon != ShadowOutcomeOneHour {

@@ -23,6 +23,7 @@ const (
 	PositionLimitExceeded          ReasonCode = "POSITION_LIMIT_EXCEEDED"
 	DailyLossLimitExceeded         ReasonCode = "DAILY_LOSS_LIMIT_EXCEEDED"
 	TradeCountLimitExceeded        ReasonCode = "TRADE_COUNT_LIMIT_EXCEEDED"
+	RepeatActionCooldownActive     ReasonCode = "REPEAT_ACTION_COOLDOWN_ACTIVE"
 	SymbolNotAllowed               ReasonCode = "SYMBOL_NOT_ALLOWED"
 	UniverseUnsupported            ReasonCode = "UNIVERSE_UNSUPPORTED"
 	OptionsNotAllowed              ReasonCode = "OPTIONS_NOT_ALLOWED"
