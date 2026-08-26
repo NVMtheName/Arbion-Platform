@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/automationnotification"
+	"github.com/arbion/platform/services/api/internal/neural"
 )
 
 type scheduleStoreFake struct {
@@ -155,6 +157,8 @@ func TestScheduleErrorClassificationPreservesSafeEvaluationDiagnostics(t *testin
 		"PAPER_STATE_UNAVAILABLE":        ErrEvaluationPaperStateUnavailable,
 		"MARKET_DATA_STALE":              ErrEvaluationMarketDataStale,
 		"NO_ELIGIBLE_OPTION_CONTRACTS":   ErrEvaluationNoEligibleContracts,
+		"AI_DECISION_BUDGET_EXHAUSTED":   aiconnection.ErrRateLimit,
+		"AI_PROVIDER_RATE_LIMITED":       &neural.ProviderError{Code: neural.RateLimited},
 	}
 	for want, err := range tests {
 		if got := classifyScheduleError(err); got != want {

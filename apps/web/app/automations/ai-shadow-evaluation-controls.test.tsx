@@ -61,4 +61,39 @@ describe("AIShadowEvaluationControls", () => {
     ).toBeInTheDocument();
     expect(navigation.refresh).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    [
+      "AI_DECISION_BUDGET_EXHAUSTED",
+      /hourly AI decision budget is currently used/i,
+    ],
+    ["AI_PROVIDER_RATE_LIMITED", /AI provider is temporarily rate limited/i],
+  ])("distinguishes the safe %s recovery path", async (code, message) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        json: async () => ({ error: { code } }),
+      }),
+    );
+    render(
+      <AIShadowEvaluationControls
+        status="READY"
+        instanceId="instance-1"
+        instanceStatus="ACTIVE"
+        parameters={{
+          objective: "Preserve capital.",
+          max_proposal_notional: "1",
+        }}
+        symbols={["BTC"]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Run AI Shadow cycle now" }),
+    );
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(navigation.refresh).not.toHaveBeenCalled();
+  });
 });
