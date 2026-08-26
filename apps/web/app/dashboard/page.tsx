@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import {
   CommandCenterDashboard,
   type DashboardAccountSummary,
+  type DashboardAIEngineSummary,
   type DashboardMoney,
 } from "./command-center-dashboard";
 
@@ -44,6 +45,132 @@ type CryptoPortfolio = {
   pricing_state?: "READY" | "PARTIAL" | "UNAVAILABLE";
   pricing_as_of?: string;
 };
+
+type AutomationRecord = Record<string, unknown>;
+type StrategyInstanceRecord = Record<string, unknown>;
+
+function recordString(
+  record: Record<string, unknown> | undefined,
+  key: string,
+  legacy: string,
+) {
+  const value = record?.[key] ?? record?.[legacy];
+  return typeof value === "string" ? value : undefined;
+}
+
+function recordNumber(
+  record: Record<string, unknown> | undefined,
+  key: string,
+  legacy: string,
+) {
+  const value = record?.[key] ?? record?.[legacy];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+async function fetchDashboardJSON<T>(
+  url: string,
+  headers: { cookie: string },
+): Promise<{ available: boolean; payload?: T }> {
+  try {
+    const response = await fetch(url, { headers, cache: "no-store" });
+    if (!response.ok) return { available: false };
+    return { available: true, payload: (await response.json()) as T };
+  } catch {
+    return { available: false };
+  }
+}
+
+async function aiEngineSummaries(
+  instances: StrategyInstanceRecord[],
+  automations: AutomationRecord[],
+  accounts: Account[],
+  base: string,
+  headers: { cookie: string },
+): Promise<DashboardAIEngineSummary[]> {
+  const engines = instances.filter(
+    (instance) =>
+      recordString(instance, "strategy_identifier", "StrategyIdentifier") ===
+        "ai_shadow" &&
+      recordString(instance, "execution_mode", "ExecutionMode") === "SHADOW" &&
+      ["ACTIVE", "PAUSED"].includes(
+        recordString(instance, "status", "Status") ?? "",
+      ),
+  );
+
+  return Promise.all(
+    engines.map(async (instance) => {
+      const id = recordString(instance, "id", "ID") ?? "";
+      const mandateID =
+        recordString(
+          instance,
+          "automation_mandate_id",
+          "AutomationMandateID",
+        ) ?? "";
+      const accountID =
+        recordString(instance, "financial_account_id", "FinancialAccountID") ??
+        "";
+      const mandate = automations.find(
+        (item) => recordString(item, "id", "ID") === mandateID,
+      );
+      const account = accounts.find((item) => item.id === accountID);
+      const [scheduleResult, decisionsResult] = await Promise.all([
+        fetchDashboardJSON<{
+          schedule?: Record<string, unknown>;
+        }>(
+          `${base}/api/strategy-instances/${encodeURIComponent(id)}/schedule`,
+          headers,
+        ),
+        fetchDashboardJSON<{
+          decisions?: Record<string, unknown>[];
+        }>(
+          `${base}/api/strategy-instances/${encodeURIComponent(id)}/decisions`,
+          headers,
+        ),
+      ]);
+      const schedule = scheduleResult.payload?.schedule;
+      const lastDecision = decisionsResult.payload?.decisions?.find(
+        (decision) => recordString(decision, "source", "Source") === "AI",
+      );
+
+      return {
+        id,
+        mandateID,
+        accountName: account?.display_name ?? "Connected account",
+        provider: account?.provider ?? "connected_account",
+        status: recordString(instance, "status", "Status") ?? "UNKNOWN",
+        currentState:
+          recordString(instance, "current_state", "CurrentState") ?? "UNKNOWN",
+        executionMode:
+          recordString(instance, "execution_mode", "ExecutionMode") ?? "SHADOW",
+        modelID: recordString(mandate, "ai_model_id", "AIModelID"),
+        lastEvaluatedAt: recordString(
+          instance,
+          "last_evaluated_at",
+          "LastEvaluatedAt",
+        ),
+        nextRunAt: recordString(schedule, "next_run_at", "NextRunAt"),
+        scheduleStatus: recordString(schedule, "last_status", "LastStatus"),
+        scheduleAvailable: scheduleResult.available,
+        journalAvailable: decisionsResult.available,
+        consecutiveFailures:
+          recordNumber(
+            schedule,
+            "consecutive_failures",
+            "ConsecutiveFailures",
+          ) ?? 0,
+        lastDecision: recordString(
+          lastDecision,
+          "decision_type",
+          "DecisionType",
+        ),
+        lastDecisionSymbol: recordString(lastDecision, "symbol", "Symbol"),
+        lastDecisionAt: recordString(lastDecision, "created_at", "CreatedAt"),
+      };
+    }),
+  );
+}
 
 async function accountSummary(
   account: Account,
@@ -137,15 +264,25 @@ export default async function Dashboard() {
   if (!response.ok) redirect("/login");
   const { user } = (await response.json()) as { user: User };
 
-  const [connectionsResponse, accountsResponse, preferenceResponse] =
-    await Promise.all([
-      fetch(`${api}/api/connections/ai`, { headers, cache: "no-store" }),
-      fetch(`${api}/api/accounts`, { headers, cache: "no-store" }),
-      fetch(`${api}/api/settings/neural-engine`, {
-        headers,
-        cache: "no-store",
-      }),
-    ]);
+  const [
+    connectionsResponse,
+    accountsResponse,
+    preferenceResponse,
+    automationsResponse,
+    instancesResponse,
+  ] = await Promise.all([
+    fetch(`${api}/api/connections/ai`, { headers, cache: "no-store" }),
+    fetch(`${api}/api/accounts`, { headers, cache: "no-store" }),
+    fetch(`${api}/api/settings/neural-engine`, {
+      headers,
+      cache: "no-store",
+    }),
+    fetch(`${api}/api/automations`, { headers, cache: "no-store" }),
+    fetch(`${api}/api/strategy-instances`, {
+      headers,
+      cache: "no-store",
+    }),
+  ]);
 
   const connections = connectionsResponse.ok
     ? ((
@@ -168,16 +305,34 @@ export default async function Dashboard() {
         }
       ).preference
     : null;
+  const automations = automationsResponse.ok
+    ? ((
+        (await automationsResponse.json()) as {
+          automations?: AutomationRecord[] | null;
+        }
+      ).automations ?? [])
+    : [];
+  const instances = instancesResponse.ok
+    ? ((
+        (await instancesResponse.json()) as {
+          strategy_instances?: StrategyInstanceRecord[] | null;
+        }
+      ).strategy_instances ?? [])
+    : [];
   const activeAccounts = accounts.filter(
     (account) => account.status === "active",
   );
-  const accountSummaries = await Promise.all(
-    activeAccounts.map((account) => accountSummary(account, api, headers)),
-  );
+  const [accountSummaries, engines] = await Promise.all([
+    Promise.all(
+      activeAccounts.map((account) => accountSummary(account, api, headers)),
+    ),
+    aiEngineSummaries(instances, automations, accounts, api, headers),
+  ]);
 
   return (
     <CommandCenterDashboard
       accounts={accountSummaries}
+      aiEngines={engines}
       connectionCount={
         connections.filter((connection) => connection.status === "active")
           .length

@@ -43,6 +43,27 @@ describe("Portfolio-first command center", () => {
         connectionCount={1}
         modelConfigured
         modelID="gpt-5"
+        aiEngines={[
+          {
+            id: "engine-1",
+            mandateID: "mandate-1",
+            accountName: "Coinbase Advanced",
+            provider: "coinbase",
+            status: "ACTIVE",
+            currentState: "AI_MONITORING",
+            executionMode: "SHADOW",
+            modelID: "gpt-5.6-sol",
+            lastEvaluatedAt: "2026-08-26T15:17:14Z",
+            nextRunAt: "2026-08-26T16:17:14Z",
+            scheduleStatus: "SUCCEEDED",
+            scheduleAvailable: true,
+            journalAvailable: true,
+            consecutiveFailures: 0,
+            lastDecision: "ALLOW_WOULD_HAVE_SUBMITTED",
+            lastDecisionSymbol: "XRP",
+            lastDecisionAt: "2026-08-26T15:17:14Z",
+          },
+        ]}
         user={{
           email: "owner@example.com",
           display_name: "Nick Maya",
@@ -57,9 +78,20 @@ describe("Portfolio-first command center", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("$15,250.00")).toBeInTheDocument();
     expect(screen.getByText("Schwab Brokerage ••4270")).toBeInTheDocument();
-    expect(screen.getByText("Coinbase Advanced")).toBeInTheDocument();
+    expect(screen.getAllByText("Coinbase Advanced")).toHaveLength(2);
     expect(screen.getByText("Provider data partial")).toBeInTheDocument();
     expect(screen.getByText("gpt-5")).toBeInTheDocument();
+    const cockpit = screen.getByRole("region", {
+      name: "AI oversight at a glance.",
+    });
+    expect(cockpit).toHaveTextContent("gpt-5.6-sol");
+    expect(cockpit).toHaveTextContent("Would have submitted · XRP");
+    expect(cockpit).toHaveTextContent("Healthy schedule");
+    expect(cockpit).toHaveTextContent("Shadow only");
+    expect(cockpit).toHaveTextContent("No broker order can be sent");
+    expect(
+      screen.getByRole("link", { name: "Review journal →" }),
+    ).toHaveAttribute("href", "/automations/mandate-1");
     expect(
       screen.getByRole("link", { name: /create a strategy/i }),
     ).toHaveAttribute("href", "/automations/new");
@@ -91,5 +123,44 @@ describe("Portfolio-first command center", () => {
     expect(
       screen.getByText(/your accounts will appear here/i),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("No AI Shadow Engine is monitoring yet."),
+    ).toBeInTheDocument();
+  });
+
+  it("surfaces unavailable AI evidence instead of implying a healthy engine", () => {
+    render(
+      <CommandCenterDashboard
+        accounts={[]}
+        connectionCount={1}
+        modelConfigured
+        aiEngines={[
+          {
+            id: "engine-1",
+            mandateID: "mandate-1",
+            accountName: "Schwab Brokerage",
+            provider: "schwab",
+            status: "ACTIVE",
+            currentState: "AI_MONITORING",
+            executionMode: "SHADOW",
+            scheduleAvailable: false,
+            journalAvailable: false,
+            consecutiveFailures: 0,
+          },
+        ]}
+        user={{
+          email: "owner@example.com",
+          display_name: "Nick Maya",
+          entitlement: "founder",
+          role: "superadmin",
+        }}
+      />,
+    );
+
+    const cockpit = screen.getByRole("region", {
+      name: "AI oversight at a glance.",
+    });
+    expect(cockpit).toHaveTextContent("Decision journal unavailable");
+    expect(cockpit).not.toHaveTextContent("Healthy schedule");
   });
 });
