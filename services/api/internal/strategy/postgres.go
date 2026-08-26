@@ -552,7 +552,7 @@ func (s *PostgresStore) CommitAIAbstention(c context.Context, instance Instance,
 }
 
 func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, evaluatedAt time.Time) (EvaluationFacts, error) {
-	facts := EvaluationFacts{Breakers: []risk.CircuitBreaker{}}
+	facts := EvaluationFacts{Breakers: []risk.CircuitBreaker{}, RecentActions: []risk.RecentAction{}}
 	rows, err := s.db.Query(c, `SELECT id::text,scope,scope_id::text,state,reason,source,engaged_at FROM risk_circuit_breakers WHERE state='OPEN' AND (scope='GLOBAL' OR (scope='USER' AND scope_id=$1) OR (scope='ACCOUNT' AND scope_id=$2) OR (scope='AUTOMATION' AND scope_id=$3)) ORDER BY engaged_at`, instance.UserID, instance.FinancialAccountID, instance.AutomationMandateID)
 	if err != nil {
 		return EvaluationFacts{}, err
@@ -571,6 +571,26 @@ func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, ev
 	dayStart := time.Date(evaluatedAt.UTC().Year(), evaluatedAt.UTC().Month(), evaluatedAt.UTC().Day(), 0, 0, 0, 0, time.UTC)
 	if err = s.db.QueryRow(c, `SELECT count(*) FROM nonlive_execution_records WHERE user_id=$1 AND created_at >= $2 AND created_at < $3`, instance.UserID, dayStart, dayStart.Add(24*time.Hour)).Scan(&facts.ActionsToday); err != nil {
 		return EvaluationFacts{}, err
+	}
+	if instance.StrategyIdentifier == "ai_shadow" && instance.ExecutionMode == Shadow {
+		recentRows, recentErr := s.db.Query(c, `SELECT symbol,side,created_at FROM nonlive_execution_records WHERE strategy_instance_id=$1 AND user_id=$2 AND mode='SHADOW' AND status='WOULD_HAVE_SUBMITTED' AND created_at >= $3 AND created_at < $4 ORDER BY created_at DESC LIMIT 101`, instance.ID, instance.UserID, evaluatedAt.Add(-risk.AIRepeatActionCooldown), evaluatedAt)
+		if recentErr != nil {
+			return EvaluationFacts{}, recentErr
+		}
+		defer recentRows.Close()
+		for recentRows.Next() {
+			var action risk.RecentAction
+			if err = recentRows.Scan(&action.Instrument, &action.Side, &action.OccurredAt); err != nil {
+				return EvaluationFacts{}, err
+			}
+			facts.RecentActions = append(facts.RecentActions, action)
+			if len(facts.RecentActions) > 100 {
+				return EvaluationFacts{}, ErrInvalid
+			}
+		}
+		if err = recentRows.Err(); err != nil {
+			return EvaluationFacts{}, err
+		}
 	}
 	if instance.ExecutionMode != Paper {
 		return facts, nil

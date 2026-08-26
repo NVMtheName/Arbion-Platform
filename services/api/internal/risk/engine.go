@@ -26,6 +26,24 @@ func NewEngine() *Engine {
 		rule{AuthorizationDenied, authorizationRule}, rule{CircuitBreakerActive, breakerRule}, rule{MandateNotReady, mandateRule}, rule{CapitalPolicyRequired, capitalPolicyRule}, rule{AutonomyDenied, autonomyRule}, rule{StaleAccountData, stalenessRule}, rule{SymbolNotAllowed, universeRule}, rule{OptionsNotAllowed, optionsRule}, rule{MarginNotAllowed, marginRule}, rule{InsufficientPosition, holdingRule}, rule{CapitalLimitExceeded, capitalRule}, rule{PositionLimitExceeded, positionRule}, rule{DailyLossLimitExceeded, activityRule},
 	}}
 }
+
+func repeatActionRule(c *EvaluationContext, action ProposedAction) RiskCheck {
+	if action.Source != SourceAI || c.Mandate == nil || c.Mandate.AutomationType != "AI_AUTONOMOUS" || c.Mandate.ExecutionMode != "SHADOW" {
+		return check(RepeatActionCooldownActive, true, "The autonomous SHADOW repeat-action guard does not apply.")
+	}
+	if c.Activity == nil || !c.Activity.Timestamp.Equal(c.Now) {
+		return check(ActivityDataUnavailable, false, "Current autonomous action history is unavailable.")
+	}
+	for _, recent := range c.Activity.RecentActions {
+		if recent.Instrument == "" || (recent.Side != "BUY" && recent.Side != "SELL") || recent.OccurredAt.IsZero() || recent.OccurredAt.After(c.Now) {
+			return check(ActivityDataUnavailable, false, "Autonomous action history is invalid.")
+		}
+		if strings.EqualFold(recent.Instrument, action.Instrument) && recent.Side == action.Side && c.Now.Sub(recent.OccurredAt) < AIRepeatActionCooldown {
+			return check(RepeatActionCooldownActive, false, "An identical autonomous SHADOW action is still inside the one-hour cooldown.")
+		}
+	}
+	return check(RepeatActionCooldownActive, true, "No identical autonomous SHADOW action is inside the one-hour cooldown.")
+}
 func check(code ReasonCode, ok bool, message string) RiskCheck {
 	r := Pass
 	if !ok {
@@ -54,7 +72,11 @@ func (e *Engine) Evaluate(c EvaluationContext, a ProposedAction) RiskEvaluation 
 	} else {
 		out.Mode = "MANUAL_PROPOSAL"
 	}
-	for _, r := range e.rules {
+	rules := e.rules
+	if a.Source == SourceAI && c.Mandate != nil && c.Mandate.AutomationType == "AI_AUTONOMOUS" && c.Mandate.ExecutionMode == "SHADOW" {
+		rules = append(append([]Rule(nil), e.rules...), rule{RepeatActionCooldownActive, repeatActionRule})
+	}
+	for _, r := range rules {
 		x := r.Evaluate(&c, a)
 		out.Checks = append(out.Checks, x)
 		if x.Result == Fail {

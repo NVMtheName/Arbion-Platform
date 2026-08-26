@@ -45,8 +45,9 @@ The deterministic strategy path and autonomous AI Shadow path share account, man
 2. obtains mode-appropriate, provenance-bearing account and market inputs;
 3. either determines a legal deterministic candidate or obtains one schema-constrained AI shadow decision from normalized allowlisted facts;
 4. records an AI abstention without creating an action, or emits one bounded structured proposal;
-6. submits it to the authoritative control/risk engine;
-7. records any approval requirement without creating a broker preview;
+5. submits it to the authoritative control/risk engine;
+6. for autonomous AI SHADOW proposals, denies an identical symbol and side still inside the platform one-hour repeat-action cooldown;
+7. records any approval requirement or deterministic denial without creating a broker preview;
 8. sends an allowed proposal only to the PAPER or SHADOW non-live adapter; and
 9. advances durable state only from mode-appropriate authoritative facts, recording the journal entry.
 

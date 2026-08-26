@@ -23,9 +23,10 @@ type PaperEvaluationFacts struct {
 }
 
 type EvaluationFacts struct {
-	Paper        *PaperEvaluationFacts
-	Breakers     []risk.CircuitBreaker
-	ActionsToday int
+	Paper         *PaperEvaluationFacts
+	Breakers      []risk.CircuitBreaker
+	ActionsToday  int
+	RecentActions []risk.RecentAction
 }
 
 type EvaluationStore interface {
@@ -473,7 +474,7 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	riskMandate := risk.Mandate{ID: mandate.ID, UserID: mandate.UserID, AccountID: mandate.FinancialAccountID, BucketID: instance.CapitalBucketID, Status: mandate.Status, AutomationType: mandate.AutomationType, AutonomyLevel: mandate.AutonomyLevel, ExecutionMode: mandate.ExecutionMode, Version: mandate.CurrentVersion, EffectiveFrom: mandate.EffectiveFrom, EffectiveUntil: mandate.EffectiveUntil, AllowedSymbols: mandate.AllowedUniverse.Symbols, ProhibitedSymbols: mandate.ProhibitedUniverse.Symbols, UniverseIDs: mandate.AllowedUniverse.UniverseIDs, MarginAllowed: false, OptionsAllowed: false, MaxCapitalDeployed: mandate.Risk.MaxCapitalDeployed, MaxSinglePositionAmount: mandate.Risk.MaxSinglePositionAmount, MaxSinglePositionPercentage: mandate.Risk.MaxSinglePositionPercentage, MaxDailyLoss: mandate.Risk.MaxDailyLoss, MinimumCashReserve: mandate.Risk.MinimumCashReserve, MaxTradesPerDay: mandate.Risk.MaxTradesPerDay}
 	riskBucket := risk.CapitalBucket{ID: bucket.ID, UserID: bucket.UserID, AccountID: bucket.FinancialAccountID, Name: bucket.Name, AllocationType: bucket.AllocationType, AllocationValue: bucket.AllocationValue, Currency: bucket.Currency, ProtectedAmount: bucket.ProtectedAmount, AllocationLimit: bucket.AllocationLimit, Status: bucket.Status, IsReserve: bucket.IsReserve}
 	actionsToday := facts.ActionsToday
-	riskContext := risk.EvaluationContext{UserID: principal.UserID, AccountOwned: true, FinancialEntitled: authorization.CanConnectFinancialAccounts(principal), AutomationEntitled: authorization.CanUseAutomation(principal), ConnectionUsable: true, Mandate: &riskMandate, Bucket: &riskBucket, Account: &riskAccount, Activity: &risk.RiskActivitySnapshot{Timestamp: now, ActionsToday: &actionsToday}, Breakers: facts.Breakers, Now: now, MaxStaleness: 2 * time.Minute}
+	riskContext := risk.EvaluationContext{UserID: principal.UserID, AccountOwned: true, FinancialEntitled: authorization.CanConnectFinancialAccounts(principal), AutomationEntitled: authorization.CanUseAutomation(principal), ConnectionUsable: true, Mandate: &riskMandate, Bucket: &riskBucket, Account: &riskAccount, Activity: &risk.RiskActivitySnapshot{Timestamp: now, ActionsToday: &actionsToday, RecentActions: append([]risk.RecentAction(nil), facts.RecentActions...)}, Breakers: facts.Breakers, Now: now, MaxStaleness: 2 * time.Minute}
 	instrument := "EQUITY"
 	if account.Provider == "coinbase" {
 		instrument = "CRYPTO"
