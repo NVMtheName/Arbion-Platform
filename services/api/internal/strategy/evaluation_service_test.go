@@ -351,14 +351,50 @@ func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testin
 	inputUsage, outputUsage, latencyMS := 30, 45, 120
 	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", ProposedNotional: "1", Confidence: "LOW", Thesis: "Bounded test", RiskFlags: []string{"Volatility"}, Limitations: []string{"No news"}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep", InputUsage: &inputUsage, OutputUsage: &outputUsage, LatencyMS: &latencyMS}}
 	service, store, finances, ai, principal := aiEvaluationFixture("schwab", decision)
+	quantity := financial.Decimal("2")
+	dayPercent, openPercent := financial.Decimal("1.9417475728"), financial.Decimal("5")
+	finances.positions = []financial.Position{{
+		Symbol: "BTC", InstrumentType: "COLLECTIVE_INVESTMENT", Direction: "long", Quantity: quantity,
+		MarketValue: &financial.Money{Amount: "210", Currency: "USD"}, CostBasis: &financial.Money{Amount: "100", Currency: "USD"},
+		CurrentPrice: &financial.Money{Amount: "105", Currency: "USD"}, DayProfitLoss: &financial.Money{Amount: "4", Currency: "USD"}, DayProfitLossPercent: &dayPercent,
+		OpenProfitLoss: &financial.Money{Amount: "10", Currency: "USD"}, OpenProfitLossPercent: &openPercent,
+		PriceBasis: aiPositionPriceBasis, ProviderInstrumentID: "must-not-cross-neural-boundary",
+	}}
 	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:schwab")
 	if err != nil || outcome.AIDecision != "PROPOSE" || outcome.Execution.Status != WouldHaveSubmitted || outcome.RiskDecision != risk.Allow {
 		t.Fatalf("unexpected Schwab AI shadow outcome: %#v %v", outcome, err)
 	}
-	if store.commits != 1 || store.abstains != 0 || finances.quoteCalls != 1 || ai.request.Markets[0].Feed != "schwab_market_data" || ai.request.Markets[0].HistoryStatus != "UNAVAILABLE" || len(ai.request.MarketEventCoverage) != 1 || ai.request.MarketEventCoverage[0].Status != "UNAVAILABLE" || len(ai.request.MarketEvents) != 0 {
+	if store.commits != 1 || store.abstains != 0 || finances.quoteCalls != 1 || ai.request.Markets[0].Feed != "schwab_market_data" || ai.request.Markets[0].HistoryStatus != "UNAVAILABLE" || len(ai.request.MarketEventCoverage) != 1 || ai.request.MarketEventCoverage[0].Status != "UNAVAILABLE" || len(ai.request.MarketEvents) != 0 || len(ai.request.Positions) != 1 {
 		t.Fatalf("unexpected Schwab boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
-	assertAIInputEvidence(t, store.decision.Rationale, "schwab", "100", 0, 1, 0)
+	position := ai.request.Positions[0]
+	if position.Instrument != "EQUITY" || position.PerformanceStatus != "AVAILABLE" || position.AveragePriceUSD != "100" || position.CurrentPriceUSD != "105" || position.DayProfitLossUSD != "4" || position.DayProfitLossPercent != "1.9417475728" || position.OpenProfitLossUSD != "10" || position.OpenProfitLossPercent != "5" || position.PriceBasis != aiPositionPriceBasis {
+		t.Fatalf("Schwab position performance was not normalized: %#v", position)
+	}
+	encoded, err := json.Marshal(ai.request)
+	if err != nil || strings.Contains(string(encoded), "must-not-cross-neural-boundary") {
+		t.Fatalf("provider instrument identifier crossed Neural boundary: %s err=%v", encoded, err)
+	}
+	assertAIInputEvidence(t, store.decision.Rationale, "schwab", "100", 1, 1, 0)
+	var journal struct {
+		InputEvidence struct {
+			Positions []neural.ShadowPositionFact `json:"positions"`
+		} `json:"input_evidence"`
+	}
+	if err = json.Unmarshal(store.decision.Rationale, &journal); err != nil || len(journal.InputEvidence.Positions) != 1 || journal.InputEvidence.Positions[0] != position || strings.Contains(string(store.decision.Rationale), "must-not-cross-neural-boundary") {
+		t.Fatalf("immutable Schwab position evidence was incomplete: %#v err=%v", journal.InputEvidence.Positions, err)
+	}
+}
+
+func TestSchwabAIPositionPerformanceDropsIncompletePairsAndUnknownPriceBasis(t *testing.T) {
+	dayProfitLoss := financial.Money{Amount: "4", Currency: "USD"}
+	currentPrice := financial.Money{Amount: "105", Currency: "USD"}
+	fact := neural.ShadowPositionFact{PerformanceStatus: "UNAVAILABLE"}
+	addAIPositionPerformance(&fact, financial.Position{DayProfitLoss: &dayProfitLoss, CurrentPrice: &currentPrice, PriceBasis: "UNVERIFIED"})
+
+	if fact.PerformanceStatus != "UNAVAILABLE" || fact.DayProfitLossUSD != "" || fact.DayProfitLossPercent != "" || fact.CurrentPriceUSD != "" || fact.PriceBasis != "" {
+		t.Fatalf("incomplete or unproven performance crossed the AI boundary: %#v", fact)
+	}
 }
 
 func TestSchwabAIShadowUsesBoundedSECEventIdentityWithoutFilingContents(t *testing.T) {
@@ -414,7 +450,7 @@ func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
 	if err != nil || outcome.AIDecision != "ABSTAIN" || outcome.Execution.Status != ExecutionCanceled {
 		t.Fatalf("unexpected Coinbase abstention: %#v %v", outcome, err)
 	}
-	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" || ai.request.Markets[0].ChangePercent1H != "4.0000000000" || ai.request.Markets[0].ChangePercent6H != "4.0000000000" || ai.request.Markets[0].ChangePercent24H != "25.0000000000" || ai.request.Markets[0].Volume24H != "2500" || ai.request.Markets[0].HistoryStatus != "COMPLETE" || ai.request.Markets[0].HistoryContiguousIntervals != 96 || ai.request.Markets[0].HistoryFeed != "rest_candles" || ai.request.Markets[0].LiquidityStatus != "AVAILABLE" || ai.request.Markets[0].SpreadBPS != "200" || ai.request.Markets[0].BidDepthUSD != "296.0000000000" || ai.request.Markets[0].AskDepthUSD != "405.0000000000" || ai.request.Markets[0].BidLevels != 2 || ai.request.Markets[0].AskLevels != 2 || ai.request.Markets[0].LiquidityFeed != "advanced_trade_public_book" || len(ai.request.Positions) != 1 || ai.request.Positions[0].MarketValueUSD != "1.0000000000" {
+	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" || ai.request.Markets[0].ChangePercent1H != "4.0000000000" || ai.request.Markets[0].ChangePercent6H != "4.0000000000" || ai.request.Markets[0].ChangePercent24H != "25.0000000000" || ai.request.Markets[0].Volume24H != "2500" || ai.request.Markets[0].HistoryStatus != "COMPLETE" || ai.request.Markets[0].HistoryContiguousIntervals != 96 || ai.request.Markets[0].HistoryFeed != "rest_candles" || ai.request.Markets[0].LiquidityStatus != "AVAILABLE" || ai.request.Markets[0].SpreadBPS != "200" || ai.request.Markets[0].BidDepthUSD != "296.0000000000" || ai.request.Markets[0].AskDepthUSD != "405.0000000000" || ai.request.Markets[0].BidLevels != 2 || ai.request.Markets[0].AskLevels != 2 || ai.request.Markets[0].LiquidityFeed != "advanced_trade_public_book" || len(ai.request.Positions) != 1 || ai.request.Positions[0].MarketValueUSD != "1.0000000000" || ai.request.Positions[0].PerformanceStatus != "UNAVAILABLE" || ai.request.Positions[0].AveragePriceUSD != "" {
 		t.Fatalf("unexpected Coinbase boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
 	assertAIInputEvidence(t, store.abstainRationale, "coinbase", "100", 1, 1, 0)

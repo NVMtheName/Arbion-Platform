@@ -522,6 +522,90 @@ export function AIDecisionJournal({
                                 )}{" "}
                                 observed value
                               </small>
+                              {contextValue(position, "performance_status") ===
+                                "UNAVAILABLE" && (
+                                <small>Position performance unavailable</small>
+                              )}
+                              {contextValue(position, "performance_status") !==
+                                "UNAVAILABLE" && (
+                                <>
+                                  {(contextValue(
+                                    position,
+                                    "average_price_usd",
+                                  ) ||
+                                    contextValue(
+                                      position,
+                                      "current_price_usd",
+                                    )) && (
+                                    <small>
+                                      Avg purchase{" "}
+                                      {dollars(
+                                        contextValue(
+                                          position,
+                                          "average_price_usd",
+                                        ),
+                                      )}{" "}
+                                      · Current{" "}
+                                      {dollars(
+                                        contextValue(
+                                          position,
+                                          "current_price_usd",
+                                        ),
+                                      )}
+                                    </small>
+                                  )}
+                                  {contextValue(
+                                    position,
+                                    "day_profit_loss_usd",
+                                  ) && (
+                                    <small>
+                                      Day{" "}
+                                      {signedDollars(
+                                        contextValue(
+                                          position,
+                                          "day_profit_loss_usd",
+                                        ),
+                                      )}{" "}
+                                      ·{" "}
+                                      {signedPercent(
+                                        contextValue(
+                                          position,
+                                          "day_profit_loss_percent",
+                                        ),
+                                      )}
+                                    </small>
+                                  )}
+                                  {contextValue(
+                                    position,
+                                    "open_profit_loss_usd",
+                                  ) && (
+                                    <small>
+                                      Open{" "}
+                                      {signedDollars(
+                                        contextValue(
+                                          position,
+                                          "open_profit_loss_usd",
+                                        ),
+                                      )}{" "}
+                                      ·{" "}
+                                      {signedPercent(
+                                        contextValue(
+                                          position,
+                                          "open_profit_loss_percent",
+                                        ),
+                                      )}
+                                    </small>
+                                  )}
+                                  {contextValue(
+                                    position,
+                                    "performance_status",
+                                  ) === "PARTIAL" && (
+                                    <small>
+                                      Partial provider position performance
+                                    </small>
+                                  )}
+                                </>
+                              )}
                             </article>
                           ))
                         )}

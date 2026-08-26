@@ -7,12 +7,49 @@ from pydantic import ValidationError
 from app.main import (
     ShadowDecisionRequest,
     ShadowMarketFact,
+    ShadowPositionFact,
     ShadowRecentDecision,
     app,
     validate_production_configuration,
 )
 
 client = TestClient(app)
+
+
+def test_shadow_position_performance_requires_complete_exact_provenance() -> None:
+    position = ShadowPositionFact.model_validate(
+        {
+            "symbol": "SPY",
+            "instrument": "EQUITY",
+            "quantity": "2",
+            "available_quantity": "2",
+            "market_value_usd": "1050",
+            "performance_status": "AVAILABLE",
+            "average_price_usd": "500",
+            "current_price_usd": "525",
+            "day_profit_loss_usd": "0",
+            "day_profit_loss_percent": "0",
+            "open_profit_loss_usd": "50",
+            "open_profit_loss_percent": "5",
+            "price_basis": "PROVIDER_POSITION_MARKET_VALUE_PER_UNIT",
+        }
+    )
+    assert position.day_profit_loss_usd == "0"
+
+    payload = position.model_dump()
+    payload["performance_status"] = "UNAVAILABLE"
+    with pytest.raises(ValidationError, match="unavailable performance"):
+        ShadowPositionFact.model_validate(payload)
+
+    payload = position.model_dump()
+    payload["day_profit_loss_percent"] = ""
+    with pytest.raises(ValidationError, match="day performance requires both"):
+        ShadowPositionFact.model_validate(payload)
+
+    payload = position.model_dump()
+    payload["price_basis"] = ""
+    with pytest.raises(ValidationError, match="exact provider price provenance"):
+        ShadowPositionFact.model_validate(payload)
 
 
 def test_health() -> None:

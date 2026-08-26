@@ -62,6 +62,49 @@ class ShadowPositionFact(BaseModel):
     quantity: str = Field(pattern=r"^-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
     available_quantity: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
     market_value_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    performance_status: Literal["AVAILABLE", "PARTIAL", "UNAVAILABLE"]
+    average_price_usd: str = Field(default="", pattern=r"^(|0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    current_price_usd: str = Field(default="", pattern=r"^(|0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    day_profit_loss_usd: str = Field(
+        default="", pattern=r"^(|-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?)$"
+    )
+    day_profit_loss_percent: str = Field(
+        default="", pattern=r"^(|-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?)$"
+    )
+    open_profit_loss_usd: str = Field(
+        default="", pattern=r"^(|-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?)$"
+    )
+    open_profit_loss_percent: str = Field(
+        default="", pattern=r"^(|-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?)$"
+    )
+    price_basis: Literal["", "PROVIDER_POSITION_MARKET_VALUE_PER_UNIT"] = ""
+
+    @model_validator(mode="after")
+    def validate_performance_consistency(self) -> Self:
+        if self.average_price_usd and Decimal(self.average_price_usd) <= 0:
+            raise ValueError("average price must be positive when available")
+        if self.current_price_usd and Decimal(self.current_price_usd) <= 0:
+            raise ValueError("current price must be positive when available")
+        if bool(self.day_profit_loss_usd) != bool(self.day_profit_loss_percent):
+            raise ValueError("day performance requires both amount and percentage")
+        if bool(self.open_profit_loss_usd) != bool(self.open_profit_loss_percent):
+            raise ValueError("open performance requires both amount and percentage")
+        if bool(self.current_price_usd) != bool(self.price_basis):
+            raise ValueError("current price requires exact provider price provenance")
+        supplied = (
+            bool(self.average_price_usd),
+            bool(self.current_price_usd),
+            bool(self.day_profit_loss_usd),
+            bool(self.open_profit_loss_usd),
+        )
+        complete = all(supplied)
+        if self.performance_status == "UNAVAILABLE" and any(supplied):
+            raise ValueError("unavailable performance cannot contain derived facts")
+        if self.performance_status == "PARTIAL" and (not any(supplied) or complete):
+            raise ValueError("partial performance must contain an incomplete fact set")
+        if self.performance_status == "AVAILABLE" and not complete:
+            raise ValueError("available performance requires every normalized fact")
+        return self
 
 
 class ShadowMarketFact(BaseModel):

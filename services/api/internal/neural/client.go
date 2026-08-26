@@ -86,11 +86,19 @@ type TradeProposalClient interface {
 }
 
 type ShadowPositionFact struct {
-	Symbol            string `json:"symbol"`
-	Instrument        string `json:"instrument"`
-	Quantity          string `json:"quantity"`
-	AvailableQuantity string `json:"available_quantity"`
-	MarketValueUSD    string `json:"market_value_usd"`
+	Symbol                string `json:"symbol"`
+	Instrument            string `json:"instrument"`
+	Quantity              string `json:"quantity"`
+	AvailableQuantity     string `json:"available_quantity"`
+	MarketValueUSD        string `json:"market_value_usd"`
+	PerformanceStatus     string `json:"performance_status"`
+	AveragePriceUSD       string `json:"average_price_usd"`
+	CurrentPriceUSD       string `json:"current_price_usd"`
+	DayProfitLossUSD      string `json:"day_profit_loss_usd"`
+	DayProfitLossPercent  string `json:"day_profit_loss_percent"`
+	OpenProfitLossUSD     string `json:"open_profit_loss_usd"`
+	OpenProfitLossPercent string `json:"open_profit_loss_percent"`
+	PriceBasis            string `json:"price_basis"`
 }
 
 type ShadowMarketFact struct {

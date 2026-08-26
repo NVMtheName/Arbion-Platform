@@ -711,10 +711,16 @@ func (s *EvaluationService) aiAccountFacts(ctx context.Context, principal author
 			marketValue = string(position.MarketValue.Amount)
 		}
 		instrument := strings.ToUpper(position.InstrumentType)
-		if account.Provider == "coinbase" {
+		if account.Provider == "schwab" {
+			instrument = "EQUITY"
+		} else if account.Provider == "coinbase" {
 			instrument = "CRYPTO"
 		}
-		request.Positions = append(request.Positions, neural.ShadowPositionFact{Symbol: symbol, Instrument: instrument, Quantity: quantity, AvailableQuantity: availableQuantity, MarketValueUSD: marketValue})
+		fact := neural.ShadowPositionFact{Symbol: symbol, Instrument: instrument, Quantity: quantity, AvailableQuantity: availableQuantity, MarketValueUSD: marketValue, PerformanceStatus: "UNAVAILABLE"}
+		if account.Provider == "schwab" {
+			addAIPositionPerformance(&fact, position)
+		}
+		request.Positions = append(request.Positions, fact)
 		exposure := marketValue
 		if strings.HasPrefix(exposure, "-") {
 			exposure = strings.TrimPrefix(exposure, "-")
@@ -732,6 +738,56 @@ func (s *EvaluationService) aiAccountFacts(ctx context.Context, principal author
 	}
 	riskAccount := risk.AccountRiskSnapshot{AccountID: account.ID, Currency: "USD", Timestamp: now, Cash: cash, AvailableCash: available, BuyingPower: buyingPower, CurrentExposure: "0", Positions: riskPositions, Options: capability("options"), Margin: capability("margin")}
 	return request, riskAccount, nil
+}
+
+const aiPositionPriceBasis = "PROVIDER_POSITION_MARKET_VALUE_PER_UNIT"
+
+func addAIPositionPerformance(fact *neural.ShadowPositionFact, position financial.Position) {
+	if value, ok := positiveMoneyAmount(position.CostBasis, "USD"); ok {
+		fact.AveragePriceUSD = value
+	}
+	if position.PriceBasis == aiPositionPriceBasis {
+		if value, ok := positiveMoneyAmount(position.CurrentPrice, "USD"); ok {
+			fact.CurrentPriceUSD = value
+			fact.PriceBasis = aiPositionPriceBasis
+		}
+	}
+	if amount, amountOK := moneyAmount(position.DayProfitLoss, "USD"); amountOK {
+		if percent, percentOK := decimalAmount(position.DayProfitLossPercent); percentOK {
+			fact.DayProfitLossUSD = amount
+			fact.DayProfitLossPercent = percent
+		}
+	}
+	if amount, amountOK := moneyAmount(position.OpenProfitLoss, "USD"); amountOK {
+		if percent, percentOK := decimalAmount(position.OpenProfitLossPercent); percentOK {
+			fact.OpenProfitLossUSD = amount
+			fact.OpenProfitLossPercent = percent
+		}
+	}
+	complete := fact.AveragePriceUSD != "" && fact.CurrentPriceUSD != "" && fact.DayProfitLossUSD != "" && fact.DayProfitLossPercent != "" && fact.OpenProfitLossUSD != "" && fact.OpenProfitLossPercent != ""
+	if complete {
+		fact.PerformanceStatus = "AVAILABLE"
+	} else if fact.AveragePriceUSD != "" || fact.CurrentPriceUSD != "" || fact.DayProfitLossUSD != "" || fact.OpenProfitLossUSD != "" {
+		fact.PerformanceStatus = "PARTIAL"
+	}
+}
+
+func positiveMoneyAmount(value *financial.Money, currency string) (string, bool) {
+	amount, ok := moneyAmount(value, currency)
+	if !ok {
+		return "", false
+	}
+	parsed, ok := new(big.Rat).SetString(amount)
+	return amount, ok && parsed.Sign() > 0
+}
+
+func decimalAmount(value *financial.Decimal) (string, bool) {
+	if value == nil {
+		return "", false
+	}
+	amount := string(*value)
+	_, ok := new(big.Rat).SetString(amount)
+	return amount, ok
 }
 
 func (s *EvaluationService) aiMarketFacts(ctx context.Context, principal authorization.Principal, account financial.FinancialAccount, symbols []string, now time.Time) ([]neural.ShadowMarketFact, error) {

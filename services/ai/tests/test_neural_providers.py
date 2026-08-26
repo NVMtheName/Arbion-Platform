@@ -322,6 +322,8 @@ async def test_openai_shadow_decision_is_structured_tool_free_and_bounded() -> N
         assert body["text"]["format"]["strict"] is True
         assert body["text"]["format"]["schema"]["additionalProperties"] is False
         assert "tools" not in body
+        assert "not tax-lot accounting" in body["instructions"]
+        assert "A numeric zero is real evidence" in body["instructions"]
         assert json.loads(body["input"]) == context
         return httpx.Response(
             200,
