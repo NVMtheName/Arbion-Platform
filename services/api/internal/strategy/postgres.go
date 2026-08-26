@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/automation"
+	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -589,6 +590,45 @@ func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, ev
 			}
 		}
 		if err = recentRows.Err(); err != nil {
+			return EvaluationFacts{}, err
+		}
+
+		decisionRows, decisionErr := s.db.Query(c, `SELECT decision_type,structured_rationale,created_at FROM decision_journal_entries WHERE strategy_instance_id=$1 AND user_id=$2 AND source='AI' AND decision_type IN ('ABSTAIN','ALLOW_WOULD_HAVE_SUBMITTED','DENY_RISK_DENIED') AND created_at >= $3 AND created_at < $4 ORDER BY created_at DESC,id DESC LIMIT $5`, instance.ID, instance.UserID, evaluatedAt.Add(-aiDecisionMemoryWindow), evaluatedAt, aiDecisionMemoryLimit)
+		if decisionErr != nil {
+			return EvaluationFacts{}, decisionErr
+		}
+		defer decisionRows.Close()
+		for decisionRows.Next() {
+			var decisionType string
+			var rationale json.RawMessage
+			var occurredAt time.Time
+			if err = decisionRows.Scan(&decisionType, &rationale, &occurredAt); err != nil {
+				return EvaluationFacts{}, err
+			}
+			var summary struct {
+				Decision string `json:"decision"`
+				Symbol   string `json:"symbol"`
+				Side     string `json:"side"`
+			}
+			if err = json.Unmarshal(rationale, &summary); err != nil {
+				return EvaluationFacts{}, ErrInvalid
+			}
+			disposition := ""
+			switch decisionType {
+			case "ABSTAIN":
+				disposition = "ABSTAINED"
+			case "ALLOW_WOULD_HAVE_SUBMITTED":
+				disposition = "WOULD_HAVE_SUBMITTED"
+			case "DENY_RISK_DENIED":
+				disposition = "HELD_BY_CONTROLS"
+			}
+			memory := neural.ShadowRecentDecision{Decision: summary.Decision, Symbol: summary.Symbol, Side: summary.Side, Disposition: disposition, OccurredAt: occurredAt.UTC()}
+			if !validAIRecentDecision(memory) || occurredAt.Before(evaluatedAt.Add(-aiDecisionMemoryWindow)) || !occurredAt.Before(evaluatedAt) {
+				return EvaluationFacts{}, ErrInvalid
+			}
+			facts.RecentDecisions = append(facts.RecentDecisions, memory)
+		}
+		if err = decisionRows.Err(); err != nil {
 			return EvaluationFacts{}, err
 		}
 	}

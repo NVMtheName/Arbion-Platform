@@ -309,7 +309,7 @@ func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testin
 	if store.commits != 1 || store.abstains != 0 || finances.quoteCalls != 1 || ai.request.Markets[0].Feed != "schwab_market_data" || ai.request.Markets[0].HistoryStatus != "UNAVAILABLE" {
 		t.Fatalf("unexpected Schwab boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
-	assertAIInputEvidence(t, store.decision.Rationale, "schwab", "100", 0, 1)
+	assertAIInputEvidence(t, store.decision.Rationale, "schwab", "100", 0, 1, 0)
 }
 
 func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
@@ -324,13 +324,14 @@ func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
 	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" || ai.request.Markets[0].ChangePercent1H != "4.0000000000" || ai.request.Markets[0].ChangePercent6H != "4.0000000000" || ai.request.Markets[0].ChangePercent24H != "25.0000000000" || ai.request.Markets[0].Volume24H != "2500" || ai.request.Markets[0].HistoryStatus != "COMPLETE" || ai.request.Markets[0].HistoryContiguousIntervals != 96 || ai.request.Markets[0].HistoryFeed != "rest_candles" || len(ai.request.Positions) != 1 || ai.request.Positions[0].MarketValueUSD != "1.0000000000" {
 		t.Fatalf("unexpected Coinbase boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
-	assertAIInputEvidence(t, store.abstainRationale, "coinbase", "100", 1, 1)
+	assertAIInputEvidence(t, store.abstainRationale, "coinbase", "100", 1, 1, 0)
 }
 
 func TestAIShadowRepeatProposalIsDeniedBeforeShadowExecution(t *testing.T) {
 	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", ProposedNotional: "1", Confidence: "MEDIUM", Thesis: "Repeat the prior direction", RiskFlags: []string{}, Limitations: []string{}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
-	service, store, _, _, principal := aiEvaluationFixture("coinbase", decision)
+	service, store, _, ai, principal := aiEvaluationFixture("coinbase", decision)
 	store.facts.RecentActions = []risk.RecentAction{{Instrument: "BTC", Side: "BUY", OccurredAt: service.now().Add(-30 * time.Minute)}}
+	store.facts.RecentDecisions = []neural.ShadowRecentDecision{{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", Disposition: "WOULD_HAVE_SUBMITTED", OccurredAt: service.now().Add(-30 * time.Minute)}}
 
 	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:repeat")
 	if err != nil || outcome.AIDecision != "PROPOSE" || outcome.Execution.Status != RiskDenied || outcome.RiskDecision != risk.Deny || len(outcome.RiskReasonCodes) != 1 || outcome.RiskReasonCodes[0] != risk.RepeatActionCooldownActive {
@@ -339,6 +340,10 @@ func TestAIShadowRepeatProposalIsDeniedBeforeShadowExecution(t *testing.T) {
 	if store.commits != 1 || store.abstains != 0 {
 		t.Fatalf("repeat proposal produced the wrong immutable evidence: commits=%d abstains=%d", store.commits, store.abstains)
 	}
+	if len(ai.request.RecentDecisions) != 1 || ai.request.RecentDecisions[0].Disposition != "WOULD_HAVE_SUBMITTED" {
+		t.Fatalf("bounded recent decision memory was not supplied: %#v", ai.request.RecentDecisions)
+	}
+	assertAIInputEvidence(t, store.decision.Rationale, "coinbase", "100", 0, 1, 1)
 }
 
 func TestAIHistoryFactsNeverFillProviderCandleGaps(t *testing.T) {
@@ -366,23 +371,24 @@ func TestAIHistoryFactsRejectStaleSeriesWithoutDerivedChanges(t *testing.T) {
 	}
 }
 
-func assertAIInputEvidence(t *testing.T, rationale json.RawMessage, provider, buyingPower string, positionCount, marketCount int) {
+func assertAIInputEvidence(t *testing.T, rationale json.RawMessage, provider, buyingPower string, positionCount, marketCount, recentDecisionCount int) {
 	t.Helper()
 	var payload struct {
 		InputEvidence struct {
-			Provider      string                      `json:"provider"`
-			AvailableCash string                      `json:"available_cash_usd"`
-			BuyingPower   string                      `json:"buying_power_usd"`
-			Positions     []neural.ShadowPositionFact `json:"positions"`
-			Markets       []neural.ShadowMarketFact   `json:"markets"`
-			ObservedAt    time.Time                   `json:"observed_at"`
+			Provider        string                        `json:"provider"`
+			AvailableCash   string                        `json:"available_cash_usd"`
+			BuyingPower     string                        `json:"buying_power_usd"`
+			Positions       []neural.ShadowPositionFact   `json:"positions"`
+			Markets         []neural.ShadowMarketFact     `json:"markets"`
+			RecentDecisions []neural.ShadowRecentDecision `json:"recent_decisions"`
+			ObservedAt      time.Time                     `json:"observed_at"`
 		} `json:"input_evidence"`
 	}
 	if err := json.Unmarshal(rationale, &payload); err != nil {
 		t.Fatalf("AI input evidence was not valid JSON: %v", err)
 	}
 	evidence := payload.InputEvidence
-	if evidence.Provider != provider || evidence.AvailableCash != "100" || evidence.BuyingPower != buyingPower || len(evidence.Positions) != positionCount || len(evidence.Markets) != marketCount || evidence.ObservedAt.IsZero() {
+	if evidence.Provider != provider || evidence.AvailableCash != "100" || evidence.BuyingPower != buyingPower || len(evidence.Positions) != positionCount || len(evidence.Markets) != marketCount || len(evidence.RecentDecisions) != recentDecisionCount || evidence.ObservedAt.IsZero() {
 		t.Fatalf("AI input evidence was incomplete: %#v", evidence)
 	}
 }

@@ -103,7 +103,11 @@ ABSTAIN. Multi-window changes are deterministic only when their exact contiguous
 windows are present; history_status and interval counts disclose completeness. Never
 infer or fill a missing history window. Prefer ABSTAIN when data is missing, stale,
 partial, contradictory, or the objective is not cautiously supported. A SELL must be
-supported by the supplied available holding.
+supported by the supplied available holding. Recent decisions are bounded structured
+facts from this same immutable SHADOW instance; they contain no prior model prose.
+Avoid repetitive reasoning and do not merely repeat the same symbol and side without
+materially different current evidence. A recent WOULD_HAVE_SUBMITTED action may still
+be inside Arbion's deterministic one-hour cooldown, which remains authoritative.
 For ABSTAIN set symbol and side to NONE and proposed_notional to 0. Never imply
 guaranteed returns. Arbion's deterministic risk gate—not this response—decides whether
 the shadow action may be recorded as WOULD_HAVE_SUBMITTED."""

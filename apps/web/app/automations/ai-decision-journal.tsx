@@ -189,6 +189,9 @@ export function AIDecisionJournal({
             const inputEvidence = facts.input_evidence;
             const evidencePositions = records(inputEvidence?.positions);
             const evidenceMarkets = records(inputEvidence?.markets);
+            const evidenceRecentDecisions = records(
+              inputEvidence?.recent_decisions,
+            );
             const symbol =
               facts.symbol && facts.symbol !== "NONE"
                 ? facts.symbol
@@ -296,11 +299,15 @@ export function AIDecisionJournal({
                       {evidencePositions.length === 1 ? "" : "s"} ·{" "}
                       {evidenceMarkets.length} market snapshot
                       {evidenceMarkets.length === 1 ? "" : "s"}
+                      {evidenceRecentDecisions.length > 0
+                        ? ` · ${evidenceRecentDecisions.length} prior decision${evidenceRecentDecisions.length === 1 ? "" : "s"}`
+                        : ""}
                     </summary>
                     <p>
-                      Sanitized account and market facts frozen with this
-                      decision. Credentials, provider account IDs, unrelated
-                      holdings, and raw provider responses are excluded.
+                      Sanitized account, market, and bounded prior-decision
+                      facts frozen with this decision. Prior model prose,
+                      credentials, provider account IDs, unrelated holdings, and
+                      raw provider responses are excluded.
                     </p>
                     <dl className="journal-facts journal-input-summary">
                       <div>
@@ -339,6 +346,42 @@ export function AIDecisionJournal({
                       </div>
                     </dl>
                     <div className="journal-context-grid">
+                      {evidenceRecentDecisions.length > 0 && (
+                        <section>
+                          <h4>Recent decision context</h4>
+                          {evidenceRecentDecisions.map(
+                            (decision, decisionIndex) => (
+                              <article
+                                key={`${contextValue(decision, "occurred_at") ?? "decision"}-${decisionIndex}`}
+                              >
+                                <strong>
+                                  {label(
+                                    contextValue(decision, "decision") ??
+                                      "unknown",
+                                  )}{" "}
+                                  {contextValue(decision, "symbol") ?? "—"}
+                                </strong>
+                                <span>
+                                  {label(
+                                    contextValue(decision, "side") ?? "none",
+                                  )}{" "}
+                                  ·{" "}
+                                  {label(
+                                    contextValue(decision, "disposition") ??
+                                      "unknown",
+                                  )}
+                                </span>
+                                <time>
+                                  {timestamp(
+                                    contextValue(decision, "occurred_at"),
+                                  )}{" "}
+                                  UTC
+                                </time>
+                              </article>
+                            ),
+                          )}
+                        </section>
+                      )}
                       <section>
                         <h4>Allowlisted holdings</h4>
                         {evidencePositions.length === 0 ? (
