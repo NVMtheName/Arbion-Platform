@@ -14,7 +14,19 @@ type Item = {
 };
 type Model = { id: string; display_name: string };
 
-const shadowModels = new Set(["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]);
+const shadowModels = new Set([
+  "gpt-5.6-luna",
+  "gpt-5.6-terra",
+  "gpt-5.6-sol",
+  "claude-haiku-4-5-20251001",
+  "claude-sonnet-5",
+  "claude-opus-5",
+]);
+const deepShadowModels = ["gpt-5.6-sol", "claude-opus-5"];
+
+function shadowProvider(provider?: string) {
+  return provider === "openai" || provider === "anthropic";
+}
 
 function accountItem(value: Record<string, unknown>): Item {
   return {
@@ -100,7 +112,8 @@ export default function AutomationBuilder() {
         );
         const activeAI = aiItems.filter(
           (connection: Item) =>
-            connection.status === "active" && connection.provider === "openai",
+            connection.status === "active" &&
+            shadowProvider(connection.provider),
         );
         const preference = preferencePayload.preference as
           | { connection_id?: string; model_id?: string }
@@ -145,7 +158,7 @@ export default function AutomationBuilder() {
         setModels(items);
         setModelID(
           items.find((model) => model.id === preferredModelID)?.id ??
-            items.find((model) => model.id === "gpt-5.6-sol")?.id ??
+            items.find((model) => deepShadowModels.includes(model.id))?.id ??
             items[0]?.id ??
             "",
         );
@@ -164,7 +177,7 @@ export default function AutomationBuilder() {
 
   const activeAccounts = accounts.filter((item) => item.status === "active");
   const activeAI = connections.filter(
-    (item) => item.status === "active" && item.provider === "openai",
+    (item) => item.status === "active" && shadowProvider(item.provider),
   );
   const account = activeAccounts.find((item) => item.id === accountID);
   const eligibleBuckets = useMemo(
@@ -331,7 +344,7 @@ export default function AutomationBuilder() {
       )}
       {!loading && activeAI.length === 0 && (
         <section className="strategy-prerequisite">
-          <strong>Connect and verify OpenAI first</strong>
+          <strong>Connect and verify OpenAI or Claude first</strong>
           <Link href="/connections#ai-providers">Open AI connections →</Link>
         </section>
       )}

@@ -367,7 +367,7 @@ func (s *Service) GenerateShadowDecision(ctx context.Context, p authorization.Pr
 
 func routeAudit(route InsightRoute, outcome any) map[string]any {
 	return map[string]any{
-		"profile": route.Profile, "model_id": route.ModelID, "credit_units": route.CreditUnits, "outcome": outcome,
+		"provider": route.Provider, "profile": route.Profile, "model_id": route.ModelID, "credit_units": route.CreditUnits, "outcome": outcome,
 	}
 }
 func (s *Service) Preference(ctx context.Context, p authorization.Principal) (*Preference, error) {

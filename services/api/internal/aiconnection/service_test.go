@@ -565,3 +565,28 @@ func TestGenerateShadowDecisionUsesExactMandateConnectionAndModelWithoutPreferen
 		t.Fatalf("unapproved mandate model was accepted: %v", err)
 	}
 }
+
+func TestGenerateShadowDecisionRoutesExactClaudeMandateModel(t *testing.T) {
+	s, ms, _ := setup(t)
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	s.neural = fakeNeural{}
+	connection, err := s.Create(context.Background(), p, "anthropic", "Mandate model", []byte("secret-value"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Verify(context.Background(), p, connection.ID); err != nil {
+		t.Fatal(err)
+	}
+	seenRequest := neural.ShadowDecisionRequest{}
+	s.neural = shadowNeural{decision: neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No edge", Metadata: neural.InsightMetadata{Provider: "anthropic", Model: "claude-sonnet-5", Profile: "core", RequestID: "msg-shadow"}}, request: &seenRequest}
+	s.limiter = fakeLimiter{allowed: true}
+	input := neural.ShadowDecisionRequest{Objective: "private objective", AllowedSymbols: []string{"BTC"}, MaxProposalNotional: "1", AvailableCashUSD: "100", BuyingPowerUSD: "100", ObservedAt: time.Now().UTC()}
+	decision, err := s.GenerateShadowDecision(context.Background(), p, connection.ID, "claude-sonnet-5", input)
+	if err != nil || decision.Decision != "ABSTAIN" || seenRequest.Profile != "core" {
+		t.Fatalf("Claude shadow decision failed: decision=%#v request=%#v err=%v", decision, seenRequest, err)
+	}
+	ms.items[connection.ID] = Connection{ID: connection.ID, Provider: "openai", Status: "active"}
+	if _, err = s.GenerateShadowDecision(context.Background(), p, connection.ID, "claude-sonnet-5", input); neural.Code(err) != neural.Unsupported {
+		t.Fatalf("provider/model mismatch was accepted: %v", err)
+	}
+}

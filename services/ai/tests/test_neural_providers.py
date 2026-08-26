@@ -406,6 +406,93 @@ async def test_openai_shadow_decision_rejects_symbol_outside_mandate() -> None:
 
 
 @pytest.mark.asyncio
+async def test_anthropic_shadow_decision_is_structured_tool_free_and_bounded() -> None:
+    context: dict[str, object] = {
+        "objective": "Preserve capital.",
+        "allowed_symbols": ["BTC"],
+        "max_proposal_notional": "1",
+        "available_cash_usd": "100",
+        "buying_power_usd": "100",
+        "positions": [],
+        "markets": [{"symbol": "BTC", "bid": "99", "ask": "101"}],
+        "recent_decisions": [],
+        "observed_at": "2026-08-25T14:00:00+00:00",
+    }
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert request.url == "https://api.anthropic.com/v1/messages"
+        assert request.headers["x-api-key"] == "secret-value"
+        assert body["model"] == "claude-sonnet-5"
+        assert body["system"]
+        assert body["metadata"] == {"user_id": "a" * 64}
+        assert body["output_config"]["format"]["type"] == "json_schema"
+        assert body["output_config"]["format"]["schema"]["additionalProperties"] is False
+        assert "tools" not in body
+        assert json.loads(body["messages"][0]["content"]) == context
+        return httpx.Response(
+            200,
+            json={
+                "id": "msg-shadow",
+                "type": "message",
+                "model": "claude-sonnet-5",
+                "stop_reason": "end_turn",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "decision": "ABSTAIN",
+                                "symbol": "NONE",
+                                "side": "NONE",
+                                "proposed_notional": "0",
+                                "confidence": "LOW",
+                                "thesis": (
+                                    "The bounded evidence does not support a cautious action."
+                                ),
+                                "risk_flags": ["Volatility"],
+                                "limitations": ["No news feed"],
+                            }
+                        ),
+                    }
+                ],
+                "usage": {"input_tokens": 100, "output_tokens": 40},
+            },
+        )
+
+    async with client(httpx.MockTransport(respond)) as http:
+        result = await AnthropicProvider(http).propose_shadow(
+            "secret-value", "core", context, "a" * 64
+        )
+    assert result.decision == "ABSTAIN"
+    assert result.metadata.provider == "anthropic"
+    assert result.metadata.model == "claude-sonnet-5"
+    assert result.metadata.profile == "core"
+    assert result.metadata.request_id == "msg-shadow"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_shadow_decision_rejects_truncation() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "id": "msg-truncated",
+                "type": "message",
+                "model": "claude-opus-5",
+                "stop_reason": "max_tokens",
+                "content": [{"type": "text", "text": "{}"}],
+            },
+        )
+    )
+    context: dict[str, object] = {"allowed_symbols": ["BTC"], "max_proposal_notional": "1"}
+    async with client(transport) as http:
+        with pytest.raises(NeuralProviderError) as caught:
+            await AnthropicProvider(http).propose_shadow("secret-value", "deep", context, "a" * 64)
+    assert caught.value.code == ErrorCode.INTERNAL_ERROR
+
+
+@pytest.mark.asyncio
 async def test_provider_response_is_rejected_at_streaming_size_limit() -> None:
     transport = httpx.MockTransport(
         lambda request: httpx.Response(200, content=b"x" * (MAX_RESPONSE_BYTES + 1))
