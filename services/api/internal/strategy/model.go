@@ -201,6 +201,8 @@ type ShadowOutcome struct {
 const (
 	ShadowScorecardMinimumSample           = 20
 	ShadowEvidenceMinimumWindowHours int64 = 7 * 24
+	ShadowRouteProvenanceExplicit          = "EXPLICIT"
+	ShadowRouteProvenanceLegacy            = "UNATTRIBUTED_LEGACY"
 )
 
 // ShadowHorizonScore summarizes immutable hypothetical marks at one horizon.
@@ -223,7 +225,62 @@ type ShadowScorecard struct {
 	StrategyInstanceID string               `json:"strategy_instance_id"`
 	TotalMarks         int                  `json:"total_marks"`
 	Horizons           []ShadowHorizonScore `json:"horizons"`
+	Behavior           ShadowBehaviorScore  `json:"behavior"`
 	EvidenceGate       ShadowEvidenceGate   `json:"evidence_gate"`
+}
+
+// ShadowBehaviorScore summarizes immutable AI decision behavior for one
+// owner-scoped SHADOW strategy instance. Counts describe what Arbion recorded;
+// they are not trading performance or model accuracy measures.
+type ShadowBehaviorScore struct {
+	TotalAIDecisions            int                    `json:"total_ai_decisions"`
+	Abstentions                 int                    `json:"abstentions"`
+	ProposedDecisions           int                    `json:"proposed_decisions"`
+	RiskHeldDecisions           int                    `json:"risk_held_decisions"`
+	RepeatActionCooldownHolds   int                    `json:"repeat_action_cooldown_holds"`
+	WouldHaveSubmittedDecisions int                    `json:"would_have_submitted_decisions"`
+	AttributedDecisions         int                    `json:"attributed_decisions"`
+	UnattributedLegacyDecisions int                    `json:"unattributed_legacy_decisions"`
+	AbstentionRatePercent       *string                `json:"abstention_rate_percent,omitempty"`
+	ProposalRatePercent         *string                `json:"proposal_rate_percent,omitempty"`
+	AverageDecisionIntervalMins *string                `json:"average_decision_interval_minutes,omitempty"`
+	FirstDecisionAt             *time.Time             `json:"first_decision_at,omitempty"`
+	LastDecisionAt              *time.Time             `json:"last_decision_at,omitempty"`
+	Routes                      []ShadowRouteBehavior  `json:"routes"`
+	Symbols                     []ShadowSymbolBehavior `json:"symbols"`
+}
+
+// ShadowRouteBehavior keeps model routes separate and never infers provenance
+// for journal entries written before explicit route fields were recorded.
+type ShadowRouteBehavior struct {
+	AIProvider                  string  `json:"ai_provider,omitempty"`
+	ModelID                     string  `json:"model_id,omitempty"`
+	Profile                     string  `json:"profile,omitempty"`
+	ProvenanceStatus            string  `json:"provenance_status"`
+	TotalDecisions              int     `json:"total_decisions"`
+	Abstentions                 int     `json:"abstentions"`
+	ProposedDecisions           int     `json:"proposed_decisions"`
+	RiskHeldDecisions           int     `json:"risk_held_decisions"`
+	RepeatActionCooldownHolds   int     `json:"repeat_action_cooldown_holds"`
+	WouldHaveSubmittedDecisions int     `json:"would_have_submitted_decisions"`
+	OneHourOutcomeMarks         int     `json:"one_hour_outcome_marks"`
+	TwentyFourHourOutcomeMarks  int     `json:"twenty_four_hour_outcome_marks"`
+	MeasuredLatencyDecisions    int     `json:"measured_latency_decisions"`
+	AverageLatencyMilliseconds  *string `json:"average_latency_milliseconds,omitempty"`
+	MeteredUsageDecisions       int     `json:"metered_usage_decisions"`
+	RecordedInputTokens         int64   `json:"recorded_input_tokens"`
+	RecordedOutputTokens        int64   `json:"recorded_output_tokens"`
+}
+
+// ShadowSymbolBehavior describes proposal disposition and mark coverage by
+// symbol. Abstentions intentionally have no symbol and are excluded.
+type ShadowSymbolBehavior struct {
+	Symbol                      string `json:"symbol"`
+	ProposedDecisions           int    `json:"proposed_decisions"`
+	RiskHeldDecisions           int    `json:"risk_held_decisions"`
+	WouldHaveSubmittedDecisions int    `json:"would_have_submitted_decisions"`
+	OneHourOutcomeMarks         int    `json:"one_hour_outcome_marks"`
+	TwentyFourHourOutcomeMarks  int    `json:"twenty_four_hour_outcome_marks"`
 }
 
 // ShadowEvidenceGate determines only whether enough non-live evidence exists

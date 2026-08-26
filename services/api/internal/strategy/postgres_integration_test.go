@@ -379,7 +379,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	aiDecision := Decision{
 		ProposedAction: &aiAction, Source: "AI", InstrumentType: "EQUITY",
 		ProposedState: AIMonitoring, CandidateCount: 1, Reason: "integration",
-		Rationale: []byte(`{"decision":"PROPOSE","symbol":"AAPL","side":"SELL"}`),
+		Rationale: []byte(`{"decision":"PROPOSE","symbol":"AAPL","side":"SELL","ai_provider":"openai","model_id":"gpt-5.6-sol","profile":"deep","input_usage":30,"output_usage":45,"latency_ms":120}`),
 	}
 	aiResult := ExecutionResult{
 		Status: WouldHaveSubmitted, Price: &aiPrice, Notional: &aiNotional,
@@ -424,6 +424,9 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err = store.RecordShadowOutcome(ctx, aiInstance, conflictingMark); !errors.Is(err, ErrConflict) {
 		t.Fatalf("conflicting AI shadow outcome retry was not rejected: %v", err)
 	}
+	if _, err = pool.Exec(ctx, `INSERT INTO decision_journal_entries(user_id,financial_account_id,mandate_id,mandate_version,strategy_instance_id,strategy_state,source,decision_type,structured_rationale,resulting_state,created_at) VALUES($1,$2,$3,$4,$5,$6,'AI','ABSTAIN',$7,$6,$8)`, userID, aiAccountID, aiMandateID, 1, aiInstance.ID, AIMonitoring, json.RawMessage(`{"decision":"ABSTAIN","ai_provider":"anthropic"}`), aiEvaluationTime.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
 	marks, err := store.ShadowOutcomes(ctx, userID, aiInstance.ID)
 	if err != nil || len(marks) != 1 || marks[0].PricingBasis != "ASK_TO_CLOSE" || marks[0].DirectionalChangeUSD != "-0.0500000000" || marks[0].DirectionalChangePercent != "-5.0000000000" {
 		t.Fatalf("AI shadow outcome projection was incomplete: %#v %v", marks, err)
@@ -446,6 +449,29 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	gate := scorecard.EvidenceGate
 	if gate.Status != ShadowEvidenceCollecting || gate.OneHourSampleSize != 1 || gate.TwentyFourHourSampleSize != 0 || gate.EvidenceWindowHours != 0 || gate.ScheduleHealthy || gate.LiveExecutionAvailable || len(gate.Blockers) != 4 || gate.Blockers[3] != ShadowEvidenceScheduleNotVerified {
 		t.Fatalf("AI shadow evidence gate was not conservative: %#v", gate)
+	}
+	behavior := scorecard.Behavior
+	if behavior.TotalAIDecisions != 2 || behavior.Abstentions != 1 || behavior.ProposedDecisions != 1 || behavior.RiskHeldDecisions != 0 || behavior.RepeatActionCooldownHolds != 0 || behavior.WouldHaveSubmittedDecisions != 1 || behavior.AttributedDecisions != 1 || behavior.UnattributedLegacyDecisions != 1 || behavior.AbstentionRatePercent == nil || *behavior.AbstentionRatePercent != "50.0000000000" || behavior.ProposalRatePercent == nil || *behavior.ProposalRatePercent != "50.0000000000" || behavior.AverageDecisionIntervalMins == nil || *behavior.AverageDecisionIntervalMins != "1.00" || behavior.FirstDecisionAt == nil || behavior.LastDecisionAt == nil || len(behavior.Routes) != 2 || len(behavior.Symbols) != 1 {
+		t.Fatalf("AI shadow behavior summary was incomplete: %#v", behavior)
+	}
+	var explicitRoute, legacyRoute *ShadowRouteBehavior
+	for index := range behavior.Routes {
+		route := &behavior.Routes[index]
+		if route.ProvenanceStatus == ShadowRouteProvenanceExplicit {
+			explicitRoute = route
+		} else if route.ProvenanceStatus == ShadowRouteProvenanceLegacy {
+			legacyRoute = route
+		}
+	}
+	if explicitRoute == nil || explicitRoute.AIProvider != "openai" || explicitRoute.ModelID != "gpt-5.6-sol" || explicitRoute.Profile != "deep" || explicitRoute.TotalDecisions != 1 || explicitRoute.ProposedDecisions != 1 || explicitRoute.WouldHaveSubmittedDecisions != 1 || explicitRoute.OneHourOutcomeMarks != 1 || explicitRoute.TwentyFourHourOutcomeMarks != 0 || explicitRoute.MeasuredLatencyDecisions != 1 || explicitRoute.AverageLatencyMilliseconds == nil || *explicitRoute.AverageLatencyMilliseconds != "120.00" || explicitRoute.MeteredUsageDecisions != 1 || explicitRoute.RecordedInputTokens != 30 || explicitRoute.RecordedOutputTokens != 45 {
+		t.Fatalf("explicit AI route behavior was incorrect: %#v", explicitRoute)
+	}
+	if legacyRoute == nil || legacyRoute.AIProvider != "" || legacyRoute.ModelID != "" || legacyRoute.Profile != "" || legacyRoute.TotalDecisions != 1 || legacyRoute.Abstentions != 1 || legacyRoute.MeasuredLatencyDecisions != 0 || legacyRoute.AverageLatencyMilliseconds != nil {
+		t.Fatalf("legacy AI route provenance was inferred: %#v", legacyRoute)
+	}
+	symbolBehavior := behavior.Symbols[0]
+	if symbolBehavior.Symbol != "AAPL" || symbolBehavior.ProposedDecisions != 1 || symbolBehavior.RiskHeldDecisions != 0 || symbolBehavior.WouldHaveSubmittedDecisions != 1 || symbolBehavior.OneHourOutcomeMarks != 1 || symbolBehavior.TwentyFourHourOutcomeMarks != 0 {
+		t.Fatalf("AI symbol behavior was incorrect: %#v", symbolBehavior)
 	}
 	if _, err = store.ShadowScorecard(ctx, "99999999-9999-4999-8999-999999999999", aiInstance.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("AI shadow scorecard crossed its owner boundary: %v", err)
