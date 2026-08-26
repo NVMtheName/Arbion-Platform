@@ -300,15 +300,21 @@ async def shadow_decision(
         not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,15}", symbol) for symbol in allowed
     ):
         raise HTTPException(status_code=422, detail="allowed_symbols are invalid")
-    if request.observed_at.tzinfo is None or any(
-        market.observed_at.tzinfo is None
-        or (market.history_observed_at is not None and market.history_observed_at.tzinfo is None)
-        for market in request.markets
-    ) or any(
-        decision.occurred_at.tzinfo is None
-        or decision.occurred_at >= request.observed_at
-        or request.observed_at - decision.occurred_at > timedelta(hours=6)
-        for decision in request.recent_decisions
+    if (
+        request.observed_at.tzinfo is None
+        or any(
+            market.observed_at.tzinfo is None
+            or (
+                market.history_observed_at is not None and market.history_observed_at.tzinfo is None
+            )
+            for market in request.markets
+        )
+        or any(
+            decision.occurred_at.tzinfo is None
+            or decision.occurred_at >= request.observed_at
+            or request.observed_at - decision.occurred_at > timedelta(hours=6)
+            for decision in request.recent_decisions
+        )
     ):
         raise HTTPException(status_code=422, detail="timestamps must include a timezone")
     try:
