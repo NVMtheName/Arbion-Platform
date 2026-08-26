@@ -47,6 +47,7 @@ describe("AI Decision Journal", () => {
                     quantity: "7.5000000000",
                     available_quantity: "0.5000000000",
                     market_value_usd: "10.7250000000",
+                    performance_status: "UNAVAILABLE",
                   },
                 ],
                 markets: [
@@ -113,6 +114,9 @@ describe("AI Decision Journal", () => {
       within(evidence!).getByText("$10.725 observed value"),
     ).toBeInTheDocument();
     expect(
+      within(evidence!).getByText("Position performance unavailable"),
+    ).toBeInTheDocument();
+    expect(
       within(evidence!).getByText("1h +0.24% · 6h -1.1% · 24h -3.62%"),
     ).toBeInTheDocument();
     expect(
@@ -141,6 +145,65 @@ describe("AI Decision Journal", () => {
         "No broker order was sent. Arbion has no live execution path for this engine.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("shows provider-normalized Schwab position performance", () => {
+    render(
+      <AIDecisionJournal
+        decisions={[
+          {
+            ID: "decision-performance",
+            Source: "AI",
+            DecisionType: "ABSTAIN",
+            CreatedAt: "2026-08-26T15:00:00Z",
+            StructuredRationale: {
+              decision: "ABSTAIN",
+              symbol: "NONE",
+              proposed_notional: "0",
+              thesis: "The bounded evidence supports waiting.",
+              input_evidence: {
+                provider: "schwab",
+                available_cash_usd: "100",
+                buying_power_usd: "100",
+                observed_at: "2026-08-26T15:00:00Z",
+                markets: [],
+                recent_decisions: [],
+                positions: [
+                  {
+                    symbol: "SPY",
+                    quantity: "2",
+                    available_quantity: "2",
+                    market_value_usd: "1050",
+                    performance_status: "AVAILABLE",
+                    average_price_usd: "500",
+                    current_price_usd: "525",
+                    day_profit_loss_usd: "4",
+                    day_profit_loss_percent: "0.3824091778",
+                    open_profit_loss_usd: "50",
+                    open_profit_loss_percent: "5",
+                    price_basis: "PROVIDER_POSITION_MARKET_VALUE_PER_UNIT",
+                  },
+                ],
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    const evidence = screen
+      .getByText(
+        "Evidence considered · 1 allowlisted holding · 0 market snapshots",
+      )
+      .closest("details");
+    expect(evidence).not.toBeNull();
+    expect(
+      within(evidence!).getByText("Avg purchase $500 · Current $525"),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText("Day +$4 · +0.3824091778%"),
+    ).toBeInTheDocument();
+    expect(within(evidence!).getByText("Open +$50 · +5%")).toBeInTheDocument();
   });
 
   it("distinguishes bounded SEC event coverage from filing contents", () => {

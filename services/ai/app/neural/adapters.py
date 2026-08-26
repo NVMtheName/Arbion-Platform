@@ -108,6 +108,10 @@ facts from this same immutable SHADOW instance; they contain no prior model pros
 Liquidity is bounded single-venue evidence, not an executable quote. Use spread and
 book-depth values only when liquidity_status is AVAILABLE, preserve their source and
 time limitations, and never infer missing depth or execution certainty.
+Position performance is provider-reported normalized evidence, not tax-lot accounting.
+Use average/current price and day/open profit or loss only when performance_status and
+price_basis permit it. A numeric zero is real evidence; a blank field or UNAVAILABLE
+status is missing evidence and must never be inferred or reconstructed.
 SEC ownership events disclose only that a primary Form 3, 4, or 5 was filed. They do
 not disclose transaction direction, sentiment, materiality, or a recommendation in
 this bounded contract. Distinguish AVAILABLE coverage with zero events from
