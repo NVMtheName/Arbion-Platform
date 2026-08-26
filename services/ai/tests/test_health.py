@@ -2,8 +2,9 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
-from app.main import app, validate_production_configuration
+from app.main import ShadowMarketFact, app, validate_production_configuration
 
 client = TestClient(app)
 
@@ -92,11 +93,19 @@ def test_internal_routes_require_service_authentication() -> None:
                     "ask": "101",
                     "mark": "100",
                     "last": "100",
+                    "change_percent_1h": "",
+                    "change_percent_6h": "",
                     "change_percent_24h": "",
                     "volume_24h": "",
                     "feed": "exchange",
                     "quality": "REAL_TIME_SINGLE_VENUE",
                     "observed_at": "2026-08-25T14:00:00Z",
+                    "history_status": "UNAVAILABLE",
+                    "history_granularity_seconds": 900,
+                    "history_contiguous_intervals": 0,
+                    "history_expected_intervals": 96,
+                    "history_feed": "",
+                    "history_quality": "",
                 }
             ],
             "observed_at": "2026-08-25T14:00:00Z",
@@ -105,6 +114,35 @@ def test_internal_routes_require_service_authentication() -> None:
     )
     assert shadow_response.status_code == 401
     assert "secret-value" not in shadow_response.text
+
+
+def test_shadow_market_history_rejects_claimed_complete_gaps() -> None:
+    with pytest.raises(ValidationError, match="complete history requires every expected interval"):
+        ShadowMarketFact.model_validate(
+            {
+                "symbol": "BTC",
+                "asset_class": "CRYPTO",
+                "currency": "USD",
+                "bid": "99",
+                "ask": "101",
+                "mark": "100",
+                "last": "100",
+                "change_percent_1h": "1",
+                "change_percent_6h": "2",
+                "change_percent_24h": "3",
+                "volume_24h": "1000",
+                "feed": "rest_ticker",
+                "quality": "REAL_TIME_SINGLE_VENUE",
+                "observed_at": "2026-08-25T14:00:00Z",
+                "history_status": "COMPLETE",
+                "history_granularity_seconds": 900,
+                "history_contiguous_intervals": 95,
+                "history_expected_intervals": 96,
+                "history_feed": "rest_candles",
+                "history_quality": "REAL_TIME_SINGLE_VENUE",
+                "history_observed_at": "2026-08-25T14:00:00Z",
+            }
+        )
 
 
 def test_internal_insight_rejects_unknown_profile_before_provider_call() -> None:

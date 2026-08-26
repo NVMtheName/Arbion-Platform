@@ -60,8 +60,9 @@ func (f *evaluationAIFake) GenerateShadowDecision(_ context.Context, _ authoriza
 }
 
 type evaluationMarketsFake struct {
-	batch marketintelligence.CryptoMarketBatch
-	stats map[string]marketintelligence.CryptoVenueStats
+	batch   marketintelligence.CryptoMarketBatch
+	stats   map[string]marketintelligence.CryptoVenueStats
+	history map[string]marketintelligence.CryptoCandleSeries
 }
 
 func (f *evaluationMarketsFake) CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error) {
@@ -73,6 +74,13 @@ func (f *evaluationMarketsFake) CryptoVenueStats(_ context.Context, symbol, _ st
 		return marketintelligence.CryptoVenueStats{}, false, errors.New("stats unavailable")
 	}
 	return stats, false, nil
+}
+func (f *evaluationMarketsFake) RecentCryptoCandles(_ context.Context, symbol, _ string, _, _ int) (marketintelligence.CryptoCandleSeries, bool, error) {
+	series, ok := f.history[symbol]
+	if !ok {
+		return marketintelligence.CryptoCandleSeries{}, false, errors.New("history unavailable")
+	}
+	return series, false, nil
 }
 func (f *evaluationStoreFake) EvaluationFacts(context.Context, Instance, time.Time) (EvaluationFacts, error) {
 	return f.facts, nil
@@ -258,13 +266,32 @@ func aiEvaluationFixture(provider string, decision neural.ShadowDecision) (*Eval
 	finances := &evaluationFinancialFake{account: financial.FinancialAccount{ID: "account", UserID: "user", Provider: provider, Status: "active", BaseCurrency: "USD", Capabilities: financial.Capabilities{"options": financial.Unsupported, "margin": financial.Unsupported}}, balances: financial.Balances{Cash: &cash, AvailableCash: &available, BuyingPower: &buyingPower}, positions: []financial.Position{}, timestamp: now}
 	ai := &evaluationAIFake{decision: decision}
 	markets := &evaluationMarketsFake{
-		batch: marketintelligence.CryptoMarketBatch{Markets: []marketintelligence.CryptoMarketObservation{{Symbol: "BTC", Currency: "USD", CurrentPrice: "100", Bid: marketDecimalPointer("99"), Ask: marketDecimalPointer("101"), Provenance: marketintelligence.Provenance{Provider: "coinbase", Feed: "exchange", Quality: marketintelligence.RealTimeSingleVenue, ProviderTimestamp: now, ReceivedAt: now}}}},
-		stats: map[string]marketintelligence.CryptoVenueStats{"BTC": {Symbol: "BTC", Currency: "USD", Open: "80", Last: "100", Volume24H: "2500"}},
+		batch:   marketintelligence.CryptoMarketBatch{Markets: []marketintelligence.CryptoMarketObservation{{Symbol: "BTC", Currency: "USD", CurrentPrice: "100", Bid: marketDecimalPointer("99"), Ask: marketDecimalPointer("101"), Provenance: marketintelligence.Provenance{Provider: "coinbase", Feed: "exchange", Quality: marketintelligence.RealTimeSingleVenue, ProviderTimestamp: now, ReceivedAt: now}}}},
+		stats:   map[string]marketintelligence.CryptoVenueStats{"BTC": {Symbol: "BTC", Currency: "USD", Open: "80", Last: "100", Volume24H: "2500"}},
+		history: map[string]marketintelligence.CryptoCandleSeries{"BTC": aiHistorySeries(now, aiHistoryExpectedIntervals)},
 	}
 	service := NewEvaluationService(store, automations, finances)
 	service.ConfigureAIShadow(ai, markets)
 	service.now = func() time.Time { return now }
 	return service, store, finances, ai, authorization.Principal{UserID: "user", Entitlement: authorization.EntitlementFounder}
+}
+
+func aiHistorySeries(now time.Time, intervals int) marketintelligence.CryptoCandleSeries {
+	candles := make([]marketintelligence.CryptoCandle, intervals)
+	for index := range candles {
+		closeValue := marketintelligence.Decimal("100")
+		if index == len(candles)-1 {
+			closeValue = "104"
+		}
+		candles[index] = marketintelligence.CryptoCandle{
+			Start: now.Add(time.Duration(index-(intervals-1)) * 15 * time.Minute),
+			Low:   "99", High: "105", Open: "100", Close: closeValue, Volume: "1",
+		}
+	}
+	return marketintelligence.CryptoCandleSeries{
+		Symbol: "BTC", Currency: "USD", GranularitySeconds: aiHistoryGranularitySeconds, ExpectedIntervals: aiHistoryExpectedIntervals, Candles: candles,
+		Provenance: marketintelligence.Provenance{Provider: "coinbase", Feed: "rest_candles", Quality: marketintelligence.RealTimeSingleVenue, ProviderTimestamp: now, ReceivedAt: now},
+	}
 }
 
 func marketDecimalPointer(value string) *marketintelligence.Decimal {
@@ -279,7 +306,7 @@ func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testin
 	if err != nil || outcome.AIDecision != "PROPOSE" || outcome.Execution.Status != WouldHaveSubmitted || outcome.RiskDecision != risk.Allow {
 		t.Fatalf("unexpected Schwab AI shadow outcome: %#v %v", outcome, err)
 	}
-	if store.commits != 1 || store.abstains != 0 || finances.quoteCalls != 1 || ai.request.Markets[0].Feed != "schwab_market_data" {
+	if store.commits != 1 || store.abstains != 0 || finances.quoteCalls != 1 || ai.request.Markets[0].Feed != "schwab_market_data" || ai.request.Markets[0].HistoryStatus != "UNAVAILABLE" {
 		t.Fatalf("unexpected Schwab boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
 	assertAIInputEvidence(t, store.decision.Rationale, "schwab", "100", 0, 1)
@@ -294,10 +321,35 @@ func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
 	if err != nil || outcome.AIDecision != "ABSTAIN" || outcome.Execution.Status != ExecutionCanceled {
 		t.Fatalf("unexpected Coinbase abstention: %#v %v", outcome, err)
 	}
-	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" || ai.request.Markets[0].ChangePercent24H != "25.0000000000" || ai.request.Markets[0].Volume24H != "2500" || len(ai.request.Positions) != 1 || ai.request.Positions[0].MarketValueUSD != "1.0000000000" {
+	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" || ai.request.Markets[0].ChangePercent1H != "4.0000000000" || ai.request.Markets[0].ChangePercent6H != "4.0000000000" || ai.request.Markets[0].ChangePercent24H != "25.0000000000" || ai.request.Markets[0].Volume24H != "2500" || ai.request.Markets[0].HistoryStatus != "COMPLETE" || ai.request.Markets[0].HistoryContiguousIntervals != 96 || ai.request.Markets[0].HistoryFeed != "rest_candles" || len(ai.request.Positions) != 1 || ai.request.Positions[0].MarketValueUSD != "1.0000000000" {
 		t.Fatalf("unexpected Coinbase boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
 	assertAIInputEvidence(t, store.abstainRationale, "coinbase", "100", 1, 1)
+}
+
+func TestAIHistoryFactsNeverFillProviderCandleGaps(t *testing.T) {
+	now := time.Date(2026, 8, 25, 14, 0, 0, 0, time.UTC)
+	series := aiHistorySeries(now, 24)
+	series.Candles[len(series.Candles)-4].Start = series.Candles[len(series.Candles)-4].Start.Add(-15 * time.Minute)
+	fact := neural.ShadowMarketFact{HistoryStatus: "UNAVAILABLE", HistoryGranularitySeconds: aiHistoryGranularitySeconds, HistoryExpectedIntervals: aiHistoryExpectedIntervals}
+
+	addAIHistoryFacts(&fact, series, now)
+
+	if fact.HistoryStatus != "UNAVAILABLE" || fact.HistoryContiguousIntervals != 3 || fact.ChangePercent1H != "" || fact.ChangePercent6H != "" {
+		t.Fatalf("missing Coinbase bucket was synthesized: %#v", fact)
+	}
+}
+
+func TestAIHistoryFactsRejectStaleSeriesWithoutDerivedChanges(t *testing.T) {
+	now := time.Date(2026, 8, 25, 14, 0, 0, 0, time.UTC)
+	series := aiHistorySeries(now.Add(-31*time.Minute), aiHistoryExpectedIntervals)
+	fact := neural.ShadowMarketFact{HistoryStatus: "UNAVAILABLE", HistoryGranularitySeconds: aiHistoryGranularitySeconds, HistoryExpectedIntervals: aiHistoryExpectedIntervals}
+
+	addAIHistoryFacts(&fact, series, now)
+
+	if fact.HistoryStatus != "STALE" || fact.HistoryContiguousIntervals != 0 || fact.ChangePercent1H != "" || fact.ChangePercent6H != "" {
+		t.Fatalf("stale Coinbase history produced a trend signal: %#v", fact)
+	}
 }
 
 func assertAIInputEvidence(t *testing.T, rationale json.RawMessage, provider, buyingPower string, positionCount, marketCount int) {

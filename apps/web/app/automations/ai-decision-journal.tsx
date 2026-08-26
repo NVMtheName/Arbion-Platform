@@ -95,6 +95,22 @@ function contextValue(entry: Record<string, unknown>, key: string) {
   return typeof value === "string" ? value : undefined;
 }
 
+function contextNumber(entry: Record<string, unknown>, key: string) {
+  const value = entry[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function historyCoverage(market: Record<string, unknown>) {
+  const status = contextValue(market, "history_status") ?? "UNAVAILABLE";
+  if (status === "UNAVAILABLE") return "History unavailable";
+  if (status === "STALE") return "History stale — not used";
+  const available = contextNumber(market, "history_contiguous_intervals");
+  const expected = contextNumber(market, "history_expected_intervals");
+  const seconds = contextNumber(market, "history_granularity_seconds");
+  const interval = seconds > 0 ? `${seconds / 60}m` : "timed";
+  return `${label(status)} history · ${available}/${expected} exact ${interval} candles`;
+}
+
 function marketPrice(market: Record<string, unknown>) {
   return ["mark", "last", "bid", "ask"]
     .map((key) => contextValue(market, key))
@@ -336,11 +352,21 @@ export function AIDecisionJournal({
                             </strong>
                             <span>{dollars(marketPrice(market))}</span>
                             <small>
-                              24h{" "}
+                              1h{" "}
+                              {signedPercent(
+                                contextValue(market, "change_percent_1h"),
+                              )}{" "}
+                              · 6h{" "}
+                              {signedPercent(
+                                contextValue(market, "change_percent_6h"),
+                              )}{" "}
+                              · 24h{" "}
                               {signedPercent(
                                 contextValue(market, "change_percent_24h"),
                               )}{" "}
-                              ·{" "}
+                            </small>
+                            <small>
+                              {historyCoverage(market)} ·{" "}
                               {label(
                                 contextValue(market, "quality") ?? "unknown",
                               )}
@@ -357,6 +383,24 @@ export function AIDecisionJournal({
                               · {timestamp(contextValue(market, "observed_at"))}{" "}
                               UTC
                             </time>
+                            {contextValue(market, "history_observed_at") && (
+                              <time
+                                dateTime={
+                                  contextValue(market, "history_observed_at") ??
+                                  ""
+                                }
+                              >
+                                {label(
+                                  contextValue(market, "history_feed") ??
+                                    "market_history",
+                                )}{" "}
+                                ·{" "}
+                                {timestamp(
+                                  contextValue(market, "history_observed_at"),
+                                )}{" "}
+                                UTC
+                              </time>
+                            )}
                           </article>
                         ))}
                       </section>

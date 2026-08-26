@@ -54,7 +54,14 @@ type EvaluationAI interface {
 type EvaluationMarkets interface {
 	CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error)
 	CryptoVenueStats(context.Context, string, string) (marketintelligence.CryptoVenueStats, bool, error)
+	RecentCryptoCandles(context.Context, string, string, int, int) (marketintelligence.CryptoCandleSeries, bool, error)
 }
+
+const (
+	aiHistoryGranularitySeconds = 900
+	aiHistoryExpectedIntervals  = 96
+	aiHistoryFreshness          = 30 * time.Minute
+)
 
 type AIAbstentionStore interface {
 	CommitAIAbstention(context.Context, Instance, string, json.RawMessage, time.Time) error
@@ -658,7 +665,7 @@ func (s *EvaluationService) aiMarketFacts(ctx context.Context, principal authori
 			if !freshMarketTimestamp(quote.ProviderTimestamp, now) {
 				return nil, ErrEvaluationMarketDataStale
 			}
-			facts = append(facts, neural.ShadowMarketFact{Symbol: strings.ToUpper(symbol), AssetClass: "EQUITY", Currency: "USD", Bid: financialDecimal(quote.Bid), Ask: financialDecimal(quote.Ask), Mark: financialDecimal(quote.Mark), Last: financialDecimal(quote.Last), Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: quote.ProviderTimestamp})
+			facts = append(facts, neural.ShadowMarketFact{Symbol: strings.ToUpper(symbol), AssetClass: "EQUITY", Currency: "USD", Bid: financialDecimal(quote.Bid), Ask: financialDecimal(quote.Ask), Mark: financialDecimal(quote.Mark), Last: financialDecimal(quote.Last), Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: quote.ProviderTimestamp, HistoryStatus: "UNAVAILABLE"})
 		}
 		return facts, nil
 	}
@@ -676,14 +683,56 @@ func (s *EvaluationService) aiMarketFacts(ctx context.Context, principal authori
 		if !freshMarketTimestamp(market.Provenance.ProviderTimestamp, now) {
 			return nil, ErrEvaluationMarketDataStale
 		}
-		fact := neural.ShadowMarketFact{Symbol: strings.ToUpper(market.Symbol), AssetClass: "CRYPTO", Currency: "USD", Bid: marketDecimal(market.Bid), Ask: marketDecimal(market.Ask), Mark: string(market.CurrentPrice), Last: string(market.CurrentPrice), ChangePercent24H: marketDecimal(market.ChangePercent24H), Volume24H: marketDecimal(market.Volume24H), Feed: market.Provenance.Feed, Quality: string(market.Provenance.Quality), ObservedAt: market.Provenance.ProviderTimestamp}
+		fact := neural.ShadowMarketFact{Symbol: strings.ToUpper(market.Symbol), AssetClass: "CRYPTO", Currency: "USD", Bid: marketDecimal(market.Bid), Ask: marketDecimal(market.Ask), Mark: string(market.CurrentPrice), Last: string(market.CurrentPrice), ChangePercent24H: marketDecimal(market.ChangePercent24H), Volume24H: marketDecimal(market.Volume24H), Feed: market.Provenance.Feed, Quality: string(market.Provenance.Quality), ObservedAt: market.Provenance.ProviderTimestamp, HistoryStatus: "UNAVAILABLE", HistoryGranularitySeconds: aiHistoryGranularitySeconds, HistoryExpectedIntervals: aiHistoryExpectedIntervals}
 		if stats, _, statsErr := s.markets.CryptoVenueStats(ctx, fact.Symbol, "USD"); statsErr == nil {
 			fact.Volume24H = string(stats.Volume24H)
 			fact.ChangePercent24H = percentageChange(string(stats.Open), string(stats.Last))
 		}
+		if series, _, historyErr := s.markets.RecentCryptoCandles(ctx, fact.Symbol, "USD", aiHistoryGranularitySeconds, aiHistoryExpectedIntervals); historyErr == nil {
+			addAIHistoryFacts(&fact, series, now)
+		}
 		facts = append(facts, fact)
 	}
 	return facts, nil
+}
+
+// addAIHistoryFacts derives only fully covered trailing windows from exact
+// provider candles. It never fills a missing bucket or treats a partial window
+// as complete market history.
+func addAIHistoryFacts(fact *neural.ShadowMarketFact, series marketintelligence.CryptoCandleSeries, now time.Time) {
+	if fact == nil || series.GranularitySeconds != aiHistoryGranularitySeconds || series.ExpectedIntervals != aiHistoryExpectedIntervals || len(series.Candles) == 0 {
+		return
+	}
+	fact.HistoryFeed = series.Provenance.Feed
+	fact.HistoryQuality = string(series.Provenance.Quality)
+	observedAt := series.Provenance.ProviderTimestamp
+	fact.HistoryObservedAt = &observedAt
+
+	latest := series.Candles[len(series.Candles)-1]
+	if latest.Start.Before(now.Add(-aiHistoryFreshness)) || latest.Start.After(now.Add(marketDataMaxFutureOffset)) {
+		fact.HistoryStatus = "STALE"
+		return
+	}
+	contiguous := 1
+	step := time.Duration(series.GranularitySeconds) * time.Second
+	for index := len(series.Candles) - 1; index > 0; index-- {
+		if !series.Candles[index-1].Start.Equal(series.Candles[index].Start.Add(-step)) {
+			break
+		}
+		contiguous++
+	}
+	fact.HistoryContiguousIntervals = contiguous
+	if contiguous < 4 {
+		return
+	}
+	fact.HistoryStatus = "PARTIAL"
+	fact.ChangePercent1H = percentageChange(string(series.Candles[len(series.Candles)-4].Open), string(latest.Close))
+	if contiguous >= 24 {
+		fact.ChangePercent6H = percentageChange(string(series.Candles[len(series.Candles)-24].Open), string(latest.Close))
+	}
+	if contiguous >= aiHistoryExpectedIntervals {
+		fact.HistoryStatus = "COMPLETE"
+	}
 }
 
 func aiMarketPrice(markets []neural.ShadowMarketFact, symbol string) (string, bool) {

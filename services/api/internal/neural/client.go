@@ -94,18 +94,27 @@ type ShadowPositionFact struct {
 }
 
 type ShadowMarketFact struct {
-	Symbol           string    `json:"symbol"`
-	AssetClass       string    `json:"asset_class"`
-	Currency         string    `json:"currency"`
-	Bid              string    `json:"bid"`
-	Ask              string    `json:"ask"`
-	Mark             string    `json:"mark"`
-	Last             string    `json:"last"`
-	ChangePercent24H string    `json:"change_percent_24h"`
-	Volume24H        string    `json:"volume_24h"`
-	Feed             string    `json:"feed"`
-	Quality          string    `json:"quality"`
-	ObservedAt       time.Time `json:"observed_at"`
+	Symbol                     string     `json:"symbol"`
+	AssetClass                 string     `json:"asset_class"`
+	Currency                   string     `json:"currency"`
+	Bid                        string     `json:"bid"`
+	Ask                        string     `json:"ask"`
+	Mark                       string     `json:"mark"`
+	Last                       string     `json:"last"`
+	ChangePercent1H            string     `json:"change_percent_1h"`
+	ChangePercent6H            string     `json:"change_percent_6h"`
+	ChangePercent24H           string     `json:"change_percent_24h"`
+	Volume24H                  string     `json:"volume_24h"`
+	Feed                       string     `json:"feed"`
+	Quality                    string     `json:"quality"`
+	ObservedAt                 time.Time  `json:"observed_at"`
+	HistoryStatus              string     `json:"history_status"`
+	HistoryGranularitySeconds  int        `json:"history_granularity_seconds"`
+	HistoryContiguousIntervals int        `json:"history_contiguous_intervals"`
+	HistoryExpectedIntervals   int        `json:"history_expected_intervals"`
+	HistoryFeed                string     `json:"history_feed"`
+	HistoryQuality             string     `json:"history_quality"`
+	HistoryObservedAt          *time.Time `json:"history_observed_at,omitempty"`
 }
 
 type ShadowDecisionRequest struct {

@@ -4,10 +4,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Literal
+from typing import Literal, Self
 
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .neural.models import NeuralProviderError
 from .neural.registry import default_registry
@@ -72,11 +72,51 @@ class ShadowMarketFact(BaseModel):
     ask: str = Field(pattern=r"^(|0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
     mark: str = Field(pattern=r"^(|0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
     last: str = Field(pattern=r"^(|0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    change_percent_1h: str = Field(pattern=r"^(|-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?)$")
+    change_percent_6h: str = Field(pattern=r"^(|-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?)$")
     change_percent_24h: str = Field(pattern=r"^(|-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?)$")
     volume_24h: str = Field(pattern=r"^(|0|[1-9][0-9]{0,29})(\.[0-9]{1,18})?$")
     feed: str = Field(min_length=1, max_length=64)
     quality: str = Field(min_length=1, max_length=64)
     observed_at: datetime
+    history_status: Literal["COMPLETE", "PARTIAL", "STALE", "UNAVAILABLE"]
+    history_granularity_seconds: int = Field(ge=0, le=86400)
+    history_contiguous_intervals: int = Field(ge=0, le=300)
+    history_expected_intervals: int = Field(ge=0, le=300)
+    history_feed: str = Field(max_length=64)
+    history_quality: str = Field(max_length=64)
+    history_observed_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_history_consistency(self) -> Self:
+        derived = bool(self.change_percent_1h or self.change_percent_6h)
+        if self.history_status in {"STALE", "UNAVAILABLE"}:
+            if derived:
+                raise ValueError("unusable history cannot contain derived changes")
+            return self
+        if (
+            self.history_granularity_seconds <= 0
+            or self.history_expected_intervals <= 0
+            or self.history_contiguous_intervals < 4
+            or not self.change_percent_1h
+            or not self.history_feed
+            or not self.history_quality
+            or self.history_observed_at is None
+        ):
+            raise ValueError("usable history requires complete provenance and a 1-hour window")
+        if self.history_contiguous_intervals >= 24 and not self.change_percent_6h:
+            raise ValueError("a covered 6-hour window requires its derived change")
+        if self.history_contiguous_intervals < 24 and self.change_percent_6h:
+            raise ValueError("a 6-hour change requires 24 contiguous intervals")
+        if self.history_status == "COMPLETE" and (
+            self.history_contiguous_intervals < self.history_expected_intervals
+        ):
+            raise ValueError("complete history requires every expected interval")
+        if self.history_status == "PARTIAL" and (
+            self.history_contiguous_intervals >= self.history_expected_intervals
+        ):
+            raise ValueError("fully covered history cannot be labeled partial")
+        return self
 
 
 class ShadowDecisionRequest(ProviderRequest):
@@ -232,7 +272,9 @@ async def shadow_decision(
     ):
         raise HTTPException(status_code=422, detail="allowed_symbols are invalid")
     if request.observed_at.tzinfo is None or any(
-        market.observed_at.tzinfo is None for market in request.markets
+        market.observed_at.tzinfo is None
+        or (market.history_observed_at is not None and market.history_observed_at.tzinfo is None)
+        for market in request.markets
     ):
         raise HTTPException(status_code=422, detail="timestamps must include a timezone")
     try:
