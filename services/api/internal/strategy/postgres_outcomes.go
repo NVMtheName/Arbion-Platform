@@ -148,5 +148,19 @@ func (s *PostgresStore) ShadowScorecard(ctx context.Context, userID, instanceID 
 	if len(scorecard.Horizons) == 0 {
 		return ShadowScorecard{}, ErrNotFound
 	}
+	var lastScheduleStatus string
+	var consecutiveFailures int
+	scheduleObserved := true
+	err = s.db.QueryRow(ctx, `SELECT COALESCE(last_status,''),consecutive_failures
+		FROM nonlive_strategy_schedules
+		WHERE strategy_instance_id=$1 AND user_id=$2`, instanceID, userID).Scan(&lastScheduleStatus, &consecutiveFailures)
+	if err == pgx.ErrNoRows {
+		scheduleObserved = false
+	} else if err != nil {
+		return ShadowScorecard{}, err
+	} else if lastScheduleStatus == "" {
+		scheduleObserved = false
+	}
+	scorecard.EvidenceGate = buildShadowEvidenceGate(scorecard, scheduleObserved, lastScheduleStatus, consecutiveFailures)
 	return scorecard, nil
 }
