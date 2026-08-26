@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,6 +59,7 @@ type EvaluationMarkets interface {
 	CryptoVenueStats(context.Context, string, string) (marketintelligence.CryptoVenueStats, bool, error)
 	RecentCryptoCandles(context.Context, string, string, int, int) (marketintelligence.CryptoCandleSeries, bool, error)
 	CryptoLiquidity(context.Context, string, string, int) (marketintelligence.CryptoLiquiditySnapshot, bool, error)
+	RecentInsiderFilingsForSymbol(context.Context, string, int) (marketintelligence.InsiderFilingBatch, bool, error)
 }
 
 const (
@@ -66,6 +68,9 @@ const (
 	aiHistoryFreshness          = 30 * time.Minute
 	aiDecisionMemoryWindow      = 6 * time.Hour
 	aiDecisionMemoryLimit       = 6
+	aiEventLookbackDays         = 30
+	aiEventsPerSymbol           = 2
+	aiEventResolverMaxAge       = 24 * time.Hour
 )
 
 type AIAbstentionStore interface {
@@ -403,6 +408,7 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	if err = s.recordDueAIShadowOutcomes(ctx, instance, markets, now); err != nil {
 		return EvaluationOutcome{}, err
 	}
+	eventCoverage, marketEvents := s.aiMarketEventFacts(ctx, account, mandate.AllowedUniverse.Symbols, now)
 	request, riskAccount, err := s.aiAccountFacts(ctx, principal, account, mandate.AllowedUniverse.Symbols, markets, now)
 	if err != nil {
 		return EvaluationOutcome{}, err
@@ -412,6 +418,8 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	request.AllowedSymbols = append([]string(nil), mandate.AllowedUniverse.Symbols...)
 	request.MaxProposalNotional = parameters.MaxProposalNotional
 	request.Markets = markets
+	request.MarketEventCoverage = eventCoverage
+	request.MarketEvents = marketEvents
 	request.RecentDecisions = append([]neural.ShadowRecentDecision{}, facts.RecentDecisions...)
 	request.ObservedAt = now
 	decision, err := s.ai.GenerateShadowDecision(ctx, principal, *mandate.AIProviderConnectionID, *mandate.AIModelID, request)
@@ -432,7 +440,8 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 		"input_evidence": map[string]any{
 			"provider": account.Provider, "available_cash_usd": request.AvailableCashUSD,
 			"buying_power_usd": request.BuyingPowerUSD, "positions": request.Positions,
-			"markets": request.Markets, "recent_decisions": request.RecentDecisions,
+			"markets": request.Markets, "market_event_coverage": request.MarketEventCoverage,
+			"market_events": request.MarketEvents, "recent_decisions": request.RecentDecisions,
 			"observed_at": request.ObservedAt,
 		},
 	})
@@ -491,6 +500,68 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	outcome.AIDecision = "PROPOSE"
 	outcome.Confidence = decision.Confidence
 	return outcome, err
+}
+
+func (s *EvaluationService) aiMarketEventFacts(ctx context.Context, account financial.FinancialAccount, symbols []string, now time.Time) ([]neural.ShadowMarketEventCoverage, []neural.ShadowMarketEventFact) {
+	if account.Provider != "schwab" {
+		return []neural.ShadowMarketEventCoverage{}, []neural.ShadowMarketEventFact{}
+	}
+	coverage := make([]neural.ShadowMarketEventCoverage, 0, len(symbols))
+	events := make([]neural.ShadowMarketEventFact, 0, len(symbols)*aiEventsPerSymbol)
+	for _, rawSymbol := range symbols {
+		symbol := strings.ToUpper(strings.TrimSpace(rawSymbol))
+		item := neural.ShadowMarketEventCoverage{Symbol: symbol, Status: "UNAVAILABLE", LookbackDays: aiEventLookbackDays}
+		if s.markets == nil {
+			coverage = append(coverage, item)
+			continue
+		}
+		batch, _, err := s.markets.RecentInsiderFilingsForSymbol(ctx, symbol, aiEventsPerSymbol)
+		if err != nil || batch.Issuer.Symbol != symbol || marketintelligence.ValidateIssuerReference(batch.Issuer, now, aiEventResolverMaxAge, marketDataMaxFutureOffset) != nil {
+			coverage = append(coverage, item)
+			continue
+		}
+		bounded := make([]neural.ShadowMarketEventFact, 0, aiEventsPerSymbol)
+		validBatch := true
+		for _, filing := range batch.Filings {
+			if filing.IssuerCIK != batch.Issuer.IssuerCIK || marketintelligence.ValidateInsiderFiling(filing, now, marketDataMaxFutureOffset) != nil {
+				validBatch = false
+				break
+			}
+			if filing.FiledAt.Before(now.AddDate(0, 0, -aiEventLookbackDays)) {
+				continue
+			}
+			bounded = append(bounded, neural.ShadowMarketEventFact{
+				Symbol: symbol, EventType: "SEC_OWNERSHIP_FILING", Form: filing.Form,
+				IsAmendment: filing.IsAmendment, EvidenceID: filing.AccessionNumber,
+				IssuerCIK: filing.IssuerCIK, OccurredAt: filing.FiledAt,
+				Provider: filing.Provenance.Provider, Feed: filing.Provenance.Feed,
+				Quality: string(filing.Provenance.Quality),
+			})
+		}
+		if !validBatch {
+			coverage = append(coverage, item)
+			continue
+		}
+		receivedAt := batch.Issuer.Receipt.ReceivedAt
+		item.Status = "AVAILABLE"
+		item.EventCount = len(bounded)
+		item.ResolverProvider = batch.Issuer.Receipt.Provider
+		item.ResolverFeed = batch.Issuer.Receipt.Feed
+		item.ResolverQuality = string(batch.Issuer.Receipt.Quality)
+		item.ResolverReceivedAt = &receivedAt
+		coverage = append(coverage, item)
+		events = append(events, bounded...)
+	}
+	sort.Slice(events, func(left, right int) bool {
+		if events[left].OccurredAt.Equal(events[right].OccurredAt) {
+			if events[left].Symbol == events[right].Symbol {
+				return events[left].EvidenceID < events[right].EvidenceID
+			}
+			return events[left].Symbol < events[right].Symbol
+		}
+		return events[left].OccurredAt.After(events[right].OccurredAt)
+	})
+	return coverage, events
 }
 
 func (s *EvaluationService) recordDueAIShadowOutcomes(ctx context.Context, instance Instance, markets []neural.ShadowMarketFact, now time.Time) error {

@@ -13,7 +13,61 @@ import (
 )
 
 func config(baseURL string) Config {
-	return Config{UserAgent: "Arbion market intelligence admin@arbion.ai", BaseURL: baseURL, Timeout: time.Second, RateInterval: 100 * time.Millisecond, MaxFutureSkew: time.Second}
+	return Config{UserAgent: "Arbion market intelligence admin@arbion.ai", BaseURL: baseURL, FilesBaseURL: baseURL, Timeout: time.Second, RateInterval: 100 * time.Millisecond, MaxFutureSkew: time.Second}
+}
+
+func TestIssuerReferencesUsesExactSECTickerDataWithoutInventingAliases(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/files/company_tickers.json" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("User-Agent") != "Arbion market intelligence admin@arbion.ai" || request.Header.Get("Accept") != "application/json" {
+			t.Fatal("SEC fair-access headers missing")
+		}
+		_, _ = writer.Write([]byte(`{"0":{"cik_str":320193,"ticker":"AAPL","title":"Apple Inc."},"1":{"cik_str":1067983,"ticker":"BRK-B","title":"Berkshire Hathaway Inc."}}`))
+	}))
+	defer server.Close()
+	client, err := New(config(server.URL), server.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	references, err := client.IssuerReferences(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(references) != 2 {
+		t.Fatalf("unexpected SEC reference count: %+v", references)
+	}
+	issuer := references[0]
+	if issuer.Symbol != "AAPL" || issuer.IssuerCIK != "0000320193" || issuer.Name != "Apple Inc." || issuer.Receipt.Provider != "sec_edgar" || issuer.Receipt.Role != marketintelligence.ReferenceData || issuer.Receipt.Feed != "company_tickers" || issuer.Receipt.Quality != marketintelligence.AggregatedReference || issuer.Receipt.ReceivedAt.IsZero() {
+		t.Fatalf("SEC ticker reference was not preserved: %+v", issuer)
+	}
+	for _, reference := range references {
+		if reference.Symbol == "BRK.B" {
+			t.Fatalf("an unlisted ticker alias was invented: %+v", references)
+		}
+	}
+}
+
+func TestResolveIssuerRejectsAmbiguousAndMalformedReferenceFiles(t *testing.T) {
+	for name, payload := range map[string]string{
+		"ambiguous": `{"0":{"cik_str":320193,"ticker":"AAPL","title":"Apple Inc."},"1":{"cik_str":999999,"ticker":"AAPL","title":"Different issuer"}}`,
+		"malformed": `{"not-numeric":{"cik_str":320193,"ticker":"AAPL","title":"Apple Inc."}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, _ = writer.Write([]byte(payload))
+			}))
+			defer server.Close()
+			client, err := New(config(server.URL), server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = client.IssuerReferences(t.Context()); !errors.Is(err, ErrInvalidResponse) {
+				t.Fatalf("unsafe SEC reference accepted: %v", err)
+			}
+		})
+	}
 }
 
 func TestRecentInsiderFilingsUsesDeclaredAgentAndPrimaryEvidence(t *testing.T) {
@@ -58,6 +112,7 @@ func TestNewEnforcesSECIdentityAndFairAccessRate(t *testing.T) {
 		{},
 		{UserAgent: "anonymous bot", BaseURL: "https://data.sec.gov", Timeout: time.Second, RateInterval: 100 * time.Millisecond},
 		{UserAgent: "Arbion admin@arbion.ai", BaseURL: "https://example.com", Timeout: time.Second, RateInterval: 100 * time.Millisecond},
+		{UserAgent: "Arbion admin@arbion.ai", BaseURL: "https://data.sec.gov", FilesBaseURL: "https://example.com", Timeout: time.Second, RateInterval: 100 * time.Millisecond},
 		{UserAgent: "Arbion admin@arbion.ai", BaseURL: "https://data.sec.gov", Timeout: time.Second, RateInterval: 99 * time.Millisecond},
 	} {
 		if _, err := New(test, http.DefaultClient); !errors.Is(err, ErrInvalidConfiguration) {

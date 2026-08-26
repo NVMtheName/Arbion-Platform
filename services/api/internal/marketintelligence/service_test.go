@@ -107,9 +107,33 @@ func (provider *fakeCryptoProvider) CryptoVenueStats(_ context.Context, symbol, 
 
 type fakeFilingProvider struct{ calls int }
 
+func (provider *fakeFilingProvider) IssuerReferences(_ context.Context) ([]IssuerReferenceObservation, error) {
+	provider.calls++
+	return []IssuerReferenceObservation{{Symbol: "AAPL", IssuerCIK: "0000320193", Name: "Apple Inc.", Receipt: SourceReceipt{Provider: "sec_edgar", Role: ReferenceData, Feed: "company_tickers", Quality: AggregatedReference, ReceivedAt: time.Now().UTC()}}}, nil
+}
+
 func (provider *fakeFilingProvider) RecentInsiderFilings(_ context.Context, cik string, _ int) ([]InsiderFilingObservation, error) {
 	provider.calls++
 	return []InsiderFilingObservation{{IssuerCIK: cik, AccessionNumber: "0000000000-26-000001", Form: "4"}}, nil
+}
+
+func TestServiceResolvesTickerAndCachesTheCompleteFilingBatch(t *testing.T) {
+	filings := &fakeFilingProvider{}
+	service, err := NewService(ServiceConfig{FilingProvider: filings, FilingCacheTTL: time.Minute, FilingInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, cached, err := service.RecentInsiderFilingsForSymbol(t.Context(), " aapl ", 2)
+	if err != nil || cached || first.Issuer.Symbol != "AAPL" || first.Issuer.IssuerCIK != "0000320193" || len(first.Filings) != 1 || filings.calls != 2 {
+		t.Fatalf("unexpected first symbol filing batch: batch=%+v cached=%v calls=%d err=%v", first, cached, filings.calls, err)
+	}
+	second, cached, err := service.RecentInsiderFilingsForSymbol(t.Context(), "AAPL", 2)
+	if err != nil || !cached || second.Issuer.IssuerCIK != first.Issuer.IssuerCIK || filings.calls != 2 {
+		t.Fatalf("complete symbol filing batch was not cached: batch=%+v cached=%v calls=%d err=%v", second, cached, filings.calls, err)
+	}
+	if _, cached, err = service.ResolveIssuer(t.Context(), "BRK.B"); !errors.Is(err, ErrInstrumentUnavailable) || !cached || filings.calls != 2 {
+		t.Fatalf("missing exact ticker was not negatively cached: cached=%v calls=%d err=%v", cached, filings.calls, err)
+	}
 }
 
 func TestServiceCachesObservationsAndTracksSourceHealth(t *testing.T) {

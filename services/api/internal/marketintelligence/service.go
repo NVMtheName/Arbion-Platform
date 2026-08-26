@@ -71,6 +71,7 @@ type Service struct {
 	cryptoLiquidity         CryptoLiquidityProvider
 	cryptoTrades            CryptoTradeProvider
 	cryptoStats             CryptoVenueStatsProvider
+	issuerProvider          InsiderIssuerProvider
 	cryptoSourceID          string
 	cryptoAssetSourceID     string
 	cryptoCandleSourceID    string
@@ -94,16 +95,18 @@ type Service struct {
 	cryptoStatsPacer        requestPacer
 	filingPacer             requestPacer
 
-	sources        []Source
-	equityCache    map[string]cacheEntry[QuoteObservation]
-	cryptoCache    map[string]cacheEntry[[]CryptoMarketObservation]
-	assetCache     map[string]cacheEntry[CryptoMarketBatch]
-	candleCache    map[string]cacheEntry[CryptoCandleSeries]
-	liquidityCache map[string]cacheEntry[CryptoLiquiditySnapshot]
-	tradeCache     map[string]cacheEntry[CryptoTradeTape]
-	statsCache     map[string]cacheEntry[CryptoVenueStats]
-	filingCache    map[string]cacheEntry[[]InsiderFilingObservation]
-	now            func() time.Time
+	sources              []Source
+	equityCache          map[string]cacheEntry[QuoteObservation]
+	cryptoCache          map[string]cacheEntry[[]CryptoMarketObservation]
+	assetCache           map[string]cacheEntry[CryptoMarketBatch]
+	candleCache          map[string]cacheEntry[CryptoCandleSeries]
+	liquidityCache       map[string]cacheEntry[CryptoLiquiditySnapshot]
+	tradeCache           map[string]cacheEntry[CryptoTradeTape]
+	statsCache           map[string]cacheEntry[CryptoVenueStats]
+	issuerIndex          map[string]IssuerReferenceObservation
+	issuerIndexExpiresAt time.Time
+	filingCache          map[string]cacheEntry[[]InsiderFilingObservation]
+	now                  func() time.Time
 }
 
 type requestPacer struct {
@@ -174,6 +177,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 		cryptoLiquidity:         config.CryptoLiquidityProvider,
 		cryptoTrades:            config.CryptoTradeProvider,
 		cryptoStats:             config.CryptoStatsProvider,
+		issuerProvider:          insiderIssuerProvider(config.FilingProvider),
 		cryptoSourceID:          config.CryptoSourceID,
 		cryptoAssetSourceID:     assetSourceID,
 		cryptoCandleSourceID:    config.CryptoCandleSourceID,
@@ -203,6 +207,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 		liquidityCache:          make(map[string]cacheEntry[CryptoLiquiditySnapshot]),
 		tradeCache:              make(map[string]cacheEntry[CryptoTradeTape]),
 		statsCache:              make(map[string]cacheEntry[CryptoVenueStats]),
+		issuerIndex:             make(map[string]IssuerReferenceObservation),
 		filingCache:             make(map[string]cacheEntry[[]InsiderFilingObservation]),
 		now:                     func() time.Time { return time.Now().UTC() },
 	}
@@ -220,6 +225,11 @@ func NewService(config ServiceConfig) (*Service, error) {
 func cryptoAssetProvider(provider CryptoMarketProvider) CryptoAssetMarketProvider {
 	assets, _ := provider.(CryptoAssetMarketProvider)
 	return assets
+}
+
+func insiderIssuerProvider(provider InsiderFilingProvider) InsiderIssuerProvider {
+	resolver, _ := provider.(InsiderIssuerProvider)
+	return resolver
 }
 
 func (service *Service) Sources() []Source {
@@ -543,6 +553,76 @@ func (service *Service) RecentInsiderFilings(ctx context.Context, cik string, li
 	return append([]InsiderFilingObservation(nil), copyValue...), false, nil
 }
 
+func (service *Service) ResolveIssuer(ctx context.Context, symbol string) (IssuerReferenceObservation, bool, error) {
+	if service.issuerProvider == nil {
+		return IssuerReferenceObservation{}, false, ErrNoEligibleSource
+	}
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if !validEquitySymbol(symbol) {
+		return IssuerReferenceObservation{}, false, ErrInvalidObservation
+	}
+	value, fresh, found := service.cachedIssuerReference(symbol)
+	service.recordCacheLookup("sec_edgar", InsiderFiling, fresh)
+	if fresh && found {
+		return value, true, nil
+	}
+	if fresh {
+		return IssuerReferenceObservation{}, true, ErrInstrumentUnavailable
+	}
+	if err := service.filingPacer.wait(ctx); err != nil {
+		return IssuerReferenceObservation{}, false, err
+	}
+	service.recordProviderAttempt("sec_edgar", InsiderFiling)
+	references, err := service.issuerProvider.IssuerReferences(ctx)
+	if err != nil {
+		service.recordProviderError("sec_edgar", InsiderFiling, err)
+		return IssuerReferenceObservation{}, false, err
+	}
+	if len(references) == 0 || len(references) > 25_000 {
+		service.recordProviderError("sec_edgar", InsiderFiling, ErrInvalidObservation)
+		return IssuerReferenceObservation{}, false, ErrInvalidObservation
+	}
+	var observation *IssuerReferenceObservation
+	seen := make(map[string]string, len(references))
+	for index := range references {
+		reference := references[index]
+		if err = ValidateIssuerReference(reference, service.now(), time.Minute, time.Minute); err != nil {
+			service.recordProviderError("sec_edgar", InsiderFiling, err)
+			return IssuerReferenceObservation{}, false, err
+		}
+		if cik, duplicate := seen[reference.Symbol]; duplicate && cik != reference.IssuerCIK {
+			service.recordProviderError("sec_edgar", InsiderFiling, ErrInvalidObservation)
+			return IssuerReferenceObservation{}, false, ErrInvalidObservation
+		}
+		seen[reference.Symbol] = reference.IssuerCIK
+		if reference.Symbol == symbol {
+			value := reference
+			observation = &value
+		}
+	}
+	service.recordProviderSuccess("sec_edgar", InsiderFiling)
+	service.storeIssuerReferences(references)
+	if observation == nil {
+		return IssuerReferenceObservation{}, false, ErrInstrumentUnavailable
+	}
+	return *observation, false, nil
+}
+
+func (service *Service) RecentInsiderFilingsForSymbol(ctx context.Context, symbol string, limit int) (InsiderFilingBatch, bool, error) {
+	if limit < 1 || limit > 100 {
+		return InsiderFilingBatch{}, false, ErrInvalidObservation
+	}
+	issuer, issuerCached, err := service.ResolveIssuer(ctx, symbol)
+	if err != nil {
+		return InsiderFilingBatch{}, false, err
+	}
+	filings, filingsCached, err := service.RecentInsiderFilings(ctx, issuer.IssuerCIK, limit)
+	if err != nil {
+		return InsiderFilingBatch{}, false, err
+	}
+	return InsiderFilingBatch{Issuer: issuer, Filings: filings}, issuerCached && filingsCached, nil
+}
+
 func (pacer *requestPacer) wait(ctx context.Context) error {
 	for {
 		pacer.mu.Lock()
@@ -654,6 +734,28 @@ func (service *Service) storeCryptoVenueStats(key string, value CryptoVenueStats
 	defer service.mu.Unlock()
 	pruneCache(service.statsCache, service.now())
 	service.statsCache[key] = cacheEntry[CryptoVenueStats]{value: value, expiresAt: service.now().Add(service.cryptoStatsCacheTTL)}
+}
+
+func (service *Service) storeIssuerReferences(values []IssuerReferenceObservation) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	expiresAt := service.now().Add(service.filingCacheTTL)
+	index := make(map[string]IssuerReferenceObservation, len(values))
+	for _, value := range values {
+		index[value.Symbol] = value
+	}
+	service.issuerIndex = index
+	service.issuerIndexExpiresAt = expiresAt
+}
+
+func (service *Service) cachedIssuerReference(symbol string) (IssuerReferenceObservation, bool, bool) {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	if !service.now().Before(service.issuerIndexExpiresAt) {
+		return IssuerReferenceObservation{}, false, false
+	}
+	value, found := service.issuerIndex[symbol]
+	return value, true, found
 }
 
 func (service *Service) storeFilings(key string, value []InsiderFilingObservation) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,6 +65,7 @@ type evaluationMarketsFake struct {
 	stats     map[string]marketintelligence.CryptoVenueStats
 	history   map[string]marketintelligence.CryptoCandleSeries
 	liquidity map[string]marketintelligence.CryptoLiquiditySnapshot
+	filings   map[string]marketintelligence.InsiderFilingBatch
 }
 
 func (f *evaluationMarketsFake) CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error) {
@@ -89,6 +91,13 @@ func (f *evaluationMarketsFake) CryptoLiquidity(_ context.Context, symbol, _ str
 		return marketintelligence.CryptoLiquiditySnapshot{}, false, errors.New("liquidity unavailable")
 	}
 	return snapshot, false, nil
+}
+func (f *evaluationMarketsFake) RecentInsiderFilingsForSymbol(_ context.Context, symbol string, limit int) (marketintelligence.InsiderFilingBatch, bool, error) {
+	batch, ok := f.filings[symbol]
+	if !ok || limit != aiEventsPerSymbol {
+		return marketintelligence.InsiderFilingBatch{}, false, errors.New("filings unavailable")
+	}
+	return batch, false, nil
 }
 func (f *evaluationStoreFake) EvaluationFacts(context.Context, Instance, time.Time) (EvaluationFacts, error) {
 	return f.facts, nil
@@ -295,6 +304,26 @@ func aiLiquiditySnapshot(now time.Time) marketintelligence.CryptoLiquiditySnapsh
 	}
 }
 
+func aiFilingBatch(now time.Time) marketintelligence.InsiderFilingBatch {
+	issuer := marketintelligence.IssuerReferenceObservation{
+		Symbol: "BTC", IssuerCIK: "0000320193", Name: "Bounded fixture issuer",
+		Receipt: marketintelligence.SourceReceipt{Provider: "sec_edgar", Role: marketintelligence.ReferenceData, Feed: "company_tickers", Quality: marketintelligence.AggregatedReference, ReceivedAt: now.Add(-time.Minute)},
+	}
+	filing := func(accession, form string, filedAt time.Time) marketintelligence.InsiderFilingObservation {
+		return marketintelligence.InsiderFilingObservation{
+			IssuerCIK: issuer.IssuerCIK, AccessionNumber: accession, Form: form,
+			IsAmendment: strings.HasSuffix(form, "/A"), FiledAt: filedAt,
+			ReportDate: filedAt.Format("2006-01-02"), PrimaryDocument: "ownership.xml",
+			SourceURL:  "https://www.sec.gov/Archives/edgar/data/320193/000032019326000001/ownership.xml",
+			Provenance: marketintelligence.Provenance{Provider: "sec_edgar", Role: marketintelligence.PrimaryFiling, Feed: "submissions", Quality: marketintelligence.Filing, ProviderTimestamp: filedAt, ReceivedAt: now.Add(-time.Minute)},
+		}
+	}
+	return marketintelligence.InsiderFilingBatch{Issuer: issuer, Filings: []marketintelligence.InsiderFilingObservation{
+		filing("0000320193-26-000001", "4", now.Add(-24*time.Hour)),
+		filing("0000320193-26-000002", "4/A", now.AddDate(0, 0, -31)),
+	}}
+}
+
 func aiHistorySeries(now time.Time, intervals int) marketintelligence.CryptoCandleSeries {
 	candles := make([]marketintelligence.CryptoCandle, intervals)
 	for index := range candles {
@@ -326,10 +355,54 @@ func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testin
 	if err != nil || outcome.AIDecision != "PROPOSE" || outcome.Execution.Status != WouldHaveSubmitted || outcome.RiskDecision != risk.Allow {
 		t.Fatalf("unexpected Schwab AI shadow outcome: %#v %v", outcome, err)
 	}
-	if store.commits != 1 || store.abstains != 0 || finances.quoteCalls != 1 || ai.request.Markets[0].Feed != "schwab_market_data" || ai.request.Markets[0].HistoryStatus != "UNAVAILABLE" {
+	if store.commits != 1 || store.abstains != 0 || finances.quoteCalls != 1 || ai.request.Markets[0].Feed != "schwab_market_data" || ai.request.Markets[0].HistoryStatus != "UNAVAILABLE" || len(ai.request.MarketEventCoverage) != 1 || ai.request.MarketEventCoverage[0].Status != "UNAVAILABLE" || len(ai.request.MarketEvents) != 0 {
 		t.Fatalf("unexpected Schwab boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
 	assertAIInputEvidence(t, store.decision.Rationale, "schwab", "100", 0, 1, 0)
+}
+
+func TestSchwabAIShadowUsesBoundedSECEventIdentityWithoutFilingContents(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No cautious action", RiskFlags: []string{}, Limitations: []string{}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, store, _, ai, principal := aiEvaluationFixture("schwab", decision)
+	service.markets.(*evaluationMarketsFake).filings = map[string]marketintelligence.InsiderFilingBatch{"BTC": aiFilingBatch(service.now())}
+
+	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:sec-events")
+	if err != nil || outcome.AIDecision != "ABSTAIN" || store.abstains != 1 {
+		t.Fatalf("unexpected SEC-context outcome: %#v err=%v", outcome, err)
+	}
+	if len(ai.request.MarketEventCoverage) != 1 || ai.request.MarketEventCoverage[0].Status != "AVAILABLE" || ai.request.MarketEventCoverage[0].EventCount != 1 || ai.request.MarketEventCoverage[0].ResolverFeed != "company_tickers" || len(ai.request.MarketEvents) != 1 {
+		t.Fatalf("SEC event coverage was not bounded: %#v %#v", ai.request.MarketEventCoverage, ai.request.MarketEvents)
+	}
+	event := ai.request.MarketEvents[0]
+	if event.EventType != "SEC_OWNERSHIP_FILING" || event.Form != "4" || event.EvidenceID != "0000320193-26-000001" || event.Feed != "submissions" || event.Quality != "FILING" {
+		t.Fatalf("SEC event identity was incomplete: %#v", event)
+	}
+	encoded, err := json.Marshal(ai.request)
+	if err != nil || strings.Contains(string(encoded), "ownership.xml") || strings.Contains(string(encoded), "Bounded fixture issuer") || strings.Contains(string(encoded), "sec.gov/Archives") {
+		t.Fatalf("filing contents or issuer prose crossed the Neural boundary: %s err=%v", encoded, err)
+	}
+	var journal struct {
+		InputEvidence struct {
+			MarketEventCoverage []neural.ShadowMarketEventCoverage `json:"market_event_coverage"`
+			MarketEvents        []neural.ShadowMarketEventFact     `json:"market_events"`
+		} `json:"input_evidence"`
+	}
+	if err = json.Unmarshal(store.abstainRationale, &journal); err != nil || len(journal.InputEvidence.MarketEventCoverage) != 1 || len(journal.InputEvidence.MarketEvents) != 1 || journal.InputEvidence.MarketEvents[0].EvidenceID != event.EvidenceID {
+		t.Fatalf("immutable SEC evidence was not preserved: %#v err=%v", journal.InputEvidence, err)
+	}
+}
+
+func TestSchwabAIShadowDistinguishesNoRecentFilingsFromUnavailableSEC(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No cautious action", Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, _, _, _, _ := aiEvaluationFixture("schwab", decision)
+	batch := aiFilingBatch(service.now())
+	batch.Filings = []marketintelligence.InsiderFilingObservation{}
+	service.markets.(*evaluationMarketsFake).filings = map[string]marketintelligence.InsiderFilingBatch{"BTC": batch}
+
+	coverage, events := service.aiMarketEventFacts(context.Background(), financial.FinancialAccount{Provider: "schwab"}, []string{"BTC"}, service.now())
+	if len(coverage) != 1 || coverage[0].Status != "AVAILABLE" || coverage[0].EventCount != 0 || len(events) != 0 || coverage[0].ResolverReceivedAt == nil {
+		t.Fatalf("authoritative empty SEC window was treated as unavailable: %#v %#v", coverage, events)
+	}
 }
 
 func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {

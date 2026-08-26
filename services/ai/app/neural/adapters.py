@@ -108,6 +108,10 @@ facts from this same immutable SHADOW instance; they contain no prior model pros
 Liquidity is bounded single-venue evidence, not an executable quote. Use spread and
 book-depth values only when liquidity_status is AVAILABLE, preserve their source and
 time limitations, and never infer missing depth or execution certainty.
+SEC ownership events disclose only that a primary Form 3, 4, or 5 was filed. They do
+not disclose transaction direction, sentiment, materiality, or a recommendation in
+this bounded contract. Distinguish AVAILABLE coverage with zero events from
+UNAVAILABLE coverage, and never infer filing contents that were not supplied.
 Avoid repetitive reasoning and do not merely repeat the same symbol and side without
 materially different current evidence. A recent WOULD_HAVE_SUBMITTED action may still
 be inside Arbion's deterministic one-hour cooldown, which remains authoritative.

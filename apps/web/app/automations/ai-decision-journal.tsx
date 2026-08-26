@@ -217,6 +217,10 @@ export function AIDecisionJournal({
             const inputEvidence = facts.input_evidence;
             const evidencePositions = records(inputEvidence?.positions);
             const evidenceMarkets = records(inputEvidence?.markets);
+            const evidenceEventCoverage = records(
+              inputEvidence?.market_event_coverage,
+            );
+            const evidenceMarketEvents = records(inputEvidence?.market_events);
             const evidenceRecentDecisions = records(
               inputEvidence?.recent_decisions,
             );
@@ -334,6 +338,9 @@ export function AIDecisionJournal({
                       {evidenceRecentDecisions.length > 0
                         ? ` · ${evidenceRecentDecisions.length} prior decision${evidenceRecentDecisions.length === 1 ? "" : "s"}`
                         : ""}
+                      {evidenceEventCoverage.length > 0
+                        ? ` · ${evidenceEventCoverage.length} SEC event check${evidenceEventCoverage.length === 1 ? "" : "s"} · ${evidenceMarketEvents.length} filing event${evidenceMarketEvents.length === 1 ? "" : "s"}`
+                        : ""}
                     </summary>
                     <p>
                       Sanitized account, market, and bounded prior-decision
@@ -341,7 +348,8 @@ export function AIDecisionJournal({
                       credentials, provider account IDs, unrelated holdings, and
                       raw provider responses are excluded. Order-book totals are
                       point-in-time single-venue context, not executable
-                      amounts.
+                      amounts. SEC event facts contain filing identity only, not
+                      filing text or an inferred trade direction.
                     </p>
                     <dl className="journal-facts journal-input-summary">
                       <div>
@@ -380,6 +388,78 @@ export function AIDecisionJournal({
                       </div>
                     </dl>
                     <div className="journal-context-grid">
+                      {evidenceEventCoverage.length > 0 && (
+                        <section>
+                          <h4>Primary event coverage</h4>
+                          {evidenceEventCoverage.map((item, coverageIndex) => {
+                            const available =
+                              contextValue(item, "status") === "AVAILABLE";
+                            const count = contextNumber(item, "event_count");
+                            return (
+                              <article
+                                key={`${contextValue(item, "symbol") ?? "coverage"}-${coverageIndex}`}
+                              >
+                                <strong>
+                                  {contextValue(item, "symbol") ?? "—"}
+                                </strong>
+                                <span>
+                                  {available
+                                    ? `${count} ownership filing event${count === 1 ? "" : "s"} in the bounded window`
+                                    : "SEC event coverage unavailable"}
+                                </span>
+                                {available && (
+                                  <small>
+                                    {contextNumber(item, "lookback_days")}-day
+                                    window ·{" "}
+                                    {label(
+                                      contextValue(item, "resolver_feed") ??
+                                        "issuer_reference",
+                                    )}{" "}
+                                    ·{" "}
+                                    {timestamp(
+                                      contextValue(
+                                        item,
+                                        "resolver_received_at",
+                                      ),
+                                    )}{" "}
+                                    UTC
+                                  </small>
+                                )}
+                              </article>
+                            );
+                          })}
+                        </section>
+                      )}
+                      {evidenceMarketEvents.length > 0 && (
+                        <section>
+                          <h4>SEC ownership filing events</h4>
+                          {evidenceMarketEvents.map((event, eventIndex) => (
+                            <article
+                              key={`${contextValue(event, "evidence_id") ?? "event"}-${eventIndex}`}
+                            >
+                              <strong>
+                                Form {contextValue(event, "form") ?? "—"} ·{" "}
+                                {contextValue(event, "symbol") ?? "—"}
+                              </strong>
+                              <span>
+                                {label(
+                                  contextValue(event, "event_type") ??
+                                    "ownership_filing",
+                                )}
+                              </span>
+                              <small>
+                                {contextValue(event, "evidence_id") ??
+                                  "Evidence ID unavailable"}{" "}
+                                · {label(contextValue(event, "feed") ?? "SEC")}
+                              </small>
+                              <time>
+                                {timestamp(contextValue(event, "occurred_at"))}{" "}
+                                UTC
+                              </time>
+                            </article>
+                          ))}
+                        </section>
+                      )}
                       {evidenceRecentDecisions.length > 0 && (
                         <section>
                           <h4>Recent decision context</h4>

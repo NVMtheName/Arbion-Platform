@@ -232,6 +232,112 @@ def test_shadow_recent_decision_rejects_inconsistent_abstention() -> None:
         )
 
 
+def equity_shadow_request_payload() -> dict[str, object]:
+    return {
+        "provider": "openai",
+        "credential": "secret-value",
+        "profile": "deep",
+        "objective": "Preserve capital.",
+        "allowed_symbols": ["AAPL"],
+        "max_proposal_notional": "1",
+        "available_cash_usd": "100",
+        "buying_power_usd": "100",
+        "positions": [],
+        "markets": [
+            {
+                "symbol": "AAPL",
+                "asset_class": "EQUITY",
+                "currency": "USD",
+                "bid": "199.9",
+                "ask": "200.1",
+                "mark": "",
+                "last": "",
+                "change_percent_1h": "",
+                "change_percent_6h": "",
+                "change_percent_24h": "",
+                "volume_24h": "",
+                "feed": "schwab_market_data",
+                "quality": "BROKER_REALTIME",
+                "observed_at": "2026-08-25T14:00:00Z",
+                "history_status": "UNAVAILABLE",
+                "history_granularity_seconds": 0,
+                "history_contiguous_intervals": 0,
+                "history_expected_intervals": 0,
+                "history_feed": "",
+                "history_quality": "",
+                "liquidity_status": "UNAVAILABLE",
+            }
+        ],
+        "market_event_coverage": [
+            {
+                "symbol": "AAPL",
+                "status": "AVAILABLE",
+                "lookback_days": 30,
+                "event_count": 1,
+                "resolver_provider": "sec_edgar",
+                "resolver_feed": "company_tickers",
+                "resolver_quality": "AGGREGATED_REFERENCE",
+                "resolver_received_at": "2026-08-25T14:00:01Z",
+            }
+        ],
+        "market_events": [
+            {
+                "symbol": "AAPL",
+                "event_type": "SEC_OWNERSHIP_FILING",
+                "form": "4",
+                "is_amendment": False,
+                "evidence_id": "0000320193-26-000001",
+                "issuer_cik": "0000320193",
+                "occurred_at": "2026-08-24T14:00:00Z",
+                "provider": "sec_edgar",
+                "feed": "submissions",
+                "quality": "FILING",
+            }
+        ],
+        "recent_decisions": [],
+        "observed_at": "2026-08-25T14:00:00Z",
+        "safety_identifier": "a" * 64,
+    }
+
+
+def test_shadow_request_accepts_bounded_primary_filing_event_identity() -> None:
+    request = ShadowDecisionRequest.model_validate(equity_shadow_request_payload())
+    assert request.market_event_coverage[0].event_count == 1
+    assert request.market_events[0].form == "4"
+
+    payload = equity_shadow_request_payload()
+    coverage = payload["market_event_coverage"]
+    assert isinstance(coverage, list) and isinstance(coverage[0], dict)
+    coverage[0]["event_count"] = 0
+    payload["market_events"] = []
+    request = ShadowDecisionRequest.model_validate(payload)
+    assert request.market_event_coverage[0].status == "AVAILABLE"
+    assert request.market_events == []
+
+
+def test_shadow_request_rejects_event_count_or_amendment_inconsistency() -> None:
+    payload = equity_shadow_request_payload()
+    coverage = payload["market_event_coverage"]
+    assert isinstance(coverage, list) and isinstance(coverage[0], dict)
+    coverage[0]["event_count"] = 0
+    with pytest.raises(ValidationError, match="event coverage count does not match"):
+        ShadowDecisionRequest.model_validate(payload)
+
+    payload = equity_shadow_request_payload()
+    events = payload["market_events"]
+    assert isinstance(events, list) and isinstance(events[0], dict)
+    events[0]["is_amendment"] = True
+    with pytest.raises(ValidationError, match="filing amendment metadata is inconsistent"):
+        ShadowDecisionRequest.model_validate(payload)
+
+    payload = equity_shadow_request_payload()
+    coverage = payload["market_event_coverage"]
+    assert isinstance(coverage, list) and isinstance(coverage[0], dict)
+    coverage[0]["resolver_feed"] = "untrusted_feed"
+    with pytest.raises(ValidationError, match="exact SEC resolver provenance"):
+        ShadowDecisionRequest.model_validate(payload)
+
+
 def test_shadow_request_rejects_decision_memory_older_than_six_hours() -> None:
     with pytest.raises(ValidationError, match="outside the bounded window"):
         ShadowDecisionRequest.model_validate(

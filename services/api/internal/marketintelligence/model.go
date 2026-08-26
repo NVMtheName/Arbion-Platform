@@ -290,6 +290,21 @@ type InsiderFilingObservation struct {
 	Provenance      Provenance `json:"provenance"`
 }
 
+// IssuerReferenceObservation is SEC-published ticker-to-CIK reference data.
+// The SEC file has no provider event timestamp, so Receipt records only when
+// Arbion received the mapping and must not be presented as exchange truth.
+type IssuerReferenceObservation struct {
+	Symbol    string        `json:"symbol"`
+	IssuerCIK string        `json:"issuer_cik"`
+	Name      string        `json:"name"`
+	Receipt   SourceReceipt `json:"receipt"`
+}
+
+type InsiderFilingBatch struct {
+	Issuer  IssuerReferenceObservation `json:"issuer"`
+	Filings []InsiderFilingObservation `json:"filings"`
+}
+
 type FreshnessPolicy struct {
 	MaxAge        time.Duration
 	MaxFutureSkew time.Duration
@@ -355,6 +370,10 @@ type InsiderFilingProvider interface {
 	RecentInsiderFilings(context.Context, string, int) ([]InsiderFilingObservation, error)
 }
 
+type InsiderIssuerProvider interface {
+	IssuerReferences(context.Context) ([]IssuerReferenceObservation, error)
+}
+
 var (
 	ErrInvalidObservation    = errors.New("invalid market observation")
 	ErrMissingProvenance     = errors.New("market observation provenance is incomplete")
@@ -369,6 +388,7 @@ var (
 	signedDecimalPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?$`)
 	cikPattern           = regexp.MustCompile(`^[0-9]{10}$`)
 	accessionPattern     = regexp.MustCompile(`^[0-9]{10}-[0-9]{2}-[0-9]{6}$`)
+	equitySymbolPattern  = regexp.MustCompile(`^[A-Z][A-Z0-9.-]{0,14}$`)
 )
 
 func validAssetClass(value AssetClass) bool {
@@ -613,6 +633,16 @@ func ValidateInsiderFiling(observation InsiderFilingObservation, now time.Time, 
 		return fmt.Errorf("%w: insider filing source", ErrInvalidObservation)
 	}
 	return ValidateProvenance(observation.Provenance, now, FreshnessPolicy{MaxAge: 200 * 365 * 24 * time.Hour, MaxFutureSkew: maxFutureSkew})
+}
+
+func ValidateIssuerReference(observation IssuerReferenceObservation, now time.Time, maxReceiptAge, maxFutureSkew time.Duration) error {
+	if !equitySymbolPattern.MatchString(observation.Symbol) || !cikPattern.MatchString(observation.IssuerCIK) || strings.TrimLeft(observation.IssuerCIK, "0") == "" || !boundedText(observation.Name, 512) {
+		return fmt.Errorf("%w: issuer reference identity", ErrInvalidObservation)
+	}
+	if observation.Receipt.Provider != "sec_edgar" || observation.Receipt.Role != ReferenceData || observation.Receipt.Feed != "company_tickers" || observation.Receipt.Quality != AggregatedReference {
+		return fmt.Errorf("%w: issuer reference source", ErrMissingProvenance)
+	}
+	return ValidateSourceReceipt(observation.Receipt, now, maxReceiptAge, maxFutureSkew)
 }
 
 func validInsiderForm(form string) bool {
