@@ -130,6 +130,15 @@ function historyCoverage(market: Record<string, unknown>) {
   return `${label(status)} history · ${available}/${expected} exact ${interval} candles`;
 }
 
+function liquidityCoverage(market: Record<string, unknown>) {
+  const status = contextValue(market, "liquidity_status") ?? "UNAVAILABLE";
+  if (status === "UNAVAILABLE") return "Liquidity unavailable";
+  if (status === "STALE") return "Liquidity stale — not used";
+  const bidLevels = contextNumber(market, "bid_levels");
+  const askLevels = contextNumber(market, "ask_levels");
+  return `Spread ${decimal(contextValue(market, "spread_bps"))} bps · ${dollars(contextValue(market, "bid_depth_usd"))} bid / ${dollars(contextValue(market, "ask_depth_usd"))} ask · ${bidLevels}/${askLevels} levels`;
+}
+
 function marketPrice(market: Record<string, unknown>) {
   return ["mark", "last", "bid", "ask"]
     .map((key) => contextValue(market, key))
@@ -330,7 +339,9 @@ export function AIDecisionJournal({
                       Sanitized account, market, and bounded prior-decision
                       facts frozen with this decision. Prior model prose,
                       credentials, provider account IDs, unrelated holdings, and
-                      raw provider responses are excluded.
+                      raw provider responses are excluded. Order-book totals are
+                      point-in-time single-venue context, not executable
+                      amounts.
                     </p>
                     <dl className="journal-facts journal-input-summary">
                       <div>
@@ -465,6 +476,7 @@ export function AIDecisionJournal({
                                 contextValue(market, "quality") ?? "unknown",
                               )}
                             </small>
+                            <small>{liquidityCoverage(market)}</small>
                             <time
                               dateTime={
                                 contextValue(market, "observed_at") ?? ""
@@ -493,6 +505,30 @@ export function AIDecisionJournal({
                                   contextValue(market, "history_observed_at"),
                                 )}{" "}
                                 UTC
+                              </time>
+                            )}
+                            {contextValue(market, "liquidity_observed_at") && (
+                              <time
+                                dateTime={
+                                  contextValue(
+                                    market,
+                                    "liquidity_observed_at",
+                                  ) ?? ""
+                                }
+                              >
+                                {label(
+                                  contextValue(market, "liquidity_feed") ??
+                                    "market_liquidity",
+                                )}{" "}
+                                ·{" "}
+                                {timestamp(
+                                  contextValue(market, "liquidity_observed_at"),
+                                )}{" "}
+                                UTC ·{" "}
+                                {label(
+                                  contextValue(market, "liquidity_quality") ??
+                                    "unknown",
+                                )}
                               </time>
                             )}
                           </article>

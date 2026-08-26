@@ -86,6 +86,15 @@ class ShadowMarketFact(BaseModel):
     history_feed: str = Field(max_length=64)
     history_quality: str = Field(max_length=64)
     history_observed_at: datetime | None = None
+    liquidity_status: Literal["AVAILABLE", "STALE", "UNAVAILABLE"] = "UNAVAILABLE"
+    spread_bps: str = Field(default="", pattern=r"^(|0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    bid_depth_usd: str = Field(default="", pattern=r"^(|0|[1-9][0-9]{0,29})(\.[0-9]{1,18})?$")
+    ask_depth_usd: str = Field(default="", pattern=r"^(|0|[1-9][0-9]{0,29})(\.[0-9]{1,18})?$")
+    bid_levels: int = Field(default=0, ge=0, le=10)
+    ask_levels: int = Field(default=0, ge=0, le=10)
+    liquidity_feed: str = Field(default="", max_length=64)
+    liquidity_quality: str = Field(default="", max_length=64)
+    liquidity_observed_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_history_consistency(self) -> Self:
@@ -116,6 +125,35 @@ class ShadowMarketFact(BaseModel):
             self.history_contiguous_intervals >= self.history_expected_intervals
         ):
             raise ValueError("fully covered history cannot be labeled partial")
+        return self
+
+    @model_validator(mode="after")
+    def validate_liquidity_consistency(self) -> Self:
+        values = (self.spread_bps, self.bid_depth_usd, self.ask_depth_usd)
+        if self.liquidity_status == "AVAILABLE":
+            if (
+                not all(values)
+                or any(Decimal(value) <= 0 for value in values)
+                or self.bid_levels <= 0
+                or self.ask_levels <= 0
+                or not self.liquidity_feed
+                or not self.liquidity_quality
+                or self.liquidity_observed_at is None
+            ):
+                raise ValueError("available liquidity requires bounded values and provenance")
+            return self
+        if any(values) or self.bid_levels or self.ask_levels:
+            raise ValueError("unusable liquidity cannot contain book-derived values")
+        if self.liquidity_status == "STALE" and (
+            not self.liquidity_feed
+            or not self.liquidity_quality
+            or self.liquidity_observed_at is None
+        ):
+            raise ValueError("stale liquidity requires provenance")
+        if self.liquidity_status == "UNAVAILABLE" and (
+            self.liquidity_feed or self.liquidity_quality or self.liquidity_observed_at is not None
+        ):
+            raise ValueError("unavailable liquidity cannot claim provenance")
         return self
 
 
@@ -306,6 +344,10 @@ async def shadow_decision(
             market.observed_at.tzinfo is None
             or (
                 market.history_observed_at is not None and market.history_observed_at.tzinfo is None
+            )
+            or (
+                market.liquidity_observed_at is not None
+                and market.liquidity_observed_at.tzinfo is None
             )
             for market in request.markets
         )
