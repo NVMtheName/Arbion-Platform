@@ -75,14 +75,14 @@ describe("AutomationBuilder AI Shadow launch", () => {
     vi.unstubAllGlobals();
   });
 
-  it("directs a new owner to connect accounts and OpenAI", async () => {
+  it("directs a new owner to connect accounts and an AI decision provider", async () => {
     vi.stubGlobal("fetch", fetchFixtures());
     render(<AutomationBuilder />);
     expect(
       await screen.findByText(/connect coinbase or schwab first/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/connect and verify openai first/i),
+      screen.getByText(/connect and verify openai or claude first/i),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /create ai shadow draft/i }),
@@ -97,6 +97,35 @@ describe("AutomationBuilder AI Shadow launch", () => {
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("option", { name: "Unsupported" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers an active Claude connection and only its approved shadow models", async () => {
+    vi.stubGlobal(
+      "fetch",
+      fetchFixtures({
+        ...connected,
+        connections: [
+          {
+            id: "claude-1",
+            display_name: "Claude",
+            provider: "anthropic",
+            status: "active",
+          },
+        ],
+        preference: null,
+        models: [
+          { id: "claude-sonnet-5", display_name: "Claude Sonnet 5" },
+          { id: "claude-unsupported", display_name: "Unsupported Claude" },
+        ],
+      }),
+    );
+    render(<AutomationBuilder />);
+    expect(
+      await screen.findByRole("option", { name: "Claude Sonnet 5" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Unsupported Claude" }),
     ).not.toBeInTheDocument();
   });
 

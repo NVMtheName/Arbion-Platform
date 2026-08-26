@@ -73,10 +73,13 @@ func decimal(v string, positive bool) (*big.Rat, bool) {
 
 var strategySymbol = regexp.MustCompile(`^[A-Z][A-Z0-9.-]{0,9}$`)
 
-var aiShadowModels = map[string]bool{
-	"gpt-5.6-luna":  true,
-	"gpt-5.6-terra": true,
-	"gpt-5.6-sol":   true,
+var aiShadowModels = map[string]string{
+	"gpt-5.6-luna":              "openai",
+	"gpt-5.6-terra":             "openai",
+	"gpt-5.6-sol":               "openai",
+	"claude-haiku-4-5-20251001": "anthropic",
+	"claude-sonnet-5":           "anthropic",
+	"claude-opus-5":             "anthropic",
 }
 
 func ParseAIShadowParameters(raw json.RawMessage) (AIShadowParameters, error) {
@@ -293,7 +296,8 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 			return false, ErrForbidden
 		}
 		facts, e := s.store.AIFacts(ctx, p.UserID, *c.AIProviderConnectionID, *c.AIModelID)
-		if e != nil || !facts.Owned || !facts.Active || !facts.ModelValid || facts.Provider != "openai" || !aiShadowModels[*c.AIModelID] {
+		expectedProvider, supported := aiShadowModels[*c.AIModelID]
+		if e != nil || !facts.Owned || !facts.Active || !facts.ModelValid || !supported || facts.Provider != expectedProvider {
 			return false, ErrInvalid
 		}
 	}

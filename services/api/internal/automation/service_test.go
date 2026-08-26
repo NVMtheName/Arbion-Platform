@@ -190,6 +190,27 @@ func TestAIShadowReadyMandateBindsProviderSessionAndBoundedParameters(t *testing
 		t.Fatalf("zero AI proposal ceiling accepted: %v", err)
 	}
 }
+
+func TestAIShadowReadyMandateAcceptsOnlyMatchingClaudeProviderAndModel(t *testing.T) {
+	connection, model := "ai", "claude-sonnet-5"
+	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`), AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":false}`)}
+	store := baseStore()
+	store.ai.Provider = "anthropic"
+	service := NewService(store, nil)
+	if _, err := service.validate(context.Background(), founder, command, true); err != nil {
+		t.Fatalf("valid Claude AI shadow mandate rejected: %v", err)
+	}
+	store.ai.Provider = "openai"
+	if _, err := service.validate(context.Background(), founder, command, true); err != ErrInvalid {
+		t.Fatalf("mismatched Claude model/provider accepted: %v", err)
+	}
+	unknown := "claude-unapproved"
+	command.AIModelID = &unknown
+	store.ai.Provider = "anthropic"
+	if _, err := service.validate(context.Background(), founder, command, true); err != ErrInvalid {
+		t.Fatalf("unapproved Claude model accepted: %v", err)
+	}
+}
 func TestOwnershipEntitlementReserveAndDurability(t *testing.T) {
 	f := baseStore()
 	s := NewService(f, nil)

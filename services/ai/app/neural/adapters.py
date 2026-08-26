@@ -162,6 +162,89 @@ INSIGHT_ROUTES: dict[str, InsightRoute] = {
     "deep": InsightRoute("gpt-5.6-sol", "high", 1200, "medium"),
 }
 
+ANTHROPIC_SHADOW_ROUTES: dict[str, InsightRoute] = {
+    "fast": InsightRoute("claude-haiku-4-5-20251001", "low", 700, "low"),
+    "core": InsightRoute("claude-sonnet-5", "medium", 900, "low"),
+    "deep": InsightRoute("claude-opus-5", "high", 1200, "medium"),
+}
+
+
+def _normalize_shadow_value(
+    provider: str,
+    value: object,
+    profile: str,
+    model: str,
+    context: dict[str, object],
+    latency_ms: int,
+    input_tokens: object,
+    output_tokens: object,
+    request_id: object,
+) -> ShadowDecision:
+    try:
+        maximum = Decimal(str(context["max_proposal_notional"]))
+    except (InvalidOperation, KeyError) as exc:
+        raise NeuralProviderError(ErrorCode.INTERNAL_ERROR) from exc
+    if not isinstance(value, dict):
+        raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+    decision, symbol, side = value.get("decision"), value.get("symbol"), value.get("side")
+    notional, confidence, thesis = (
+        value.get("proposed_notional"),
+        value.get("confidence"),
+        value.get("thesis"),
+    )
+    allowed = context.get("allowed_symbols")
+    if (
+        decision not in {"PROPOSE", "ABSTAIN"}
+        or not isinstance(symbol, str)
+        or not isinstance(side, str)
+        or not isinstance(notional, str)
+        or DECIMAL_PATTERN.fullmatch(notional) is None
+        or confidence not in {"LOW", "MEDIUM", "HIGH"}
+        or not isinstance(thesis, str)
+        or not thesis.strip()
+        or len(thesis) > 1000
+        or not isinstance(allowed, list)
+    ):
+        raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+    amount = Decimal(notional)
+    if decision == "ABSTAIN":
+        if symbol != "NONE" or side != "NONE" or notional != "0":
+            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+    elif symbol not in allowed or side not in {"BUY", "SELL"} or amount <= 0 or amount > maximum:
+        raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+
+    def bounded_strings(raw: object) -> tuple[str, ...]:
+        if (
+            not isinstance(raw, list)
+            or len(raw) > 8
+            or not all(
+                isinstance(item, str) and item.strip() and len(item.encode()) <= 500 for item in raw
+            )
+            or len(set(raw)) != len(raw)
+        ):
+            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+        return tuple(raw)
+
+    return ShadowDecision(
+        decision=decision,
+        symbol=symbol,
+        side=side,
+        proposed_notional=notional,
+        confidence=confidence,
+        thesis=thesis,
+        risk_flags=bounded_strings(value.get("risk_flags")),
+        limitations=bounded_strings(value.get("limitations")),
+        metadata=ResponseMetadata(
+            provider=provider,
+            model=model,
+            profile=profile,
+            input_usage=input_tokens if isinstance(input_tokens, int) else None,
+            output_usage=output_tokens if isinstance(output_tokens, int) else None,
+            request_id=request_id if isinstance(request_id, str) else None,
+            latency_ms=latency_ms,
+        ),
+    )
+
 
 class HTTPProvider(NeuralProvider):
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
@@ -500,61 +583,21 @@ class OpenAIProvider(HTTPProvider):
             raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
         try:
             value = json.loads(self._output_text(payload.get("output")))
-            maximum = Decimal(str(context["max_proposal_notional"]))
-        except (TypeError, ValueError, InvalidOperation, KeyError) as exc:
+        except (TypeError, ValueError) as exc:
             raise NeuralProviderError(ErrorCode.INTERNAL_ERROR) from exc
-        if not isinstance(value, dict):
-            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
-        decision, symbol, side = value.get("decision"), value.get("symbol"), value.get("side")
-        notional, confidence, thesis = (
-            value.get("proposed_notional"),
-            value.get("confidence"),
-            value.get("thesis"),
-        )
-        allowed = context.get("allowed_symbols")
-        if (
-            decision not in {"PROPOSE", "ABSTAIN"}
-            or not isinstance(symbol, str)
-            or not isinstance(side, str)
-            or not isinstance(notional, str)
-            or DECIMAL_PATTERN.fullmatch(notional) is None
-            or confidence not in {"LOW", "MEDIUM", "HIGH"}
-            or not isinstance(thesis, str)
-            or not thesis.strip()
-            or len(thesis) > 1000
-            or not isinstance(allowed, list)
-        ):
-            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
-        amount = Decimal(notional)
-        if decision == "ABSTAIN":
-            if symbol != "NONE" or side != "NONE" or notional != "0":
-                raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
-        elif (
-            symbol not in allowed or side not in {"BUY", "SELL"} or amount <= 0 or amount > maximum
-        ):
-            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
         usage = payload.get("usage")
         input_tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
         output_tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
-        response_id = payload.get("id")
-        return ShadowDecision(
-            decision=decision,
-            symbol=symbol,
-            side=side,
-            proposed_notional=notional,
-            confidence=confidence,
-            thesis=thesis,
-            risk_flags=self._bounded_proposal_strings(value.get("risk_flags")),
-            limitations=self._bounded_proposal_strings(value.get("limitations")),
-            metadata=ResponseMetadata(
-                provider=self.id,
-                model=model,
-                profile=profile,
-                input_usage=input_tokens if isinstance(input_tokens, int) else None,
-                output_usage=output_tokens if isinstance(output_tokens, int) else None,
-                request_id=response_id if isinstance(response_id, str) else None,
-                latency_ms=latency_ms,
-            ),
+        return _normalize_shadow_value(
+            self.id,
+            value,
+            profile,
+            model,
+            context,
+            latency_ms,
+            input_tokens,
+            output_tokens,
+            payload.get("id"),
         )
 
     @staticmethod
@@ -611,6 +654,73 @@ class AnthropicProvider(HTTPProvider):
             "https://api.anthropic.com/v1/models",
             {"x-api-key": credential, "anthropic-version": "2023-06-01"},
             params,
+        )
+
+    async def propose_shadow(
+        self,
+        credential: str,
+        profile: str,
+        context: dict[str, object],
+        safety_identifier: str,
+    ) -> ShadowDecision:
+        route = ANTHROPIC_SHADOW_ROUTES.get(profile)
+        if route is None:
+            raise NeuralProviderError(ErrorCode.INVALID_REQUEST)
+        started = time.monotonic()
+        payload = await self._post(
+            "https://api.anthropic.com/v1/messages",
+            {"x-api-key": credential, "anthropic-version": "2023-06-01"},
+            {
+                "model": route.model,
+                "max_tokens": min(route.max_output_tokens, 900),
+                "system": SHADOW_DECISION_INSTRUCTIONS,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": json.dumps(context, separators=(",", ":"), sort_keys=True),
+                    }
+                ],
+                "metadata": {"user_id": safety_identifier},
+                "output_config": {
+                    "format": {
+                        "type": "json_schema",
+                        "schema": SHADOW_DECISION_SCHEMA,
+                    }
+                },
+            },
+        )
+        if payload.get("stop_reason") != "end_turn" or payload.get("model") != route.model:
+            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+        content = payload.get("content")
+        if not isinstance(content, list):
+            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+        text = next(
+            (
+                block.get("text")
+                for block in content
+                if isinstance(block, dict)
+                and block.get("type") == "text"
+                and isinstance(block.get("text"), str)
+            ),
+            None,
+        )
+        try:
+            value = json.loads(text) if isinstance(text, str) else None
+        except ValueError as exc:
+            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR) from exc
+        usage = payload.get("usage")
+        input_tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
+        output_tokens = usage.get("output_tokens") if isinstance(usage, dict) else None
+        return _normalize_shadow_value(
+            self.id,
+            value,
+            profile,
+            route.model,
+            context,
+            int((time.monotonic() - started) * 1000),
+            input_tokens,
+            output_tokens,
+            payload.get("id"),
         )
 
 
