@@ -1,6 +1,9 @@
 type RawDecision = Record<string, unknown>;
 
 type Rationale = {
+  ai_provider?: string;
+  model_id?: string;
+  profile?: string;
   decision?: string;
   symbol?: string;
   side?: string;
@@ -23,6 +26,22 @@ function label(value: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function providerLabel(value: string | undefined) {
+  if (value === "openai") return "OpenAI";
+  if (value === "anthropic") return "Claude";
+  if (value === "gemini") return "Gemini";
+  return undefined;
+}
+
+function routeLabel(facts: Rationale) {
+  const parts = [
+    providerLabel(facts.ai_provider),
+    facts.model_id,
+    facts.profile ? `${label(facts.profile)} profile` : undefined,
+  ].filter((value): value is string => Boolean(value));
+  return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
 function timestamp(value: unknown) {
@@ -251,6 +270,10 @@ export function AIDecisionJournal({
                   <div>
                     <dt>Model decision</dt>
                     <dd>{label(facts.decision ?? decisionType)}</dd>
+                  </div>
+                  <div>
+                    <dt>AI route</dt>
+                    <dd>{routeLabel(facts)}</dd>
                   </div>
                   <div>
                     <dt>Confidence</dt>

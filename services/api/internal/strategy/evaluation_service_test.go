@@ -374,6 +374,9 @@ func TestAIHistoryFactsRejectStaleSeriesWithoutDerivedChanges(t *testing.T) {
 func assertAIInputEvidence(t *testing.T, rationale json.RawMessage, provider, buyingPower string, positionCount, marketCount, recentDecisionCount int) {
 	t.Helper()
 	var payload struct {
+		AIProvider    string `json:"ai_provider"`
+		ModelID       string `json:"model_id"`
+		Profile       string `json:"profile"`
 		InputEvidence struct {
 			Provider        string                        `json:"provider"`
 			AvailableCash   string                        `json:"available_cash_usd"`
@@ -388,7 +391,7 @@ func assertAIInputEvidence(t *testing.T, rationale json.RawMessage, provider, bu
 		t.Fatalf("AI input evidence was not valid JSON: %v", err)
 	}
 	evidence := payload.InputEvidence
-	if evidence.Provider != provider || evidence.AvailableCash != "100" || evidence.BuyingPower != buyingPower || len(evidence.Positions) != positionCount || len(evidence.Markets) != marketCount || len(evidence.RecentDecisions) != recentDecisionCount || evidence.ObservedAt.IsZero() {
+	if payload.AIProvider != "openai" || payload.ModelID != "gpt-5.6-sol" || payload.Profile != "deep" || evidence.Provider != provider || evidence.AvailableCash != "100" || evidence.BuyingPower != buyingPower || len(evidence.Positions) != positionCount || len(evidence.Markets) != marketCount || len(evidence.RecentDecisions) != recentDecisionCount || evidence.ObservedAt.IsZero() {
 		t.Fatalf("AI input evidence was incomplete: %#v", evidence)
 	}
 }

@@ -16,6 +16,9 @@ describe("AI Decision Journal", () => {
             DecisionType: "ABSTAIN",
             CreatedAt: "2026-08-25T20:11:42Z",
             StructuredRationale: {
+              ai_provider: "openai",
+              model_id: "gpt-5.6-sol",
+              profile: "deep",
               decision: "ABSTAIN",
               symbol: "NONE",
               proposed_notional: "0",
@@ -74,6 +77,9 @@ describe("AI Decision Journal", () => {
 
     expect(screen.getByText("Abstain · No action")).toBeInTheDocument();
     expect(screen.getByText("High")).toBeInTheDocument();
+    expect(
+      screen.getByText("OpenAI · gpt-5.6-sol · Deep profile"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Safe abstention")).toBeInTheDocument();
     const evidence = screen
       .getByText(
@@ -123,6 +129,52 @@ describe("AI Decision Journal", () => {
 
     expect(
       screen.getByText(/No AI decision has completed yet/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the exact Claude and Gemini route without inferring it from the model", () => {
+    const { rerender } = render(
+      <AIDecisionJournal
+        decisions={[
+          {
+            ID: "decision-claude",
+            Source: "AI",
+            DecisionType: "ABSTAIN",
+            CreatedAt: "2026-08-26T02:00:00Z",
+            StructuredRationale: {
+              ai_provider: "anthropic",
+              model_id: "claude-sonnet-5",
+              profile: "core",
+              decision: "ABSTAIN",
+            },
+          },
+        ]}
+      />,
+    );
+    expect(
+      screen.getByText("Claude · claude-sonnet-5 · Core profile"),
+    ).toBeInTheDocument();
+
+    rerender(
+      <AIDecisionJournal
+        decisions={[
+          {
+            ID: "decision-gemini",
+            Source: "AI",
+            DecisionType: "ABSTAIN",
+            CreatedAt: "2026-08-26T02:01:00Z",
+            StructuredRationale: {
+              ai_provider: "gemini",
+              model_id: "gemini-3.7-flash",
+              profile: "deep",
+              decision: "ABSTAIN",
+            },
+          },
+        ]}
+      />,
+    );
+    expect(
+      screen.getByText("Gemini · gemini-3.7-flash · Deep profile"),
     ).toBeInTheDocument();
   });
 
