@@ -570,7 +570,7 @@ func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, ev
 		return EvaluationFacts{}, err
 	}
 	dayStart := time.Date(evaluatedAt.UTC().Year(), evaluatedAt.UTC().Month(), evaluatedAt.UTC().Day(), 0, 0, 0, 0, time.UTC)
-	if err = s.db.QueryRow(c, `SELECT count(*) FROM nonlive_execution_records WHERE user_id=$1 AND created_at >= $2 AND created_at < $3`, instance.UserID, dayStart, dayStart.Add(24*time.Hour)).Scan(&facts.ActionsToday); err != nil {
+	if err = s.db.QueryRow(c, `SELECT count(*) FROM nonlive_execution_records WHERE user_id=$1 AND strategy_instance_id=$2 AND created_at >= $3 AND created_at < $4`, instance.UserID, instance.ID, dayStart, dayStart.Add(24*time.Hour)).Scan(&facts.ActionsToday); err != nil {
 		return EvaluationFacts{}, err
 	}
 	if instance.StrategyIdentifier == "ai_shadow" && instance.ExecutionMode == Shadow {

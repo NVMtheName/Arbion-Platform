@@ -199,7 +199,94 @@ describe("AutomationBuilder AI Shadow launch", () => {
       ai_model_id: "gpt-5.6-sol",
       allowed_universe: { symbols: ["BTC", "ETH"] },
       schedule_conditions: { session: "CONTINUOUS" },
+      risk_parameters: { max_trades_per_day: 6 },
     });
+  });
+
+  it("saves owner-selected deterministic guardrails with the draft", async () => {
+    const fixtureFetch = fetchFixtures(connected);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input) === "/api/automations" && init?.method === "POST") {
+          return response({ automation: { id: "engine-guarded" } });
+        }
+        return fixtureFetch(input);
+      }),
+    );
+    render(<AutomationBuilder />);
+    fireEvent.change(await screen.findByLabelText(/allowed symbols/i), {
+      target: { value: "BTC" },
+    });
+    fireEvent.change(screen.getByLabelText(/maximum shadow actions/i), {
+      target: { value: "4" },
+    });
+    fireEvent.change(screen.getByLabelText(/minimum cash reserve/i), {
+      target: { value: "25" },
+    });
+    fireEvent.change(screen.getByLabelText(/maximum total account exposure/i), {
+      target: { value: "500" },
+    });
+    fireEvent.change(
+      screen.getByLabelText(/maximum one-symbol exposure \(usd\)/i),
+      {
+        target: { value: "100" },
+      },
+    );
+    fireEvent.change(
+      screen.getByLabelText(/maximum one-symbol concentration/i),
+      {
+        target: { value: "30" },
+      },
+    );
+    const button = screen.getByRole("button", {
+      name: /create ai shadow draft/i,
+    });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await screen.findByRole("link", { name: /review ai engine/i });
+    const call = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([input, init]) =>
+          String(input) === "/api/automations" && init?.method === "POST",
+      );
+    expect(JSON.parse(String(call?.[1]?.body)).risk_parameters).toEqual({
+      max_trades_per_day: 4,
+      minimum_cash_reserve: "25",
+      max_capital_deployed: "500",
+      max_single_position_amount: "100",
+      max_single_position_percentage: "30",
+    });
+    expect(
+      screen.getByText(/will not invent realized profit and loss/i),
+    ).toBeInTheDocument();
+  });
+
+  it("blocks an invalid daily action or concentration limit in the browser", async () => {
+    vi.stubGlobal("fetch", fetchFixtures(connected));
+    render(<AutomationBuilder />);
+    fireEvent.change(await screen.findByLabelText(/allowed symbols/i), {
+      target: { value: "BTC" },
+    });
+    const button = screen.getByRole("button", {
+      name: /create ai shadow draft/i,
+    });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.change(screen.getByLabelText(/maximum shadow actions/i), {
+      target: { value: "49" },
+    });
+    expect(button).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/maximum shadow actions/i), {
+      target: { value: "6" },
+    });
+    fireEvent.change(
+      screen.getByLabelText(/maximum one-symbol concentration/i),
+      {
+        target: { value: "101" },
+      },
+    );
+    expect(button).toBeDisabled();
   });
 
   it("shows the API's safe rejection reason", async () => {

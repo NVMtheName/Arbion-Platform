@@ -323,6 +323,30 @@ select {
   min-height: 104px;
   resize: vertical;
 }
+.autonomy-guardrail-grid {
+  align-items: start;
+}
+.autonomy-guardrail-grid label {
+  min-width: 0;
+}
+.autonomy-guardrail-note {
+  display: grid;
+  align-self: stretch;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid rgba(25, 201, 214, 0.22);
+  border-radius: 12px;
+  background: rgba(25, 201, 214, 0.05);
+}
+.autonomy-guardrail-note strong {
+  color: #dffcf2;
+  font-size: 0.88rem;
+}
+.autonomy-guardrail-note span {
+  color: var(--brand-muted);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
 .strategy-picker {
   display: grid;
   gap: 24px;
@@ -462,6 +486,70 @@ select {
   border-radius: 12px;
   background:
     linear-gradient(145deg, rgba(21, 63, 49, 0.23), transparent 62%), #07110e;
+}
+.autonomy-guardrail-summary {
+  margin: 28px 0;
+  padding: 24px;
+  border: 1px solid rgba(94, 224, 160, 0.22);
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at 90% 10%,
+      rgba(25, 201, 214, 0.11),
+      transparent 32%
+    ),
+    rgba(7, 20, 15, 0.78);
+}
+.autonomy-guardrail-summary > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.autonomy-guardrail-summary h2 {
+  margin: 3px 0 0;
+}
+.autonomy-guardrail-summary > header > span {
+  padding: 7px 10px;
+  border: 1px solid rgba(94, 224, 160, 0.28);
+  border-radius: 999px;
+  color: var(--brand-mint);
+  font-size: 0.68rem;
+  font-weight: 820;
+  letter-spacing: 0.08em;
+}
+.autonomy-guardrail-summary > p:not(.security-note) {
+  max-width: 760px;
+  color: var(--brand-muted);
+  line-height: 1.55;
+}
+.autonomy-guardrail-summary dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 22px 0;
+}
+.autonomy-guardrail-summary dl > div {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(139, 181, 163, 0.16);
+  border-radius: 12px;
+  background: rgba(4, 14, 10, 0.5);
+}
+.autonomy-guardrail-summary dt,
+.autonomy-guardrail-summary small {
+  color: var(--brand-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.autonomy-guardrail-summary dd {
+  margin: 0;
+  color: #effbf4;
+  font-size: 1.03rem;
+  font-weight: 760;
 }
 .mandate-identity-summary article > strong {
   color: var(--brand-muted);
@@ -7189,6 +7277,13 @@ h1 {
   .strategy-choice-grid,
   .strategy-budget-create {
     grid-template-columns: 1fr;
+  }
+  .autonomy-guardrail-summary dl {
+    grid-template-columns: 1fr;
+  }
+  .autonomy-guardrail-summary > header {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .strategy-choice-grid > label:hover {
     transform: none;

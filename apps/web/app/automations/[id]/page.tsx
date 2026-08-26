@@ -31,6 +31,7 @@ import {
 import { AIDecisionJournal } from "../ai-decision-journal";
 import { AIShadowScorecard } from "../ai-shadow-scorecard";
 import { MandateIdentitySummary } from "../mandate-identity-summary";
+import { AutonomyGuardrailSummary } from "../autonomy-guardrail-summary";
 export default async function MandateReview({
   params,
 }: {
@@ -326,6 +327,11 @@ export default async function MandateReview({
       )}
       {automationType === "AI_AUTONOMOUS" && (
         <>
+          <AutonomyGuardrailSummary
+            riskPolicy={
+              (m.risk_parameters ?? m.Risk ?? {}) as Record<string, unknown>
+            }
+          />
           <AIShadowEvaluationControls
             status={read("status", "Status")}
             instanceId={instanceID}

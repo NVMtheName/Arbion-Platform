@@ -89,6 +89,8 @@ func (f *fakeStore) Version(context.Context, string, string, int) (Version, erro
 
 var founder = authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
 
+func intPointer(value int) *int { return &value }
+
 func baseStore() *fakeStore {
 	return &fakeStore{account: AccountFacts{Owned: true, Provider: "schwab", Options: "SUPPORTED"}, bucket: CapitalBucket{ID: "b", FinancialAccountID: "a", Status: "ACTIVE"}, ai: AIFacts{Owned: true, Active: true, ModelValid: true, Provider: "openai"}}
 }
@@ -134,6 +136,7 @@ func TestMandateTypesCapabilitiesAutonomyAndNoExecution(t *testing.T) {
 	c.ExecutionMode = "SHADOW"
 	c.AutonomyLevel = "FULL_AUTONOMOUS"
 	c.OptionsAllowed = false
+	c.Risk.MaxTradesPerDay = intPointer(6)
 	if _, e = s.Create(ctx, founder, c); e != nil {
 		t.Fatalf("valid AI mandate rejected: %v", e)
 	}
@@ -169,7 +172,7 @@ func TestMandateTypesCapabilitiesAutonomyAndNoExecution(t *testing.T) {
 
 func TestAIShadowReadyMandateBindsProviderSessionAndBoundedParameters(t *testing.T) {
 	connection, model := "ai", "gpt-5.6-sol"
-	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`), AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR"}`)}
+	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`), Risk: RiskPolicy{MaxTradesPerDay: intPointer(6)}, AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR"}`)}
 	store := baseStore()
 	service := NewService(store, nil)
 	if _, err := service.validate(context.Background(), founder, command, true); err != nil {
@@ -193,7 +196,7 @@ func TestAIShadowReadyMandateBindsProviderSessionAndBoundedParameters(t *testing
 
 func TestAIShadowReadyMandateAcceptsOnlyMatchingClaudeProviderAndModel(t *testing.T) {
 	connection, model := "ai", "claude-sonnet-5"
-	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`), AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":false}`)}
+	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`), Risk: RiskPolicy{MaxTradesPerDay: intPointer(6)}, AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":false}`)}
 	store := baseStore()
 	store.ai.Provider = "anthropic"
 	service := NewService(store, nil)
@@ -214,7 +217,7 @@ func TestAIShadowReadyMandateAcceptsOnlyMatchingClaudeProviderAndModel(t *testin
 
 func TestAIShadowReadyMandateAcceptsOnlyMatchingGeminiProviderAndModel(t *testing.T) {
 	connection, model := "ai", "gemini-3.6-flash"
-	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`), AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":false}`)}
+	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`), Risk: RiskPolicy{MaxTradesPerDay: intPointer(6)}, AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":false}`)}
 	store := baseStore()
 	store.ai.Provider = "gemini"
 	service := NewService(store, nil)
@@ -224,6 +227,36 @@ func TestAIShadowReadyMandateAcceptsOnlyMatchingGeminiProviderAndModel(t *testin
 	store.ai.Provider = "openai"
 	if _, err := service.validate(context.Background(), founder, command, true); err != ErrInvalid {
 		t.Fatalf("mismatched Gemini model/provider accepted: %v", err)
+	}
+}
+
+func TestAIShadowMandateRequiresBoundedAuditableGuardrails(t *testing.T) {
+	connection, model := "ai", "gpt-5.6-sol"
+	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`), AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":false}`)}
+	service := NewService(baseStore(), nil)
+	if _, err := service.validate(context.Background(), founder, command, false); err != ErrInvalid {
+		t.Fatalf("AI mandate without a daily action limit was accepted: %v", err)
+	}
+	command.Risk.MaxTradesPerDay = intPointer(49)
+	if _, err := service.validate(context.Background(), founder, command, false); err != ErrInvalid {
+		t.Fatalf("AI mandate with an unbounded daily action limit was accepted: %v", err)
+	}
+	command.Risk.MaxTradesPerDay = intPointer(6)
+	dailyLoss := "10"
+	command.Risk.MaxDailyLoss = &dailyLoss
+	if _, err := service.validate(context.Background(), founder, command, false); err != ErrInvalid {
+		t.Fatalf("AI mandate accepted a daily loss limit without authoritative realized P/L: %v", err)
+	}
+	command.Risk.MaxDailyLoss = nil
+	capital, position := "100", "101"
+	command.Risk.MaxCapitalDeployed = &capital
+	command.Risk.MaxSinglePositionAmount = &position
+	if _, err := service.validate(context.Background(), founder, command, false); err != ErrInvalid {
+		t.Fatalf("single-position limit above total deployment limit was accepted: %v", err)
+	}
+	position = "25"
+	if _, err := service.validate(context.Background(), founder, command, false); err != nil {
+		t.Fatalf("bounded AI guardrails were rejected: %v", err)
 	}
 }
 func TestOwnershipEntitlementReserveAndDurability(t *testing.T) {

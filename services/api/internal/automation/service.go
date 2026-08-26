@@ -316,6 +316,9 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 	if c.AutomationType == "AI_AUTONOMOUS" && (c.StrategyIdentifier != nil || c.ExecutionMode != "SHADOW" || c.AutonomyLevel != "FULL_AUTONOMOUS" || c.MarginAllowed || c.OptionsAllowed) {
 		return false, ErrInvalid
 	}
+	if c.AutomationType == "AI_AUTONOMOUS" && (c.Risk.MaxTradesPerDay == nil || *c.Risk.MaxTradesPerDay < 1 || *c.Risk.MaxTradesPerDay > 48 || c.Risk.MaxDailyLoss != nil) {
+		return false, ErrInvalid
+	}
 	if _, ok := map[string]bool{"BACKTEST": true, "PAPER": true, "SHADOW": true, "LIVE": true}[c.ExecutionMode]; !ok {
 		return false, ErrInvalid
 	}
@@ -363,6 +366,13 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 	if c.Risk.MaxSinglePositionPercentage != nil {
 		r, _ := decimal(*c.Risk.MaxSinglePositionPercentage, false)
 		if r.Cmp(big.NewRat(100, 1)) > 0 {
+			return false, ErrInvalid
+		}
+	}
+	if c.AutomationType == "AI_AUTONOMOUS" && c.Risk.MaxCapitalDeployed != nil && c.Risk.MaxSinglePositionAmount != nil {
+		capital, _ := decimal(*c.Risk.MaxCapitalDeployed, false)
+		position, _ := decimal(*c.Risk.MaxSinglePositionAmount, false)
+		if position.Cmp(capital) > 0 {
 			return false, ErrInvalid
 		}
 	}
