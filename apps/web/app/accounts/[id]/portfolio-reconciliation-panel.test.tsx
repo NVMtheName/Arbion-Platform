@@ -22,7 +22,8 @@ const baseline: PortfolioReconciliation = {
   performance_status: "UNAVAILABLE",
   realized_performance_status: "UNAVAILABLE",
   autonomy_signal: "INSUFFICIENT_EVIDENCE",
-  blocks_new_actions: false,
+  autonomy_enforcement_active: true,
+  blocks_new_actions: true,
   observed_position_count: 3,
   performance_position_count: 0,
   change_count: 0,
@@ -64,11 +65,12 @@ describe("PortfolioReconciliationPanel", () => {
       screen.getByText("Never inferred from partial history"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/cannot submit an order, change a holding, or pause/i),
+      screen.getByText(/cannot submit an order, change a holding, or/i),
     ).toBeInTheDocument();
+    expect(screen.getByText("AI proposals held")).toBeInTheDocument();
   });
 
-  it("surfaces exact quantity drift as review evidence without enforcing it", () => {
+  it("surfaces exact quantity drift and holds new AI proposals", () => {
     render(
       <PortfolioReconciliationPanel
         accountID="account-1"
@@ -78,6 +80,7 @@ describe("PortfolioReconciliationPanel", () => {
           id: "reconciliation-2",
           comparison_status: "DRIFT_DETECTED",
           autonomy_signal: "REVIEW_RECOMMENDED",
+          blocks_new_actions: true,
           change_count: 1,
           changes: [
             {
@@ -97,6 +100,8 @@ describe("PortfolioReconciliationPanel", () => {
     expect(screen.getByText("Review recommended")).toBeInTheDocument();
     expect(screen.getByText("BTC")).toBeInTheDocument();
     expect(screen.getByText("0.1 → 0.2")).toBeInTheDocument();
-    expect(screen.getByText(/Advisory only today/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/This gate can hold new AI proposals/i),
+    ).toBeInTheDocument();
   });
 });

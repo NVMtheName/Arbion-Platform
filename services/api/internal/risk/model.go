@@ -77,6 +77,19 @@ type RecentAction struct {
 // proposals. It does not grant execution authority or imply strategy quality.
 const AIRepeatActionCooldown = time.Hour
 
+// AutonomousReconciliationMaxAge is the maximum age of an immutable broker
+// comparison that can clear a new autonomous proposal. Current balance and
+// position reads remain subject to the much tighter account-data freshness
+// rule during every evaluation.
+const AutonomousReconciliationMaxAge = 24 * time.Hour
+
+type ReconciliationSnapshot struct {
+	AccountID, ComparisonStatus, BalancesStatus, PositionsStatus, AutonomySignal string
+	AutonomyEnforcementActive, BlocksNewActions                                  bool
+	ChangeCount                                                                  int
+	ObservedAt                                                                   time.Time
+}
+
 type CapitalBucket struct {
 	ID, UserID, AccountID, Name, AllocationType, AllocationValue, Currency, ProtectedAmount, Status string
 	AllocationLimit                                                                                 *string
@@ -106,6 +119,7 @@ type EvaluationContext struct {
 	Reservations                                                          *CapitalReservationSnapshot
 	Account                                                               *AccountRiskSnapshot
 	Activity                                                              *RiskActivitySnapshot
+	Reconciliation                                                        *ReconciliationSnapshot
 	Breakers                                                              []CircuitBreaker
 	Now                                                                   time.Time
 	MaxStaleness                                                          time.Duration

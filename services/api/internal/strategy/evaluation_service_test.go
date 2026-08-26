@@ -277,7 +277,10 @@ func aiEvaluationFixture(provider string, decision neural.ShadowDecision) (*Eval
 	instance := Instance{ID: "ai-instance", UserID: "user", AutomationMandateID: "ai-mandate", FinancialAccountID: "account", CapitalBucketID: "bucket", StrategyIdentifier: "ai_shadow", MandateVersion: 2, ExecutionMode: Shadow, CurrentState: AIMonitoring, StateVersion: 1, Status: "ACTIVE"}
 	connection, model := "ai-connection", "gpt-5.6-sol"
 	mandate := automation.Mandate{ID: "ai-mandate", UserID: "user", FinancialAccountID: "account", AutomationType: "AI_AUTONOMOUS", AIProviderConnectionID: &connection, AIModelID: &model, CapitalBucketID: "bucket", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", Status: "READY", CurrentVersion: 2, StrategyParameters: json.RawMessage(`{"objective":"Preserve capital while finding cautious opportunities.","max_proposal_notional":"1"}`), AllowedUniverse: automation.Universe{Symbols: []string{"BTC"}}, EffectiveFrom: now.Add(-time.Hour)}
-	store := &evaluationStoreFake{instance: instance, facts: EvaluationFacts{Breakers: []risk.CircuitBreaker{}}}
+	store := &evaluationStoreFake{instance: instance, facts: EvaluationFacts{Breakers: []risk.CircuitBreaker{}, Reconciliation: &risk.ReconciliationSnapshot{
+		AccountID: "account", ComparisonStatus: "MATCHED", BalancesStatus: "READY", PositionsStatus: "READY",
+		AutonomySignal: "CLEAR", AutonomyEnforcementActive: true, ObservedAt: now.Add(-time.Minute),
+	}}}
 	automations := &evaluationAutomationFake{mandate: mandate, bucket: automation.CapitalBucket{ID: "bucket", UserID: "user", FinancialAccountID: "account", Name: "AI budget", AllocationType: "FIXED_AMOUNT", AllocationValue: "10", Currency: "USD", ProtectedAmount: "0", Status: "ACTIVE"}}
 	cash, available, buyingPower := financial.Money{Amount: "100", Currency: "USD"}, financial.Money{Amount: "100", Currency: "USD"}, financial.Money{Amount: "100", Currency: "USD"}
 	finances := &evaluationFinancialFake{account: financial.FinancialAccount{ID: "account", UserID: "user", Provider: provider, Status: "active", BaseCurrency: "USD", Capabilities: financial.Capabilities{"options": financial.Unsupported, "margin": financial.Unsupported}}, balances: financial.Balances{Cash: &cash, AvailableCash: &available, BuyingPower: &buyingPower}, positions: []financial.Position{}, timestamp: now}
@@ -473,6 +476,20 @@ func TestAIShadowRepeatProposalIsDeniedBeforeShadowExecution(t *testing.T) {
 		t.Fatalf("bounded recent decision memory was not supplied: %#v", ai.request.RecentDecisions)
 	}
 	assertAIInputEvidence(t, store.decision.Rationale, "coinbase", "100", 0, 1, 1)
+}
+
+func TestAIShadowProposalIsHeldWithoutMatchedBrokerReconciliation(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", ProposedNotional: "1", Confidence: "MEDIUM", Thesis: "Bounded candidate", RiskFlags: []string{}, Limitations: []string{}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, store, _, _, principal := aiEvaluationFixture("coinbase", decision)
+	store.facts.Reconciliation = nil
+
+	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:reconciliation-required")
+	if err != nil || outcome.AIDecision != "PROPOSE" || outcome.Execution.Status != RiskDenied || outcome.RiskDecision != risk.Deny || len(outcome.RiskReasonCodes) != 1 || outcome.RiskReasonCodes[0] != risk.ReconciliationRequired {
+		t.Fatalf("missing broker reconciliation did not hold the AI proposal: %#v %v", outcome, err)
+	}
+	if store.commits != 1 || store.abstains != 0 {
+		t.Fatalf("reconciliation hold did not create exactly one immutable decision: commits=%d abstains=%d", store.commits, store.abstains)
+	}
 }
 
 func TestAIHistoryFactsNeverFillProviderCandleGaps(t *testing.T) {

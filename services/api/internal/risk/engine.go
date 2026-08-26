@@ -27,6 +27,29 @@ func NewEngine() *Engine {
 	}}
 }
 
+func reconciliationRule(c *EvaluationContext, action ProposedAction) RiskCheck {
+	if action.Source != SourceAI || c.Mandate == nil || c.Mandate.AutomationType != "AI_AUTONOMOUS" {
+		return check(ReconciliationRequired, true, "The autonomous reconciliation gate does not apply.")
+	}
+	snapshot := c.Reconciliation
+	if snapshot == nil || snapshot.AccountID != action.FinancialAccountID || !snapshot.AutonomyEnforcementActive {
+		return check(ReconciliationRequired, false, "A current enforced broker reconciliation is required for autonomous proposals.")
+	}
+	if snapshot.ObservedAt.IsZero() || snapshot.ObservedAt.After(c.Now) || c.Now.Sub(snapshot.ObservedAt) > AutonomousReconciliationMaxAge {
+		return check(ReconciliationStale, false, "The latest enforced broker reconciliation is stale or invalid.")
+	}
+	if snapshot.ComparisonStatus == "INCOMPLETE" || snapshot.BalancesStatus != "READY" || snapshot.PositionsStatus != "READY" {
+		return check(ReconciliationIncomplete, false, "The latest broker reconciliation has incomplete balance or position coverage.")
+	}
+	if snapshot.ComparisonStatus == "DRIFT_DETECTED" || snapshot.AutonomySignal == "REVIEW_RECOMMENDED" || snapshot.ChangeCount > 0 {
+		return check(ReconciliationDriftDetected, false, "Broker-reported position drift must be confirmed by a later matching snapshot.")
+	}
+	if snapshot.ComparisonStatus != "MATCHED" || snapshot.AutonomySignal != "CLEAR" || snapshot.BlocksNewActions {
+		return check(ReconciliationRequired, false, "Two matching complete broker snapshots are required for autonomous proposals.")
+	}
+	return check(ReconciliationRequired, true, "The latest enforced broker reconciliation is complete, matched, and current.")
+}
+
 func repeatActionRule(c *EvaluationContext, action ProposedAction) RiskCheck {
 	if action.Source != SourceAI || c.Mandate == nil || c.Mandate.AutomationType != "AI_AUTONOMOUS" || c.Mandate.ExecutionMode != "SHADOW" {
 		return check(RepeatActionCooldownActive, true, "The autonomous SHADOW repeat-action guard does not apply.")
@@ -73,8 +96,14 @@ func (e *Engine) Evaluate(c EvaluationContext, a ProposedAction) RiskEvaluation 
 		out.Mode = "MANUAL_PROPOSAL"
 	}
 	rules := e.rules
-	if a.Source == SourceAI && c.Mandate != nil && c.Mandate.AutomationType == "AI_AUTONOMOUS" && c.Mandate.ExecutionMode == "SHADOW" {
-		rules = append(append([]Rule(nil), e.rules...), rule{RepeatActionCooldownActive, repeatActionRule})
+	if a.Source == SourceAI && c.Mandate != nil && c.Mandate.AutomationType == "AI_AUTONOMOUS" {
+		rules = make([]Rule, 0, len(e.rules)+2)
+		rules = append(rules, e.rules[:6]...)
+		rules = append(rules, rule{ReconciliationRequired, reconciliationRule})
+		rules = append(rules, e.rules[6:]...)
+		if c.Mandate.ExecutionMode == "SHADOW" {
+			rules = append(rules, rule{RepeatActionCooldownActive, repeatActionRule})
+		}
 	}
 	for _, r := range rules {
 		x := r.Evaluate(&c, a)

@@ -274,19 +274,19 @@ func TestPortfolioReconciliationBuildsImmutableBaselineMatchAndDriftEvidence(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if baseline.ComparisonStatus != "BASELINE" || baseline.AutonomySignal != "INSUFFICIENT_EVIDENCE" || baseline.PerformanceStatus != "AVAILABLE" || baseline.RealizedPerformanceStatus != "UNAVAILABLE" || baseline.BlocksNewActions || baseline.ChangeCount != 0 || len(baseline.EvidenceHash) != 64 {
+	if baseline.ComparisonStatus != "BASELINE" || baseline.AutonomySignal != "INSUFFICIENT_EVIDENCE" || baseline.PerformanceStatus != "AVAILABLE" || baseline.RealizedPerformanceStatus != "UNAVAILABLE" || !baseline.AutonomyEnforcementActive || !baseline.BlocksNewActions || baseline.ChangeCount != 0 || len(baseline.EvidenceHash) != 64 {
 		t.Fatalf("unexpected baseline: %#v", baseline)
 	}
 	matched, err := service.RunReconciliation(context.Background(), founder(), "account-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if matched.ComparisonStatus != "MATCHED" || matched.AutonomySignal != "CLEAR" || matched.PreviousReconciliationID == nil || *matched.PreviousReconciliationID != baseline.ID {
+	if matched.ComparisonStatus != "MATCHED" || matched.AutonomySignal != "CLEAR" || !matched.AutonomyEnforcementActive || matched.BlocksNewActions || matched.PreviousReconciliationID == nil || *matched.PreviousReconciliationID != baseline.ID {
 		t.Fatalf("unexpected matched report: %#v", matched)
 	}
 	provider.positionsErr = &financial.ProviderError{Code: financial.ProviderUnavailable}
 	incomplete, err := service.RunReconciliation(context.Background(), founder(), "account-1")
-	if err != nil || incomplete.ComparisonStatus != "INCOMPLETE" {
+	if err != nil || incomplete.ComparisonStatus != "INCOMPLETE" || !incomplete.BlocksNewActions {
 		t.Fatalf("provider gap was not captured safely: %#v err=%v", incomplete, err)
 	}
 	provider.positionsErr = nil
@@ -299,7 +299,7 @@ func TestPortfolioReconciliationBuildsImmutableBaselineMatchAndDriftEvidence(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if drifted.ComparisonStatus != "DRIFT_DETECTED" || drifted.AutonomySignal != "REVIEW_RECOMMENDED" || drifted.ChangeCount != 1 || len(drifted.Changes) != 1 || drifted.Changes[0].ChangeType != "QUANTITY_CHANGED" || drifted.BlocksNewActions {
+	if drifted.ComparisonStatus != "DRIFT_DETECTED" || drifted.AutonomySignal != "REVIEW_RECOMMENDED" || drifted.ChangeCount != 1 || len(drifted.Changes) != 1 || drifted.Changes[0].ChangeType != "QUANTITY_CHANGED" || !drifted.BlocksNewActions {
 		t.Fatalf("unexpected drift report: %#v", drifted)
 	}
 	if provider.orders != 0 || provider.fills != 0 || provider.previews != 0 || provider.disconnected != 0 {
@@ -315,7 +315,7 @@ func TestPortfolioReconciliationPersistsIncompleteCoverageWithoutInventingPositi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.ComparisonStatus != "INCOMPLETE" || report.PositionsStatus != "UNAVAILABLE" || report.PerformanceStatus != "UNAVAILABLE" || report.ObservedPositionCount != 0 || len(report.Positions) != 0 || report.AutonomySignal != "INSUFFICIENT_EVIDENCE" {
+	if report.ComparisonStatus != "INCOMPLETE" || report.PositionsStatus != "UNAVAILABLE" || report.PerformanceStatus != "UNAVAILABLE" || report.ObservedPositionCount != 0 || len(report.Positions) != 0 || report.AutonomySignal != "INSUFFICIENT_EVIDENCE" || !report.BlocksNewActions {
 		t.Fatalf("incomplete provider coverage was not preserved explicitly: %#v", report)
 	}
 }

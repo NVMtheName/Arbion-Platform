@@ -574,6 +574,20 @@ func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, ev
 		return EvaluationFacts{}, err
 	}
 	if instance.StrategyIdentifier == "ai_shadow" && instance.ExecutionMode == Shadow {
+		var reconciliation risk.ReconciliationSnapshot
+		reconciliationErr := s.db.QueryRow(c, `SELECT financial_account_id::text,comparison_status,balances_status,positions_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,change_count,observed_at FROM portfolio_reconciliations WHERE user_id=$1 AND financial_account_id=$2 ORDER BY observed_at DESC,id DESC LIMIT 1`, instance.UserID, instance.FinancialAccountID).Scan(
+			&reconciliation.AccountID, &reconciliation.ComparisonStatus, &reconciliation.BalancesStatus,
+			&reconciliation.PositionsStatus, &reconciliation.AutonomySignal,
+			&reconciliation.AutonomyEnforcementActive, &reconciliation.BlocksNewActions,
+			&reconciliation.ChangeCount, &reconciliation.ObservedAt,
+		)
+		if reconciliationErr != nil && !errors.Is(reconciliationErr, pgx.ErrNoRows) {
+			return EvaluationFacts{}, reconciliationErr
+		}
+		if reconciliationErr == nil {
+			facts.Reconciliation = &reconciliation
+		}
+
 		recentRows, recentErr := s.db.Query(c, `SELECT symbol,side,created_at FROM nonlive_execution_records WHERE strategy_instance_id=$1 AND user_id=$2 AND mode='SHADOW' AND status='WOULD_HAVE_SUBMITTED' AND created_at >= $3 AND created_at < $4 ORDER BY created_at DESC LIMIT 101`, instance.ID, instance.UserID, evaluatedAt.Add(-risk.AIRepeatActionCooldown), evaluatedAt)
 		if recentErr != nil {
 			return EvaluationFacts{}, recentErr

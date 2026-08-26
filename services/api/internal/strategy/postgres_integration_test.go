@@ -359,6 +359,9 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		t.Fatalf("AI shadow instance was not initialized safely: %#v %v", aiInstance, err)
 	}
 	aiEvaluationTime := time.Date(2026, 8, 25, 18, 0, 0, 0, time.UTC)
+	if _, err = pool.Exec(ctx, `INSERT INTO portfolio_reconciliations(user_id,financial_account_id,provider_name,comparison_status,balances_status,positions_status,performance_status,realized_performance_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,observed_position_count,performance_position_count,change_count,changes,evidence_hash,observed_at) VALUES($1,$2,'schwab','MATCHED','READY','READY','UNAVAILABLE','UNAVAILABLE','CLEAR',true,false,0,0,0,'[]',decode(repeat('ab',32),'hex'),$3)`, userID, aiAccountID, aiEvaluationTime.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
 	aiActionID := "ai-shadow:integration:proposal"
 	aiEventID := "scheduled:ai-shadow-integration"
 	aiState := string(aiInstance.CurrentState)
@@ -391,6 +394,9 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	aiFacts, err := store.EvaluationFacts(ctx, aiInstance, aiEvaluationTime.Add(30*time.Minute))
 	if err != nil || len(aiFacts.RecentActions) != 1 || aiFacts.RecentActions[0].Instrument != "AAPL" || aiFacts.RecentActions[0].Side != "SELL" || !aiFacts.RecentActions[0].OccurredAt.Equal(aiEvaluationTime) {
 		t.Fatalf("AI repeat-action evidence was not reconstructed safely: %#v %v", aiFacts.RecentActions, err)
+	}
+	if aiFacts.Reconciliation == nil || aiFacts.Reconciliation.AccountID != aiAccountID || aiFacts.Reconciliation.ComparisonStatus != "MATCHED" || !aiFacts.Reconciliation.AutonomyEnforcementActive || aiFacts.Reconciliation.BlocksNewActions {
+		t.Fatalf("AI reconciliation evidence was not reconstructed safely: %#v", aiFacts.Reconciliation)
 	}
 	if len(aiFacts.RecentDecisions) != 1 || aiFacts.RecentDecisions[0].Decision != "PROPOSE" || aiFacts.RecentDecisions[0].Symbol != "AAPL" || aiFacts.RecentDecisions[0].Side != "SELL" || aiFacts.RecentDecisions[0].Disposition != "WOULD_HAVE_SUBMITTED" || !aiFacts.RecentDecisions[0].OccurredAt.Equal(aiEvaluationTime) {
 		t.Fatalf("AI decision memory was not reconstructed safely: %#v", aiFacts.RecentDecisions)

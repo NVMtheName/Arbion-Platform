@@ -23,7 +23,7 @@ func (handler *authHandler) latestPortfolioReconciliation(writer stdhttp.Respons
 		return
 	}
 	writeJSON(writer, stdhttp.StatusOK, map[string]any{
-		"reconciliation": report, "live_execution_available": false, "autonomy_enforcement_active": false,
+		"reconciliation": report, "live_execution_available": false, "autonomy_enforcement_active": report.AutonomyEnforcementActive,
 	})
 }
 
@@ -43,6 +43,6 @@ func (handler *authHandler) runPortfolioReconciliation(writer stdhttp.ResponseWr
 		return
 	}
 	writeJSON(writer, stdhttp.StatusCreated, map[string]any{
-		"reconciliation": report, "live_execution_available": false, "autonomy_enforcement_active": false,
+		"reconciliation": report, "live_execution_available": false, "autonomy_enforcement_active": report.AutonomyEnforcementActive,
 	})
 }

@@ -24,7 +24,8 @@ export type PortfolioReconciliation = {
   performance_status: "AVAILABLE" | "PARTIAL" | "UNAVAILABLE";
   realized_performance_status: "UNAVAILABLE";
   autonomy_signal: "CLEAR" | "REVIEW_RECOMMENDED" | "INSUFFICIENT_EVIDENCE";
-  blocks_new_actions: false;
+  autonomy_enforcement_active: boolean;
+  blocks_new_actions: boolean;
   observed_position_count: number;
   performance_position_count: number;
   change_count: number;
@@ -108,8 +109,10 @@ export function PortfolioReconciliationPanel({
       setReport(body.reconciliation);
       setMessage(
         body.reconciliation.comparison_status === "DRIFT_DETECTED"
-          ? "A broker-reported quantity changed. Review the evidence before relying on the new account state."
-          : "A new immutable provider snapshot was recorded.",
+          ? "A broker-reported quantity changed. New AI proposals stay held until a later complete snapshot matches this state."
+          : body.reconciliation.comparison_status === "MATCHED"
+            ? "Broker state matched the prior complete snapshot. The reconciliation gate is clear for new AI proposals."
+            : "A new immutable provider snapshot was recorded. Capture a second matching snapshot to clear new AI proposals.",
       );
     } catch {
       setMessage(
@@ -145,7 +148,8 @@ export function PortfolioReconciliationPanel({
           <strong>No immutable baseline yet</strong>
           <p>
             Capture the first provider snapshot. A second snapshot can identify
-            exact quantity changes without guessing why they happened.
+            exact quantity changes without guessing why they happened. New AI
+            proposals remain held until two complete snapshots match.
           </p>
         </div>
       ) : (
@@ -157,6 +161,13 @@ export function PortfolioReconciliationPanel({
               {statusLabel(report.comparison_status)}
             </span>
             <span>{signalLabel(report.autonomy_signal)}</span>
+            {report.autonomy_enforcement_active && (
+              <span>
+                {report.blocks_new_actions
+                  ? "AI proposals held"
+                  : "AI proposal gate clear"}
+              </span>
+            )}
             <time dateTime={report.observed_at}>
               {observedAt(report.observed_at)}
             </time>
@@ -200,9 +211,9 @@ export function PortfolioReconciliationPanel({
             </div>
           )}
           <footer>
-            Evidence {report.evidence_hash.slice(0, 12)}… · Advisory only today.
-            It cannot submit an order, change a holding, or pause the current
-            shadow engine.
+            Evidence {report.evidence_hash.slice(0, 12)}… · This gate can hold
+            new AI proposals. It cannot submit an order, change a holding, or
+            pause the current shadow engine.
           </footer>
         </>
       )}

@@ -90,6 +90,7 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 		FinancialAccountID: accountA, Provider: "coinbase", ComparisonStatus: "BASELINE",
 		BalancesStatus: "READY", PositionsStatus: "READY", PerformanceStatus: "UNAVAILABLE",
 		RealizedPerformanceStatus: "UNAVAILABLE", AutonomySignal: "INSUFFICIENT_EVIDENCE",
+		AutonomyEnforcementActive: true, BlocksNewActions: true,
 		ObservedPositionCount: 1, Changes: []ReconciliationChange{},
 		Balances:   financial.Balances{Cash: &financial.Money{Amount: "25", Currency: "USD"}},
 		Positions:  []ReconciliationPosition{{Symbol: "BTC", InstrumentType: "CRYPTO", Direction: "long", Quantity: "0.1", PerformanceStatus: "UNAVAILABLE"}},
@@ -99,7 +100,7 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded, err := store.LatestReconciliation(ctx, userID, accountA)
-	if err != nil || loaded.ID != reconciliation.ID || len(loaded.Positions) != 1 || loaded.Positions[0].Quantity != "0.100000000000000000" || loaded.Balances.Cash == nil || loaded.Balances.Cash.Amount != "25.000000000000000000" {
+	if err != nil || loaded.ID != reconciliation.ID || !loaded.AutonomyEnforcementActive || !loaded.BlocksNewActions || len(loaded.Positions) != 1 || loaded.Positions[0].Quantity != "0.100000000000000000" || loaded.Balances.Cash == nil || loaded.Balances.Cash.Amount != "25.000000000000000000" {
 		t.Fatalf("immutable reconciliation evidence did not round-trip: %#v err=%v", loaded, err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE portfolio_reconciliations SET autonomy_signal='CLEAR' WHERE id=$1`, reconciliation.ID); err == nil {
