@@ -82,7 +82,7 @@ describe("AutomationBuilder AI Shadow launch", () => {
       await screen.findByText(/connect coinbase or schwab first/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/connect and verify openai or claude first/i),
+      screen.getByText(/connect and verify openai, claude, or gemini first/i),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /create ai shadow draft/i }),
@@ -126,6 +126,35 @@ describe("AutomationBuilder AI Shadow launch", () => {
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("option", { name: "Unsupported Claude" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers an active Gemini connection and only stable approved shadow models", async () => {
+    vi.stubGlobal(
+      "fetch",
+      fetchFixtures({
+        ...connected,
+        connections: [
+          {
+            id: "gemini-1",
+            display_name: "Gemini",
+            provider: "gemini",
+            status: "active",
+          },
+        ],
+        preference: null,
+        models: [
+          { id: "gemini-3.7-flash", display_name: "Gemini 3.7 Flash" },
+          { id: "gemini-3.1-pro-preview", display_name: "Preview model" },
+        ],
+      }),
+    );
+    render(<AutomationBuilder />);
+    expect(
+      await screen.findByRole("option", { name: "Gemini 3.7 Flash" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Preview model" }),
     ).not.toBeInTheDocument();
   });
 

@@ -21,11 +21,16 @@ const shadowModels = new Set([
   "claude-haiku-4-5-20251001",
   "claude-sonnet-5",
   "claude-opus-5",
+  "gemini-3.5-flash",
+  "gemini-3.6-flash",
+  "gemini-3.7-flash",
 ]);
-const deepShadowModels = ["gpt-5.6-sol", "claude-opus-5"];
+const deepShadowModels = ["gpt-5.6-sol", "claude-opus-5", "gemini-3.7-flash"];
 
 function shadowProvider(provider?: string) {
-  return provider === "openai" || provider === "anthropic";
+  return (
+    provider === "openai" || provider === "anthropic" || provider === "gemini"
+  );
 }
 
 function accountItem(value: Record<string, unknown>): Item {
@@ -344,7 +349,7 @@ export default function AutomationBuilder() {
       )}
       {!loading && activeAI.length === 0 && (
         <section className="strategy-prerequisite">
-          <strong>Connect and verify OpenAI or Claude first</strong>
+          <strong>Connect and verify OpenAI, Claude, or Gemini first</strong>
           <Link href="/connections#ai-providers">Open AI connections →</Link>
         </section>
       )}

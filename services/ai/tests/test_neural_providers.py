@@ -493,6 +493,126 @@ async def test_anthropic_shadow_decision_rejects_truncation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gemini_shadow_decision_is_structured_stored_off_and_tool_free() -> None:
+    context: dict[str, object] = {
+        "objective": "Preserve capital.",
+        "allowed_symbols": ["BTC"],
+        "max_proposal_notional": "1",
+        "available_cash_usd": "100",
+        "buying_power_usd": "100",
+        "positions": [],
+        "markets": [{"symbol": "BTC", "bid": "99", "ask": "101"}],
+        "recent_decisions": [],
+        "observed_at": "2026-08-25T14:00:00+00:00",
+    }
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert request.url == "https://generativelanguage.googleapis.com/v1beta/interactions"
+        assert request.headers["x-goog-api-key"] == "secret-value"
+        assert body["model"] == "gemini-3.7-flash"
+        assert body["store"] is False
+        assert body["background"] is False
+        assert body["labels"] == {"arbion_safety_id": "a" * 64}
+        assert body["generation_config"] == {
+            "max_output_tokens": 900,
+            "thinking_level": "high",
+            "thinking_summaries": "none",
+            "tool_choice": "none",
+        }
+        assert body["response_format"]["mime_type"] == "application/json"
+        assert body["response_format"]["schema"]["additionalProperties"] is False
+        assert "tools" not in body
+        assert json.loads(body["input"]) == context
+        return httpx.Response(
+            200,
+            json={
+                "id": "interaction-shadow",
+                "model": "gemini-3.7-flash",
+                "status": "completed",
+                "steps": [
+                    {
+                        "type": "model_output",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(
+                                    {
+                                        "decision": "PROPOSE",
+                                        "symbol": "BTC",
+                                        "side": "BUY",
+                                        "proposed_notional": "1",
+                                        "confidence": "LOW",
+                                        "thesis": "A bounded proposal fits the mandate.",
+                                        "risk_flags": ["Volatility"],
+                                        "limitations": ["No news feed"],
+                                    }
+                                ),
+                            }
+                        ],
+                    }
+                ],
+                "usage": {
+                    "total_input_tokens": 90,
+                    "total_output_tokens": 35,
+                    "total_tool_use_tokens": 0,
+                },
+            },
+        )
+
+    async with client(httpx.MockTransport(respond)) as http:
+        result = await GeminiProvider(http).propose_shadow(
+            "secret-value", "deep", context, "a" * 64
+        )
+    assert result.decision == "PROPOSE"
+    assert result.metadata.provider == "gemini"
+    assert result.metadata.model == "gemini-3.7-flash"
+    assert result.metadata.input_usage == 90
+    assert result.metadata.request_id == "interaction-shadow"
+
+
+@pytest.mark.asyncio
+async def test_gemini_shadow_decision_rejects_incomplete_interaction() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "id": "interaction-incomplete",
+                "model": "gemini-3.6-flash",
+                "status": "incomplete",
+                "steps": [],
+            },
+        )
+    )
+    context: dict[str, object] = {"allowed_symbols": ["BTC"], "max_proposal_notional": "1"}
+    async with client(transport) as http:
+        with pytest.raises(NeuralProviderError) as caught:
+            await GeminiProvider(http).propose_shadow("secret-value", "core", context, "a" * 64)
+    assert caught.value.code == ErrorCode.INTERNAL_ERROR
+
+
+@pytest.mark.asyncio
+async def test_gemini_shadow_decision_rejects_tool_use() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "id": "interaction-tool-use",
+                "model": "gemini-3.6-flash",
+                "status": "completed",
+                "steps": [{"type": "function_call", "name": "place_order"}],
+                "usage": {"total_tool_use_tokens": 1},
+            },
+        )
+    )
+    context: dict[str, object] = {"allowed_symbols": ["BTC"], "max_proposal_notional": "1"}
+    async with client(transport) as http:
+        with pytest.raises(NeuralProviderError) as caught:
+            await GeminiProvider(http).propose_shadow("secret-value", "core", context, "a" * 64)
+    assert caught.value.code == ErrorCode.INTERNAL_ERROR
+
+
+@pytest.mark.asyncio
 async def test_provider_response_is_rejected_at_streaming_size_limit() -> None:
     transport = httpx.MockTransport(
         lambda request: httpx.Response(200, content=b"x" * (MAX_RESPONSE_BYTES + 1))

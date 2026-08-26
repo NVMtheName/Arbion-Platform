@@ -211,6 +211,21 @@ func TestAIShadowReadyMandateAcceptsOnlyMatchingClaudeProviderAndModel(t *testin
 		t.Fatalf("unapproved Claude model accepted: %v", err)
 	}
 }
+
+func TestAIShadowReadyMandateAcceptsOnlyMatchingGeminiProviderAndModel(t *testing.T) {
+	connection, model := "ai", "gemini-3.6-flash"
+	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`), AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":false}`)}
+	store := baseStore()
+	store.ai.Provider = "gemini"
+	service := NewService(store, nil)
+	if _, err := service.validate(context.Background(), founder, command, true); err != nil {
+		t.Fatalf("valid Gemini AI shadow mandate rejected: %v", err)
+	}
+	store.ai.Provider = "openai"
+	if _, err := service.validate(context.Background(), founder, command, true); err != ErrInvalid {
+		t.Fatalf("mismatched Gemini model/provider accepted: %v", err)
+	}
+}
 func TestOwnershipEntitlementReserveAndDurability(t *testing.T) {
 	f := baseStore()
 	s := NewService(f, nil)
