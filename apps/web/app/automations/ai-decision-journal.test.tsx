@@ -29,6 +29,15 @@ describe("AI Decision Journal", () => {
                 available_cash_usd: "0.0000000000",
                 buying_power_usd: "0.0000000000",
                 observed_at: "2026-08-25T20:11:42Z",
+                recent_decisions: [
+                  {
+                    decision: "PROPOSE",
+                    symbol: "XRP",
+                    side: "SELL",
+                    disposition: "WOULD_HAVE_SUBMITTED",
+                    occurred_at: "2026-08-25T19:41:42Z",
+                  },
+                ],
                 positions: [
                   {
                     symbol: "XRP",
@@ -68,13 +77,22 @@ describe("AI Decision Journal", () => {
     expect(screen.getByText("Safe abstention")).toBeInTheDocument();
     const evidence = screen
       .getByText(
-        "Evidence considered · 1 allowlisted holding · 1 market snapshot",
+        "Evidence considered · 1 allowlisted holding · 1 market snapshot · 1 prior decision",
       )
       .closest("details");
     expect(evidence).not.toBeNull();
     expect(within(evidence!).getAllByText("$0")).toHaveLength(2);
     expect(
       within(evidence!).getByText("7.5 held · 0.5 available"),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByRole("heading", {
+        name: "Recent decision context",
+      }),
+    ).toBeInTheDocument();
+    expect(within(evidence!).getByText("Propose XRP")).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText("Sell · Would Have Submitted"),
     ).toBeInTheDocument();
     expect(
       within(evidence!).getByText("$10.725 observed value"),

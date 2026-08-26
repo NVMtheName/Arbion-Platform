@@ -302,6 +302,15 @@ async def test_openai_shadow_decision_is_structured_tool_free_and_bounded() -> N
         "buying_power_usd": "100",
         "positions": [],
         "markets": [{"symbol": "BTC", "bid": "99", "ask": "101"}],
+        "recent_decisions": [
+            {
+                "decision": "PROPOSE",
+                "symbol": "BTC",
+                "side": "BUY",
+                "disposition": "WOULD_HAVE_SUBMITTED",
+                "occurred_at": "2026-08-25T13:30:00+00:00",
+            }
+        ],
         "observed_at": "2026-08-25T14:00:00+00:00",
     }
 

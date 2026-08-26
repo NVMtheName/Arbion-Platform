@@ -43,7 +43,7 @@ The deterministic strategy path and autonomous AI Shadow path share account, man
 
 1. loads the active immutable mandate version and reconciled strategy state;
 2. obtains mode-appropriate, provenance-bearing account and market inputs;
-3. either determines a legal deterministic candidate or obtains one schema-constrained AI shadow decision from normalized allowlisted facts;
+3. either determines a legal deterministic candidate or obtains one schema-constrained AI shadow decision from normalized allowlisted facts plus bounded, prose-free recent decision summaries from the same instance;
 4. records an AI abstention without creating an action, or emits one bounded structured proposal;
 5. submits it to the authoritative control/risk engine;
 6. for autonomous AI SHADOW proposals, denies an identical symbol and side still inside the platform one-hour repeat-action cooldown;

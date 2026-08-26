@@ -23,10 +23,11 @@ type PaperEvaluationFacts struct {
 }
 
 type EvaluationFacts struct {
-	Paper         *PaperEvaluationFacts
-	Breakers      []risk.CircuitBreaker
-	ActionsToday  int
-	RecentActions []risk.RecentAction
+	Paper           *PaperEvaluationFacts
+	Breakers        []risk.CircuitBreaker
+	ActionsToday    int
+	RecentActions   []risk.RecentAction
+	RecentDecisions []neural.ShadowRecentDecision
 }
 
 type EvaluationStore interface {
@@ -62,6 +63,8 @@ const (
 	aiHistoryGranularitySeconds = 900
 	aiHistoryExpectedIntervals  = 96
 	aiHistoryFreshness          = 30 * time.Minute
+	aiDecisionMemoryWindow      = 6 * time.Hour
+	aiDecisionMemoryLimit       = 6
 )
 
 type AIAbstentionStore interface {
@@ -408,6 +411,7 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	request.AllowedSymbols = append([]string(nil), mandate.AllowedUniverse.Symbols...)
 	request.MaxProposalNotional = parameters.MaxProposalNotional
 	request.Markets = markets
+	request.RecentDecisions = append([]neural.ShadowRecentDecision{}, facts.RecentDecisions...)
 	request.ObservedAt = now
 	decision, err := s.ai.GenerateShadowDecision(ctx, principal, *mandate.AIProviderConnectionID, *mandate.AIModelID, request)
 	if err != nil {
@@ -425,7 +429,8 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 		"input_evidence": map[string]any{
 			"provider": account.Provider, "available_cash_usd": request.AvailableCashUSD,
 			"buying_power_usd": request.BuyingPowerUSD, "positions": request.Positions,
-			"markets": request.Markets, "observed_at": request.ObservedAt,
+			"markets": request.Markets, "recent_decisions": request.RecentDecisions,
+			"observed_at": request.ObservedAt,
 		},
 	})
 	if err != nil {
@@ -825,6 +830,25 @@ func validAIShadowDecision(decision neural.ShadowDecision, allowed []string, max
 		}
 	}
 	return false
+}
+
+func validAIRecentDecision(decision neural.ShadowRecentDecision) bool {
+	if decision.OccurredAt.IsZero() {
+		return false
+	}
+	if decision.Decision == "ABSTAIN" {
+		return decision.Symbol == "NONE" && decision.Side == "NONE" && decision.Disposition == "ABSTAINED"
+	}
+	if decision.Decision != "PROPOSE" || (decision.Side != "BUY" && decision.Side != "SELL") || (decision.Disposition != "WOULD_HAVE_SUBMITTED" && decision.Disposition != "HELD_BY_CONTROLS") || len(decision.Symbol) == 0 || len(decision.Symbol) > 16 {
+		return false
+	}
+	for index, value := range []byte(decision.Symbol) {
+		if (value >= 'A' && value <= 'Z') || (index > 0 && value >= '0' && value <= '9') || (index > 0 && (value == '.' || value == '-')) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func floorRat(value *big.Rat, precision int) string {

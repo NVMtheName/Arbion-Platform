@@ -4,7 +4,13 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.main import ShadowMarketFact, app, validate_production_configuration
+from app.main import (
+    ShadowDecisionRequest,
+    ShadowMarketFact,
+    ShadowRecentDecision,
+    app,
+    validate_production_configuration,
+)
 
 client = TestClient(app)
 
@@ -141,6 +147,71 @@ def test_shadow_market_history_rejects_claimed_complete_gaps() -> None:
                 "history_feed": "rest_candles",
                 "history_quality": "REAL_TIME_SINGLE_VENUE",
                 "history_observed_at": "2026-08-25T14:00:00Z",
+            }
+        )
+
+
+def test_shadow_recent_decision_rejects_inconsistent_abstention() -> None:
+    with pytest.raises(ValidationError, match="abstention memory is inconsistent"):
+        ShadowRecentDecision.model_validate(
+            {
+                "decision": "ABSTAIN",
+                "symbol": "BTC",
+                "side": "NONE",
+                "disposition": "ABSTAINED",
+                "occurred_at": "2026-08-25T13:30:00Z",
+            }
+        )
+
+
+def test_shadow_request_rejects_decision_memory_older_than_six_hours() -> None:
+    with pytest.raises(ValidationError, match="outside the bounded window"):
+        ShadowDecisionRequest.model_validate(
+            {
+                "provider": "openai",
+                "credential": "secret-value",
+                "profile": "deep",
+                "objective": "Preserve capital.",
+                "allowed_symbols": ["BTC"],
+                "max_proposal_notional": "1",
+                "available_cash_usd": "100",
+                "buying_power_usd": "100",
+                "positions": [],
+                "markets": [
+                    {
+                        "symbol": "BTC",
+                        "asset_class": "CRYPTO",
+                        "currency": "USD",
+                        "bid": "99",
+                        "ask": "101",
+                        "mark": "100",
+                        "last": "100",
+                        "change_percent_1h": "",
+                        "change_percent_6h": "",
+                        "change_percent_24h": "",
+                        "volume_24h": "",
+                        "feed": "exchange",
+                        "quality": "REAL_TIME_SINGLE_VENUE",
+                        "observed_at": "2026-08-25T14:00:00Z",
+                        "history_status": "UNAVAILABLE",
+                        "history_granularity_seconds": 900,
+                        "history_contiguous_intervals": 0,
+                        "history_expected_intervals": 96,
+                        "history_feed": "",
+                        "history_quality": "",
+                    }
+                ],
+                "recent_decisions": [
+                    {
+                        "decision": "ABSTAIN",
+                        "symbol": "NONE",
+                        "side": "NONE",
+                        "disposition": "ABSTAINED",
+                        "occurred_at": "2026-08-25T07:59:59Z",
+                    }
+                ],
+                "observed_at": "2026-08-25T14:00:00Z",
+                "safety_identifier": "a" * 64,
             }
         )
 

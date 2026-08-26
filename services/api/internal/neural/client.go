@@ -117,16 +117,28 @@ type ShadowMarketFact struct {
 	HistoryObservedAt          *time.Time `json:"history_observed_at,omitempty"`
 }
 
+// ShadowRecentDecision is a bounded, credential-free summary of an immutable
+// decision from the same strategy instance. It deliberately excludes model
+// prose so prior output cannot become instructions in a later model request.
+type ShadowRecentDecision struct {
+	Decision    string    `json:"decision"`
+	Symbol      string    `json:"symbol"`
+	Side        string    `json:"side"`
+	Disposition string    `json:"disposition"`
+	OccurredAt  time.Time `json:"occurred_at"`
+}
+
 type ShadowDecisionRequest struct {
-	Profile             string               `json:"profile"`
-	Objective           string               `json:"objective"`
-	AllowedSymbols      []string             `json:"allowed_symbols"`
-	MaxProposalNotional string               `json:"max_proposal_notional"`
-	AvailableCashUSD    string               `json:"available_cash_usd"`
-	BuyingPowerUSD      string               `json:"buying_power_usd"`
-	Positions           []ShadowPositionFact `json:"positions"`
-	Markets             []ShadowMarketFact   `json:"markets"`
-	ObservedAt          time.Time            `json:"observed_at"`
+	Profile             string                 `json:"profile"`
+	Objective           string                 `json:"objective"`
+	AllowedSymbols      []string               `json:"allowed_symbols"`
+	MaxProposalNotional string                 `json:"max_proposal_notional"`
+	AvailableCashUSD    string                 `json:"available_cash_usd"`
+	BuyingPowerUSD      string                 `json:"buying_power_usd"`
+	Positions           []ShadowPositionFact   `json:"positions"`
+	Markets             []ShadowMarketFact     `json:"markets"`
+	RecentDecisions     []ShadowRecentDecision `json:"recent_decisions"`
+	ObservedAt          time.Time              `json:"observed_at"`
 }
 
 type ShadowDecision struct {
@@ -205,7 +217,8 @@ func (c *HTTPClient) ProposeShadow(ctx context.Context, provider string, credent
 		"objective": input.Objective, "allowed_symbols": input.AllowedSymbols,
 		"max_proposal_notional": input.MaxProposalNotional, "available_cash_usd": input.AvailableCashUSD,
 		"buying_power_usd": input.BuyingPowerUSD, "positions": input.Positions, "markets": input.Markets,
-		"observed_at": input.ObservedAt.UTC().Format(time.RFC3339Nano), "safety_identifier": safetyIdentifier,
+		"recent_decisions": input.RecentDecisions,
+		"observed_at":      input.ObservedAt.UTC().Format(time.RFC3339Nano), "safety_identifier": safetyIdentifier,
 	}
 	err := c.call(ctx, "/internal/neural/shadow-decision", request, &out)
 	return out.Decision, err

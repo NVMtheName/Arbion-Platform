@@ -2,7 +2,7 @@ import os
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Literal, Self
 
@@ -119,6 +119,23 @@ class ShadowMarketFact(BaseModel):
         return self
 
 
+class ShadowRecentDecision(BaseModel):
+    decision: Literal["ABSTAIN", "PROPOSE"]
+    symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Z][A-Z0-9.-]{0,15}$")
+    side: Literal["BUY", "SELL", "NONE"]
+    disposition: Literal["ABSTAINED", "WOULD_HAVE_SUBMITTED", "HELD_BY_CONTROLS"]
+    occurred_at: datetime
+
+    @model_validator(mode="after")
+    def validate_decision_consistency(self) -> Self:
+        if self.decision == "ABSTAIN":
+            if self.symbol != "NONE" or self.side != "NONE" or self.disposition != "ABSTAINED":
+                raise ValueError("abstention memory is inconsistent")
+        elif self.side == "NONE" or self.disposition == "ABSTAINED":
+            raise ValueError("proposal memory is inconsistent")
+        return self
+
+
 class ShadowDecisionRequest(ProviderRequest):
     profile: Literal["fast", "core", "deep"]
     objective: str = Field(min_length=1, max_length=500)
@@ -128,8 +145,20 @@ class ShadowDecisionRequest(ProviderRequest):
     buying_power_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
     positions: list[ShadowPositionFact] = Field(max_length=200)
     markets: list[ShadowMarketFact] = Field(min_length=1, max_length=8)
+    recent_decisions: list[ShadowRecentDecision] = Field(default_factory=list, max_length=6)
     observed_at: datetime
     safety_identifier: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_recent_decision_times(self) -> Self:
+        if self.observed_at.tzinfo is None or any(
+            decision.occurred_at.tzinfo is None
+            or decision.occurred_at >= self.observed_at
+            or self.observed_at - decision.occurred_at > timedelta(hours=6)
+            for decision in self.recent_decisions
+        ):
+            raise ValueError("recent decision timestamps are outside the bounded window")
+        return self
 
 
 def authorize(value: str | None) -> None:
@@ -271,10 +300,21 @@ async def shadow_decision(
         not re.fullmatch(r"[A-Z][A-Z0-9.-]{0,15}", symbol) for symbol in allowed
     ):
         raise HTTPException(status_code=422, detail="allowed_symbols are invalid")
-    if request.observed_at.tzinfo is None or any(
-        market.observed_at.tzinfo is None
-        or (market.history_observed_at is not None and market.history_observed_at.tzinfo is None)
-        for market in request.markets
+    if (
+        request.observed_at.tzinfo is None
+        or any(
+            market.observed_at.tzinfo is None
+            or (
+                market.history_observed_at is not None and market.history_observed_at.tzinfo is None
+            )
+            for market in request.markets
+        )
+        or any(
+            decision.occurred_at.tzinfo is None
+            or decision.occurred_at >= request.observed_at
+            or request.observed_at - decision.occurred_at > timedelta(hours=6)
+            for decision in request.recent_decisions
+        )
     ):
         raise HTTPException(status_code=422, detail="timestamps must include a timezone")
     try:
