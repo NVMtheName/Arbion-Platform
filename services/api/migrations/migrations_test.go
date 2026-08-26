@@ -154,6 +154,23 @@ func TestAIShadowOutcomeMigrationIsImmutableAndNonExecuting(t *testing.T) {
 	}
 }
 
+func TestPortfolioReconciliationMigrationIsImmutableOwnerScopedAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00027_portfolio_reconciliation.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"portfolio_reconciliations", "portfolio_reconciliation_positions", "financial_account_id,user_id", "previous_reconciliation_id,user_id,financial_account_id", "BASELINE", "DRIFT_DETECTED", "realized_performance_status", "blocks_new_actions = false", "evidence_hash bytea", "enforce_portfolio_reconciliation_source", "reject_portfolio_reconciliation_mutation", "cannot remove immutable portfolio reconciliation history"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("portfolio reconciliation migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_account_id", "provider_order_id", "private_key", "access_token", "LIVE_EXECUTION"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("portfolio reconciliation migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00013_paper_lifecycle_events.sql")
 	if err != nil {

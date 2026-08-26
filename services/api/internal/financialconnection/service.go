@@ -71,16 +71,20 @@ type Auditor interface {
 	Record(context.Context, *string, string, map[string]any) error
 }
 type Service struct {
-	store       Store
-	vault       credential.Vault
-	states      *oauthstate.Manager
-	providers   map[string]financial.BrokerProvider
-	authorizers map[string]Authorizer
-	audit       Auditor
+	store           Store
+	reconciliations ReconciliationStore
+	vault           credential.Vault
+	states          *oauthstate.Manager
+	providers       map[string]financial.BrokerProvider
+	authorizers     map[string]Authorizer
+	audit           Auditor
 }
 
 func NewService(s Store, v credential.Vault, states *oauthstate.Manager, schwab Authorizer, a Auditor, additional ...NamedProvider) *Service {
 	service := &Service{store: s, vault: v, states: states, providers: map[string]financial.BrokerProvider{}, authorizers: map[string]Authorizer{}, audit: a}
+	if reconciliations, ok := s.(ReconciliationStore); ok {
+		service.reconciliations = reconciliations
+	}
 	if schwab != nil {
 		service.providers["schwab"] = schwab
 		service.authorizers["schwab"] = schwab
@@ -92,6 +96,10 @@ func NewService(s Store, v credential.Vault, states *oauthstate.Manager, schwab 
 		}
 	}
 	return service
+}
+
+func (s *Service) ConfigureReconciliation(store ReconciliationStore) {
+	s.reconciliations = store
 }
 func allowed(p authorization.Principal) bool { return authorization.CanConnectFinancialAccounts(p) }
 func (s *Service) record(ctx context.Context, user, action string, meta map[string]any) {
