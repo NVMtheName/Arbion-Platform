@@ -23,6 +23,14 @@ func reason(e RiskEvaluation, r ReasonCode) bool {
 	return false
 }
 
+func addMatchedReconciliation(c *EvaluationContext) {
+	c.Reconciliation = &ReconciliationSnapshot{
+		AccountID: "a", ComparisonStatus: "MATCHED", BalancesStatus: "READY", PositionsStatus: "READY",
+		AutonomySignal: "CLEAR", AutonomyEnforcementActive: true, BlocksNewActions: false,
+		ObservedAt: c.Now.Add(-time.Minute),
+	}
+}
+
 func warning(e RiskEvaluation, r ReasonCode) bool {
 	for _, x := range e.Warnings {
 		if x == r {
@@ -118,6 +126,7 @@ func TestAutonomousAISellCannotExceedAvailableHolding(t *testing.T) {
 	c.Mandate.MaxDailyLoss = nil
 	c.Mandate.MaxTradesPerDay = nil
 	c.Account.CurrentExposure = "0"
+	addMatchedReconciliation(&c)
 	c.Account.Positions = []Position{{Instrument: "AAPL", Exposure: "2000", AvailableQuantity: "2"}}
 	action.Source = SourceAI
 	action.ActionType = ActionSell
@@ -143,6 +152,7 @@ func TestAutonomousAIRepeatActionCooldownIsDeterministic(t *testing.T) {
 	c.Mandate.MaxDailyLoss = nil
 	c.Mandate.MaxTradesPerDay = nil
 	c.Account.CurrentExposure = "0"
+	addMatchedReconciliation(&c)
 	action.Source = SourceAI
 	action.Notional = "1"
 	c.Activity.RecentActions = []RecentAction{{Instrument: "AAPL", Side: "BUY", OccurredAt: c.Now.Add(-59 * time.Minute)}}
@@ -169,11 +179,72 @@ func TestAutonomousAIRepeatActionFailsClosedWithoutCurrentHistory(t *testing.T) 
 	c.Mandate.AutonomyLevel = "FULL_AUTONOMOUS"
 	c.Mandate.ExecutionMode = "SHADOW"
 	action.Source = SourceAI
+	addMatchedReconciliation(&c)
 	c.Activity = nil
 
 	denied := NewEngine().Evaluate(c, action)
 	if denied.Decision != Deny || !reason(denied, ActivityDataUnavailable) {
 		t.Fatalf("AI shadow action passed without repeat-action evidence: %#v", denied)
+	}
+}
+
+func TestAutonomousAIReconciliationGateFailsClosedAndUsesExactEvidence(t *testing.T) {
+	base := func() (EvaluationContext, ProposedAction) {
+		c, action := fixture()
+		c.Mandate.AutomationType = "AI_AUTONOMOUS"
+		c.Mandate.AutonomyLevel = "FULL_AUTONOMOUS"
+		c.Mandate.ExecutionMode = "SHADOW"
+		c.Mandate.MaxSinglePositionPercentage = nil
+		c.Mandate.MaxDailyLoss = nil
+		c.Mandate.MaxTradesPerDay = nil
+		c.Account.CurrentExposure = "0"
+		action.Source = SourceAI
+		action.Notional = "1"
+		addMatchedReconciliation(&c)
+		return c, action
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*EvaluationContext)
+		want   ReasonCode
+	}{
+		{"missing", func(c *EvaluationContext) { c.Reconciliation = nil }, ReconciliationRequired},
+		{"legacy advisory", func(c *EvaluationContext) { c.Reconciliation.AutonomyEnforcementActive = false }, ReconciliationRequired},
+		{"baseline", func(c *EvaluationContext) {
+			c.Reconciliation.ComparisonStatus = "BASELINE"
+			c.Reconciliation.AutonomySignal = "INSUFFICIENT_EVIDENCE"
+			c.Reconciliation.BlocksNewActions = true
+		}, ReconciliationRequired},
+		{"stale", func(c *EvaluationContext) {
+			c.Reconciliation.ObservedAt = c.Now.Add(-AutonomousReconciliationMaxAge - time.Second)
+		}, ReconciliationStale},
+		{"incomplete", func(c *EvaluationContext) {
+			c.Reconciliation.ComparisonStatus = "INCOMPLETE"
+			c.Reconciliation.PositionsStatus = "UNAVAILABLE"
+			c.Reconciliation.AutonomySignal = "INSUFFICIENT_EVIDENCE"
+			c.Reconciliation.BlocksNewActions = true
+		}, ReconciliationIncomplete},
+		{"drift", func(c *EvaluationContext) {
+			c.Reconciliation.ComparisonStatus = "DRIFT_DETECTED"
+			c.Reconciliation.AutonomySignal = "REVIEW_RECOMMENDED"
+			c.Reconciliation.BlocksNewActions = true
+			c.Reconciliation.ChangeCount = 1
+		}, ReconciliationDriftDetected},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			c, action := base()
+			test.mutate(&c)
+			result := NewEngine().Evaluate(c, action)
+			if result.Decision != Deny || !reason(result, test.want) {
+				t.Fatalf("unsafe reconciliation state was accepted: %#v", result)
+			}
+		})
+	}
+	c, action := base()
+	if result := NewEngine().Evaluate(c, action); result.Decision != Allow {
+		t.Fatalf("current matching reconciliation did not clear the deterministic gate: %#v", result)
 	}
 }
 func TestCapitalPositionActivityUniverseAndStaleness(t *testing.T) {

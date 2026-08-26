@@ -171,6 +171,23 @@ func TestPortfolioReconciliationMigrationIsImmutableOwnerScopedAndNonExecuting(t
 	}
 }
 
+func TestReconciliationAutonomyGatePreservesLegacyEvidenceAndFailsClosed(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00028_reconciliation_autonomy_gate.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"autonomy_enforcement_active", "DEFAULT false", "SET DEFAULT true", "comparison_status <> 'MATCHED'", "cannot remove enforced portfolio reconciliation history"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("reconciliation autonomy migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order", "broker_order", "LIVE_EXECUTION"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("reconciliation autonomy migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00013_paper_lifecycle_events.sql")
 	if err != nil {

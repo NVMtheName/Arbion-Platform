@@ -58,6 +58,7 @@ type PortfolioReconciliation struct {
 	PerformanceStatus         string                   `json:"performance_status"`
 	RealizedPerformanceStatus string                   `json:"realized_performance_status"`
 	AutonomySignal            string                   `json:"autonomy_signal"`
+	AutonomyEnforcementActive bool                     `json:"autonomy_enforcement_active"`
 	BlocksNewActions          bool                     `json:"blocks_new_actions"`
 	ObservedPositionCount     int                      `json:"observed_position_count"`
 	PerformancePositionCount  int                      `json:"performance_position_count"`
@@ -86,6 +87,7 @@ type reconciliationEvidence struct {
 	PerformanceStatus         string                   `json:"performance_status"`
 	RealizedPerformanceStatus string                   `json:"realized_performance_status"`
 	AutonomySignal            string                   `json:"autonomy_signal"`
+	AutonomyEnforcementActive bool                     `json:"autonomy_enforcement_active"`
 	BlocksNewActions          bool                     `json:"blocks_new_actions"`
 	Balances                  financial.Balances       `json:"balances"`
 	PreviousReconciliationID  *string                  `json:"previous_reconciliation_id,omitempty"`
@@ -354,7 +356,7 @@ func (s *Service) RunReconciliation(ctx context.Context, principal authorization
 		FinancialAccountID: account.ID, Provider: account.Provider,
 		BalancesStatus: balancesStatus, PositionsStatus: positionsStatus,
 		PerformanceStatus:         reconciliationPerformanceStatus(len(positions), performanceCount),
-		RealizedPerformanceStatus: "UNAVAILABLE", BlocksNewActions: false,
+		RealizedPerformanceStatus: "UNAVAILABLE", AutonomyEnforcementActive: true,
 		ObservedPositionCount: len(positions), PerformancePositionCount: performanceCount,
 		Balances: balances, Changes: []ReconciliationChange{}, Positions: positions, ObservedAt: observedAt,
 	}
@@ -380,12 +382,14 @@ func (s *Service) RunReconciliation(ctx context.Context, principal authorization
 			report.AutonomySignal = "CLEAR"
 		}
 	}
+	report.BlocksNewActions = report.ComparisonStatus != "MATCHED"
 	evidence, err := json.Marshal(reconciliationEvidence{
 		FinancialAccountID: report.FinancialAccountID, Provider: report.Provider,
 		ComparisonStatus: report.ComparisonStatus, BalancesStatus: report.BalancesStatus,
 		PositionsStatus: report.PositionsStatus, PerformanceStatus: report.PerformanceStatus,
 		RealizedPerformanceStatus: report.RealizedPerformanceStatus, AutonomySignal: report.AutonomySignal,
-		BlocksNewActions: report.BlocksNewActions, Balances: report.Balances, PreviousReconciliationID: report.PreviousReconciliationID,
+		AutonomyEnforcementActive: report.AutonomyEnforcementActive,
+		BlocksNewActions:          report.BlocksNewActions, Balances: report.Balances, PreviousReconciliationID: report.PreviousReconciliationID,
 		Changes: report.Changes, Positions: report.Positions, ObservedAt: report.ObservedAt,
 	})
 	if err != nil {
