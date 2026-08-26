@@ -425,7 +425,8 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 		"proposed_notional": decision.ProposedNotional, "confidence": decision.Confidence,
 		"thesis": decision.Thesis, "risk_flags": decision.RiskFlags, "limitations": decision.Limitations,
 		"ai_provider": decision.Metadata.Provider, "model_id": decision.Metadata.Model,
-		"profile":   decision.Metadata.Profile,
+		"profile": decision.Metadata.Profile, "input_usage": decision.Metadata.InputUsage,
+		"output_usage": decision.Metadata.OutputUsage, "latency_ms": decision.Metadata.LatencyMS,
 		"objective": parameters.Objective, "market_observed_at": oldestAIMarketTimestamp(markets),
 		"input_evidence": map[string]any{
 			"provider": account.Provider, "available_cash_usd": request.AvailableCashUSD,

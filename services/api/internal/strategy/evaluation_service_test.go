@@ -300,7 +300,8 @@ func marketDecimalPointer(value string) *marketintelligence.Decimal {
 }
 
 func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testing.T) {
-	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", ProposedNotional: "1", Confidence: "LOW", Thesis: "Bounded test", RiskFlags: []string{"Volatility"}, Limitations: []string{"No news"}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	inputUsage, outputUsage, latencyMS := 30, 45, 120
+	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", ProposedNotional: "1", Confidence: "LOW", Thesis: "Bounded test", RiskFlags: []string{"Volatility"}, Limitations: []string{"No news"}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep", InputUsage: &inputUsage, OutputUsage: &outputUsage, LatencyMS: &latencyMS}}
 	service, store, finances, ai, principal := aiEvaluationFixture("schwab", decision)
 	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:schwab")
 	if err != nil || outcome.AIDecision != "PROPOSE" || outcome.Execution.Status != WouldHaveSubmitted || outcome.RiskDecision != risk.Allow {
@@ -377,6 +378,9 @@ func assertAIInputEvidence(t *testing.T, rationale json.RawMessage, provider, bu
 		AIProvider    string `json:"ai_provider"`
 		ModelID       string `json:"model_id"`
 		Profile       string `json:"profile"`
+		InputUsage    *int   `json:"input_usage"`
+		OutputUsage   *int   `json:"output_usage"`
+		LatencyMS     *int   `json:"latency_ms"`
 		InputEvidence struct {
 			Provider        string                        `json:"provider"`
 			AvailableCash   string                        `json:"available_cash_usd"`
@@ -393,6 +397,9 @@ func assertAIInputEvidence(t *testing.T, rationale json.RawMessage, provider, bu
 	evidence := payload.InputEvidence
 	if payload.AIProvider != "openai" || payload.ModelID != "gpt-5.6-sol" || payload.Profile != "deep" || evidence.Provider != provider || evidence.AvailableCash != "100" || evidence.BuyingPower != buyingPower || len(evidence.Positions) != positionCount || len(evidence.Markets) != marketCount || len(evidence.RecentDecisions) != recentDecisionCount || evidence.ObservedAt.IsZero() {
 		t.Fatalf("AI input evidence was incomplete: %#v", evidence)
+	}
+	if provider == "schwab" && (payload.InputUsage == nil || *payload.InputUsage != 30 || payload.OutputUsage == nil || *payload.OutputUsage != 45 || payload.LatencyMS == nil || *payload.LatencyMS != 120) {
+		t.Fatalf("AI route telemetry was not preserved: %#v", payload)
 	}
 }
 

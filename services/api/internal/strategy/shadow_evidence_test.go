@@ -36,3 +36,13 @@ func TestShadowEvidenceGateMarksEvidenceReviewableWithoutGrantingExecution(t *te
 		t.Fatalf("complete evidence gate was incorrect: %#v", gate)
 	}
 }
+
+func TestShadowBehaviorRateDoesNotInventAnEmptyPercentage(t *testing.T) {
+	if rate := shadowBehaviorRate(0, 0); rate != nil {
+		t.Fatalf("empty behavior received an invented rate: %q", *rate)
+	}
+	rate := shadowBehaviorRate(1, 3)
+	if rate == nil || *rate != "33.3333333333" {
+		t.Fatalf("behavior rate was not deterministic: %#v", rate)
+	}
+}
