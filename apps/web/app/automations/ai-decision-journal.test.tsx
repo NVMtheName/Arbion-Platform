@@ -66,6 +66,15 @@ describe("AI Decision Journal", () => {
                     history_feed: "rest_candles",
                     history_quality: "REAL_TIME_SINGLE_VENUE",
                     history_observed_at: "2026-08-25T20:00:00Z",
+                    liquidity_status: "AVAILABLE",
+                    spread_bps: "0.0590000000",
+                    bid_depth_usd: "12500.5000000000",
+                    ask_depth_usd: "11890.2500000000",
+                    bid_levels: 10,
+                    ask_levels: 10,
+                    liquidity_feed: "advanced_trade_public_book",
+                    liquidity_quality: "REAL_TIME_SINGLE_VENUE",
+                    liquidity_observed_at: "2026-08-25T20:11:40Z",
                   },
                 ],
               },
@@ -116,6 +125,16 @@ describe("AI Decision Journal", () => {
     ).toBeInTheDocument();
     expect(
       within(evidence!).getByText(/Rest Candles · Aug 25, 2026, 8:00 PM UTC/),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText(
+        "Spread 0.059 bps · $12500.5 bid / $11890.25 ask · 10/10 levels",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText(
+        /Advanced Trade Public Book · Aug 25, 2026, 8:11 PM UTC · Real Time Single Venue/,
+      ),
     ).toBeInTheDocument();
     expect(
       screen.getByText(

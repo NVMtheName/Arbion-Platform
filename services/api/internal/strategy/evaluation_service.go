@@ -57,6 +57,7 @@ type EvaluationMarkets interface {
 	CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error)
 	CryptoVenueStats(context.Context, string, string) (marketintelligence.CryptoVenueStats, bool, error)
 	RecentCryptoCandles(context.Context, string, string, int, int) (marketintelligence.CryptoCandleSeries, bool, error)
+	CryptoLiquidity(context.Context, string, string, int) (marketintelligence.CryptoLiquiditySnapshot, bool, error)
 }
 
 const (
@@ -673,7 +674,7 @@ func (s *EvaluationService) aiMarketFacts(ctx context.Context, principal authori
 			if !freshMarketTimestamp(quote.ProviderTimestamp, now) {
 				return nil, ErrEvaluationMarketDataStale
 			}
-			facts = append(facts, neural.ShadowMarketFact{Symbol: strings.ToUpper(symbol), AssetClass: "EQUITY", Currency: "USD", Bid: financialDecimal(quote.Bid), Ask: financialDecimal(quote.Ask), Mark: financialDecimal(quote.Mark), Last: financialDecimal(quote.Last), Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: quote.ProviderTimestamp, HistoryStatus: "UNAVAILABLE"})
+			facts = append(facts, neural.ShadowMarketFact{Symbol: strings.ToUpper(symbol), AssetClass: "EQUITY", Currency: "USD", Bid: financialDecimal(quote.Bid), Ask: financialDecimal(quote.Ask), Mark: financialDecimal(quote.Mark), Last: financialDecimal(quote.Last), Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: quote.ProviderTimestamp, HistoryStatus: "UNAVAILABLE", LiquidityStatus: "UNAVAILABLE"})
 		}
 		return facts, nil
 	}
@@ -691,7 +692,7 @@ func (s *EvaluationService) aiMarketFacts(ctx context.Context, principal authori
 		if !freshMarketTimestamp(market.Provenance.ProviderTimestamp, now) {
 			return nil, ErrEvaluationMarketDataStale
 		}
-		fact := neural.ShadowMarketFact{Symbol: strings.ToUpper(market.Symbol), AssetClass: "CRYPTO", Currency: "USD", Bid: marketDecimal(market.Bid), Ask: marketDecimal(market.Ask), Mark: string(market.CurrentPrice), Last: string(market.CurrentPrice), ChangePercent24H: marketDecimal(market.ChangePercent24H), Volume24H: marketDecimal(market.Volume24H), Feed: market.Provenance.Feed, Quality: string(market.Provenance.Quality), ObservedAt: market.Provenance.ProviderTimestamp, HistoryStatus: "UNAVAILABLE", HistoryGranularitySeconds: aiHistoryGranularitySeconds, HistoryExpectedIntervals: aiHistoryExpectedIntervals}
+		fact := neural.ShadowMarketFact{Symbol: strings.ToUpper(market.Symbol), AssetClass: "CRYPTO", Currency: "USD", Bid: marketDecimal(market.Bid), Ask: marketDecimal(market.Ask), Mark: string(market.CurrentPrice), Last: string(market.CurrentPrice), ChangePercent24H: marketDecimal(market.ChangePercent24H), Volume24H: marketDecimal(market.Volume24H), Feed: market.Provenance.Feed, Quality: string(market.Provenance.Quality), ObservedAt: market.Provenance.ProviderTimestamp, HistoryStatus: "UNAVAILABLE", HistoryGranularitySeconds: aiHistoryGranularitySeconds, HistoryExpectedIntervals: aiHistoryExpectedIntervals, LiquidityStatus: "UNAVAILABLE"}
 		if stats, _, statsErr := s.markets.CryptoVenueStats(ctx, fact.Symbol, "USD"); statsErr == nil {
 			fact.Volume24H = string(stats.Volume24H)
 			fact.ChangePercent24H = percentageChange(string(stats.Open), string(stats.Last))
@@ -699,9 +700,57 @@ func (s *EvaluationService) aiMarketFacts(ctx context.Context, principal authori
 		if series, _, historyErr := s.markets.RecentCryptoCandles(ctx, fact.Symbol, "USD", aiHistoryGranularitySeconds, aiHistoryExpectedIntervals); historyErr == nil {
 			addAIHistoryFacts(&fact, series, now)
 		}
+		if liquidity, _, liquidityErr := s.markets.CryptoLiquidity(ctx, fact.Symbol, "USD", 10); liquidityErr == nil {
+			addAILiquidityFacts(&fact, liquidity, now)
+		}
 		facts = append(facts, fact)
 	}
 	return facts, nil
+}
+
+// addAILiquidityFacts preserves only bounded, point-in-time Coinbase book
+// evidence. The aggregate depths are exact price-times-size sums across the
+// returned levels; they are context, not a promise that those levels execute.
+func addAILiquidityFacts(fact *neural.ShadowMarketFact, snapshot marketintelligence.CryptoLiquiditySnapshot, now time.Time) {
+	if fact == nil || !strings.EqualFold(snapshot.Symbol, fact.Symbol) || !strings.EqualFold(snapshot.Currency, fact.Currency) || snapshot.Depth != 10 || len(snapshot.Bids) == 0 || len(snapshot.Bids) > 10 || len(snapshot.Asks) == 0 || len(snapshot.Asks) > 10 {
+		return
+	}
+	fact.LiquidityFeed = snapshot.Provenance.Feed
+	fact.LiquidityQuality = string(snapshot.Provenance.Quality)
+	observedAt := snapshot.Provenance.ProviderTimestamp
+	fact.LiquidityObservedAt = &observedAt
+	if !freshMarketTimestamp(observedAt, now) {
+		fact.LiquidityStatus = "STALE"
+		return
+	}
+	bidDepth, bidOK := aiBookDepthUSD(snapshot.Bids)
+	askDepth, askOK := aiBookDepthUSD(snapshot.Asks)
+	if !bidOK || !askOK {
+		fact.LiquidityStatus = "UNAVAILABLE"
+		fact.LiquidityFeed = ""
+		fact.LiquidityQuality = ""
+		fact.LiquidityObservedAt = nil
+		return
+	}
+	fact.LiquidityStatus = "AVAILABLE"
+	fact.SpreadBPS = string(snapshot.SpreadBPS)
+	fact.BidDepthUSD = bidDepth
+	fact.AskDepthUSD = askDepth
+	fact.BidLevels = len(snapshot.Bids)
+	fact.AskLevels = len(snapshot.Asks)
+}
+
+func aiBookDepthUSD(levels []marketintelligence.CryptoBookLevel) (string, bool) {
+	total := new(big.Rat)
+	for _, level := range levels {
+		price, priceOK := new(big.Rat).SetString(string(level.Price))
+		size, sizeOK := new(big.Rat).SetString(string(level.Size))
+		if !priceOK || !sizeOK || price.Sign() <= 0 || size.Sign() <= 0 {
+			return "", false
+		}
+		total.Add(total, new(big.Rat).Mul(price, size))
+	}
+	return total.FloatString(10), total.Sign() > 0
 }
 
 // addAIHistoryFacts derives only fully covered trailing windows from exact

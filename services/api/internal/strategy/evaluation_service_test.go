@@ -60,9 +60,10 @@ func (f *evaluationAIFake) GenerateShadowDecision(_ context.Context, _ authoriza
 }
 
 type evaluationMarketsFake struct {
-	batch   marketintelligence.CryptoMarketBatch
-	stats   map[string]marketintelligence.CryptoVenueStats
-	history map[string]marketintelligence.CryptoCandleSeries
+	batch     marketintelligence.CryptoMarketBatch
+	stats     map[string]marketintelligence.CryptoVenueStats
+	history   map[string]marketintelligence.CryptoCandleSeries
+	liquidity map[string]marketintelligence.CryptoLiquiditySnapshot
 }
 
 func (f *evaluationMarketsFake) CryptoMarkets(context.Context, string, []string) (marketintelligence.CryptoMarketBatch, bool, error) {
@@ -81,6 +82,13 @@ func (f *evaluationMarketsFake) RecentCryptoCandles(_ context.Context, symbol, _
 		return marketintelligence.CryptoCandleSeries{}, false, errors.New("history unavailable")
 	}
 	return series, false, nil
+}
+func (f *evaluationMarketsFake) CryptoLiquidity(_ context.Context, symbol, _ string, depth int) (marketintelligence.CryptoLiquiditySnapshot, bool, error) {
+	snapshot, ok := f.liquidity[symbol]
+	if !ok || depth != 10 {
+		return marketintelligence.CryptoLiquiditySnapshot{}, false, errors.New("liquidity unavailable")
+	}
+	return snapshot, false, nil
 }
 func (f *evaluationStoreFake) EvaluationFacts(context.Context, Instance, time.Time) (EvaluationFacts, error) {
 	return f.facts, nil
@@ -266,14 +274,25 @@ func aiEvaluationFixture(provider string, decision neural.ShadowDecision) (*Eval
 	finances := &evaluationFinancialFake{account: financial.FinancialAccount{ID: "account", UserID: "user", Provider: provider, Status: "active", BaseCurrency: "USD", Capabilities: financial.Capabilities{"options": financial.Unsupported, "margin": financial.Unsupported}}, balances: financial.Balances{Cash: &cash, AvailableCash: &available, BuyingPower: &buyingPower}, positions: []financial.Position{}, timestamp: now}
 	ai := &evaluationAIFake{decision: decision}
 	markets := &evaluationMarketsFake{
-		batch:   marketintelligence.CryptoMarketBatch{Markets: []marketintelligence.CryptoMarketObservation{{Symbol: "BTC", Currency: "USD", CurrentPrice: "100", Bid: marketDecimalPointer("99"), Ask: marketDecimalPointer("101"), Provenance: marketintelligence.Provenance{Provider: "coinbase", Feed: "exchange", Quality: marketintelligence.RealTimeSingleVenue, ProviderTimestamp: now, ReceivedAt: now}}}},
-		stats:   map[string]marketintelligence.CryptoVenueStats{"BTC": {Symbol: "BTC", Currency: "USD", Open: "80", Last: "100", Volume24H: "2500"}},
-		history: map[string]marketintelligence.CryptoCandleSeries{"BTC": aiHistorySeries(now, aiHistoryExpectedIntervals)},
+		batch:     marketintelligence.CryptoMarketBatch{Markets: []marketintelligence.CryptoMarketObservation{{Symbol: "BTC", Currency: "USD", CurrentPrice: "100", Bid: marketDecimalPointer("99"), Ask: marketDecimalPointer("101"), Provenance: marketintelligence.Provenance{Provider: "coinbase", Feed: "exchange", Quality: marketintelligence.RealTimeSingleVenue, ProviderTimestamp: now, ReceivedAt: now}}}},
+		stats:     map[string]marketintelligence.CryptoVenueStats{"BTC": {Symbol: "BTC", Currency: "USD", Open: "80", Last: "100", Volume24H: "2500"}},
+		history:   map[string]marketintelligence.CryptoCandleSeries{"BTC": aiHistorySeries(now, aiHistoryExpectedIntervals)},
+		liquidity: map[string]marketintelligence.CryptoLiquiditySnapshot{"BTC": aiLiquiditySnapshot(now)},
 	}
 	service := NewEvaluationService(store, automations, finances)
 	service.ConfigureAIShadow(ai, markets)
 	service.now = func() time.Time { return now }
 	return service, store, finances, ai, authorization.Principal{UserID: "user", Entitlement: authorization.EntitlementFounder}
+}
+
+func aiLiquiditySnapshot(now time.Time) marketintelligence.CryptoLiquiditySnapshot {
+	return marketintelligence.CryptoLiquiditySnapshot{
+		Symbol: "BTC", Currency: "USD", ProductID: "BTC-USD", Depth: 10,
+		Bids: []marketintelligence.CryptoBookLevel{{Price: "99", Size: "2"}, {Price: "98", Size: "1"}},
+		Asks: []marketintelligence.CryptoBookLevel{{Price: "101", Size: "3"}, {Price: "102", Size: "1"}},
+		Last: "100", MidMarket: "100", SpreadBPS: "200", SpreadAbsolute: "2",
+		Provenance: marketintelligence.Provenance{Provider: "coinbase", Feed: "advanced_trade_public_book", Quality: marketintelligence.RealTimeSingleVenue, ProviderTimestamp: now, ReceivedAt: now},
+	}
 }
 
 func aiHistorySeries(now time.Time, intervals int) marketintelligence.CryptoCandleSeries {
@@ -322,7 +341,7 @@ func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
 	if err != nil || outcome.AIDecision != "ABSTAIN" || outcome.Execution.Status != ExecutionCanceled {
 		t.Fatalf("unexpected Coinbase abstention: %#v %v", outcome, err)
 	}
-	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" || ai.request.Markets[0].ChangePercent1H != "4.0000000000" || ai.request.Markets[0].ChangePercent6H != "4.0000000000" || ai.request.Markets[0].ChangePercent24H != "25.0000000000" || ai.request.Markets[0].Volume24H != "2500" || ai.request.Markets[0].HistoryStatus != "COMPLETE" || ai.request.Markets[0].HistoryContiguousIntervals != 96 || ai.request.Markets[0].HistoryFeed != "rest_candles" || len(ai.request.Positions) != 1 || ai.request.Positions[0].MarketValueUSD != "1.0000000000" {
+	if store.abstains != 1 || store.commits != 0 || finances.quoteCalls != 0 || ai.request.Markets[0].Feed != "exchange" || ai.request.Markets[0].ChangePercent1H != "4.0000000000" || ai.request.Markets[0].ChangePercent6H != "4.0000000000" || ai.request.Markets[0].ChangePercent24H != "25.0000000000" || ai.request.Markets[0].Volume24H != "2500" || ai.request.Markets[0].HistoryStatus != "COMPLETE" || ai.request.Markets[0].HistoryContiguousIntervals != 96 || ai.request.Markets[0].HistoryFeed != "rest_candles" || ai.request.Markets[0].LiquidityStatus != "AVAILABLE" || ai.request.Markets[0].SpreadBPS != "200" || ai.request.Markets[0].BidDepthUSD != "296.0000000000" || ai.request.Markets[0].AskDepthUSD != "405.0000000000" || ai.request.Markets[0].BidLevels != 2 || ai.request.Markets[0].AskLevels != 2 || ai.request.Markets[0].LiquidityFeed != "advanced_trade_public_book" || len(ai.request.Positions) != 1 || ai.request.Positions[0].MarketValueUSD != "1.0000000000" {
 		t.Fatalf("unexpected Coinbase boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
 	assertAIInputEvidence(t, store.abstainRationale, "coinbase", "100", 1, 1, 0)
@@ -372,6 +391,31 @@ func TestAIHistoryFactsRejectStaleSeriesWithoutDerivedChanges(t *testing.T) {
 	}
 }
 
+func TestAILiquidityFactsRejectStaleBookWithoutDerivedDepth(t *testing.T) {
+	now := time.Date(2026, 8, 25, 14, 0, 0, 0, time.UTC)
+	snapshot := aiLiquiditySnapshot(now.Add(-marketDataMaxAge - time.Second))
+	fact := neural.ShadowMarketFact{Symbol: "BTC", Currency: "USD", LiquidityStatus: "UNAVAILABLE"}
+
+	addAILiquidityFacts(&fact, snapshot, now)
+
+	if fact.LiquidityStatus != "STALE" || fact.SpreadBPS != "" || fact.BidDepthUSD != "" || fact.AskDepthUSD != "" || fact.LiquidityObservedAt == nil {
+		t.Fatalf("stale Coinbase book produced liquidity values: %#v", fact)
+	}
+}
+
+func TestAILiquidityFactsRejectMalformedLevelWithoutPartialEvidence(t *testing.T) {
+	now := time.Date(2026, 8, 25, 14, 0, 0, 0, time.UTC)
+	snapshot := aiLiquiditySnapshot(now)
+	snapshot.Bids[0].Size = "not-a-decimal"
+	fact := neural.ShadowMarketFact{Symbol: "BTC", Currency: "USD", LiquidityStatus: "UNAVAILABLE"}
+
+	addAILiquidityFacts(&fact, snapshot, now)
+
+	if fact.LiquidityStatus != "UNAVAILABLE" || fact.LiquidityFeed != "" || fact.LiquidityObservedAt != nil {
+		t.Fatalf("malformed Coinbase book leaked partial liquidity evidence: %#v", fact)
+	}
+}
+
 func assertAIInputEvidence(t *testing.T, rationale json.RawMessage, provider, buyingPower string, positionCount, marketCount, recentDecisionCount int) {
 	t.Helper()
 	var payload struct {
@@ -400,6 +444,9 @@ func assertAIInputEvidence(t *testing.T, rationale json.RawMessage, provider, bu
 	}
 	if provider == "schwab" && (payload.InputUsage == nil || *payload.InputUsage != 30 || payload.OutputUsage == nil || *payload.OutputUsage != 45 || payload.LatencyMS == nil || *payload.LatencyMS != 120) {
 		t.Fatalf("AI route telemetry was not preserved: %#v", payload)
+	}
+	if provider == "coinbase" && (len(evidence.Markets) != 1 || evidence.Markets[0].LiquidityStatus != "AVAILABLE" || evidence.Markets[0].SpreadBPS != "200" || evidence.Markets[0].LiquidityObservedAt == nil) {
+		t.Fatalf("immutable Coinbase liquidity evidence was not preserved: %#v", evidence.Markets)
 	}
 }
 

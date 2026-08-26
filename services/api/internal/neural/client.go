@@ -115,6 +115,15 @@ type ShadowMarketFact struct {
 	HistoryFeed                string     `json:"history_feed"`
 	HistoryQuality             string     `json:"history_quality"`
 	HistoryObservedAt          *time.Time `json:"history_observed_at,omitempty"`
+	LiquidityStatus            string     `json:"liquidity_status,omitempty"`
+	SpreadBPS                  string     `json:"spread_bps,omitempty"`
+	BidDepthUSD                string     `json:"bid_depth_usd,omitempty"`
+	AskDepthUSD                string     `json:"ask_depth_usd,omitempty"`
+	BidLevels                  int        `json:"bid_levels,omitempty"`
+	AskLevels                  int        `json:"ask_levels,omitempty"`
+	LiquidityFeed              string     `json:"liquidity_feed,omitempty"`
+	LiquidityQuality           string     `json:"liquidity_quality,omitempty"`
+	LiquidityObservedAt        *time.Time `json:"liquidity_observed_at,omitempty"`
 }
 
 // ShadowRecentDecision is a bounded, credential-free summary of an immutable

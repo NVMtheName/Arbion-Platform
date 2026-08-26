@@ -105,6 +105,9 @@ infer or fill a missing history window. Prefer ABSTAIN when data is missing, sta
 partial, contradictory, or the objective is not cautiously supported. A SELL must be
 supported by the supplied available holding. Recent decisions are bounded structured
 facts from this same immutable SHADOW instance; they contain no prior model prose.
+Liquidity is bounded single-venue evidence, not an executable quote. Use spread and
+book-depth values only when liquidity_status is AVAILABLE, preserve their source and
+time limitations, and never infer missing depth or execution certainty.
 Avoid repetitive reasoning and do not merely repeat the same symbol and side without
 materially different current evidence. A recent WOULD_HAVE_SUBMITTED action may still
 be inside Arbion's deterministic one-hour cooldown, which remains authoritative.

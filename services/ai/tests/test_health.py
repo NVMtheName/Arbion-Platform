@@ -151,6 +151,74 @@ def test_shadow_market_history_rejects_claimed_complete_gaps() -> None:
         )
 
 
+def test_shadow_market_accepts_complete_bounded_liquidity_provenance() -> None:
+    market = ShadowMarketFact.model_validate(
+        {
+            "symbol": "BTC",
+            "asset_class": "CRYPTO",
+            "currency": "USD",
+            "bid": "99",
+            "ask": "101",
+            "mark": "100",
+            "last": "100",
+            "change_percent_1h": "",
+            "change_percent_6h": "",
+            "change_percent_24h": "",
+            "volume_24h": "",
+            "feed": "rest_ticker",
+            "quality": "REAL_TIME_SINGLE_VENUE",
+            "observed_at": "2026-08-25T14:00:00Z",
+            "history_status": "UNAVAILABLE",
+            "history_granularity_seconds": 900,
+            "history_contiguous_intervals": 0,
+            "history_expected_intervals": 96,
+            "history_feed": "",
+            "history_quality": "",
+            "liquidity_status": "AVAILABLE",
+            "spread_bps": "2.5",
+            "bid_depth_usd": "5000",
+            "ask_depth_usd": "4800",
+            "bid_levels": 10,
+            "ask_levels": 10,
+            "liquidity_feed": "advanced_trade_public_book",
+            "liquidity_quality": "REAL_TIME_SINGLE_VENUE",
+            "liquidity_observed_at": "2026-08-25T14:00:01Z",
+        }
+    )
+    assert market.liquidity_status == "AVAILABLE"
+    assert market.bid_depth_usd == "5000"
+
+
+def test_shadow_market_rejects_unavailable_liquidity_with_derived_values() -> None:
+    with pytest.raises(ValidationError, match="unusable liquidity cannot contain"):
+        ShadowMarketFact.model_validate(
+            {
+                "symbol": "BTC",
+                "asset_class": "CRYPTO",
+                "currency": "USD",
+                "bid": "99",
+                "ask": "101",
+                "mark": "100",
+                "last": "100",
+                "change_percent_1h": "",
+                "change_percent_6h": "",
+                "change_percent_24h": "",
+                "volume_24h": "",
+                "feed": "rest_ticker",
+                "quality": "REAL_TIME_SINGLE_VENUE",
+                "observed_at": "2026-08-25T14:00:00Z",
+                "history_status": "UNAVAILABLE",
+                "history_granularity_seconds": 900,
+                "history_contiguous_intervals": 0,
+                "history_expected_intervals": 96,
+                "history_feed": "",
+                "history_quality": "",
+                "liquidity_status": "UNAVAILABLE",
+                "spread_bps": "2.5",
+            }
+        )
+
+
 def test_shadow_recent_decision_rejects_inconsistent_abstention() -> None:
     with pytest.raises(ValidationError, match="abstention memory is inconsistent"):
         ShadowRecentDecision.model_validate(
