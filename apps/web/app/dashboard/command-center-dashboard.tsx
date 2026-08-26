@@ -30,12 +30,33 @@ export type DashboardAccountSummary = {
   asOf?: string;
 };
 
+export type DashboardAIEngineSummary = {
+  id: string;
+  mandateID: string;
+  accountName: string;
+  provider: string;
+  status: string;
+  currentState: string;
+  executionMode: string;
+  modelID?: string;
+  lastEvaluatedAt?: string;
+  nextRunAt?: string;
+  scheduleStatus?: string;
+  scheduleAvailable?: boolean;
+  journalAvailable?: boolean;
+  consecutiveFailures: number;
+  lastDecision?: string;
+  lastDecisionSymbol?: string;
+  lastDecisionAt?: string;
+};
+
 type DashboardProps = {
   user: DashboardUser;
   connectionCount: number;
   modelConfigured: boolean;
   modelID?: string;
   accounts: DashboardAccountSummary[];
+  aiEngines?: DashboardAIEngineSummary[];
 };
 
 const enter = {
@@ -105,12 +126,66 @@ function availabilityLabel(account: DashboardAccountSummary) {
   return "Provider refresh unavailable";
 }
 
+function readableTime(value?: string) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.valueOf())) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  }).format(parsed);
+}
+
+function decisionLabel(engine: DashboardAIEngineSummary) {
+  if (engine.journalAvailable === false) return "Decision journal unavailable";
+  if (engine.lastDecision === "ALLOW_WOULD_HAVE_SUBMITTED")
+    return `Would have submitted${engine.lastDecisionSymbol ? ` · ${engine.lastDecisionSymbol}` : ""}`;
+  if (engine.lastDecision?.startsWith("DENY_"))
+    return `Held by controls${engine.lastDecisionSymbol ? ` · ${engine.lastDecisionSymbol}` : ""}`;
+  if (engine.lastDecision === "ABSTAIN") return "Abstained · No action";
+  return "Awaiting first decision";
+}
+
+function engineHealth(engine: DashboardAIEngineSummary) {
+  if (engine.status === "PAUSED") return "Paused by owner";
+  if (engine.journalAvailable === false) return "Decision journal unavailable";
+  if (engine.scheduleAvailable === false) return "Schedule status unavailable";
+  if (engine.consecutiveFailures > 0 || engine.scheduleStatus === "FAILED")
+    return "Schedule needs review";
+  if (engine.nextRunAt) return "Healthy schedule";
+  return "Manual cycles only";
+}
+
+function engineNeedsReview(engine: DashboardAIEngineSummary) {
+  return (
+    engine.journalAvailable === false ||
+    engine.scheduleAvailable === false ||
+    engine.consecutiveFailures > 0 ||
+    engine.scheduleStatus === "FAILED"
+  );
+}
+
+function engineStatus(engine: DashboardAIEngineSummary) {
+  if (engine.status === "PAUSED") return "Paused";
+  if (engine.currentState === "AI_MONITORING") return "Monitoring";
+  return engine.currentState
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function CommandCenterDashboard({
   user,
   connectionCount,
   modelConfigured,
   modelID,
   accounts,
+  aiEngines = [],
 }: DashboardProps) {
   const activeAccounts = accounts.filter(
     (account) => account.status === "active",
@@ -229,6 +304,111 @@ export function CommandCenterDashboard({
           </ol>
         </motion.section>
       )}
+
+      <motion.section
+        className="ai-engine-cockpit"
+        aria-labelledby="ai-engine-cockpit-title"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.16 }}
+      >
+        <header>
+          <div>
+            <p className="command-kicker">AUTONOMOUS ENGINE</p>
+            <h2 id="ai-engine-cockpit-title">AI oversight at a glance.</h2>
+            <p>
+              Current model, schedule health, and immutable shadow reasoning
+              across your connected accounts.
+            </p>
+          </div>
+          <Link href="/automations">Open AI strategies ↗</Link>
+        </header>
+
+        {aiEngines.length === 0 ? (
+          <div className="ai-engine-empty">
+            <strong>No AI Shadow Engine is monitoring yet.</strong>
+            <p>
+              Start with a bounded, non-live engine tied to one account and one
+              model.
+            </p>
+            <Link href="/automations/new">Create an AI Shadow Engine →</Link>
+          </div>
+        ) : (
+          <div className="ai-engine-grid">
+            {aiEngines.map((engine) => (
+              <article key={engine.id}>
+                <header>
+                  <div>
+                    <span
+                      className={`provider-mark provider-${engine.provider}`}
+                    >
+                      {providerInitial(engine.provider)}
+                    </span>
+                    <div>
+                      <strong>{engine.accountName}</strong>
+                      <small>{providerLabel(engine.provider)}</small>
+                    </div>
+                  </div>
+                  <div className="ai-engine-badges">
+                    <span
+                      className={
+                        engine.status === "ACTIVE"
+                          ? "is-monitoring"
+                          : "is-paused"
+                      }
+                    >
+                      {engineStatus(engine)}
+                    </span>
+                    <span className="is-shadow">Shadow only</span>
+                  </div>
+                </header>
+                <dl>
+                  <div>
+                    <dt>Model</dt>
+                    <dd>{engine.modelID ?? "Not recorded"}</dd>
+                  </div>
+                  <div>
+                    <dt>Latest decision</dt>
+                    <dd>{decisionLabel(engine)}</dd>
+                  </div>
+                  <div>
+                    <dt>Last cycle</dt>
+                    <dd>
+                      {readableTime(
+                        engine.lastDecisionAt ?? engine.lastEvaluatedAt,
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Next cycle</dt>
+                    <dd>
+                      {engine.nextRunAt
+                        ? readableTime(engine.nextRunAt)
+                        : "Not scheduled"}
+                    </dd>
+                  </div>
+                </dl>
+                <footer>
+                  <span
+                    className={
+                      engineNeedsReview(engine) ? "needs-review" : "healthy"
+                    }
+                  >
+                    <i /> {engineHealth(engine)}
+                  </span>
+                  <Link href={`/automations/${engine.mandateID}`}>
+                    Review journal →
+                  </Link>
+                </footer>
+              </article>
+            ))}
+          </div>
+        )}
+        <p className="ai-engine-safety">
+          No broker order can be sent. Every displayed decision is non-live and
+          remains subject to Arbion&apos;s deterministic controls.
+        </p>
+      </motion.section>
 
       <motion.section
         className="portfolio-command"
