@@ -157,6 +157,8 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 		mux.Handle("GET /api/accounts/{id}", h.require(stdhttp.HandlerFunc(h.getAccount)))
 		mux.Handle("GET /api/accounts/{id}/balances", h.require(stdhttp.HandlerFunc(h.getBalances)))
 		mux.Handle("GET /api/accounts/{id}/positions", h.require(stdhttp.HandlerFunc(h.getPositions)))
+		mux.Handle("GET /api/accounts/{id}/reconciliations/latest", h.require(stdhttp.HandlerFunc(h.latestPortfolioReconciliation)))
+		mux.Handle("POST /api/accounts/{id}/reconciliations", h.require(stdhttp.HandlerFunc(h.runPortfolioReconciliation)))
 		mux.Handle("GET /api/accounts/{id}/portfolio/crypto", h.require(stdhttp.HandlerFunc(h.cryptoPortfolio)))
 		mux.Handle("GET /api/accounts/{id}/activity/fills", h.require(stdhttp.HandlerFunc(h.connectedTradeFills)))
 		mux.Handle("GET /api/accounts/{id}/activity/orders", h.require(stdhttp.HandlerFunc(h.connectedOrderHistory)))
@@ -248,6 +250,14 @@ func (h *authHandler) financialError(w stdhttp.ResponseWriter, e error) {
 		status = 409
 		code = "CONNECTION_IN_USE"
 		message = "Pause or archive the automation using this account before disabling or disconnecting it."
+	} else if errors.Is(e, financialconnection.ErrReconciliationUnavailable) {
+		status = stdhttp.StatusServiceUnavailable
+		code = "RECONCILIATION_UNAVAILABLE"
+		message = "Portfolio reconciliation is temporarily unavailable."
+	} else if errors.Is(e, financialconnection.ErrReconciliationNotFound) {
+		status = stdhttp.StatusNotFound
+		code = "RECONCILIATION_NOT_FOUND"
+		message = "No portfolio reconciliation has been recorded for this account."
 	} else {
 		var pe *financial.ProviderError
 		if errors.As(e, &pe) {

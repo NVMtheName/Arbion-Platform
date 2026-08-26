@@ -105,11 +105,15 @@ func (vault *vaultFake) Delete(_ context.Context, locator credential.Locator) er
 type coinbaseProviderFake struct {
 	verified     int
 	balances     int
+	positions    int
 	fills        int
 	orders       int
 	costs        int
 	previews     int
 	disconnected int
+	positionData []financial.Position
+	balancesErr  error
+	positionsErr error
 }
 
 type schwabAuthorizerFake struct{ coinbaseProviderFake }
@@ -150,9 +154,20 @@ func (*coinbaseProviderFake) GetAccount(_ context.Context, credentials *financia
 }
 func (provider *coinbaseProviderFake) GetBalances(context.Context, *financial.Credentials, string) (financial.Balances, error) {
 	provider.balances++
+	if provider.balancesErr != nil {
+		return financial.Balances{}, provider.balancesErr
+	}
 	return financial.Balances{Cash: &financial.Money{Amount: "25", Currency: "USD"}}, nil
 }
-func (*coinbaseProviderFake) GetPositions(context.Context, *financial.Credentials, string) ([]financial.Position, error) {
+
+func (provider *coinbaseProviderFake) GetPositions(context.Context, *financial.Credentials, string) ([]financial.Position, error) {
+	provider.positions++
+	if provider.positionsErr != nil {
+		return nil, provider.positionsErr
+	}
+	if provider.positionData != nil {
+		return append([]financial.Position(nil), provider.positionData...), nil
+	}
 	return []financial.Position{{Symbol: "BTC", Quantity: "0.1", Direction: "long", InstrumentType: "CRYPTO"}}, nil
 }
 func (provider *coinbaseProviderFake) GetTradeFills(_ context.Context, _ *financial.Credentials, id string, limit int) (financial.TradeFillPage, error) {
@@ -193,6 +208,129 @@ func (provider *coinbaseProviderFake) Disconnect(context.Context, *financial.Cre
 
 func founder() authorization.Principal {
 	return authorization.Principal{UserID: "user-1", Entitlement: authorization.EntitlementFounder}
+}
+
+type reconciliationStoreFake struct {
+	items []PortfolioReconciliation
+}
+
+func (store *reconciliationStoreFake) LatestReconciliation(_ context.Context, _, accountID string) (PortfolioReconciliation, error) {
+	for index := len(store.items) - 1; index >= 0; index-- {
+		if store.items[index].FinancialAccountID == accountID {
+			return store.items[index], nil
+		}
+	}
+	return PortfolioReconciliation{}, ErrReconciliationNotFound
+}
+
+func (store *reconciliationStoreFake) LatestReliableReconciliation(_ context.Context, _, accountID string) (PortfolioReconciliation, error) {
+	for index := len(store.items) - 1; index >= 0; index-- {
+		if store.items[index].FinancialAccountID == accountID && store.items[index].BalancesStatus == "READY" && store.items[index].PositionsStatus == "READY" {
+			return store.items[index], nil
+		}
+	}
+	return PortfolioReconciliation{}, ErrReconciliationNotFound
+}
+
+func (store *reconciliationStoreFake) CreateReconciliation(_ context.Context, _ string, report PortfolioReconciliation, _ []byte) (PortfolioReconciliation, error) {
+	report.ID = "reconciliation-" + string(rune('1'+len(store.items)))
+	report.CreatedAt = report.ObservedAt
+	report.Positions = append([]ReconciliationPosition(nil), report.Positions...)
+	report.Changes = append([]ReconciliationChange(nil), report.Changes...)
+	store.items = append(store.items, report)
+	return report, nil
+}
+
+func reconciliationService(t *testing.T, provider *coinbaseProviderFake, reports ReconciliationStore) *Service {
+	t.Helper()
+	store := &connectionStoreFake{
+		connection: Connection{ID: "connection-1", Provider: "coinbase", Status: "active"},
+		account: financial.FinancialAccount{
+			ID: "account-1", UserID: founder().UserID, ProviderConnectionID: "connection-1", Provider: "coinbase",
+			ProviderAccountID: "portfolio:portfolio-1", DisplayName: "Coinbase Portfolio", BaseCurrency: "USD", Status: "active",
+		},
+	}
+	raw, err := json.Marshal(financial.Credentials{APIKeyName: "organizations/org/apiKeys/key", APIPrivateKey: "private-key", PortfolioID: "portfolio-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(store, &vaultFake{values: map[string][]byte{"connection-1": raw}}, nil, nil, nil, NamedProvider{ID: "coinbase", Provider: provider})
+	service.ConfigureReconciliation(reports)
+	return service
+}
+
+func TestPortfolioReconciliationBuildsImmutableBaselineMatchAndDriftEvidence(t *testing.T) {
+	average := financial.Money{Amount: "50000", Currency: "USD"}
+	current := financial.Money{Amount: "60000", Currency: "USD"}
+	openProfit := financial.Money{Amount: "1000", Currency: "USD"}
+	provider := &coinbaseProviderFake{positionData: []financial.Position{{
+		Symbol: "BTC", Quantity: "0.100000000000000000", Direction: "long", InstrumentType: "crypto",
+		CostBasis: &average, CurrentPrice: &current, OpenProfitLoss: &openProfit, PriceBasis: "provider_position",
+	}}}
+	reports := &reconciliationStoreFake{}
+	service := reconciliationService(t, provider, reports)
+
+	baseline, err := service.RunReconciliation(context.Background(), founder(), "account-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline.ComparisonStatus != "BASELINE" || baseline.AutonomySignal != "INSUFFICIENT_EVIDENCE" || baseline.PerformanceStatus != "AVAILABLE" || baseline.RealizedPerformanceStatus != "UNAVAILABLE" || baseline.BlocksNewActions || baseline.ChangeCount != 0 || len(baseline.EvidenceHash) != 64 {
+		t.Fatalf("unexpected baseline: %#v", baseline)
+	}
+	matched, err := service.RunReconciliation(context.Background(), founder(), "account-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matched.ComparisonStatus != "MATCHED" || matched.AutonomySignal != "CLEAR" || matched.PreviousReconciliationID == nil || *matched.PreviousReconciliationID != baseline.ID {
+		t.Fatalf("unexpected matched report: %#v", matched)
+	}
+	provider.positionsErr = &financial.ProviderError{Code: financial.ProviderUnavailable}
+	incomplete, err := service.RunReconciliation(context.Background(), founder(), "account-1")
+	if err != nil || incomplete.ComparisonStatus != "INCOMPLETE" {
+		t.Fatalf("provider gap was not captured safely: %#v err=%v", incomplete, err)
+	}
+	provider.positionsErr = nil
+	recovered, err := service.RunReconciliation(context.Background(), founder(), "account-1")
+	if err != nil || recovered.ComparisonStatus != "MATCHED" || recovered.PreviousReconciliationID == nil || *recovered.PreviousReconciliationID != matched.ID {
+		t.Fatalf("recovery did not compare with the last reliable snapshot: %#v err=%v", recovered, err)
+	}
+	provider.positionData[0].Quantity = "0.2"
+	drifted, err := service.RunReconciliation(context.Background(), founder(), "account-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if drifted.ComparisonStatus != "DRIFT_DETECTED" || drifted.AutonomySignal != "REVIEW_RECOMMENDED" || drifted.ChangeCount != 1 || len(drifted.Changes) != 1 || drifted.Changes[0].ChangeType != "QUANTITY_CHANGED" || drifted.BlocksNewActions {
+		t.Fatalf("unexpected drift report: %#v", drifted)
+	}
+	if provider.orders != 0 || provider.fills != 0 || provider.previews != 0 || provider.disconnected != 0 {
+		t.Fatalf("reconciliation crossed a mutation or unrelated provider boundary: %#v", provider)
+	}
+}
+
+func TestPortfolioReconciliationPersistsIncompleteCoverageWithoutInventingPositions(t *testing.T) {
+	provider := &coinbaseProviderFake{positionsErr: &financial.ProviderError{Code: financial.ProviderUnavailable}}
+	reports := &reconciliationStoreFake{}
+	service := reconciliationService(t, provider, reports)
+	report, err := service.RunReconciliation(context.Background(), founder(), "account-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ComparisonStatus != "INCOMPLETE" || report.PositionsStatus != "UNAVAILABLE" || report.PerformanceStatus != "UNAVAILABLE" || report.ObservedPositionCount != 0 || len(report.Positions) != 0 || report.AutonomySignal != "INSUFFICIENT_EVIDENCE" {
+		t.Fatalf("incomplete provider coverage was not preserved explicitly: %#v", report)
+	}
+}
+
+func TestPortfolioReconciliationDoesNotContinueProviderReadsAfterTerminalAuthorizationFailure(t *testing.T) {
+	provider := &coinbaseProviderFake{balancesErr: &financial.ProviderError{Code: financial.PermissionDenied}}
+	reports := &reconciliationStoreFake{}
+	service := reconciliationService(t, provider, reports)
+	report, err := service.RunReconciliation(context.Background(), founder(), "account-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ComparisonStatus != "INCOMPLETE" || report.BalancesStatus != "UNAVAILABLE" || report.PositionsStatus != "UNAVAILABLE" || provider.positions != 0 {
+		t.Fatalf("terminal authorization failure crossed another provider read boundary: report=%#v positions=%d", report, provider.positions)
+	}
 }
 
 func TestSchwabAuthorizationStoresTheWeeklyReauthorizationDeadline(t *testing.T) {

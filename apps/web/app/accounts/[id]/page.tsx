@@ -16,6 +16,10 @@ import {
 } from "./crypto-portfolio-command-center";
 import type { CoinbaseCapitalPolicy } from "./coinbase-order-preview";
 import {
+  PortfolioReconciliationPanel,
+  type PortfolioReconciliation,
+} from "./portfolio-reconciliation-panel";
+import {
   PortfolioHoldingsLedger,
   type PortfolioHolding,
 } from "../portfolio-holdings-ledger";
@@ -112,6 +116,7 @@ export default async function AccountPage({
     let initialActivity: CoinbaseTradeActivity | undefined;
     let initialOrderHistory: CoinbaseOrderHistory | undefined;
     let initialTradingCosts: CoinbaseTradingCostSummary | undefined;
+    let initialReconciliation: PortfolioReconciliation | undefined;
     const [
       activityResponse,
       orderResponse,
@@ -120,6 +125,7 @@ export default async function AccountPage({
       liquidityResponse,
       marketTradesResponse,
       venueStatsResponse,
+      reconciliationResponse,
       bucketsResponse,
     ] = await Promise.all([
       fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/fills`, {
@@ -161,6 +167,10 @@ export default async function AccountPage({
             { headers, cache: "no-store" },
           )
         : Promise.resolve(undefined),
+      fetch(
+        `${base}/api/accounts/${encodeURIComponent(id)}/reconciliations/latest`,
+        { headers, cache: "no-store" },
+      ),
       fetch(`${base}/api/capital-buckets`, {
         headers,
         cache: "no-store",
@@ -239,6 +249,12 @@ export default async function AccountPage({
       };
       initialTradingCosts = costsPayload.trading_costs;
     }
+    if (reconciliationResponse.ok) {
+      const reconciliationPayload = (await reconciliationResponse.json()) as {
+        reconciliation: PortfolioReconciliation;
+      };
+      initialReconciliation = reconciliationPayload.reconciliation;
+    }
     if (historyResponse?.ok) {
       const historyPayload = (await historyResponse.json()) as {
         history: CryptoCandleSeries;
@@ -290,16 +306,25 @@ export default async function AccountPage({
           initialSnapshot={snapshot}
           initialTradingCosts={initialTradingCosts}
         />
+        <PortfolioReconciliationPanel
+          accountID={account.id}
+          accountName={account.display_name}
+          initialReport={initialReconciliation}
+        />
       </main>
     );
   }
 
-  const [br, pr] = await Promise.all([
+  const [br, pr, rr] = await Promise.all([
     fetch(`${base}/api/accounts/${id}/balances`, {
       headers,
       cache: "no-store",
     }),
     fetch(`${base}/api/accounts/${id}/positions`, {
+      headers,
+      cache: "no-store",
+    }),
+    fetch(`${base}/api/accounts/${id}/reconciliations/latest`, {
       headers,
       cache: "no-store",
     }),
@@ -310,6 +335,10 @@ export default async function AccountPage({
   const positions = pr.ok
     ? ((await pr.json()) as { positions: Position[] }).positions
     : [];
+  const initialReconciliation = rr.ok
+    ? ((await rr.json()) as { reconciliation: PortfolioReconciliation })
+        .reconciliation
+    : undefined;
   const holdings: PortfolioHolding[] = positions.map((position, index) => ({
     key: `${account.id}-${position.symbol}-${index}`,
     accountID: account.id,
@@ -354,6 +383,11 @@ export default async function AccountPage({
       <PortfolioHoldingsLedger
         holdings={holdings}
         unavailableAccounts={pr.ok ? [] : [account.display_name]}
+      />
+      <PortfolioReconciliationPanel
+        accountID={account.id}
+        accountName={account.display_name}
+        initialReport={initialReconciliation}
       />
       <p className="security-note">
         Connected-account data is informational. This page cannot place orders

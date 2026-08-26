@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/migrations"
@@ -84,6 +85,28 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 	inUse, err := store.ConnectionInUse(ctx, userID, connectionB)
 	if err != nil || !inUse {
 		t.Fatalf("active automation did not protect its connection: in_use=%v err=%v", inUse, err)
+	}
+	reconciliation, err := store.CreateReconciliation(ctx, userID, PortfolioReconciliation{
+		FinancialAccountID: accountA, Provider: "coinbase", ComparisonStatus: "BASELINE",
+		BalancesStatus: "READY", PositionsStatus: "READY", PerformanceStatus: "UNAVAILABLE",
+		RealizedPerformanceStatus: "UNAVAILABLE", AutonomySignal: "INSUFFICIENT_EVIDENCE",
+		ObservedPositionCount: 1, Changes: []ReconciliationChange{},
+		Balances:   financial.Balances{Cash: &financial.Money{Amount: "25", Currency: "USD"}},
+		Positions:  []ReconciliationPosition{{Symbol: "BTC", InstrumentType: "CRYPTO", Direction: "long", Quantity: "0.1", PerformanceStatus: "UNAVAILABLE"}},
+		ObservedAt: time.Now().UTC(),
+	}, make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.LatestReconciliation(ctx, userID, accountA)
+	if err != nil || loaded.ID != reconciliation.ID || len(loaded.Positions) != 1 || loaded.Positions[0].Quantity != "0.100000000000000000" || loaded.Balances.Cash == nil || loaded.Balances.Cash.Amount != "25.000000000000000000" {
+		t.Fatalf("immutable reconciliation evidence did not round-trip: %#v err=%v", loaded, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE portfolio_reconciliations SET autonomy_signal='CLEAR' WHERE id=$1`, reconciliation.ID); err == nil {
+		t.Fatal("immutable portfolio reconciliation was updateable")
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM portfolio_reconciliation_positions WHERE reconciliation_id=$1`, reconciliation.ID); err == nil {
+		t.Fatal("immutable portfolio reconciliation positions were deleteable")
 	}
 	if err = store.Retire(ctx, userID, connectionA); err != nil {
 		t.Fatal(err)

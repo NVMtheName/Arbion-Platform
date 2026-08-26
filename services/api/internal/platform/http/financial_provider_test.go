@@ -123,6 +123,34 @@ func TestCoinbaseOrderPreviewRouteRequiresAuthenticationAndApprovedOrigin(t *tes
 	}
 }
 
+func TestPortfolioReconciliationRoutesRequireAuthenticationAndApprovedOrigin(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	t.Cleanup(func() { _ = redisClient.Close() })
+	sessions := auth.NewRedisStore(redisClient)
+	service := auth.NewService(&authUsers{}, sessions, sessions, auditSink{}, time.Hour)
+	cfg := config.Config{Database: config.Database{ReadinessTimeout: time.Second}, Auth: config.Auth{SessionCookie: "session", SessionTTL: time.Hour, AllowedOrigins: []string{"http://localhost:3000"}}}
+	handler := NewFullApplicationHandler(checker{}, cfg, service, nil, nil, &financialconnection.Service{})
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/api/accounts/account-1/reconciliations/latest", nil),
+		httptest.NewRequest(http.MethodPost, "/api/accounts/account-1/reconciliations", nil),
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("anonymous reconciliation route returned %d: %s", recorder.Code, recorder.Body.String())
+		}
+	}
+
+	direct := &authHandler{cfg: cfg.Auth, financial: &financialconnection.Service{}}
+	request := httptest.NewRequest(http.MethodPost, "/api/accounts/account-1/reconciliations", nil)
+	recorder := httptest.NewRecorder()
+	direct.runPortfolioReconciliation(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("reconciliation without an approved origin returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestOrderIntentRoutesRequireAuthenticationAndApprovedOrigin(t *testing.T) {
 	mini := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
