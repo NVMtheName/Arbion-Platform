@@ -230,6 +230,7 @@ func TestAutonomousAIReconciliationGateFailsClosedAndUsesExactEvidence(t *testin
 			c.Reconciliation.AutonomySignal = "REVIEW_RECOMMENDED"
 			c.Reconciliation.BlocksNewActions = true
 			c.Reconciliation.ChangeCount = 1
+			c.Reconciliation.BlockingChangeCount = 1
 		}, ReconciliationDriftDetected},
 	}
 	for _, test := range tests {
@@ -243,8 +244,10 @@ func TestAutonomousAIReconciliationGateFailsClosedAndUsesExactEvidence(t *testin
 		})
 	}
 	c, action := base()
+	c.Reconciliation.ChangeCount = 1
+	c.Reconciliation.BlockingChangeCount = 0
 	if result := NewEngine().Evaluate(c, action); result.Decision != Allow {
-		t.Fatalf("current matching reconciliation did not clear the deterministic gate: %#v", result)
+		t.Fatalf("current matching reconciliation with non-tradable-only evidence did not clear the deterministic gate: %#v", result)
 	}
 }
 func TestCapitalPositionActivityUniverseAndStaleness(t *testing.T) {

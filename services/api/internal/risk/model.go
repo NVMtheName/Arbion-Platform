@@ -86,7 +86,7 @@ const AutonomousReconciliationMaxAge = 24 * time.Hour
 type ReconciliationSnapshot struct {
 	AccountID, ComparisonStatus, BalancesStatus, PositionsStatus, AutonomySignal string
 	AutonomyEnforcementActive, BlocksNewActions                                  bool
-	ChangeCount                                                                  int
+	ChangeCount, BlockingChangeCount                                             int
 	ObservedAt                                                                   time.Time
 }
 

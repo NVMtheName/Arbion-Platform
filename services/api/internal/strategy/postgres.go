@@ -575,11 +575,11 @@ func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, ev
 	}
 	if instance.StrategyIdentifier == "ai_shadow" && instance.ExecutionMode == Shadow {
 		var reconciliation risk.ReconciliationSnapshot
-		reconciliationErr := s.db.QueryRow(c, `SELECT financial_account_id::text,comparison_status,balances_status,positions_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,change_count,observed_at FROM portfolio_reconciliations WHERE user_id=$1 AND financial_account_id=$2 ORDER BY observed_at DESC,id DESC LIMIT 1`, instance.UserID, instance.FinancialAccountID).Scan(
+		reconciliationErr := s.db.QueryRow(c, `SELECT financial_account_id::text,comparison_status,balances_status,positions_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,change_count,blocking_change_count,observed_at FROM portfolio_reconciliations WHERE user_id=$1 AND financial_account_id=$2 ORDER BY observed_at DESC,id DESC LIMIT 1`, instance.UserID, instance.FinancialAccountID).Scan(
 			&reconciliation.AccountID, &reconciliation.ComparisonStatus, &reconciliation.BalancesStatus,
 			&reconciliation.PositionsStatus, &reconciliation.AutonomySignal,
 			&reconciliation.AutonomyEnforcementActive, &reconciliation.BlocksNewActions,
-			&reconciliation.ChangeCount, &reconciliation.ObservedAt,
+			&reconciliation.ChangeCount, &reconciliation.BlockingChangeCount, &reconciliation.ObservedAt,
 		)
 		if reconciliationErr != nil && !errors.Is(reconciliationErr, pgx.ErrNoRows) {
 			return EvaluationFacts{}, reconciliationErr

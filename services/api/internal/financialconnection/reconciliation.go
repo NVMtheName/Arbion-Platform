@@ -23,13 +23,23 @@ var (
 
 const maxReconciliationPositions = 1000
 
+const (
+	reconciliationControlTradableInventory = "TRADABLE_INVENTORY"
+	reconciliationControlNonTradableOnly   = "NON_TRADABLE_QUANTITY_ONLY"
+)
+
 type ReconciliationChange struct {
-	Symbol           string            `json:"symbol"`
-	InstrumentType   string            `json:"instrument_type"`
-	Direction        string            `json:"direction"`
-	ChangeType       string            `json:"change_type"`
-	PreviousQuantity financial.Decimal `json:"previous_quantity,omitempty"`
-	CurrentQuantity  financial.Decimal `json:"current_quantity,omitempty"`
+	Symbol                      string             `json:"symbol"`
+	InstrumentType              string             `json:"instrument_type"`
+	Direction                   string             `json:"direction"`
+	ChangeType                  string             `json:"change_type"`
+	ControlImpact               string             `json:"control_impact"`
+	PreviousQuantity            financial.Decimal  `json:"previous_quantity,omitempty"`
+	CurrentQuantity             financial.Decimal  `json:"current_quantity,omitempty"`
+	PreviousAvailableQuantity   *financial.Decimal `json:"previous_available_quantity,omitempty"`
+	CurrentAvailableQuantity    *financial.Decimal `json:"current_available_quantity,omitempty"`
+	PreviousUnavailableQuantity *financial.Decimal `json:"previous_unavailable_quantity,omitempty"`
+	CurrentUnavailableQuantity  *financial.Decimal `json:"current_unavailable_quantity,omitempty"`
 }
 
 type ReconciliationPosition struct {
@@ -63,6 +73,7 @@ type PortfolioReconciliation struct {
 	ObservedPositionCount     int                      `json:"observed_position_count"`
 	PerformancePositionCount  int                      `json:"performance_position_count"`
 	ChangeCount               int                      `json:"change_count"`
+	BlockingChangeCount       int                      `json:"blocking_change_count"`
 	Balances                  financial.Balances       `json:"balances"`
 	PreviousReconciliationID  *string                  `json:"previous_reconciliation_id,omitempty"`
 	Changes                   []ReconciliationChange   `json:"changes"`
@@ -89,6 +100,7 @@ type reconciliationEvidence struct {
 	AutonomySignal            string                   `json:"autonomy_signal"`
 	AutonomyEnforcementActive bool                     `json:"autonomy_enforcement_active"`
 	BlocksNewActions          bool                     `json:"blocks_new_actions"`
+	BlockingChangeCount       int                      `json:"blocking_change_count"`
 	Balances                  financial.Balances       `json:"balances"`
 	PreviousReconciliationID  *string                  `json:"previous_reconciliation_id,omitempty"`
 	Changes                   []ReconciliationChange   `json:"changes"`
@@ -183,7 +195,7 @@ func normalizedMoney(value *financial.Money) *financial.Money {
 	return &financial.Money{Amount: financial.Decimal(strings.TrimSpace(string(value.Amount))), Currency: strings.ToUpper(strings.TrimSpace(value.Currency))}
 }
 
-func compareReconciliationPositions(previous, current []ReconciliationPosition) []ReconciliationChange {
+func compareReconciliationPositions(provider string, previous, current []ReconciliationPosition) []ReconciliationChange {
 	previousByKey := make(map[reconciliationPositionKey]ReconciliationPosition, len(previous))
 	currentByKey := make(map[reconciliationPositionKey]ReconciliationPosition, len(current))
 	keys := map[reconciliationPositionKey]struct{}{}
@@ -214,24 +226,67 @@ func compareReconciliationPositions(previous, current []ReconciliationPosition) 
 	for _, key := range ordered {
 		before, hadBefore := previousByKey[key]
 		after, hasAfter := currentByKey[key]
-		if hadBefore && hasAfter && decimalsEqual(before.Quantity, after.Quantity) {
+		if hadBefore && hasAfter && reconciliationQuantitiesEqual(provider, before, after) {
 			continue
 		}
-		change := ReconciliationChange{Symbol: key.Symbol, InstrumentType: key.InstrumentType, Direction: key.Direction, ChangeType: "QUANTITY_CHANGED"}
+		change := ReconciliationChange{Symbol: key.Symbol, InstrumentType: key.InstrumentType, Direction: key.Direction, ChangeType: "QUANTITY_CHANGED", ControlImpact: reconciliationControlTradableInventory}
 		if hadBefore {
 			change.PreviousQuantity = before.Quantity
+			change.PreviousAvailableQuantity = before.AvailableQuantity
+			change.PreviousUnavailableQuantity = before.UnavailableQuantity
 		}
 		if hasAfter {
 			change.CurrentQuantity = after.Quantity
+			change.CurrentAvailableQuantity = after.AvailableQuantity
+			change.CurrentUnavailableQuantity = after.UnavailableQuantity
 		}
 		if !hadBefore {
 			change.ChangeType = "POSITION_APPEARED"
 		} else if !hasAfter {
 			change.ChangeType = "POSITION_DISAPPEARED"
+		} else if provider == "coinbase" && exactNonTradableOnlyChange(before, after) {
+			change.ControlImpact = reconciliationControlNonTradableOnly
 		}
 		changes = append(changes, change)
 	}
 	return changes
+}
+
+func reconciliationQuantitiesEqual(provider string, previous, current ReconciliationPosition) bool {
+	if !decimalsEqual(previous.Quantity, current.Quantity) {
+		return false
+	}
+	if provider != "coinbase" {
+		return true
+	}
+	return optionalDecimalsEqual(previous.AvailableQuantity, current.AvailableQuantity) && optionalDecimalsEqual(previous.UnavailableQuantity, current.UnavailableQuantity)
+}
+
+func optionalDecimalsEqual(previous, current *financial.Decimal) bool {
+	if previous == nil || current == nil {
+		return previous == nil && current == nil
+	}
+	return decimalsEqual(*previous, *current)
+}
+
+func exactNonTradableOnlyChange(previous, current ReconciliationPosition) bool {
+	if previous.AvailableQuantity == nil || current.AvailableQuantity == nil || previous.UnavailableQuantity == nil || current.UnavailableQuantity == nil || !decimalsEqual(*previous.AvailableQuantity, *current.AvailableQuantity) || decimalsEqual(*previous.UnavailableQuantity, *current.UnavailableQuantity) {
+		return false
+	}
+	previousTotal, previousAvailable, previousUnavailable := decimalRat(previous.Quantity), decimalRat(*previous.AvailableQuantity), decimalRat(*previous.UnavailableQuantity)
+	currentTotal, currentAvailable, currentUnavailable := decimalRat(current.Quantity), decimalRat(*current.AvailableQuantity), decimalRat(*current.UnavailableQuantity)
+	if previousTotal == nil || previousAvailable == nil || previousUnavailable == nil || currentTotal == nil || currentAvailable == nil || currentUnavailable == nil {
+		return false
+	}
+	return previousTotal.Cmp(new(big.Rat).Add(previousAvailable, previousUnavailable)) == 0 && currentTotal.Cmp(new(big.Rat).Add(currentAvailable, currentUnavailable)) == 0
+}
+
+func decimalRat(value financial.Decimal) *big.Rat {
+	parsed, ok := new(big.Rat).SetString(string(value))
+	if !ok {
+		return nil
+	}
+	return parsed
 }
 
 func decimalsEqual(left, right financial.Decimal) bool {
@@ -372,9 +427,14 @@ func (s *Service) RunReconciliation(ctx context.Context, principal authorization
 		report.AutonomySignal = "INSUFFICIENT_EVIDENCE"
 	} else {
 		report.PreviousReconciliationID = &previous.ID
-		report.Changes = compareReconciliationPositions(previous.Positions, positions)
+		report.Changes = compareReconciliationPositions(account.Provider, previous.Positions, positions)
 		report.ChangeCount = len(report.Changes)
-		if report.ChangeCount > 0 {
+		for _, change := range report.Changes {
+			if change.ControlImpact == reconciliationControlTradableInventory {
+				report.BlockingChangeCount++
+			}
+		}
+		if report.BlockingChangeCount > 0 {
 			report.ComparisonStatus = "DRIFT_DETECTED"
 			report.AutonomySignal = "REVIEW_RECOMMENDED"
 		} else {
@@ -389,7 +449,8 @@ func (s *Service) RunReconciliation(ctx context.Context, principal authorization
 		PositionsStatus: report.PositionsStatus, PerformanceStatus: report.PerformanceStatus,
 		RealizedPerformanceStatus: report.RealizedPerformanceStatus, AutonomySignal: report.AutonomySignal,
 		AutonomyEnforcementActive: report.AutonomyEnforcementActive,
-		BlocksNewActions:          report.BlocksNewActions, Balances: report.Balances, PreviousReconciliationID: report.PreviousReconciliationID,
+		BlocksNewActions:          report.BlocksNewActions, BlockingChangeCount: report.BlockingChangeCount,
+		Balances: report.Balances, PreviousReconciliationID: report.PreviousReconciliationID,
 		Changes: report.Changes, Positions: report.Positions, ObservedAt: report.ObservedAt,
 	})
 	if err != nil {
@@ -402,6 +463,7 @@ func (s *Service) RunReconciliation(ctx context.Context, principal authorization
 		s.record(ctx, principal.UserID, "financial.portfolio_reconciled", map[string]any{
 			"account_id": account.ID, "provider": account.Provider, "comparison_status": report.ComparisonStatus,
 			"position_count": report.ObservedPositionCount, "change_count": report.ChangeCount,
+			"blocking_change_count": report.BlockingChangeCount,
 		})
 	}
 	return report, err
