@@ -71,6 +71,12 @@ export default function AutomationBuilder() {
   );
   const [symbols, setSymbols] = useState("");
   const [maxNotional, setMaxNotional] = useState("1");
+  const [maxActionsPerDay, setMaxActionsPerDay] = useState("6");
+  const [minimumCashReserve, setMinimumCashReserve] = useState("");
+  const [maxCapitalDeployed, setMaxCapitalDeployed] = useState("");
+  const [maxSinglePositionAmount, setMaxSinglePositionAmount] = useState("");
+  const [maxSinglePositionPercentage, setMaxSinglePositionPercentage] =
+    useState("");
   const [scheduled, setScheduled] = useState(false);
   const [intervalMinutes, setIntervalMinutes] = useState(60);
   const [loading, setLoading] = useState(true);
@@ -266,7 +272,23 @@ export default function AutomationBuilder() {
             objective,
             max_proposal_notional: maxNotional,
           },
-          risk_parameters: {},
+          risk_parameters: {
+            max_trades_per_day: Number(maxActionsPerDay),
+            ...(minimumCashReserve
+              ? { minimum_cash_reserve: minimumCashReserve }
+              : {}),
+            ...(maxCapitalDeployed
+              ? { max_capital_deployed: maxCapitalDeployed }
+              : {}),
+            ...(maxSinglePositionAmount
+              ? { max_single_position_amount: maxSinglePositionAmount }
+              : {}),
+            ...(maxSinglePositionPercentage
+              ? {
+                  max_single_position_percentage: maxSinglePositionPercentage,
+                }
+              : {}),
+          },
           allowed_universe: { symbols: allowedSymbols, universe_ids: [] },
           prohibited_universe: { symbols: [] },
           schedule_conditions: scheduled
@@ -323,7 +345,16 @@ export default function AutomationBuilder() {
         selectedBucketID &&
         objective.trim() &&
         symbols.trim() &&
-        Number(maxNotional) > 0,
+        Number(maxNotional) > 0 &&
+        Number.isInteger(Number(maxActionsPerDay)) &&
+        Number(maxActionsPerDay) >= 1 &&
+        Number(maxActionsPerDay) <= 48 &&
+        [minimumCashReserve, maxCapitalDeployed, maxSinglePositionAmount].every(
+          (value) => value === "" || Number(value) >= 0,
+        ) &&
+        (maxSinglePositionPercentage === "" ||
+          (Number(maxSinglePositionPercentage) > 0 &&
+            Number(maxSinglePositionPercentage) <= 100)),
     );
 
   return (
@@ -476,6 +507,107 @@ export default function AutomationBuilder() {
       <section className="strategy-launch-section">
         <header>
           <span>03</span>
+          <div>
+            <h2>Set deterministic guardrails</h2>
+            <p>
+              These limits are enforced by Arbion code after every model
+              proposal. The AI cannot raise, remove, or reinterpret them.
+            </p>
+          </div>
+        </header>
+        <div className="strategy-launch-grid autonomy-guardrail-grid">
+          <label>
+            Maximum shadow actions per UTC day
+            <input
+              required
+              inputMode="numeric"
+              min="1"
+              max="48"
+              step="1"
+              type="number"
+              value={maxActionsPerDay}
+              onChange={(event) => setMaxActionsPerDay(event.target.value)}
+            />
+            <span className="field-hint">
+              Counts this mandate&apos;s proposed or risk-held actions.
+              Abstentions do not consume the limit.
+            </span>
+          </label>
+          <label>
+            Minimum cash reserve (USD)
+            <input
+              inputMode="decimal"
+              min="0"
+              step="any"
+              type="number"
+              placeholder="Optional"
+              value={minimumCashReserve}
+              onChange={(event) => setMinimumCashReserve(event.target.value)}
+            />
+            <span className="field-hint">
+              A proposal is held if it would take available cash below this
+              floor.
+            </span>
+          </label>
+          <label>
+            Maximum total account exposure (USD)
+            <input
+              inputMode="decimal"
+              min="0"
+              step="any"
+              type="number"
+              placeholder="Optional"
+              value={maxCapitalDeployed}
+              onChange={(event) => setMaxCapitalDeployed(event.target.value)}
+            />
+            <span className="field-hint">
+              Uses the connected account&apos;s current exposure after the
+              proposed action.
+            </span>
+          </label>
+          <label>
+            Maximum one-symbol exposure (USD)
+            <input
+              inputMode="decimal"
+              min="0"
+              step="any"
+              type="number"
+              placeholder="Optional"
+              value={maxSinglePositionAmount}
+              onChange={(event) =>
+                setMaxSinglePositionAmount(event.target.value)
+              }
+            />
+          </label>
+          <label>
+            Maximum one-symbol concentration (%)
+            <input
+              inputMode="decimal"
+              min="0.01"
+              max="100"
+              step="any"
+              type="number"
+              placeholder="Optional"
+              value={maxSinglePositionPercentage}
+              onChange={(event) =>
+                setMaxSinglePositionPercentage(event.target.value)
+              }
+            />
+          </label>
+          <aside className="autonomy-guardrail-note">
+            <strong>Daily loss remains evidence-bound</strong>
+            <span>
+              Arbion will not invent realized profit and loss for Coinbase or
+              Schwab. A daily-loss gate will appear only after
+              broker-authoritative realized P&amp;L is available.
+            </span>
+          </aside>
+        </div>
+      </section>
+
+      <section className="strategy-launch-section">
+        <header>
+          <span>04</span>
           <div>
             <h2>Bind capital and monitoring</h2>
             <p>
