@@ -27,6 +27,30 @@ function horizonLabel(value: unknown) {
   return value === "TWENTY_FOUR_HOURS" ? "24-hour horizon" : "1-hour horizon";
 }
 
+function object(record: RawScore | undefined, key: string, legacy: string) {
+  const value = record ? read(record, key, legacy) : undefined;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as RawScore)
+    : undefined;
+}
+
+function strings(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function blockerLabel(value: string) {
+  const labels: Record<string, string> = {
+    ONE_HOUR_SAMPLE_INCOMPLETE: "Collect more 1-hour outcome marks",
+    TWENTY_FOUR_HOUR_SAMPLE_INCOMPLETE: "Collect more 24-hour outcome marks",
+    EVIDENCE_WINDOW_INCOMPLETE: "Observe the mandate across a longer window",
+    SCHEDULE_NOT_VERIFIED: "Complete a healthy scheduled cycle",
+    SCHEDULE_UNHEALTHY: "Resolve the current scheduler failure",
+  };
+  return labels[value] ?? "Resolve an unrecognized evidence blocker";
+}
+
 export function AIShadowScorecard({ scorecard }: { scorecard?: RawScore }) {
   const horizons = Array.isArray(scorecard?.horizons)
     ? (scorecard.horizons as RawScore[])
@@ -36,6 +60,29 @@ export function AIShadowScorecard({ scorecard }: { scorecard?: RawScore }) {
   const totalMarks = scorecard
     ? number(scorecard, "total_marks", "TotalMarks")
     : 0;
+  const evidenceGate = object(scorecard, "evidence_gate", "EvidenceGate");
+  const evidenceStatus = String(
+    evidenceGate
+      ? (read(evidenceGate, "status", "Status") ?? "COLLECTING_EVIDENCE")
+      : "COLLECTING_EVIDENCE",
+  );
+  const minimumSample = evidenceGate
+    ? number(
+        evidenceGate,
+        "minimum_sample_per_horizon",
+        "MinimumSamplePerHorizon",
+      ) || 20
+    : 20;
+  const minimumWindow = evidenceGate
+    ? number(
+        evidenceGate,
+        "minimum_evidence_window_hours",
+        "MinimumEvidenceWindowHours",
+      ) || 168
+    : 168;
+  const gateBlockers = strings(
+    evidenceGate ? read(evidenceGate, "blockers", "Blockers") : undefined,
+  );
 
   return (
     <section className="shadow-scorecard" aria-label="AI shadow scorecard">
@@ -50,6 +97,86 @@ export function AIShadowScorecard({ scorecard }: { scorecard?: RawScore }) {
         <strong>{totalMarks}</strong> total horizon mark
         {totalMarks === 1 ? "" : "s"}
       </p>
+
+      {evidenceGate && (
+        <section
+          className="shadow-evidence-gate"
+          aria-label="Autonomy evidence gate"
+        >
+          <header>
+            <div>
+              <p className="eyebrow">AUTONOMY EVIDENCE GATE</p>
+              <h3>Is the shadow record mature enough to review?</h3>
+            </div>
+            <span
+              className={
+                evidenceStatus === "EVIDENCE_REVIEWABLE" ? "reviewable" : ""
+              }
+            >
+              {evidenceStatus === "EVIDENCE_REVIEWABLE"
+                ? "Reviewable evidence"
+                : "Collecting evidence"}
+            </span>
+          </header>
+          <dl>
+            <div>
+              <dt>1-hour marks</dt>
+              <dd>
+                {number(
+                  evidenceGate,
+                  "one_hour_sample_size",
+                  "OneHourSampleSize",
+                )}{" "}
+                / {minimumSample}
+              </dd>
+            </div>
+            <div>
+              <dt>24-hour marks</dt>
+              <dd>
+                {number(
+                  evidenceGate,
+                  "twenty_four_hour_sample_size",
+                  "TwentyFourHourSampleSize",
+                )}{" "}
+                / {minimumSample}
+              </dd>
+            </div>
+            <div>
+              <dt>Evidence window</dt>
+              <dd>
+                {number(
+                  evidenceGate,
+                  "evidence_window_hours",
+                  "EvidenceWindowHours",
+                )}{" "}
+                / {minimumWindow} hours
+              </dd>
+            </div>
+            <div>
+              <dt>Scheduler</dt>
+              <dd>
+                {read(evidenceGate, "schedule_healthy", "ScheduleHealthy")
+                  ? "Healthy"
+                  : "Not verified"}
+              </dd>
+            </div>
+          </dl>
+          {gateBlockers.length > 0 && (
+            <div className="shadow-evidence-blockers">
+              <strong>Still needed</strong>
+              <ul>
+                {gateBlockers.map((blocker) => (
+                  <li key={blocker}>{blockerLabel(blocker)}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="security-note">
+            Passing this gate makes evidence reviewable. It does not authorize
+            live trading, claim profitability, or add a broker-write path.
+          </p>
+        </section>
+      )}
 
       {horizons.length === 0 ? (
         <p className="security-note">

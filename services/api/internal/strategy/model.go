@@ -198,7 +198,10 @@ type ShadowOutcome struct {
 	ElapsedSeconds           int64                `json:"elapsed_seconds"`
 }
 
-const ShadowScorecardMinimumSample = 20
+const (
+	ShadowScorecardMinimumSample           = 20
+	ShadowEvidenceMinimumWindowHours int64 = 7 * 24
+)
 
 // ShadowHorizonScore summarizes immutable hypothetical marks at one horizon.
 // It is descriptive evidence only and never represents realized performance.
@@ -220,6 +223,24 @@ type ShadowScorecard struct {
 	StrategyInstanceID string               `json:"strategy_instance_id"`
 	TotalMarks         int                  `json:"total_marks"`
 	Horizons           []ShadowHorizonScore `json:"horizons"`
+	EvidenceGate       ShadowEvidenceGate   `json:"evidence_gate"`
+}
+
+// ShadowEvidenceGate determines only whether enough non-live evidence exists
+// for owner review. It cannot authorize execution or represent performance.
+type ShadowEvidenceGate struct {
+	Status                      string   `json:"status"`
+	Blockers                    []string `json:"blockers"`
+	OneHourSampleSize           int      `json:"one_hour_sample_size"`
+	TwentyFourHourSampleSize    int      `json:"twenty_four_hour_sample_size"`
+	MinimumSamplePerHorizon     int      `json:"minimum_sample_per_horizon"`
+	EvidenceWindowHours         int64    `json:"evidence_window_hours"`
+	MinimumEvidenceWindowHours  int64    `json:"minimum_evidence_window_hours"`
+	ScheduleHealthy             bool     `json:"schedule_healthy"`
+	LastScheduleStatus          string   `json:"last_schedule_status,omitempty"`
+	ConsecutiveScheduleFailures int      `json:"consecutive_schedule_failures"`
+	ExecutionBoundary           string   `json:"execution_boundary"`
+	LiveExecutionAvailable      bool     `json:"live_execution_available"`
 }
 
 // PaperPortfolio is the owner-facing, provider-independent projection of one

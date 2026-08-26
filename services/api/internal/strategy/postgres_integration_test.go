@@ -443,6 +443,10 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if twentyFourHourScore.Horizon != ShadowOutcomeTwentyFourHours || twentyFourHourScore.SampleSize != 0 || twentyFourHourScore.FavorableRatePercent != nil || twentyFourHourScore.AverageDirectionalChangePercent != nil || twentyFourHourScore.Interpretation != "INSUFFICIENT_SAMPLE" {
 		t.Fatalf("pending 24-hour AI shadow score was incorrect: %#v", twentyFourHourScore)
 	}
+	gate := scorecard.EvidenceGate
+	if gate.Status != ShadowEvidenceCollecting || gate.OneHourSampleSize != 1 || gate.TwentyFourHourSampleSize != 0 || gate.EvidenceWindowHours != 0 || gate.ScheduleHealthy || gate.LiveExecutionAvailable || len(gate.Blockers) != 4 || gate.Blockers[3] != ShadowEvidenceScheduleNotVerified {
+		t.Fatalf("AI shadow evidence gate was not conservative: %#v", gate)
+	}
 	if _, err = store.ShadowScorecard(ctx, "99999999-9999-4999-8999-999999999999", aiInstance.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("AI shadow scorecard crossed its owner boundary: %v", err)
 	}

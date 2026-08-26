@@ -235,6 +235,8 @@ func (h *authHandler) strategyShadowScorecard(w stdhttp.ResponseWriter, r *stdht
 		"prediction_accuracy_claimed":    false,
 		"fees_and_slippage_included":     false,
 		"realized_performance_available": false,
+		"evidence_gate_grants_authority": false,
+		"live_promotion_available":       false,
 		"live_execution_available":       false,
 	})
 }
