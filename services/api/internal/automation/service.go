@@ -80,6 +80,9 @@ var aiShadowModels = map[string]string{
 	"claude-haiku-4-5-20251001": "anthropic",
 	"claude-sonnet-5":           "anthropic",
 	"claude-opus-5":             "anthropic",
+	"gemini-3.5-flash":          "gemini",
+	"gemini-3.6-flash":          "gemini",
+	"gemini-3.7-flash":          "gemini",
 }
 
 func ParseAIShadowParameters(raw json.RawMessage) (AIShadowParameters, error) {

@@ -48,6 +48,15 @@ var shadowModelRoutes = map[string]InsightRoute{
 	"claude-opus-5": {
 		Profile: InsightProfileDeep, Provider: "anthropic", ModelID: "claude-opus-5", CreditUnits: 6,
 	},
+	"gemini-3.5-flash": {
+		Profile: InsightProfileFast, Provider: "gemini", ModelID: "gemini-3.5-flash", CreditUnits: 1,
+	},
+	"gemini-3.6-flash": {
+		Profile: InsightProfileCore, Provider: "gemini", ModelID: "gemini-3.6-flash", CreditUnits: 3,
+	},
+	"gemini-3.7-flash": {
+		Profile: InsightProfileDeep, Provider: "gemini", ModelID: "gemini-3.7-flash", CreditUnits: 6,
+	},
 }
 
 func resolveInsightRoute(raw string) (InsightRoute, error) {

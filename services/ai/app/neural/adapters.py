@@ -168,6 +168,12 @@ ANTHROPIC_SHADOW_ROUTES: dict[str, InsightRoute] = {
     "deep": InsightRoute("claude-opus-5", "high", 1200, "medium"),
 }
 
+GEMINI_SHADOW_ROUTES: dict[str, InsightRoute] = {
+    "fast": InsightRoute("gemini-3.5-flash", "low", 700, "low"),
+    "core": InsightRoute("gemini-3.6-flash", "medium", 900, "low"),
+    "deep": InsightRoute("gemini-3.7-flash", "high", 1200, "medium"),
+}
+
 
 def _normalize_shadow_value(
     provider: str,
@@ -740,4 +746,95 @@ class GeminiProvider(HTTPProvider):
             "https://generativelanguage.googleapis.com/v1beta/models",
             {"x-goog-api-key": credential},
             params,
+        )
+
+    async def propose_shadow(
+        self,
+        credential: str,
+        profile: str,
+        context: dict[str, object],
+        safety_identifier: str,
+    ) -> ShadowDecision:
+        route = GEMINI_SHADOW_ROUTES.get(profile)
+        if route is None:
+            raise NeuralProviderError(ErrorCode.INVALID_REQUEST)
+        started = time.monotonic()
+        payload = await self._post(
+            "https://generativelanguage.googleapis.com/v1beta/interactions",
+            {"x-goog-api-key": credential},
+            {
+                "model": route.model,
+                "input": json.dumps(context, separators=(",", ":"), sort_keys=True),
+                "system_instruction": SHADOW_DECISION_INSTRUCTIONS,
+                "response_format": {
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": SHADOW_DECISION_SCHEMA,
+                },
+                "store": False,
+                "background": False,
+                "labels": {"arbion_safety_id": safety_identifier},
+                "generation_config": {
+                    "max_output_tokens": min(route.max_output_tokens, 900),
+                    "thinking_level": route.reasoning_effort,
+                    "thinking_summaries": "none",
+                    "tool_choice": "none",
+                },
+            },
+        )
+        response_model = payload.get("model")
+        if payload.get("status") != "completed" or response_model not in {
+            route.model,
+            f"models/{route.model}",
+        }:
+            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+        steps = payload.get("steps")
+        if not isinstance(steps, list):
+            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+        if any(
+            isinstance(step, dict) and step.get("type") in {"function_call", "tool_call"}
+            for step in steps
+        ):
+            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+        text: object = None
+        for step in reversed(steps):
+            if not isinstance(step, dict) or step.get("type") != "model_output":
+                continue
+            content = step.get("content")
+            if not isinstance(content, list):
+                continue
+            text = next(
+                (
+                    block.get("text")
+                    for block in content
+                    if isinstance(block, dict)
+                    and block.get("type") == "text"
+                    and isinstance(block.get("text"), str)
+                ),
+                None,
+            )
+            if text is not None:
+                break
+        try:
+            value = json.loads(text) if isinstance(text, str) else None
+        except ValueError as exc:
+            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR) from exc
+        usage = payload.get("usage")
+        if isinstance(usage, dict) and usage.get("total_tool_use_tokens") not in {
+            None,
+            0,
+        }:
+            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+        input_tokens = usage.get("total_input_tokens") if isinstance(usage, dict) else None
+        output_tokens = usage.get("total_output_tokens") if isinstance(usage, dict) else None
+        return _normalize_shadow_value(
+            self.id,
+            value,
+            profile,
+            route.model,
+            context,
+            int((time.monotonic() - started) * 1000),
+            input_tokens,
+            output_tokens,
+            payload.get("id"),
         )
