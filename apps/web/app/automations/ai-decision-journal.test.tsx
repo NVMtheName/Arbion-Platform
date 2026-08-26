@@ -41,10 +41,19 @@ describe("AI Decision Journal", () => {
                   {
                     symbol: "XRP",
                     mark: "1.4300000000",
+                    change_percent_1h: "0.2400000000",
+                    change_percent_6h: "-1.1000000000",
                     change_percent_24h: "-3.6200000000",
                     feed: "rest_ticker",
                     quality: "REAL_TIME_SINGLE_VENUE",
                     observed_at: "2026-08-25T20:11:39Z",
+                    history_status: "COMPLETE",
+                    history_granularity_seconds: 900,
+                    history_contiguous_intervals: 96,
+                    history_expected_intervals: 96,
+                    history_feed: "rest_candles",
+                    history_quality: "REAL_TIME_SINGLE_VENUE",
+                    history_observed_at: "2026-08-25T20:00:00Z",
                   },
                 ],
               },
@@ -71,10 +80,18 @@ describe("AI Decision Journal", () => {
       within(evidence!).getByText("$10.725 observed value"),
     ).toBeInTheDocument();
     expect(
-      within(evidence!).getByText("24h -3.62% · Real Time Single Venue"),
+      within(evidence!).getByText("1h +0.24% · 6h -1.1% · 24h -3.62%"),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText(
+        "Complete history · 96/96 exact 15m candles · Real Time Single Venue",
+      ),
     ).toBeInTheDocument();
     expect(
       within(evidence!).getByText(/Rest Ticker · Aug 25, 2026, 8:11 PM UTC/),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText(/Rest Candles · Aug 25, 2026, 8:00 PM UTC/),
     ).toBeInTheDocument();
     expect(
       screen.getByText(
