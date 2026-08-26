@@ -49,8 +49,13 @@ export function AIShadowEvaluationControls(props: Props) {
     };
     setBusy(false);
     if (!response.ok || !body.evaluation) {
+      const code = body.error?.code;
       setMessage(
-        `The AI cycle failed closed${body.error?.code ? ` (${body.error.code})` : ""}. No Coinbase or Schwab order was sent.`,
+        code === "AI_DECISION_BUDGET_EXHAUSTED"
+          ? "Arbion's hourly AI decision budget is currently used. Wait for the window to reset; the schedule remains safe and no order was sent."
+          : code === "AI_PROVIDER_RATE_LIMITED"
+            ? "The AI provider is temporarily rate limited. Try again later; the schedule remains safe and no order was sent."
+            : `The AI cycle failed closed${code ? ` (${code})` : ""}. No Coinbase or Schwab order was sent.`,
       );
       return;
     }

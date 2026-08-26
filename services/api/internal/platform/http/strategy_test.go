@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/aiconnection"
+	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/strategy"
 )
 
@@ -38,6 +40,8 @@ func TestStrategyErrorReturnsSafeEvaluationDiagnostics(t *testing.T) {
 		{strategy.ErrEvaluationPaperStateUnavailable, stdhttp.StatusConflict, "PAPER_STATE_UNAVAILABLE"},
 		{strategy.ErrEvaluationMarketDataStale, stdhttp.StatusUnprocessableEntity, "MARKET_DATA_STALE"},
 		{strategy.ErrEvaluationNoEligibleContracts, stdhttp.StatusUnprocessableEntity, "NO_ELIGIBLE_OPTION_CONTRACTS"},
+		{aiconnection.ErrRateLimit, stdhttp.StatusTooManyRequests, "AI_DECISION_BUDGET_EXHAUSTED"},
+		{&neural.ProviderError{Code: neural.RateLimited}, stdhttp.StatusTooManyRequests, "AI_PROVIDER_RATE_LIMITED"},
 	}
 	for _, test := range tests {
 		t.Run(test.code, func(t *testing.T) {
