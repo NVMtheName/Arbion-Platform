@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +40,7 @@ var (
 type Config struct {
 	UserAgent     string
 	BaseURL       string
+	FilesBaseURL  string
 	Timeout       time.Duration
 	RateInterval  time.Duration
 	MaxFutureSkew time.Duration
@@ -46,6 +49,7 @@ type Config struct {
 type Client struct {
 	userAgent     string
 	baseURL       *url.URL
+	filesBaseURL  *url.URL
 	rateInterval  time.Duration
 	maxFutureSkew time.Duration
 	http          *http.Client
@@ -66,11 +70,21 @@ type submissionsResponse struct {
 	} `json:"filings"`
 }
 
+type companyTickerEntry struct {
+	CIK    int64  `json:"cik_str"`
+	Ticker string `json:"ticker"`
+	Title  string `json:"title"`
+}
+
 func New(config Config, httpClient *http.Client) (*Client, error) {
 	config.UserAgent = strings.TrimSpace(config.UserAgent)
 	config.BaseURL = strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
 	if config.BaseURL == "" {
 		config.BaseURL = "https://data.sec.gov"
+	}
+	config.FilesBaseURL = strings.TrimRight(strings.TrimSpace(config.FilesBaseURL), "/")
+	if config.FilesBaseURL == "" {
+		config.FilesBaseURL = "https://www.sec.gov"
 	}
 	if len(config.UserAgent) < 8 || len(config.UserAgent) > 256 || !emailPattern.MatchString(config.UserAgent) || config.Timeout <= 0 || config.RateInterval < 100*time.Millisecond || config.MaxFutureSkew < 0 || httpClient == nil {
 		return nil, ErrInvalidConfiguration
@@ -79,9 +93,13 @@ func New(config Config, httpClient *http.Client) (*Client, error) {
 	if err != nil || baseURL.Host == "" || baseURL.User != nil || baseURL.RawQuery != "" || baseURL.Fragment != "" || !approvedBaseURL(baseURL) {
 		return nil, ErrInvalidConfiguration
 	}
+	filesBaseURL, err := url.Parse(config.FilesBaseURL)
+	if err != nil || filesBaseURL.Host == "" || filesBaseURL.User != nil || filesBaseURL.RawQuery != "" || filesBaseURL.Fragment != "" || !approvedFilesBaseURL(filesBaseURL) {
+		return nil, ErrInvalidConfiguration
+	}
 	configuredHTTP := *httpClient
 	configuredHTTP.Timeout = config.Timeout
-	return &Client{userAgent: config.UserAgent, baseURL: baseURL, rateInterval: config.RateInterval, maxFutureSkew: config.MaxFutureSkew, http: &configuredHTTP}, nil
+	return &Client{userAgent: config.UserAgent, baseURL: baseURL, filesBaseURL: filesBaseURL, rateInterval: config.RateInterval, maxFutureSkew: config.MaxFutureSkew, http: &configuredHTTP}, nil
 }
 
 func approvedBaseURL(baseURL *url.URL) bool {
@@ -93,6 +111,105 @@ func approvedBaseURL(baseURL *url.URL) bool {
 	}
 	host := baseURL.Hostname()
 	return host == "localhost" || net.ParseIP(host).IsLoopback()
+}
+
+func approvedFilesBaseURL(baseURL *url.URL) bool {
+	if baseURL.String() == "https://www.sec.gov" {
+		return true
+	}
+	if baseURL.Scheme != "http" || baseURL.Path != "" {
+		return false
+	}
+	host := baseURL.Hostname()
+	return host == "localhost" || net.ParseIP(host).IsLoopback()
+}
+
+// IssuerReferences returns the bounded SEC-published company_tickers file in
+// one request so callers can cache the reference set without redownloading it
+// for each allowlisted symbol. It is not an exchange listing assertion.
+func (client *Client) IssuerReferences(ctx context.Context) ([]marketintelligence.IssuerReferenceObservation, error) {
+	if err := client.wait(ctx); err != nil {
+		return nil, ErrUnavailable
+	}
+	endpoint := *client.filesBaseURL
+	endpoint.Path = "/files/company_tickers.json"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", client.userAgent)
+	response, err := client.http.Do(request)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, statusError(response.StatusCode)
+	}
+	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil || len(payload) > maxResponseBytes {
+		return nil, ErrInvalidResponse
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	var entries map[string]companyTickerEntry
+	if err = decoder.Decode(&entries); err != nil || len(entries) == 0 || len(entries) > 25_000 {
+		return nil, ErrInvalidResponse
+	}
+	if err = decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, ErrInvalidResponse
+	}
+	now := time.Now().UTC()
+	resolved := make(map[string]marketintelligence.IssuerReferenceObservation, len(entries))
+	for key, entry := range entries {
+		ticker := strings.ToUpper(strings.TrimSpace(entry.Ticker))
+		name := strings.TrimSpace(entry.Title)
+		if !digitsOnly(key) || entry.CIK <= 0 || entry.CIK > 9_999_999_999 || !validTicker(ticker) || name == "" || len(name) > 512 {
+			return nil, ErrInvalidResponse
+		}
+		observation := marketintelligence.IssuerReferenceObservation{
+			Symbol: ticker, IssuerCIK: fmt.Sprintf("%010d", entry.CIK), Name: name,
+			Receipt: marketintelligence.SourceReceipt{Provider: "sec_edgar", Role: marketintelligence.ReferenceData, Feed: "company_tickers", Quality: marketintelligence.AggregatedReference, ReceivedAt: now},
+		}
+		if err = marketintelligence.ValidateIssuerReference(observation, now, time.Minute, client.maxFutureSkew); err != nil {
+			return nil, err
+		}
+		if existing, exists := resolved[ticker]; exists && existing.IssuerCIK != observation.IssuerCIK {
+			return nil, ErrInvalidResponse
+		}
+		resolved[ticker] = observation
+	}
+	result := make([]marketintelligence.IssuerReferenceObservation, 0, len(resolved))
+	for _, observation := range resolved {
+		result = append(result, observation)
+	}
+	sort.Slice(result, func(left, right int) bool { return result[left].Symbol < result[right].Symbol })
+	return result, nil
+}
+
+func validTicker(value string) bool {
+	if len(value) < 1 || len(value) > 15 || value[0] < 'A' || value[0] > 'Z' {
+		return false
+	}
+	for index := 1; index < len(value); index++ {
+		character := value[index]
+		if (character < 'A' || character > 'Z') && (character < '0' || character > '9') && character != '.' && character != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func digitsOnly(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (client *Client) RecentInsiderFilings(ctx context.Context, cik string, limit int) ([]marketintelligence.InsiderFilingObservation, error) {
@@ -259,3 +376,4 @@ func statusError(status int) error {
 }
 
 var _ marketintelligence.InsiderFilingProvider = (*Client)(nil)
+var _ marketintelligence.InsiderIssuerProvider = (*Client)(nil)

@@ -174,6 +174,53 @@ class ShadowRecentDecision(BaseModel):
         return self
 
 
+class ShadowMarketEventCoverage(BaseModel):
+    symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Z][A-Z0-9.-]{0,15}$")
+    status: Literal["AVAILABLE", "UNAVAILABLE"]
+    lookback_days: Literal[30]
+    event_count: int = Field(ge=0, le=2)
+    resolver_provider: str = Field(default="", max_length=64)
+    resolver_feed: str = Field(default="", max_length=64)
+    resolver_quality: str = Field(default="", max_length=64)
+    resolver_received_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_coverage_consistency(self) -> Self:
+        provenance = (self.resolver_provider, self.resolver_feed, self.resolver_quality)
+        if self.status == "AVAILABLE":
+            if not all(provenance) or self.resolver_received_at is None:
+                raise ValueError("available event coverage requires resolver provenance")
+            if provenance != ("sec_edgar", "company_tickers", "AGGREGATED_REFERENCE"):
+                raise ValueError("event coverage requires exact SEC resolver provenance")
+            if self.resolver_received_at.tzinfo is None:
+                raise ValueError("resolver timestamp must include a timezone")
+            return self
+        if any(provenance) or self.resolver_received_at is not None or self.event_count != 0:
+            raise ValueError("unavailable event coverage cannot claim evidence")
+        return self
+
+
+class ShadowMarketEventFact(BaseModel):
+    symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Z][A-Z0-9.-]{0,15}$")
+    event_type: Literal["SEC_OWNERSHIP_FILING"]
+    form: Literal["3", "3/A", "4", "4/A", "5", "5/A"]
+    is_amendment: bool
+    evidence_id: str = Field(pattern=r"^[0-9]{10}-[0-9]{2}-[0-9]{6}$")
+    issuer_cik: str = Field(pattern=r"^[0-9]{10}$")
+    occurred_at: datetime
+    provider: Literal["sec_edgar"]
+    feed: Literal["submissions"]
+    quality: Literal["FILING"]
+
+    @model_validator(mode="after")
+    def validate_event_consistency(self) -> Self:
+        if self.is_amendment != self.form.endswith("/A"):
+            raise ValueError("filing amendment metadata is inconsistent")
+        if self.occurred_at.tzinfo is None:
+            raise ValueError("filing timestamp must include a timezone")
+        return self
+
+
 class ShadowDecisionRequest(ProviderRequest):
     profile: Literal["fast", "core", "deep"]
     objective: str = Field(min_length=1, max_length=500)
@@ -183,12 +230,16 @@ class ShadowDecisionRequest(ProviderRequest):
     buying_power_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
     positions: list[ShadowPositionFact] = Field(max_length=200)
     markets: list[ShadowMarketFact] = Field(min_length=1, max_length=8)
+    market_event_coverage: list[ShadowMarketEventCoverage] = Field(
+        default_factory=list, max_length=8
+    )
+    market_events: list[ShadowMarketEventFact] = Field(default_factory=list, max_length=16)
     recent_decisions: list[ShadowRecentDecision] = Field(default_factory=list, max_length=6)
     observed_at: datetime
     safety_identifier: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
 
     @model_validator(mode="after")
-    def validate_recent_decision_times(self) -> Self:
+    def validate_bounded_context(self) -> Self:
         if self.observed_at.tzinfo is None or any(
             decision.occurred_at.tzinfo is None
             or decision.occurred_at >= self.observed_at
@@ -196,6 +247,38 @@ class ShadowDecisionRequest(ProviderRequest):
             for decision in self.recent_decisions
         ):
             raise ValueError("recent decision timestamps are outside the bounded window")
+        coverage_symbols = [item.symbol for item in self.market_event_coverage]
+        equity_symbols = {
+            market.symbol for market in self.markets if market.asset_class == "EQUITY"
+        }
+        if (
+            len(coverage_symbols) != len(set(coverage_symbols))
+            or set(coverage_symbols) != equity_symbols
+        ):
+            raise ValueError("event coverage must match each equity market exactly")
+        coverage = {item.symbol: item for item in self.market_event_coverage}
+        event_counts = {symbol: 0 for symbol in coverage}
+        for event in self.market_events:
+            item = coverage.get(event.symbol)
+            if (
+                event.symbol not in self.allowed_symbols
+                or item is None
+                or item.status != "AVAILABLE"
+                or event.occurred_at > self.observed_at + timedelta(minutes=1)
+                or self.observed_at - event.occurred_at > timedelta(days=item.lookback_days)
+            ):
+                raise ValueError("market event is outside its bounded coverage")
+            event_counts[event.symbol] += 1
+        if any(
+            item.event_count != event_counts[item.symbol] for item in self.market_event_coverage
+        ):
+            raise ValueError("event coverage count does not match supplied events")
+        if any(
+            item.resolver_received_at is not None
+            and item.resolver_received_at > self.observed_at + timedelta(minutes=1)
+            for item in self.market_event_coverage
+        ):
+            raise ValueError("resolver receipt is future-dated")
         return self
 
 

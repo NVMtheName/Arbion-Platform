@@ -143,6 +143,95 @@ describe("AI Decision Journal", () => {
     ).toBeInTheDocument();
   });
 
+  it("distinguishes bounded SEC event coverage from filing contents", () => {
+    render(
+      <AIDecisionJournal
+        decisions={[
+          {
+            ID: "decision-sec",
+            Source: "AI",
+            DecisionType: "ABSTAIN",
+            CreatedAt: "2026-08-25T20:11:42Z",
+            StructuredRationale: {
+              decision: "ABSTAIN",
+              symbol: "NONE",
+              proposed_notional: "0",
+              thesis: "No cautious equity action is supported.",
+              input_evidence: {
+                provider: "schwab",
+                available_cash_usd: "100",
+                buying_power_usd: "100",
+                observed_at: "2026-08-25T20:11:42Z",
+                positions: [],
+                recent_decisions: [],
+                markets: [
+                  {
+                    symbol: "AAPL",
+                    mark: "200",
+                    feed: "schwab_market_data",
+                    quality: "BROKER_REALTIME",
+                    observed_at: "2026-08-25T20:11:39Z",
+                    history_status: "UNAVAILABLE",
+                    liquidity_status: "UNAVAILABLE",
+                  },
+                ],
+                market_event_coverage: [
+                  {
+                    symbol: "AAPL",
+                    status: "AVAILABLE",
+                    lookback_days: 30,
+                    event_count: 1,
+                    resolver_feed: "company_tickers",
+                    resolver_received_at: "2026-08-25T20:11:40Z",
+                  },
+                ],
+                market_events: [
+                  {
+                    symbol: "AAPL",
+                    event_type: "SEC_OWNERSHIP_FILING",
+                    form: "4",
+                    evidence_id: "0000320193-26-000001",
+                    feed: "submissions",
+                    occurred_at: "2026-08-24T18:00:00Z",
+                  },
+                ],
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    const evidence = screen
+      .getByText(
+        "Evidence considered · 0 allowlisted holdings · 1 market snapshot · 1 SEC event check · 1 filing event",
+      )
+      .closest("details");
+    expect(evidence).not.toBeNull();
+    expect(
+      within(evidence!).getByRole("heading", {
+        name: "Primary event coverage",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText(
+        "1 ownership filing event in the bounded window",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText(
+        "30-day window · Company Tickers · Aug 25, 2026, 8:11 PM UTC",
+      ),
+    ).toBeInTheDocument();
+    expect(within(evidence!).getByText("Form 4 · AAPL")).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText("0000320193-26-000001 · Submissions"),
+    ).toBeInTheDocument();
+    expect(
+      within(evidence!).getByText(/filing identity only/),
+    ).toBeInTheDocument();
+  });
+
   it("explains when no model decision completed", () => {
     render(<AIDecisionJournal decisions={[]} />);
 

@@ -120,6 +120,11 @@ func TestProposeShadowExcludesAccountIdentifiersAndNormalizesDecision(t *testing
 		if !ok || len(recent) != 1 || recent[0].(map[string]any)["decision"] != "PROPOSE" || recent[0].(map[string]any)["disposition"] != "WOULD_HAVE_SUBMITTED" {
 			t.Fatalf("bounded decision memory missing: %#v", body)
 		}
+		coverage, coverageOK := body["market_event_coverage"].([]any)
+		events, eventsOK := body["market_events"].([]any)
+		if !coverageOK || !eventsOK || len(coverage) != 0 || len(events) != 0 {
+			t.Fatalf("empty bounded event context was not normalized: %#v", body)
+		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"decision":{"decision":"ABSTAIN","symbol":"NONE","side":"NONE","proposed_notional":"0","confidence":"LOW","thesis":"No cautious edge.","risk_flags":["Volatility"],"limitations":["No news"],"metadata":{"provider":"openai","model":"gpt-5.6-sol","profile":"deep","request_id":"resp-shadow"}}}`))}, nil
 	})
 	client := NewHTTPClient("http://ai.internal", "internal-token", &http.Client{Transport: transport})

@@ -137,17 +137,47 @@ type ShadowRecentDecision struct {
 	OccurredAt  time.Time `json:"occurred_at"`
 }
 
+// ShadowMarketEventCoverage distinguishes an authoritative empty result from
+// unavailable reference/event data. It contains no issuer name or filing text.
+type ShadowMarketEventCoverage struct {
+	Symbol             string     `json:"symbol"`
+	Status             string     `json:"status"`
+	LookbackDays       int        `json:"lookback_days"`
+	EventCount         int        `json:"event_count"`
+	ResolverProvider   string     `json:"resolver_provider,omitempty"`
+	ResolverFeed       string     `json:"resolver_feed,omitempty"`
+	ResolverQuality    string     `json:"resolver_quality,omitempty"`
+	ResolverReceivedAt *time.Time `json:"resolver_received_at,omitempty"`
+}
+
+// ShadowMarketEventFact is a bounded primary-source event identity. Filing
+// documents and issuer-controlled prose are deliberately excluded.
+type ShadowMarketEventFact struct {
+	Symbol      string    `json:"symbol"`
+	EventType   string    `json:"event_type"`
+	Form        string    `json:"form"`
+	IsAmendment bool      `json:"is_amendment"`
+	EvidenceID  string    `json:"evidence_id"`
+	IssuerCIK   string    `json:"issuer_cik"`
+	OccurredAt  time.Time `json:"occurred_at"`
+	Provider    string    `json:"provider"`
+	Feed        string    `json:"feed"`
+	Quality     string    `json:"quality"`
+}
+
 type ShadowDecisionRequest struct {
-	Profile             string                 `json:"profile"`
-	Objective           string                 `json:"objective"`
-	AllowedSymbols      []string               `json:"allowed_symbols"`
-	MaxProposalNotional string                 `json:"max_proposal_notional"`
-	AvailableCashUSD    string                 `json:"available_cash_usd"`
-	BuyingPowerUSD      string                 `json:"buying_power_usd"`
-	Positions           []ShadowPositionFact   `json:"positions"`
-	Markets             []ShadowMarketFact     `json:"markets"`
-	RecentDecisions     []ShadowRecentDecision `json:"recent_decisions"`
-	ObservedAt          time.Time              `json:"observed_at"`
+	Profile             string                      `json:"profile"`
+	Objective           string                      `json:"objective"`
+	AllowedSymbols      []string                    `json:"allowed_symbols"`
+	MaxProposalNotional string                      `json:"max_proposal_notional"`
+	AvailableCashUSD    string                      `json:"available_cash_usd"`
+	BuyingPowerUSD      string                      `json:"buying_power_usd"`
+	Positions           []ShadowPositionFact        `json:"positions"`
+	Markets             []ShadowMarketFact          `json:"markets"`
+	MarketEventCoverage []ShadowMarketEventCoverage `json:"market_event_coverage"`
+	MarketEvents        []ShadowMarketEventFact     `json:"market_events"`
+	RecentDecisions     []ShadowRecentDecision      `json:"recent_decisions"`
+	ObservedAt          time.Time                   `json:"observed_at"`
 }
 
 type ShadowDecision struct {
@@ -226,8 +256,10 @@ func (c *HTTPClient) ProposeShadow(ctx context.Context, provider string, credent
 		"objective": input.Objective, "allowed_symbols": input.AllowedSymbols,
 		"max_proposal_notional": input.MaxProposalNotional, "available_cash_usd": input.AvailableCashUSD,
 		"buying_power_usd": input.BuyingPowerUSD, "positions": input.Positions, "markets": input.Markets,
-		"recent_decisions": input.RecentDecisions,
-		"observed_at":      input.ObservedAt.UTC().Format(time.RFC3339Nano), "safety_identifier": safetyIdentifier,
+		"market_event_coverage": append([]ShadowMarketEventCoverage{}, input.MarketEventCoverage...),
+		"market_events":         append([]ShadowMarketEventFact{}, input.MarketEvents...),
+		"recent_decisions":      append([]ShadowRecentDecision{}, input.RecentDecisions...),
+		"observed_at":           input.ObservedAt.UTC().Format(time.RFC3339Nano), "safety_identifier": safetyIdentifier,
 	}
 	err := c.call(ctx, "/internal/neural/shadow-decision", request, &out)
 	return out.Decision, err
