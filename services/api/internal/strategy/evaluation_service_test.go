@@ -109,11 +109,20 @@ func (f *evaluationStoreFake) CommitEvaluation(_ context.Context, _ Instance, _ 
 }
 
 type evaluationAutomationFake struct {
-	mandate automation.Mandate
-	bucket  automation.CapitalBucket
+	mandate          automation.Mandate
+	versionMandate   automation.Mandate
+	versionRequested int
+	bucket           automation.CapitalBucket
 }
 
 func (f *evaluationAutomationFake) Get(context.Context, authorization.Principal, string) (automation.Mandate, error) {
+	return f.mandate, nil
+}
+func (f *evaluationAutomationFake) AtVersion(_ context.Context, _ authorization.Principal, _ string, version int) (automation.Mandate, error) {
+	f.versionRequested = version
+	if f.versionMandate.ID != "" {
+		return f.versionMandate, nil
+	}
 	return f.mandate, nil
 }
 func (f *evaluationAutomationFake) GetBucket(context.Context, authorization.Principal, string) (automation.CapitalBucket, error) {
@@ -190,21 +199,39 @@ func TestManualPaperEvaluationUsesPaperCashAndRecordsRiskDenial(t *testing.T) {
 	}
 }
 
-func TestManualEvaluationRequiresCurrentImmutableMandateVersion(t *testing.T) {
+func TestManualEvaluationContinuesOnPinnedVersionWhileReplacementIsDraft(t *testing.T) {
 	service, store, finances, principal := evaluationFixture()
-	service.automation.(*evaluationAutomationFake).mandate.CurrentVersion = 3
-	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:stale")
-	if !errors.Is(err, ErrEvaluationConfigurationChanged) || store.commits != 0 || finances.quoteCalls != 0 {
-		t.Fatalf("stale mandate version was not rejected before provider reads: %v", err)
+	automations := service.automation.(*evaluationAutomationFake)
+	automations.versionMandate = automations.mandate
+	automations.mandate.CurrentVersion = 3
+	automations.mandate.Status = "DRAFT"
+	automations.mandate.FinancialAccountID = "replacement-account"
+	automations.mandate.CapitalBucketID = "replacement-bucket"
+	outcome, err := service.Evaluate(context.Background(), principal, "instance", "manual:pinned")
+	if err != nil || outcome.Execution.Status != RiskDenied || store.commits != 1 || finances.quoteCalls != 1 || automations.versionRequested != 2 {
+		t.Fatalf("pinned reviewed version did not continue while replacement was a draft: %#v %v", outcome, err)
 	}
 }
 
 func TestManualEvaluationRequiresImmutableCapitalBucketBinding(t *testing.T) {
 	service, store, finances, principal := evaluationFixture()
-	service.automation.(*evaluationAutomationFake).mandate.CapitalBucketID = "different-bucket"
+	automations := service.automation.(*evaluationAutomationFake)
+	automations.versionMandate = automations.mandate
+	automations.versionMandate.CapitalBucketID = "different-bucket"
 	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:different-bucket")
 	if !errors.Is(err, ErrEvaluationConfigurationChanged) || store.commits != 0 || finances.quoteCalls != 0 {
 		t.Fatalf("changed capital bucket was not rejected before provider reads: %v", err)
+	}
+}
+
+func TestManualEvaluationStopsWhenCurrentMandateIsExplicitlyDisabled(t *testing.T) {
+	service, store, finances, principal := evaluationFixture()
+	automations := service.automation.(*evaluationAutomationFake)
+	automations.versionMandate = automations.mandate
+	automations.mandate.Status = "DISABLED"
+	_, err := service.Evaluate(context.Background(), principal, "instance", "manual:disabled")
+	if !errors.Is(err, ErrEvaluationConfigurationChanged) || store.commits != 0 || finances.quoteCalls != 0 || automations.versionRequested != 0 {
+		t.Fatalf("explicit mandate disable did not stop before immutable version or provider reads: %v", err)
 	}
 }
 

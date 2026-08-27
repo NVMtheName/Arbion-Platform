@@ -130,9 +130,15 @@ func (s *PostgresStore) Resume(c context.Context, userID, instanceID string, exp
 	}
 	var mandateReady bool
 	if err = tx.QueryRow(c, `SELECT EXISTS(
-		SELECT 1 FROM automation_mandates
-		WHERE id=$1 AND user_id=$2 AND status='READY' AND current_version=$3
-	)`, current.AutomationMandateID, userID, current.MandateVersion).Scan(&mandateReady); err != nil {
+		SELECT 1
+		FROM automation_mandates m
+		JOIN automation_mandate_versions v ON v.mandate_id=m.id AND v.version_number=$3
+		WHERE m.id=$1 AND m.user_id=$2 AND m.status IN ('READY','DRAFT') AND m.current_version >= $3
+		  AND v.snapshot->>'status'='READY'
+		  AND v.snapshot->>'financial_account_id'=$4
+		  AND v.snapshot->>'capital_bucket_id'=$5
+		  AND v.snapshot->>'execution_mode'=$6
+	)`, current.AutomationMandateID, userID, current.MandateVersion, current.FinancialAccountID, current.CapitalBucketID, current.ExecutionMode).Scan(&mandateReady); err != nil {
 		return Instance{}, err
 	}
 	if !mandateReady {

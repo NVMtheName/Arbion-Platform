@@ -63,14 +63,14 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES('` + bucketID + `','` + userID + `','` + accountID + `','Paper','FIXED_AMOUNT',20000,'USD',0,'ACTIVE')`,
 		`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES('` + secondBucketID + `','` + userID + `','` + accountID + `','Second paper bucket','FIXED_AMOUNT',1000,'USD',0,'ACTIVE')`,
 		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + mandateID + `','` + userID + `','` + accountID + `','STRATEGY','wheel','` + bucketID + `','STRATEGY_AUTONOMOUS','PAPER','READY',1,'{"symbols":["AAPL"],"minimum_dte":20,"maximum_dte":60,"target_delta":"0.30","target_delta_min":"0.20","target_delta_max":"0.40","maximum_contracts":1,"assignment_handling_policy":"continue_wheel"}','{}','{"symbols":["AAPL"],"universe_ids":[]}','{"symbols":[]}',false,true,'{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR","notifications":{"evaluation_completed":true,"lifecycle_required":true,"first_failure":true}}',false)`,
-		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) VALUES('` + mandateID + `',1,'` + userID + `','UI','{}','{}')`,
+		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'UI',to_jsonb(m) || '{"execution_capable":false}'::jsonb,'{}'::jsonb FROM automation_mandates m WHERE id='` + mandateID + `'`,
 		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + secondMandateID + `','` + userID + `','` + accountID + `','STRATEGY','wheel','` + secondBucketID + `','RESEARCH_ONLY','PAPER','READY',1,'{}','{}','{"symbols":[],"universe_ids":[]}','{"symbols":[]}',false,true,'{}',false)`,
-		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) VALUES('` + secondMandateID + `',1,'` + userID + `','UI','{}','{}')`,
+		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'UI',to_jsonb(m) || '{"execution_capable":false}'::jsonb,'{}'::jsonb FROM automation_mandates m WHERE id='` + secondMandateID + `'`,
 		`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES('` + aiConnectionID + `','` + userID + `','ai','openai','OpenAI','active')`,
 		`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES('` + aiAccountID + `','` + userID + `','` + connectionID + `','schwab','opaque-ai','Schwab AI Test','brokerage','USD','active','{"options":"UNSUPPORTED","margin":"UNSUPPORTED"}')`,
 		`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES('` + aiBucketID + `','` + userID + `','` + aiAccountID + `','AI shadow budget','FIXED_AMOUNT',10,'USD',0,'ACTIVE')`,
 		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,ai_provider_connection_id,ai_model_id,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + aiMandateID + `','` + userID + `','` + aiAccountID + `','AI_AUTONOMOUS','` + aiConnectionID + `','gpt-5.6-sol','` + aiBucketID + `','FULL_AUTONOMOUS','SHADOW','READY',1,'{"objective":"Preserve capital.","max_proposal_notional":"1"}','{}','{"symbols":["AAPL"],"universe_ids":[]}','{"symbols":[]}',false,false,'{}',false)`,
-		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) VALUES('` + aiMandateID + `',1,'` + userID + `','UI','{}','{}')`,
+		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'UI',to_jsonb(m) || '{"execution_capable":false}'::jsonb,'{}'::jsonb FROM automation_mandates m WHERE id='` + aiMandateID + `'`,
 	}
 	for _, statement := range statements {
 		if _, err = pool.Exec(ctx, statement); err != nil {
@@ -90,6 +90,12 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	}
 	if instance.CapitalBucketID != bucketID {
 		t.Fatalf("strategy instance lost its capital bucket binding: %#v", instance)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE automation_mandates SET status='DRAFT',current_version=2,autonomy_level='RESEARCH_ONLY',schedule_conditions='{"enabled":false}' WHERE id=$1`, mandateID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,2,user_id,'UI',to_jsonb(m) || '{"execution_capable":false}'::jsonb,'{"change":"replacement_draft"}'::jsonb FROM automation_mandates m WHERE id=$1`, mandateID); err != nil {
+		t.Fatal(err)
 	}
 	secondMandate := mandate
 	secondMandate.ID = secondMandateID
@@ -112,6 +118,21 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		t.Fatalf("notification preferences crossed the schedule boundary: %#v", scheduled)
 	}
 	if err = store.CompleteSchedule(ctx, *scheduled, ScheduleCompletion{CompletedAt: claimAt, NextRunAt: claimAt.Add(24 * time.Hour), Status: "SKIPPED", ErrorCode: "OUTSIDE_SESSION"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE automation_mandates SET status='DISABLED' WHERE id=$1`, mandateID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE nonlive_strategy_schedules SET next_run_at=$1 WHERE strategy_instance_id=$2`, claimAt, instance.ID); err != nil {
+		t.Fatal(err)
+	}
+	if blocked, claimErr := store.ClaimDueSchedule(ctx, claimAt.Add(time.Minute), scheduleLeaseDuration); claimErr != nil || blocked != nil {
+		t.Fatalf("explicitly disabled mandate still produced scheduled work: %#v %v", blocked, claimErr)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE automation_mandates SET status='DRAFT' WHERE id=$1`, mandateID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE nonlive_strategy_schedules SET next_run_at=$1 WHERE strategy_instance_id=$2`, claimAt.Add(24*time.Hour), instance.ID); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)

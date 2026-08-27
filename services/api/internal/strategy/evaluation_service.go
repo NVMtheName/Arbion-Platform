@@ -40,6 +40,7 @@ type EvaluationStore interface {
 
 type EvaluationAutomation interface {
 	Get(context.Context, authorization.Principal, string) (automation.Mandate, error)
+	AtVersion(context.Context, authorization.Principal, string, int) (automation.Mandate, error)
 	GetBucket(context.Context, authorization.Principal, string) (automation.CapitalBucket, error)
 }
 
@@ -143,9 +144,16 @@ func (s *EvaluationService) Evaluate(ctx context.Context, principal authorizatio
 	if instance.ExecutionMode != Paper && instance.ExecutionMode != Shadow {
 		return EvaluationOutcome{}, ErrInvalid
 	}
-	mandate, err := s.automation.Get(ctx, principal, instance.AutomationMandateID)
+	currentMandate, err := s.automation.Get(ctx, principal, instance.AutomationMandateID)
 	if err != nil {
 		return EvaluationOutcome{}, ErrNotFound
+	}
+	if currentMandate.ID != instance.AutomationMandateID || currentMandate.UserID != principal.UserID || currentMandate.CurrentVersion < instance.MandateVersion || (currentMandate.Status != "READY" && currentMandate.Status != "DRAFT") {
+		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
+	}
+	mandate, err := s.automation.AtVersion(ctx, principal, instance.AutomationMandateID, instance.MandateVersion)
+	if err != nil {
+		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
 	}
 	if mandate.ID != instance.AutomationMandateID || mandate.UserID != principal.UserID || mandate.FinancialAccountID != instance.FinancialAccountID || mandate.CapitalBucketID != instance.CapitalBucketID || mandate.CurrentVersion != instance.MandateVersion || mandate.Status != "READY" || mandate.ExecutionMode != string(instance.ExecutionMode) {
 		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged

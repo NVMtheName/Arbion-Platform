@@ -701,11 +701,11 @@ export function StrategySimulationWorkbench({
                     </div>
                     {hasActiveInstance && (
                       <p className="security-note">
-                        Creating the DRAFT makes the current READY version no
-                        longer current, so scheduled evaluation pauses. The
-                        existing non-live instance and its immutable history
-                        remain intact; a reviewed replacement must be marked
-                        READY and initialized separately.
+                        The active non-live instance remains pinned to its
+                        reviewed immutable version and continues on that exact
+                        schedule. This DRAFT cannot change its limits or model;
+                        finish the old instance before marking and initializing
+                        a reviewed replacement.
                       </p>
                     )}
                     <label>

@@ -8,8 +8,9 @@ import (
 )
 
 // ClaimDueSchedule takes one durable lease. The query repeats every authority
-// check so a revoked entitlement, changed mandate, or live mode fails closed
-// before the worker receives any work.
+// check so a revoked entitlement, explicit stop, corrupted immutable version,
+// or live mode fails closed before the worker receives any work. A newer DRAFT
+// does not mutate or interrupt the reviewed version pinned to the instance.
 func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, leaseFor time.Duration) (*ScheduledRun, error) {
 	var run ScheduledRun
 	err := s.db.QueryRow(ctx, `WITH candidate AS (
@@ -17,19 +18,22 @@ func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, lea
 		FROM nonlive_strategy_schedules s
 		JOIN strategy_instances i ON i.id=s.strategy_instance_id AND i.user_id=s.user_id
 		JOIN automation_mandates m ON m.id=s.mandate_id AND m.user_id=s.user_id
+		JOIN automation_mandate_versions v ON v.mandate_id=s.mandate_id AND v.version_number=s.mandate_version
 		JOIN users u ON u.id=s.user_id
 		WHERE s.next_run_at <= $1
 		  AND (s.lease_token IS NULL OR s.lease_expires_at <= $1)
 		  AND i.status='ACTIVE' AND i.execution_mode IN ('PAPER','SHADOW')
 		  AND i.automation_mandate_id=s.mandate_id AND i.mandate_version=s.mandate_version
-		  AND m.status='READY' AND m.current_version=s.mandate_version
-		  AND ((m.automation_type='STRATEGY' AND m.autonomy_level='STRATEGY_AUTONOMOUS') OR
-		       (m.automation_type='AI_AUTONOMOUS' AND m.autonomy_level='FULL_AUTONOMOUS' AND i.strategy_identifier='ai_shadow' AND i.execution_mode='SHADOW'))
-		  AND m.execution_mode=i.execution_mode
-		  AND m.effective_from <= $1 AND (m.effective_until IS NULL OR m.effective_until > $1)
-		  AND m.schedule_conditions->>'enabled'='true'
-		  AND m.schedule_conditions->>'interval_minutes'=s.interval_minutes::text
-		  AND m.schedule_conditions->>'session'=s.session
+		  AND m.status IN ('READY','DRAFT') AND m.current_version >= s.mandate_version
+		  AND v.snapshot->>'status'='READY'
+		  AND ((v.snapshot->>'automation_type'='STRATEGY' AND v.snapshot->>'autonomy_level'='STRATEGY_AUTONOMOUS') OR
+		       (v.snapshot->>'automation_type'='AI_AUTONOMOUS' AND v.snapshot->>'autonomy_level'='FULL_AUTONOMOUS' AND i.strategy_identifier='ai_shadow' AND i.execution_mode='SHADOW'))
+		  AND v.snapshot->>'execution_mode'=i.execution_mode
+		  AND (v.snapshot->>'effective_from')::timestamptz <= $1
+		  AND ((v.snapshot->>'effective_until') IS NULL OR (v.snapshot->>'effective_until')::timestamptz > $1)
+		  AND v.snapshot #>> '{schedule_conditions,enabled}'='true'
+		  AND v.snapshot #>> '{schedule_conditions,interval_minutes}'=s.interval_minutes::text
+		  AND v.snapshot #>> '{schedule_conditions,session}'=s.session
 		  AND u.status='active'
 		  AND EXISTS (SELECT 1 FROM user_entitlements e WHERE e.user_id=s.user_id AND e.entitlement_key='founder' AND e.status='active' AND e.starts_at <= $1 AND (e.expires_at IS NULL OR e.expires_at > $1))
 		ORDER BY s.next_run_at,s.strategy_instance_id
@@ -42,13 +46,13 @@ func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, lea
 	)
 	SELECT c.strategy_instance_id::text,c.user_id::text,COALESCE(u.normalized_email,''),u.email_verified_at IS NOT NULL,c.mandate_id::text,c.mandate_version,
 		i.execution_mode,i.current_state,c.interval_minutes,c.session,c.next_run_at,c.lease_token::text,
-		COALESCE((m.schedule_conditions #>> '{notifications,evaluation_completed}')::boolean,false),
-		COALESCE((m.schedule_conditions #>> '{notifications,lifecycle_required}')::boolean,false),
-		COALESCE((m.schedule_conditions #>> '{notifications,first_failure}')::boolean,false),
+		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,evaluation_completed}')::boolean,false),
+		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,lifecycle_required}')::boolean,false),
+		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,first_failure}')::boolean,false),
 		c.last_error_code,c.consecutive_failures
 	FROM claimed c
 	JOIN strategy_instances i ON i.id=c.strategy_instance_id
-	JOIN automation_mandates m ON m.id=c.mandate_id AND m.user_id=c.user_id
+	JOIN automation_mandate_versions v ON v.mandate_id=c.mandate_id AND v.version_number=c.mandate_version
 	JOIN users u ON u.id=c.user_id`, now, int(leaseFor/time.Second)).Scan(
 		&run.StrategyInstanceID, &run.UserID, &run.OwnerEmail, &run.OwnerEmailVerified, &run.MandateID, &run.MandateVersion,
 		&run.ExecutionMode, &run.CurrentState, &run.IntervalMinutes, &run.Session,

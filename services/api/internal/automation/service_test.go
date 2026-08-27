@@ -2,8 +2,10 @@ package automation
 
 import (
 	"context"
+	"encoding/json"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/arbion/platform/services/api/internal/authorization"
 )
@@ -604,6 +606,62 @@ func TestAIShadowScenarioDraftOnlyChangesReviewedResearchLimits(t *testing.T) {
 	}
 	if f.updatedExpected != 7 || f.updatedSource != "UI" || auditor.action != "automation_mandate.ai_shadow_scenario_draft_created" || auditor.data["live_execution_available"] != false || auditor.data["review_required"] != true {
 		t.Fatalf("scenario concurrency or audit evidence was incomplete: %#v %#v", f, auditor)
+	}
+}
+
+func TestMandateFromVersionUsesOnlyImmutableConfiguration(t *testing.T) {
+	current := Mandate{
+		ID:                 "mandate",
+		UserID:             "owner",
+		FinancialAccountID: "replacement-account",
+		CapitalBucketID:    "replacement-bucket",
+		Status:             "DRAFT",
+		CurrentVersion:     3,
+	}
+	version := Version{
+		MandateID:     "mandate",
+		VersionNumber: 2,
+		CreatedAt:     time.Date(2026, 8, 27, 18, 0, 0, 0, time.UTC),
+		Snapshot: json.RawMessage(`{
+			"financial_account_id":"reviewed-account",
+			"automation_type":"AI_AUTONOMOUS",
+			"ai_provider_connection_id":"reviewed-ai",
+			"ai_model_id":"gpt-5.6-sol",
+			"capital_bucket_id":"reviewed-bucket",
+			"autonomy_level":"FULL_AUTONOMOUS",
+			"execution_mode":"SHADOW",
+			"status":"READY",
+			"strategy_parameters":{"objective":"Preserve capital.","max_proposal_notional":"1000"},
+			"risk_parameters":{"max_trades_per_day":1},
+			"allowed_universe":{"symbols":["SPY"]},
+			"prohibited_universe":{"symbols":[]},
+			"margin_allowed":false,
+			"options_allowed":false,
+			"schedule_conditions":{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR"},
+			"effective_from":"2026-08-27T17:00:00Z",
+			"execution_capable":false
+		}`),
+	}
+	pinned, err := MandateFromVersion(current, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pinned.ID != current.ID || pinned.UserID != current.UserID || pinned.CurrentVersion != 2 || pinned.Status != "READY" || pinned.FinancialAccountID != "reviewed-account" || pinned.CapitalBucketID != "reviewed-bucket" || pinned.ExecutionMode != "SHADOW" || pinned.ExecutionCapable {
+		t.Fatalf("immutable version was not reconstructed safely: %#v", pinned)
+	}
+	parameters, err := ParseAIShadowParameters(pinned.StrategyParameters)
+	if err != nil || parameters.MaxProposalNotional != "1000" || pinned.Risk.MaxTradesPerDay == nil || *pinned.Risk.MaxTradesPerDay != 1 || len(pinned.AllowedUniverse.Symbols) != 1 || pinned.AllowedUniverse.Symbols[0] != "SPY" {
+		t.Fatalf("immutable configuration was not preserved: %#v %#v %v", pinned, parameters, err)
+	}
+
+	version.MandateID = "different"
+	if _, err = MandateFromVersion(current, version); err != ErrInvalid {
+		t.Fatalf("cross-mandate version was accepted: %v", err)
+	}
+	version.MandateID = "mandate"
+	version.Snapshot = json.RawMessage(`{"status":"READY","execution_capable":true}`)
+	if _, err = MandateFromVersion(current, version); err != ErrInvalid {
+		t.Fatalf("execution-capable version snapshot was accepted: %v", err)
 	}
 }
 
