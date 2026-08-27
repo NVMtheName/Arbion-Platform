@@ -30,6 +30,9 @@ type breakerControllerFake struct {
 	accountCurrent  *risk.CircuitBreaker
 	accountEngaged  risk.CircuitBreaker
 	accountReleased risk.CircuitBreaker
+	userCurrent     *risk.CircuitBreaker
+	userEngaged     risk.CircuitBreaker
+	userReleased    risk.CircuitBreaker
 }
 
 func (fake *breakerControllerFake) CurrentAutomation(_ context.Context, principal authorization.Principal, automationID string) (*risk.CircuitBreaker, error) {
@@ -55,6 +58,18 @@ func (fake *breakerControllerFake) EngageAccount(_ context.Context, principal au
 func (fake *breakerControllerFake) ReleaseAccount(_ context.Context, principal authorization.Principal, accountID string, command risk.BreakerCommand) (risk.CircuitBreaker, error) {
 	fake.principal, fake.accountID, fake.releaseCommand = principal, accountID, command
 	return fake.accountReleased, fake.releaseError
+}
+func (fake *breakerControllerFake) CurrentUser(_ context.Context, principal authorization.Principal) (*risk.CircuitBreaker, error) {
+	fake.principal = principal
+	return fake.userCurrent, fake.currentError
+}
+func (fake *breakerControllerFake) EngageUser(_ context.Context, principal authorization.Principal, command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+	fake.principal, fake.engageCommand = principal, command
+	return fake.userEngaged, fake.engagementError
+}
+func (fake *breakerControllerFake) ReleaseUser(_ context.Context, principal authorization.Principal, command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+	fake.principal, fake.releaseCommand = principal, command
+	return fake.userReleased, fake.releaseError
 }
 
 func breakerRequest(method, path, body string) *stdhttp.Request {
@@ -140,5 +155,32 @@ func TestAccountBreakerTransportIsOwnerScopedAndNonLive(t *testing.T) {
 	var response map[string]any
 	if err := json.Unmarshal(engageRecorder.Body.Bytes(), &response); err != nil || response["broker_action_requested"] != false {
 		t.Fatalf("account non-live boundary missing: %s err=%v", engageRecorder.Body.String(), err)
+	}
+}
+
+func TestUserBreakerTransportIsAuthenticatedAndNonLive(t *testing.T) {
+	userID := "owner"
+	now := time.Date(2026, 8, 27, 15, 0, 0, 0, time.UTC)
+	breaker := risk.CircuitBreaker{ID: "breaker-1", Scope: risk.ScopeUser, ScopeID: &userID, State: risk.BreakerOpen, Reason: "owner is stopping all new actions", Source: "UI", EngagedAt: now}
+	fake := &breakerControllerFake{userCurrent: &breaker, userEngaged: breaker}
+	handler := &authHandler{breakers: fake, cfg: config.Auth{AllowedOrigins: []string{"http://localhost:3000"}}}
+
+	currentRecorder := httptest.NewRecorder()
+	handler.currentUserBreaker(currentRecorder, breakerRequest(stdhttp.MethodGet, "/api/risk/circuit-breaker", ""))
+	if currentRecorder.Code != stdhttp.StatusOK || currentRecorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(currentRecorder.Body.String(), `"live_execution_available":false`) {
+		t.Fatalf("unexpected user breaker response: %d %s", currentRecorder.Code, currentRecorder.Body.String())
+	}
+
+	engageRecorder := httptest.NewRecorder()
+	handler.engageUserBreaker(engageRecorder, breakerRequest(stdhttp.MethodPost, "/api/risk/circuit-breaker/engage", `{"reason":"owner is stopping all new actions","confirm":true}`))
+	if engageRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("user engage failed: %d %s", engageRecorder.Code, engageRecorder.Body.String())
+	}
+	if fake.principal.UserID != userID || fake.engageCommand.Reason != "owner is stopping all new actions" || !fake.engageCommand.Confirm {
+		t.Fatalf("user engage command changed: %#v", fake)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(engageRecorder.Body.Bytes(), &response); err != nil || response["broker_action_requested"] != false {
+		t.Fatalf("user non-live boundary missing: %s err=%v", engageRecorder.Body.String(), err)
 	}
 }

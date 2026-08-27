@@ -16,6 +16,9 @@ type breakerController interface {
 	CurrentAccount(context.Context, authorization.Principal, string) (*risk.CircuitBreaker, error)
 	EngageAccount(context.Context, authorization.Principal, string, risk.BreakerCommand) (risk.CircuitBreaker, error)
 	ReleaseAccount(context.Context, authorization.Principal, string, risk.BreakerCommand) (risk.CircuitBreaker, error)
+	CurrentUser(context.Context, authorization.Principal) (*risk.CircuitBreaker, error)
+	EngageUser(context.Context, authorization.Principal, risk.BreakerCommand) (risk.CircuitBreaker, error)
+	ReleaseUser(context.Context, authorization.Principal, risk.BreakerCommand) (risk.CircuitBreaker, error)
 }
 
 func registerBreakerRoutes(mux *stdhttp.ServeMux, handler *authHandler) {
@@ -28,6 +31,9 @@ func registerBreakerRoutes(mux *stdhttp.ServeMux, handler *authHandler) {
 	mux.Handle("GET /api/accounts/{id}/circuit-breaker", handler.require(stdhttp.HandlerFunc(handler.currentAccountBreaker)))
 	mux.Handle("POST /api/accounts/{id}/circuit-breaker/engage", handler.require(stdhttp.HandlerFunc(handler.engageAccountBreaker)))
 	mux.Handle("POST /api/accounts/{id}/circuit-breaker/release", handler.require(stdhttp.HandlerFunc(handler.releaseAccountBreaker)))
+	mux.Handle("GET /api/risk/circuit-breaker", handler.require(stdhttp.HandlerFunc(handler.currentUserBreaker)))
+	mux.Handle("POST /api/risk/circuit-breaker/engage", handler.require(stdhttp.HandlerFunc(handler.engageUserBreaker)))
+	mux.Handle("POST /api/risk/circuit-breaker/release", handler.require(stdhttp.HandlerFunc(handler.releaseUserBreaker)))
 }
 
 func (handler *authHandler) breakerError(writer stdhttp.ResponseWriter, err error) {
@@ -86,6 +92,28 @@ func (handler *authHandler) engageAccountBreaker(writer stdhttp.ResponseWriter, 
 func (handler *authHandler) releaseAccountBreaker(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
 	handler.breakerMutation(writer, request, func(command risk.BreakerCommand) (risk.CircuitBreaker, error) {
 		return handler.breakers.ReleaseAccount(request.Context(), principal(request), request.PathValue("id"), command)
+	})
+}
+
+func (handler *authHandler) currentUserBreaker(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	breaker, err := handler.breakers.CurrentUser(request.Context(), principal(request))
+	if err != nil {
+		handler.breakerError(writer, err)
+		return
+	}
+	writer.Header().Set("Cache-Control", "no-store")
+	writeJSON(writer, 200, map[string]any{"circuit_breaker": breaker, "live_execution_available": false})
+}
+
+func (handler *authHandler) engageUserBreaker(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	handler.breakerMutation(writer, request, func(command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+		return handler.breakers.EngageUser(request.Context(), principal(request), command)
+	})
+}
+
+func (handler *authHandler) releaseUserBreaker(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	handler.breakerMutation(writer, request, func(command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+		return handler.breakers.ReleaseUser(request.Context(), principal(request), command)
 	})
 }
 

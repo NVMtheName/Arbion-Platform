@@ -26,6 +26,9 @@ type breakerStoreFake struct {
 	accountReleased CircuitBreaker
 	engageAccount   string
 	releaseAccount  string
+	userCurrent     *CircuitBreaker
+	userEngaged     CircuitBreaker
+	userReleased    CircuitBreaker
 }
 
 func (store *breakerStoreFake) AutomationOwned(context.Context, string, string) (bool, error) {
@@ -55,6 +58,20 @@ func (store *breakerStoreFake) EngageAccountBreaker(_ context.Context, userID, a
 func (store *breakerStoreFake) ReleaseAccountBreaker(_ context.Context, userID, accountID string, at time.Time) (CircuitBreaker, error) {
 	store.releaseUser, store.releaseAccount, store.releaseTime = userID, accountID, at
 	return store.accountReleased, nil
+}
+func (store *breakerStoreFake) UserExists(context.Context, string) (bool, error) {
+	return store.owned, nil
+}
+func (store *breakerStoreFake) OpenUserBreaker(context.Context, string) (*CircuitBreaker, error) {
+	return store.userCurrent, nil
+}
+func (store *breakerStoreFake) EngageUserBreaker(_ context.Context, userID, reason string, at time.Time) (CircuitBreaker, error) {
+	store.engageUser, store.engageReason, store.engageTime = userID, reason, at
+	return store.userEngaged, nil
+}
+func (store *breakerStoreFake) ReleaseUserBreaker(_ context.Context, userID string, at time.Time) (CircuitBreaker, error) {
+	store.releaseUser, store.releaseTime = userID, at
+	return store.userReleased, nil
 }
 
 type breakerAuditFake struct {
@@ -189,5 +206,53 @@ func TestAccountBreakerRejectsUnownedAndInvalidCommands(t *testing.T) {
 	}
 	if _, err := service.ReleaseAccount(context.Background(), founderPrincipal(), "other", BreakerCommand{Reason: "connection was reviewed", Confirm: true}); !errors.Is(err, ErrBreakerNotFound) {
 		t.Fatalf("unowned account release was accepted: %v", err)
+	}
+}
+
+func TestUserBreakerEngageAndReleaseAreAuthenticatedAndAudited(t *testing.T) {
+	now := time.Date(2026, 8, 27, 15, 0, 0, 0, time.UTC)
+	userID := "owner"
+	engaged := CircuitBreaker{ID: "breaker", Scope: ScopeUser, ScopeID: &userID, State: BreakerOpen, Reason: "owner is stopping all new actions", Source: "UI", EngagedAt: now}
+	released := engaged
+	released.State = BreakerClosed
+	released.ReleasedAt = &now
+	store := &breakerStoreFake{owned: true, userEngaged: engaged, userReleased: released, userCurrent: &engaged}
+	audit := &breakerAuditFake{}
+	service := NewBreakerService(store, audit)
+	service.now = func() time.Time { return now }
+
+	current, err := service.CurrentUser(context.Background(), founderPrincipal())
+	if err != nil || current == nil || current.Scope != ScopeUser {
+		t.Fatalf("user breaker was not owner-scoped: current=%#v err=%v", current, err)
+	}
+	result, err := service.EngageUser(context.Background(), founderPrincipal(), BreakerCommand{Reason: "  owner is stopping all new actions  ", Confirm: true})
+	if err != nil || result.State != BreakerOpen || store.engageUser != userID || store.engageReason != "owner is stopping all new actions" || !store.engageTime.Equal(now) {
+		t.Fatalf("user engage changed: result=%#v store=%#v err=%v", result, store, err)
+	}
+	if audit.action != "user_circuit_breaker.engaged" || audit.metadata["subject_user_id"] != userID || audit.metadata["scope"] != ScopeUser || audit.metadata["broker_execution_requested"] != false {
+		t.Fatalf("user engage audit evidence is incomplete: %#v", audit)
+	}
+
+	result, err = service.ReleaseUser(context.Background(), founderPrincipal(), BreakerCommand{Reason: "all connected accounts were reviewed", Confirm: true})
+	if err != nil || result.State != BreakerClosed || store.releaseUser != userID || !store.releaseTime.Equal(now) {
+		t.Fatalf("user release changed: result=%#v store=%#v err=%v", result, store, err)
+	}
+	if audit.action != "user_circuit_breaker.released" || audit.metadata["reason"] != "all connected accounts were reviewed" || audit.metadata["live_execution_available"] != false {
+		t.Fatalf("user release audit evidence is incomplete: %#v", audit)
+	}
+}
+
+func TestUserBreakerRequiresEntitlementConfirmationAndExistingUser(t *testing.T) {
+	store := &breakerStoreFake{owned: true}
+	service := NewBreakerService(store, nil)
+	if _, err := service.EngageUser(context.Background(), founderPrincipal(), BreakerCommand{Reason: "owner requested global stop", Confirm: false}); !errors.Is(err, ErrBreakerInvalid) {
+		t.Fatalf("unconfirmed user stop was accepted: %v", err)
+	}
+	if _, err := service.CurrentUser(context.Background(), authorization.Principal{UserID: "basic", Entitlement: authorization.EntitlementFree}); !errors.Is(err, ErrBreakerForbidden) {
+		t.Fatalf("unentitled user reached global stop state: %v", err)
+	}
+	store.owned = false
+	if _, err := service.ReleaseUser(context.Background(), founderPrincipal(), BreakerCommand{Reason: "all accounts were reviewed", Confirm: true}); !errors.Is(err, ErrBreakerNotFound) {
+		t.Fatalf("missing user release was accepted: %v", err)
 	}
 }

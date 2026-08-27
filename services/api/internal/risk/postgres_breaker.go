@@ -96,3 +96,40 @@ func (store *PostgresBreakerStore) ReleaseAccountBreaker(ctx context.Context, us
 	}
 	return breaker, err
 }
+
+func (store *PostgresBreakerStore) UserExists(ctx context.Context, userID string) (bool, error) {
+	var exists bool
+	err := store.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, userID).Scan(&exists)
+	return exists, err
+}
+
+func (store *PostgresBreakerStore) OpenUserBreaker(ctx context.Context, userID string) (*CircuitBreaker, error) {
+	breaker, err := scanBreaker(store.db.QueryRow(ctx, `SELECT `+breakerColumns+` FROM risk_circuit_breakers b WHERE b.scope='USER' AND b.scope_id=$1 AND b.state='OPEN' AND EXISTS(SELECT 1 FROM users u WHERE u.id=b.scope_id AND u.id=$1)`, userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &breaker, nil
+}
+
+func (store *PostgresBreakerStore) EngageUserBreaker(ctx context.Context, userID, reason string, engagedAt time.Time) (CircuitBreaker, error) {
+	breaker, err := scanBreaker(store.db.QueryRow(ctx, `INSERT INTO risk_circuit_breakers(scope,scope_id,state,reason,source,engaged_by_user_id,engaged_at) SELECT 'USER',u.id,'OPEN',$2,'UI',u.id,$3 FROM users u WHERE u.id=$1 RETURNING `+breakerColumns, userID, reason, engagedAt))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CircuitBreaker{}, ErrBreakerNotFound
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == "23505" {
+		return CircuitBreaker{}, ErrBreakerConflict
+	}
+	return breaker, err
+}
+
+func (store *PostgresBreakerStore) ReleaseUserBreaker(ctx context.Context, userID string, releasedAt time.Time) (CircuitBreaker, error) {
+	breaker, err := scanBreaker(store.db.QueryRow(ctx, `UPDATE risk_circuit_breakers b SET state='CLOSED',released_by_user_id=$1,released_at=$2 WHERE b.scope='USER' AND b.scope_id=$1 AND b.state='OPEN' AND EXISTS(SELECT 1 FROM users u WHERE u.id=b.scope_id AND u.id=$1) RETURNING `+breakerColumns, userID, releasedAt))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CircuitBreaker{}, ErrBreakerConflict
+	}
+	return breaker, err
+}
