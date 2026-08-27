@@ -508,6 +508,49 @@ func TestScheduleUpdateCreatesDraftAndPreservesNonLiveBoundary(t *testing.T) {
 	}
 }
 
+func TestAIShadowParameterUpdateCreatesValidatedDraft(t *testing.T) {
+	connection, model := "ai", "gpt-5.6-sol"
+	f := baseStore()
+	f.created = Mandate{
+		ID:                     "m",
+		UserID:                 founder.UserID,
+		FinancialAccountID:     "a",
+		AutomationType:         "AI_AUTONOMOUS",
+		AIProviderConnectionID: &connection,
+		AIModelID:              &model,
+		CapitalBucketID:        "b",
+		AutonomyLevel:          "FULL_AUTONOMOUS",
+		ExecutionMode:          "SHADOW",
+		Status:                 "READY",
+		CurrentVersion:         4,
+		StrategyParameters:     []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`),
+		Risk:                   RiskPolicy{MaxTradesPerDay: intPointer(1)},
+		AllowedUniverse:        Universe{Symbols: []string{"SPY"}},
+		ScheduleConditions:     []byte(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR"}`),
+	}
+	service := NewService(f, nil)
+
+	updated, err := service.UpdateAIShadowParameters(context.Background(), founder, "m", 4, AIShadowParameters{Objective: "  Preserve capital.  ", MaxProposalNotional: "1000"})
+	if err != nil || updated.Status != "DRAFT" || updated.CurrentVersion != 5 {
+		t.Fatalf("AI Shadow controls did not create a draft version: %#v %v", updated, err)
+	}
+	parsed, err := ParseAIShadowParameters(f.updatedCommand.StrategyParameters)
+	if err != nil || parsed.Objective != "Preserve capital." || parsed.MaxProposalNotional != "1000" {
+		t.Fatalf("AI Shadow controls were not normalized and preserved: %#v %v", parsed, err)
+	}
+	if f.updatedCommand.ExecutionMode != "SHADOW" || f.updatedCommand.AutonomyLevel != "FULL_AUTONOMOUS" {
+		t.Fatalf("AI Shadow boundary changed: %#v", f.updatedCommand)
+	}
+
+	if _, err = service.UpdateAIShadowParameters(context.Background(), founder, "m", 5, AIShadowParameters{Objective: "Preserve capital.", MaxProposalNotional: "0"}); err != ErrInvalid {
+		t.Fatalf("zero proposal ceiling was accepted: %v", err)
+	}
+	f.created.AutomationType = "STRATEGY"
+	if _, err = service.UpdateAIShadowParameters(context.Background(), founder, "m", 5, AIShadowParameters{Objective: "Preserve capital.", MaxProposalNotional: "1000"}); err != ErrInvalid {
+		t.Fatalf("deterministic strategy accepted AI Shadow controls: %v", err)
+	}
+}
+
 func TestAIShadowScheduleUpdateCreatesDraftAndEnforcesProviderSession(t *testing.T) {
 	connection, model := "ai", "gpt-5.6-sol"
 	f := baseStore()

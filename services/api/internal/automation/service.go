@@ -551,6 +551,42 @@ func (s *Service) UpdateStrategyParameters(c context.Context, p authorization.Pr
 	return updated, err
 }
 
+func (s *Service) UpdateAIShadowParameters(c context.Context, p authorization.Principal, id string, expected int, parameters AIShadowParameters) (Mandate, error) {
+	if !allowed(p) {
+		return Mandate{}, ErrForbidden
+	}
+	old, err := s.store.GetMandate(c, p.UserID, id)
+	if err != nil {
+		return Mandate{}, ErrNotFound
+	}
+	if old.AutomationType != "AI_AUTONOMOUS" || old.ExecutionMode != "SHADOW" {
+		return Mandate{}, ErrInvalid
+	}
+	raw, err := json.Marshal(parameters)
+	if err != nil {
+		return Mandate{}, err
+	}
+	parsed, err := ParseAIShadowParameters(raw)
+	if err != nil {
+		return Mandate{}, err
+	}
+	raw, err = json.Marshal(parsed)
+	if err != nil {
+		return Mandate{}, err
+	}
+	cmd := commandFrom(old)
+	cmd.StrategyParameters = raw
+	unverified, err := s.validate(c, p, cmd, false)
+	if err != nil {
+		return Mandate{}, err
+	}
+	updated, err := s.store.UpdateMandate(c, p.UserID, id, expected, cmd, unverified, "UI")
+	if err == nil {
+		s.auditEvent(c, p, "automation_mandate.ai_shadow_parameters_changed", map[string]any{"mandate_id": id, "version": updated.CurrentVersion, "source": "UI"})
+	}
+	return updated, err
+}
+
 func (s *Service) UpdateSchedule(c context.Context, p authorization.Principal, id string, expected int, schedule ScheduleConditions) (Mandate, error) {
 	if !allowed(p) {
 		return Mandate{}, ErrForbidden
