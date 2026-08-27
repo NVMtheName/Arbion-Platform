@@ -3,9 +3,15 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const navigation = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: navigation.refresh }),
+}));
 
 import { StrategySimulationWorkbench } from "./strategy-simulation-workbench";
 
@@ -80,7 +86,11 @@ const decisions = [
 ];
 
 describe("Strategy Simulation Workbench", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    navigation.refresh.mockReset();
+    vi.unstubAllGlobals();
+  });
 
   it("compares immutable versions and calculates a local recorded-price scenario", () => {
     render(
@@ -194,5 +204,123 @@ describe("Strategy Simulation Workbench", () => {
     expect(
       screen.getByText("No immutable mandate version is available."),
     ).toBeInTheDocument();
+  });
+
+  it("creates only a confirmed immutable draft from the two reviewed limits", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <StrategySimulationWorkbench
+        automationId="mandate-1"
+        capitalBucket={{
+          Name: "Schwab AI allocation",
+          AllocationType: "FIXED_AMOUNT",
+          AllocationValue: "1000",
+          ProtectedAmount: "0",
+        }}
+        currentVersion={2}
+        decisions={decisions}
+        hasActiveInstance
+        status="READY"
+        versions={versions}
+      />,
+    );
+
+    const reviewButton = screen.getByRole("button", {
+      name: "Review as new DRAFT",
+    });
+    expect(reviewButton).toBeDisabled();
+    fireEvent.change(
+      screen.getByRole("spinbutton", {
+        name: "Scenario per-decision ceiling",
+      }),
+      { target: { value: "500" } },
+    );
+    fireEvent.change(
+      screen.getByRole("spinbutton", {
+        name: "Scenario maximum decisions per day",
+      }),
+      { target: { value: "2" } },
+    );
+    expect(reviewButton).toBeEnabled();
+    fireEvent.click(reviewButton);
+
+    const review = screen.getByRole("table", {
+      name: "Scenario draft changes",
+    });
+    expect(within(review).getByText("$500.00")).toBeInTheDocument();
+    expect(
+      screen.getByText(/scheduled evaluation pauses/i),
+    ).toBeInTheDocument();
+    const createButton = screen.getByRole("button", { name: "Create DRAFT" });
+    expect(createButton).toBeDisabled();
+    fireEvent.click(
+      screen.getByLabelText(/I reviewed both changes and understand/i),
+    );
+    fireEvent.click(createButton);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/automations/mandate-1/ai-shadow-scenario-draft",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          expected_version: 2,
+          max_proposal_notional: "500",
+          max_trades_per_day: 2,
+          confirm: true,
+        }),
+      },
+    );
+    expect(
+      await screen.findByText(/Version 3 was created as an immutable DRAFT/i),
+    ).toBeInTheDocument();
+    expect(navigation.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps archived mandates and stale reviewed versions from creating drafts", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      json: async () => ({ error: { code: "VERSION_CONFLICT" } }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(
+      <StrategySimulationWorkbench
+        automationId="mandate-1"
+        currentVersion={2}
+        status="ARCHIVED"
+        versions={versions}
+      />,
+    );
+    fireEvent.change(
+      screen.getByRole("spinbutton", {
+        name: "Scenario per-decision ceiling",
+      }),
+      { target: { value: "500" } },
+    );
+    expect(
+      screen.getByRole("button", { name: "Review as new DRAFT" }),
+    ).toBeDisabled();
+
+    rerender(
+      <StrategySimulationWorkbench
+        automationId="mandate-1"
+        currentVersion={2}
+        status="READY"
+        versions={versions}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review as new DRAFT" }),
+    );
+    fireEvent.click(
+      screen.getByLabelText(/I reviewed both changes and understand/i),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create DRAFT" }));
+    expect(
+      await screen.findByText(/mandate changed while you were reviewing/i),
+    ).toBeInTheDocument();
+    expect(navigation.refresh).not.toHaveBeenCalled();
   });
 });

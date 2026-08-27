@@ -46,6 +46,16 @@ type AIShadowParameters struct {
 	MaxProposalNotional string `json:"max_proposal_notional"`
 }
 
+// AIShadowScenarioDraftCommand can only revise the two bounded research
+// limits exposed by the non-executing simulation workbench. The service
+// preserves every other mandate field and always creates an immutable DRAFT.
+type AIShadowScenarioDraftCommand struct {
+	ExpectedVersion     int    `json:"expected_version"`
+	MaxProposalNotional string `json:"max_proposal_notional"`
+	MaxTradesPerDay     int    `json:"max_trades_per_day"`
+	Confirm             bool   `json:"confirm"`
+}
+
 type ScheduleNotifications struct {
 	EvaluationCompleted bool `json:"evaluation_completed,omitempty"`
 	LifecycleRequired   bool `json:"lifecycle_required,omitempty"`

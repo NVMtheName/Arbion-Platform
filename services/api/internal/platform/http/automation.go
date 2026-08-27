@@ -25,6 +25,7 @@ func registerAutomationRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("PATCH /api/automations/{id}/paper-options-simulation-attestation", h.require(stdhttp.HandlerFunc(h.updatePaperOptionsSimulationAttestation)))
 	m.Handle("PATCH /api/automations/{id}/strategy-parameters", h.require(stdhttp.HandlerFunc(h.updateStrategyParameters)))
 	m.Handle("PATCH /api/automations/{id}/ai-shadow-parameters", h.require(stdhttp.HandlerFunc(h.updateAIShadowParameters)))
+	m.Handle("POST /api/automations/{id}/ai-shadow-scenario-draft", h.require(stdhttp.HandlerFunc(h.createAIShadowScenarioDraft)))
 	m.Handle("PATCH /api/automations/{id}/schedule", h.require(stdhttp.HandlerFunc(h.updateSchedule)))
 	for _, x := range []string{"ready", "pause", "disable", "archive"} {
 		m.Handle("POST /api/automations/{id}/"+x, h.require(stdhttp.HandlerFunc(h.transitionAutomation)))
@@ -215,6 +216,25 @@ func (h *authHandler) updateAIShadowParameters(w stdhttp.ResponseWriter, r *stdh
 		updated, err := h.automation.UpdateAIShadowParameters(r.Context(), principal(r), r.PathValue("id"), input.ExpectedVersion, input.StrategyParameters)
 		if err == nil {
 			writeJSON(w, 200, map[string]any{"automation": updated, "execution_enabled": false})
+		}
+		return err
+	})
+}
+
+func (h *authHandler) createAIShadowScenarioDraft(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.autoMutation(w, r, func() error {
+		var input automation.AIShadowScenarioDraftCommand
+		if !decode(w, r, &input) {
+			return nil
+		}
+		updated, err := h.automation.CreateAIShadowScenarioDraft(r.Context(), principal(r), r.PathValue("id"), input)
+		if err == nil {
+			writeJSON(w, 201, map[string]any{
+				"automation":               updated,
+				"execution_enabled":        false,
+				"live_execution_available": false,
+				"review_required":          true,
+			})
 		}
 		return err
 	})

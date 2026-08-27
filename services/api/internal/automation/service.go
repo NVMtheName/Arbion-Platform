@@ -587,6 +587,73 @@ func (s *Service) UpdateAIShadowParameters(c context.Context, p authorization.Pr
 	return updated, err
 }
 
+func (s *Service) CreateAIShadowScenarioDraft(c context.Context, p authorization.Principal, id string, command AIShadowScenarioDraftCommand) (Mandate, error) {
+	if !allowed(p) {
+		return Mandate{}, ErrForbidden
+	}
+	if !command.Confirm || command.ExpectedVersion < 1 || command.MaxTradesPerDay < 1 || command.MaxTradesPerDay > 48 {
+		return Mandate{}, ErrInvalid
+	}
+	old, err := s.store.GetMandate(c, p.UserID, id)
+	if err != nil {
+		return Mandate{}, ErrNotFound
+	}
+	if old.AutomationType != "AI_AUTONOMOUS" || old.ExecutionMode != "SHADOW" || old.Status == "ARCHIVED" {
+		return Mandate{}, ErrInvalid
+	}
+	parameters, err := ParseAIShadowParameters(old.StrategyParameters)
+	if err != nil {
+		return Mandate{}, err
+	}
+	previousMaximumText := parameters.MaxProposalNotional
+	previousMaximum, _ := decimal(parameters.MaxProposalNotional, true)
+	parameters.MaxProposalNotional = strings.TrimSpace(command.MaxProposalNotional)
+	candidateRaw, err := json.Marshal(parameters)
+	if err != nil {
+		return Mandate{}, err
+	}
+	parameters, err = ParseAIShadowParameters(candidateRaw)
+	if err != nil {
+		return Mandate{}, err
+	}
+	nextMaximum, _ := decimal(parameters.MaxProposalNotional, true)
+	unchangedDailyLimit := old.Risk.MaxTradesPerDay != nil && *old.Risk.MaxTradesPerDay == command.MaxTradesPerDay
+	if previousMaximum.Cmp(nextMaximum) == 0 && unchangedDailyLimit {
+		return Mandate{}, ErrInvalid
+	}
+	raw, err := json.Marshal(parameters)
+	if err != nil {
+		return Mandate{}, err
+	}
+	cmd := commandFrom(old)
+	cmd.StrategyParameters = raw
+	cmd.Risk.MaxTradesPerDay = &command.MaxTradesPerDay
+	unverified, err := s.validate(c, p, cmd, false)
+	if err != nil {
+		return Mandate{}, err
+	}
+	updated, err := s.store.UpdateMandate(c, p.UserID, id, command.ExpectedVersion, cmd, unverified, "UI")
+	if err == nil {
+		previousDailyLimit := 0
+		if old.Risk.MaxTradesPerDay != nil {
+			previousDailyLimit = *old.Risk.MaxTradesPerDay
+		}
+		s.auditEvent(c, p, "automation_mandate.ai_shadow_scenario_draft_created", map[string]any{
+			"mandate_id":                 id,
+			"version":                    updated.CurrentVersion,
+			"from_max_proposal_notional": previousMaximumText,
+			"to_max_proposal_notional":   parameters.MaxProposalNotional,
+			"from_max_trades_per_day":    previousDailyLimit,
+			"to_max_trades_per_day":      command.MaxTradesPerDay,
+			"execution_mode":             old.ExecutionMode,
+			"live_execution_available":   false,
+			"review_required":            true,
+			"source":                     "UI",
+		})
+	}
+	return updated, err
+}
+
 func (s *Service) UpdateSchedule(c context.Context, p authorization.Principal, id string, expected int, schedule ScheduleConditions) (Mandate, error) {
 	if !allowed(p) {
 		return Mandate{}, ErrForbidden

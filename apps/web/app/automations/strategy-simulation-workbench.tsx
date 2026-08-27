@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 type RawRecord = Record<string, unknown>;
 
@@ -253,16 +254,23 @@ function marketAnchor(decisions: RawRecord[], selectedSymbol: string) {
 }
 
 export function StrategySimulationWorkbench({
+  automationId,
   versions,
   currentVersion,
   capitalBucket,
   decisions = [],
+  status = "DRAFT",
+  hasActiveInstance = false,
 }: {
+  automationId?: string;
   versions: RawRecord[];
   currentVersion: number;
   capitalBucket?: RawRecord;
   decisions?: RawRecord[];
+  status?: string;
+  hasActiveInstance?: boolean;
 }) {
+  const router = useRouter();
   const orderedVersions = [...versions].sort(
     (left, right) => versionNumber(right) - versionNumber(left),
   );
@@ -291,6 +299,10 @@ export function StrategySimulationWorkbench({
   );
   const [scenarioTrades, setScenarioTrades] = useState(String(currentTrades));
   const [scenarioSymbol, setScenarioSymbol] = useState(currentSymbols[0] ?? "");
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [draftMessage, setDraftMessage] = useState("");
 
   const parsedCeiling = Number(scenarioCeiling);
   const parsedTrades = Number(scenarioTrades);
@@ -299,7 +311,7 @@ export function StrategySimulationWorkbench({
     parsedCeiling > 0 &&
     Number.isInteger(parsedTrades) &&
     parsedTrades >= 1 &&
-    parsedTrades <= 50;
+    parsedTrades <= 48;
   const dailyResearchNotional = scenarioValid
     ? parsedCeiling * parsedTrades
     : undefined;
@@ -320,6 +332,10 @@ export function StrategySimulationWorkbench({
     parsedTrades !== currentTrades,
     scenarioSymbol !== (currentSymbols[0] ?? ""),
   ].filter(Boolean).length;
+  const draftChanges = [
+    currentCeiling !== undefined && parsedCeiling !== currentCeiling,
+    parsedTrades !== currentTrades,
+  ].filter(Boolean).length;
 
   const resetScenario = () => {
     setScenarioCeiling(
@@ -327,6 +343,54 @@ export function StrategySimulationWorkbench({
     );
     setScenarioTrades(String(currentTrades));
     setScenarioSymbol(currentSymbols[0] ?? "");
+    setReviewOpen(false);
+    setConfirmed(false);
+    setDraftMessage("");
+  };
+
+  const createDraft = async () => {
+    if (
+      !automationId ||
+      !scenarioValid ||
+      draftChanges === 0 ||
+      !confirmed ||
+      busy
+    ) {
+      return;
+    }
+    setBusy(true);
+    setDraftMessage("");
+    const response = await fetch(
+      `/api/automations/${automationId}/ai-shadow-scenario-draft`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          expected_version: currentVersion,
+          max_proposal_notional: scenarioCeiling.trim(),
+          max_trades_per_day: parsedTrades,
+          confirm: true,
+        }),
+      },
+    );
+    setBusy(false);
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: { code?: string };
+      } | null;
+      setDraftMessage(
+        body?.error?.code === "VERSION_CONFLICT"
+          ? "The mandate changed while you were reviewing it. Refresh and compare the new current version before creating a draft."
+          : "The scenario draft was not accepted. Review the ceiling, daily limit, mandate status, and confirmation.",
+      );
+      return;
+    }
+    setReviewOpen(false);
+    setConfirmed(false);
+    setDraftMessage(
+      `Version ${currentVersion + 1} was created as an immutable DRAFT. It is not READY, initialized, scheduled, approved, or executable.`,
+    );
+    router.refresh();
   };
 
   return (
@@ -340,8 +404,9 @@ export function StrategySimulationWorkbench({
           <h2>Test the mandate before changing the mandate.</h2>
           <p>
             Compare immutable versions and explore a local capital scenario
-            against the latest recorded market evidence. Nothing here saves a
-            draft, calls a model, requests market data, or contacts a broker.
+            against the latest recorded market evidence. Scenario edits remain
+            local unless you deliberately send the two reviewed limits into a
+            new DRAFT. No model, market, or broker call occurs.
           </p>
         </div>
         <span>LOCAL WHAT-IF · NON-EXECUTING</span>
@@ -454,14 +519,14 @@ export function StrategySimulationWorkbench({
                 Maximum decisions per day
                 <input
                   aria-label="Scenario maximum decisions per day"
-                  max="50"
+                  max="48"
                   min="1"
                   onChange={(event) => setScenarioTrades(event.target.value)}
                   step="1"
                   type="number"
                   value={scenarioTrades}
                 />
-                <small>One through fifty for bounded comparison.</small>
+                <small>One through forty-eight for bounded comparison.</small>
               </label>
               <label>
                 Replay anchor symbol
@@ -488,7 +553,7 @@ export function StrategySimulationWorkbench({
             {!scenarioValid && (
               <p className="strategy-scenario-invalid" role="alert">
                 Enter a positive proposal ceiling and a whole-number daily limit
-                from 1 to 50.
+                from 1 to 48.
               </p>
             )}
 
@@ -581,6 +646,101 @@ export function StrategySimulationWorkbench({
                   : "No immutable market observation for this symbol is available. Arbion does not substitute a live or estimated price."}
               </p>
             </div>
+
+            {automationId && (
+              <section
+                className="strategy-draft-handoff"
+                aria-label="Scenario draft review"
+              >
+                <header>
+                  <div>
+                    <p className="eyebrow">EXPLICIT DRAFT HANDOFF</p>
+                    <h3>Carry only the reviewed limits forward</h3>
+                    <p>
+                      This action preserves the account, capital bucket, model,
+                      objective, symbols, schedule, autonomy, and SHADOW mode.
+                    </p>
+                  </div>
+                  <button
+                    disabled={
+                      !scenarioValid ||
+                      draftChanges === 0 ||
+                      status === "ARCHIVED"
+                    }
+                    onClick={() => {
+                      setReviewOpen(true);
+                      setConfirmed(false);
+                      setDraftMessage("");
+                    }}
+                    type="button"
+                  >
+                    Review as new DRAFT
+                  </button>
+                </header>
+
+                {reviewOpen && (
+                  <div className="strategy-draft-review">
+                    <div role="table" aria-label="Scenario draft changes">
+                      <div role="row">
+                        <span role="columnheader">Reviewed limit</span>
+                        <span role="columnheader">
+                          Version {currentVersion}
+                        </span>
+                        <span role="columnheader">New DRAFT</span>
+                      </div>
+                      <div role="row">
+                        <strong role="cell">Per-decision ceiling</strong>
+                        <span role="cell">{dollars(currentCeiling)}</span>
+                        <span role="cell">{dollars(parsedCeiling)}</span>
+                      </div>
+                      <div role="row">
+                        <strong role="cell">Maximum decisions per day</strong>
+                        <span role="cell">{currentTrades}</span>
+                        <span role="cell">{parsedTrades}</span>
+                      </div>
+                    </div>
+                    {hasActiveInstance && (
+                      <p className="security-note">
+                        Creating the DRAFT makes the current READY version no
+                        longer current, so scheduled evaluation pauses. The
+                        existing non-live instance and its immutable history
+                        remain intact; a reviewed replacement must be marked
+                        READY and initialized separately.
+                      </p>
+                    )}
+                    <label>
+                      <input
+                        checked={confirmed}
+                        onChange={(event) => setConfirmed(event.target.checked)}
+                        type="checkbox"
+                      />
+                      I reviewed both changes and understand this creates only
+                      an immutable DRAFT with no execution authority.
+                    </label>
+                    <div>
+                      <button
+                        disabled={!confirmed || busy}
+                        onClick={createDraft}
+                        type="button"
+                      >
+                        {busy ? "Creating immutable DRAFT…" : "Create DRAFT"}
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() => {
+                          setReviewOpen(false);
+                          setConfirmed(false);
+                        }}
+                        type="button"
+                      >
+                        Keep it local
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {draftMessage && <p role="status">{draftMessage}</p>}
+              </section>
+            )}
           </section>
         </>
       )}
@@ -588,9 +748,9 @@ export function StrategySimulationWorkbench({
       <footer>
         <strong>SIMULATION DOES NOT CREATE AUTHORITY</strong>
         <span>
-          A scenario cannot save a mandate, mark it READY, initialize an
-          instance, clear a breaker, pass risk, or create an order. Changes must
-          still enter the existing immutable draft and review workflow.
+          A local scenario has no authority. Its explicit handoff can create
+          only a DRAFT; it cannot mark a mandate READY, initialize an instance,
+          clear a breaker, pass risk, or create an order.
         </span>
       </footer>
     </section>
