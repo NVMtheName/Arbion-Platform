@@ -27,6 +27,10 @@ type BreakerStore interface {
 	OpenAccountBreaker(context.Context, string, string) (*CircuitBreaker, error)
 	EngageAccountBreaker(context.Context, string, string, string, time.Time) (CircuitBreaker, error)
 	ReleaseAccountBreaker(context.Context, string, string, time.Time) (CircuitBreaker, error)
+	UserExists(context.Context, string) (bool, error)
+	OpenUserBreaker(context.Context, string) (*CircuitBreaker, error)
+	EngageUserBreaker(context.Context, string, string, time.Time) (CircuitBreaker, error)
+	ReleaseUserBreaker(context.Context, string, time.Time) (CircuitBreaker, error)
 }
 
 type BreakerAuditor interface {
@@ -197,6 +201,72 @@ func (service *BreakerService) ReleaseAccount(ctx context.Context, principal aut
 	return breaker, nil
 }
 
+func (service *BreakerService) CurrentUser(ctx context.Context, principal authorization.Principal) (*CircuitBreaker, error) {
+	if !breakerAllowed(principal) {
+		return nil, ErrBreakerForbidden
+	}
+	exists, err := service.store.UserExists(ctx, principal.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrBreakerNotFound
+	}
+	return service.store.OpenUserBreaker(ctx, principal.UserID)
+}
+
+func (service *BreakerService) EngageUser(ctx context.Context, principal authorization.Principal, command BreakerCommand) (CircuitBreaker, error) {
+	if !breakerAllowed(principal) {
+		return CircuitBreaker{}, ErrBreakerForbidden
+	}
+	if !command.Confirm {
+		return CircuitBreaker{}, ErrBreakerInvalid
+	}
+	reason, err := validateBreakerReason(command.Reason)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	exists, err := service.store.UserExists(ctx, principal.UserID)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	if !exists {
+		return CircuitBreaker{}, ErrBreakerNotFound
+	}
+	breaker, err := service.store.EngageUserBreaker(ctx, principal.UserID, reason, service.now())
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	service.record(ctx, principal.UserID, "user_circuit_breaker.engaged", breaker, reason)
+	return breaker, nil
+}
+
+func (service *BreakerService) ReleaseUser(ctx context.Context, principal authorization.Principal, command BreakerCommand) (CircuitBreaker, error) {
+	if !breakerAllowed(principal) {
+		return CircuitBreaker{}, ErrBreakerForbidden
+	}
+	if !command.Confirm {
+		return CircuitBreaker{}, ErrBreakerInvalid
+	}
+	reason, err := validateBreakerReason(command.Reason)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	exists, err := service.store.UserExists(ctx, principal.UserID)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	if !exists {
+		return CircuitBreaker{}, ErrBreakerNotFound
+	}
+	breaker, err := service.store.ReleaseUserBreaker(ctx, principal.UserID, service.now())
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	service.record(ctx, principal.UserID, "user_circuit_breaker.released", breaker, reason)
+	return breaker, nil
+}
+
 func (service *BreakerService) record(ctx context.Context, userID, action string, breaker CircuitBreaker, reason string) {
 	if service.audit == nil {
 		return
@@ -217,6 +287,8 @@ func (service *BreakerService) record(ctx context.Context, userID, action string
 		metadata["financial_account_id"] = scopeID
 	} else if breaker.Scope == ScopeAutomation {
 		metadata["automation_id"] = scopeID
+	} else if breaker.Scope == ScopeUser {
+		metadata["subject_user_id"] = scopeID
 	}
 	_ = service.audit.Record(ctx, &userID, action, metadata)
 }
