@@ -33,6 +33,29 @@ const capabilities = [
   },
 ];
 
+const legalPrinciples = [
+  {
+    index: "01",
+    title: "Your assets stay with your provider.",
+    copy: "Arbion is a technology platform—not a broker, exchange, bank, or custodian. Your connected institution remains authoritative for assets, balances, orders, and statements.",
+  },
+  {
+    index: "02",
+    title: "AI is powerful, not infallible.",
+    copy: "Models can be wrong, incomplete, or stale. No model, strategy, simulation, or risk control guarantees profit or prevents loss, and Arbion should not be your sole basis for a financial decision.",
+  },
+  {
+    index: "03",
+    title: "Your providers. Your credentials.",
+    copy: "AI features use credentials you connect for a supported provider. Selected context is processed under that provider’s terms, settings, and privacy practices; Arbion does not supply pooled AI credentials.",
+  },
+  {
+    index: "04",
+    title: "Security is layered, not absolute.",
+    copy: "Sensitive production data uses 256-bit encryption at rest where supported and current TLS in transit. No system is completely secure, so credential hygiene and multi-factor authentication still matter.",
+  },
+];
+
 export function LandingExperience() {
   return (
     <main className="landing-page">
@@ -41,6 +64,7 @@ export function LandingExperience() {
         <div className="landing-nav-links">
           <a href="#platform">Platform</a>
           <a href="#trust">Trust</a>
+          <a href="#legal">Legal</a>
           <Link href="/login">Sign in</Link>
           <Link className="landing-nav-cta" href="/register">
             Create invited account
@@ -240,6 +264,65 @@ export function LandingExperience() {
             </p>
           </article>
         </div>
+      </section>
+
+      <section
+        className="landing-legal"
+        id="legal"
+        aria-labelledby="landing-legal-heading"
+      >
+        <motion.div
+          className="landing-legal-heading"
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.3 }}
+        >
+          <p className="landing-kicker">LEGAL CLARITY · BUILT IN</p>
+          <h2 id="landing-legal-heading">
+            Know the boundaries before you connect.
+          </h2>
+          <p>
+            Arbion is operated by NVM Technologies, LLC. We want the product’s
+            legal boundaries to be as legible as its market data—plain language,
+            visible risk, and no hidden assumptions.
+          </p>
+        </motion.div>
+
+        <div className="landing-legal-grid">
+          {legalPrinciples.map((principle, index) => (
+            <motion.article
+              key={principle.index}
+              initial={{ opacity: 0, y: 22 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.25 }}
+              transition={{ delay: index * 0.06 }}
+            >
+              <span>{principle.index}</span>
+              <h3>{principle.title}</h3>
+              <p>{principle.copy}</p>
+            </motion.article>
+          ))}
+        </div>
+
+        <motion.aside
+          className="landing-legal-status"
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true, amount: 0.4 }}
+          aria-label="Legal policy status"
+        >
+          <div>
+            <span>PRIVATE PREVIEW · POLICY STATUS</span>
+            <strong>Full legal suite is under counsel review.</strong>
+          </div>
+          <p>
+            Privacy, terms, trading-risk, AI, security, cookie, and related
+            policies will be published after final legal review. Today’s product
+            remains non-live: PAPER and SHADOW workflows record evidence without
+            sending broker orders.
+          </p>
+          <a href="mailto:support@arbion.ai">Contact support@arbion.ai</a>
+        </motion.aside>
       </section>
 
       <section className="landing-final-cta">
