@@ -53,6 +53,38 @@ func (s *PostgresStore) LatestReliableReconciliation(ctx context.Context, userID
 	return s.loadReconciliationPositions(ctx, userID, accountID, report, err)
 }
 
+func (s *PostgresStore) ListReconciliations(ctx context.Context, userID, accountID string, limit int, cursor string) ([]PortfolioReconciliation, error) {
+	var rows pgx.Rows
+	var err error
+	if cursor == "" {
+		rows, err = s.db.Query(ctx, `SELECT `+reconciliationColumns+` FROM portfolio_reconciliations WHERE user_id=$1 AND financial_account_id=$2 ORDER BY observed_at DESC,id DESC LIMIT $3`, userID, accountID, limit)
+	} else {
+		var cursorObservedAt string
+		var cursorID string
+		err = s.db.QueryRow(ctx, `SELECT observed_at::text,id::text FROM portfolio_reconciliations WHERE user_id=$1 AND financial_account_id=$2 AND id::text=$3`, userID, accountID, cursor).Scan(&cursorObservedAt, &cursorID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrInvalidReconciliationHistory
+		}
+		if err != nil {
+			return nil, err
+		}
+		rows, err = s.db.Query(ctx, `SELECT `+reconciliationColumns+` FROM portfolio_reconciliations WHERE user_id=$1 AND financial_account_id=$2 AND (observed_at,id)<($3::timestamptz,$4::uuid) ORDER BY observed_at DESC,id DESC LIMIT $5`, userID, accountID, cursorObservedAt, cursorID, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	reports := make([]PortfolioReconciliation, 0, limit)
+	for rows.Next() {
+		report, scanErr := scanReconciliation(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		reports = append(reports, report)
+	}
+	return reports, rows.Err()
+}
+
 func (s *PostgresStore) loadReconciliationPositions(ctx context.Context, userID, accountID string, report PortfolioReconciliation, err error) (PortfolioReconciliation, error) {
 	if err != nil {
 		return PortfolioReconciliation{}, err

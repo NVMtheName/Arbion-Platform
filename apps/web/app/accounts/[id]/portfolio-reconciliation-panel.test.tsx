@@ -55,7 +55,9 @@ describe("PortfolioReconciliationPanel", () => {
     expect(screen.getByText("No immutable baseline yet")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Reconcile now" }));
     await waitFor(() =>
-      expect(screen.getByText("Baseline captured")).toBeInTheDocument(),
+      expect(screen.getAllByText("Baseline captured").length).toBeGreaterThan(
+        0,
+      ),
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/accounts/account-1/reconciliations",
@@ -122,9 +124,11 @@ describe("PortfolioReconciliationPanel", () => {
       />,
     );
 
-    expect(screen.getByText("Position change detected")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("Position change detected").length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Review recommended")).toBeInTheDocument();
-    expect(screen.getByText("BTC")).toBeInTheDocument();
+    expect(screen.getAllByText("BTC").length).toBeGreaterThan(0);
     expect(
       screen.getByText(/0.1 → 0.2 · Owner review required/),
     ).toBeInTheDocument();
@@ -200,13 +204,82 @@ describe("PortfolioReconciliationPanel", () => {
     await waitFor(() =>
       expect(screen.getByText("AI proposal gate clear")).toBeInTheDocument(),
     );
-    expect(screen.getByText("Trading inventory matched")).toBeInTheDocument();
     expect(
-      screen.getByText(/Available to trade unchanged at 10\.705979/i),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Recorded, non-blocking/i)).toBeInTheDocument();
+      screen.getAllByText("Trading inventory matched").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Available to trade unchanged at 10\.705979/i).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Recorded, non-blocking/i).length,
+    ).toBeGreaterThan(0);
     expect(
       screen.getByText(/An exact unavailable-to-trade movement was recorded/i),
+    ).toBeInTheDocument();
+  });
+
+  it("paginates immutable history without contacting the financial provider", async () => {
+    const drift: PortfolioReconciliation = {
+      ...baseline,
+      id: "reconciliation-2",
+      previous_reconciliation_id: baseline.id,
+      comparison_status: "DRIFT_DETECTED",
+      autonomy_signal: "REVIEW_RECOMMENDED",
+      blocks_new_actions: true,
+      change_count: 1,
+      blocking_change_count: 1,
+      changes: [
+        {
+          symbol: "USDC",
+          instrument_type: "CRYPTO",
+          direction: "long",
+          change_type: "QUANTITY_CHANGED",
+          control_impact: "TRADABLE_INVENTORY",
+          previous_quantity: "100",
+          current_quantity: "101",
+        },
+      ],
+      evidence_hash: "b".repeat(64),
+      observed_at: "2026-08-27T20:00:00Z",
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        history: { reconciliations: [baseline] },
+        provider_read_performed: false,
+        live_execution_available: false,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <PortfolioReconciliationPanel
+        accountID="account-1"
+        accountName="Coinbase Portfolio"
+        initialHistory={{
+          reconciliations: [drift],
+          next_cursor: drift.id,
+        }}
+        initialReport={drift}
+      />,
+    );
+
+    expect(screen.getByText("Reconciliation history")).toBeInTheDocument();
+    expect(screen.getByText("1 loaded")).toBeInTheDocument();
+    expect(screen.getByText("1 review-required change")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Review exact changes"));
+    expect(screen.getByText("100 → 101")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load earlier snapshots" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("2 loaded")).toBeInTheDocument(),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/accounts/account-1/reconciliations?limit=8&cursor=reconciliation-2",
+      { method: "GET" },
+    );
+    expect(
+      screen.getByText(/Loading history does not contact Coinbase or Schwab/i),
     ).toBeInTheDocument();
   });
 });

@@ -243,6 +243,31 @@ func (store *reconciliationStoreFake) LatestReliableReconciliation(_ context.Con
 	return PortfolioReconciliation{}, ErrReconciliationNotFound
 }
 
+func (store *reconciliationStoreFake) ListReconciliations(_ context.Context, _, accountID string, limit int, cursor string) ([]PortfolioReconciliation, error) {
+	start := len(store.items) - 1
+	if cursor != "" {
+		start = -1
+		found := false
+		for index := len(store.items) - 1; index >= 0; index-- {
+			if store.items[index].FinancialAccountID == accountID && store.items[index].ID == cursor {
+				start = index - 1
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, ErrInvalidReconciliationHistory
+		}
+	}
+	items := []PortfolioReconciliation{}
+	for index := start; index >= 0 && len(items) < limit; index-- {
+		if store.items[index].FinancialAccountID == accountID {
+			items = append(items, store.items[index])
+		}
+	}
+	return items, nil
+}
+
 func (store *reconciliationStoreFake) CreateReconciliation(_ context.Context, _ string, report PortfolioReconciliation, _ []byte) (PortfolioReconciliation, error) {
 	report.ID = "reconciliation-" + string(rune('1'+len(store.items)))
 	report.CreatedAt = report.ObservedAt
@@ -272,6 +297,39 @@ func reconciliationServiceWithAudit(t *testing.T, provider *coinbaseProviderFake
 	service := NewService(store, &vaultFake{values: map[string][]byte{"connection-1": raw}}, nil, nil, audit, NamedProvider{ID: "coinbase", Provider: provider})
 	service.ConfigureReconciliation(reports)
 	return service
+}
+
+func TestReconciliationHistoryIsBoundedOwnerAccountEvidenceWithoutProviderReads(t *testing.T) {
+	provider := &coinbaseProviderFake{}
+	observedAt := time.Date(2026, time.August, 27, 20, 0, 0, 0, time.UTC)
+	reports := &reconciliationStoreFake{items: []PortfolioReconciliation{
+		{ID: "reconciliation-1", FinancialAccountID: "account-1", Provider: "coinbase", ComparisonStatus: "BASELINE", Changes: []ReconciliationChange{}, EvidenceHash: strings.Repeat("a", 64), ObservedAt: observedAt, CreatedAt: observedAt},
+		{ID: "other-account", FinancialAccountID: "account-2", Provider: "coinbase", ComparisonStatus: "MATCHED", Changes: []ReconciliationChange{}, EvidenceHash: strings.Repeat("b", 64), ObservedAt: observedAt.Add(time.Minute), CreatedAt: observedAt.Add(time.Minute)},
+		{ID: "reconciliation-2", FinancialAccountID: "account-1", Provider: "coinbase", ComparisonStatus: "MATCHED", Changes: []ReconciliationChange{}, EvidenceHash: strings.Repeat("c", 64), ObservedAt: observedAt.Add(2 * time.Minute), CreatedAt: observedAt.Add(2 * time.Minute)},
+		{ID: "reconciliation-3", FinancialAccountID: "account-1", Provider: "coinbase", ComparisonStatus: "DRIFT_DETECTED", BlocksNewActions: true, ChangeCount: 1, BlockingChangeCount: 1, Changes: []ReconciliationChange{{Symbol: "USDC", ControlImpact: "TRADABLE_INVENTORY"}}, EvidenceHash: strings.Repeat("d", 64), ObservedAt: observedAt.Add(3 * time.Minute), CreatedAt: observedAt.Add(3 * time.Minute)},
+	}}
+	service := reconciliationService(t, provider, reports)
+
+	first, err := service.ReconciliationHistory(context.Background(), founder(), "account-1", ReconciliationHistoryQuery{Limit: 2})
+	if err != nil || len(first.Reconciliations) != 2 || first.Reconciliations[0].ID != "reconciliation-3" || first.Reconciliations[1].ID != "reconciliation-2" || first.NextCursor != "reconciliation-2" {
+		t.Fatalf("unexpected first history page: %#v err=%v", first, err)
+	}
+	if first.Reconciliations[0].BlockingChangeCount != 1 || len(first.Reconciliations[0].Changes) != 1 {
+		t.Fatalf("history omitted exact control evidence: %#v", first.Reconciliations[0])
+	}
+	second, err := service.ReconciliationHistory(context.Background(), founder(), "account-1", ReconciliationHistoryQuery{Limit: 2, Cursor: first.NextCursor})
+	if err != nil || len(second.Reconciliations) != 1 || second.Reconciliations[0].ID != "reconciliation-1" || second.NextCursor != "" {
+		t.Fatalf("unexpected second history page: %#v err=%v", second, err)
+	}
+	if provider.balances != 0 || provider.positions != 0 || provider.orders != 0 || provider.previews != 0 {
+		t.Fatalf("history crossed a provider boundary: %#v", provider)
+	}
+	if _, err = service.ReconciliationHistory(context.Background(), founder(), "account-1", ReconciliationHistoryQuery{Limit: 51}); !errors.Is(err, ErrInvalidReconciliationHistory) {
+		t.Fatalf("oversized history page was accepted: %v", err)
+	}
+	if _, err = service.ReconciliationHistory(context.Background(), founder(), "account-1", ReconciliationHistoryQuery{Cursor: "missing"}); !errors.Is(err, ErrInvalidReconciliationHistory) {
+		t.Fatalf("unknown history cursor was accepted: %v", err)
+	}
 }
 
 func TestPortfolioReconciliationBuildsImmutableBaselineMatchAndDriftEvidence(t *testing.T) {

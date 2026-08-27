@@ -133,6 +133,7 @@ func TestPortfolioReconciliationRoutesRequireAuthenticationAndApprovedOrigin(t *
 	handler := NewFullApplicationHandler(checker{}, cfg, service, nil, nil, &financialconnection.Service{})
 	for _, request := range []*http.Request{
 		httptest.NewRequest(http.MethodGet, "/api/accounts/account-1/reconciliations/latest", nil),
+		httptest.NewRequest(http.MethodGet, "/api/accounts/account-1/reconciliations", nil),
 		httptest.NewRequest(http.MethodPost, "/api/accounts/account-1/reconciliations", nil),
 	} {
 		recorder := httptest.NewRecorder()
@@ -161,6 +162,7 @@ func TestPortfolioReconciliationReviewErrorsAreSafeAndActionable(t *testing.T) {
 		{financialconnection.ErrReconciliationReviewRequired, http.StatusConflict, "RECONCILIATION_REVIEW_REQUIRED", "explicitly confirm"},
 		{financialconnection.ErrReconciliationChanged, http.StatusConflict, "RECONCILIATION_CHANGED", "Refresh the account"},
 		{financialconnection.ErrInvalidReconciliationCommand, http.StatusBadRequest, "INVALID_RECONCILIATION_COMMAND", "request is invalid"},
+		{financialconnection.ErrInvalidReconciliationHistory, http.StatusBadRequest, "INVALID_RECONCILIATION_HISTORY", "history request is invalid"},
 	} {
 		recorder := httptest.NewRecorder()
 		(&authHandler{}).financialError(recorder, testCase.err)
@@ -175,6 +177,25 @@ func TestPortfolioReconciliationReviewErrorsAreSafeAndActionable(t *testing.T) {
 		}
 		if recorder.Code != testCase.status || response.Error.Code != testCase.code || !strings.Contains(response.Error.Message, testCase.messagePart) {
 			t.Fatalf("unexpected review error: status=%d response=%+v", recorder.Code, response)
+		}
+	}
+}
+
+func TestReconciliationHistoryQueryRejectsAmbiguousOrInvalidLimits(t *testing.T) {
+	handler := &authHandler{financial: &financialconnection.Service{}}
+	for _, target := range []string{
+		"/api/accounts/account-1/reconciliations?limit=one",
+		"/api/accounts/account-1/reconciliations?limit=0",
+		"/api/accounts/account-1/reconciliations?limit=51",
+		"/api/accounts/account-1/reconciliations?limit=10&limit=20",
+		"/api/accounts/account-1/reconciliations?cursor=one&cursor=two",
+		"/api/accounts/account-1/reconciliations?include=positions",
+	} {
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		recorder := httptest.NewRecorder()
+		handler.portfolioReconciliationHistory(recorder, request)
+		if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "INVALID_RECONCILIATION_HISTORY") {
+			t.Fatalf("invalid history query %q returned %d: %s", target, recorder.Code, recorder.Body.String())
 		}
 	}
 }

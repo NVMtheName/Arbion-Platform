@@ -160,6 +160,7 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 		mux.Handle("GET /api/accounts/{id}/balances", h.require(stdhttp.HandlerFunc(h.getBalances)))
 		mux.Handle("GET /api/accounts/{id}/positions", h.require(stdhttp.HandlerFunc(h.getPositions)))
 		mux.Handle("GET /api/accounts/{id}/reconciliations/latest", h.require(stdhttp.HandlerFunc(h.latestPortfolioReconciliation)))
+		mux.Handle("GET /api/accounts/{id}/reconciliations", h.require(stdhttp.HandlerFunc(h.portfolioReconciliationHistory)))
 		mux.Handle("POST /api/accounts/{id}/reconciliations", h.require(stdhttp.HandlerFunc(h.runPortfolioReconciliation)))
 		mux.Handle("GET /api/accounts/{id}/portfolio/crypto", h.require(stdhttp.HandlerFunc(h.cryptoPortfolio)))
 		mux.Handle("GET /api/accounts/{id}/activity/fills", h.require(stdhttp.HandlerFunc(h.connectedTradeFills)))
@@ -278,6 +279,10 @@ func (h *authHandler) financialError(w stdhttp.ResponseWriter, e error) {
 		status = stdhttp.StatusBadRequest
 		code = "INVALID_RECONCILIATION_COMMAND"
 		message = "The reconciliation review request is invalid."
+	} else if errors.Is(e, financialconnection.ErrInvalidReconciliationHistory) {
+		status = stdhttp.StatusBadRequest
+		code = "INVALID_RECONCILIATION_HISTORY"
+		message = "The reconciliation history request is invalid."
 	} else {
 		var pe *financial.ProviderError
 		if errors.As(e, &pe) {

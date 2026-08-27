@@ -22,10 +22,13 @@ var (
 	ErrReconciliationReviewRequired = errors.New("portfolio reconciliation drift review required")
 	ErrReconciliationChanged        = errors.New("portfolio reconciliation changed")
 	ErrInvalidReconciliationCommand = errors.New("portfolio reconciliation command invalid")
+	ErrInvalidReconciliationHistory = errors.New("portfolio reconciliation history query invalid")
 )
 
 const (
 	maxReconciliationPositions                  = 1000
+	defaultReconciliationHistoryLimit           = 10
+	maxReconciliationHistoryLimit               = 50
 	scheduledReconciliationConfirmationDelay    = 30 * time.Minute
 	scheduledReconciliationIncompleteRetryDelay = time.Hour
 	scheduledReconciliationRefreshAge           = 12 * time.Hour
@@ -96,9 +99,43 @@ type ReconciliationCommand struct {
 	AcknowledgeCurrentDrift  bool   `json:"acknowledge_current_drift"`
 }
 
+type ReconciliationHistoryQuery struct {
+	Limit  int
+	Cursor string
+}
+
+type ReconciliationHistoryItem struct {
+	ID                        string                 `json:"id"`
+	FinancialAccountID        string                 `json:"financial_account_id"`
+	Provider                  string                 `json:"provider"`
+	ComparisonStatus          string                 `json:"comparison_status"`
+	BalancesStatus            string                 `json:"balances_status"`
+	PositionsStatus           string                 `json:"positions_status"`
+	PerformanceStatus         string                 `json:"performance_status"`
+	RealizedPerformanceStatus string                 `json:"realized_performance_status"`
+	AutonomySignal            string                 `json:"autonomy_signal"`
+	AutonomyEnforcementActive bool                   `json:"autonomy_enforcement_active"`
+	BlocksNewActions          bool                   `json:"blocks_new_actions"`
+	ObservedPositionCount     int                    `json:"observed_position_count"`
+	PerformancePositionCount  int                    `json:"performance_position_count"`
+	ChangeCount               int                    `json:"change_count"`
+	BlockingChangeCount       int                    `json:"blocking_change_count"`
+	PreviousReconciliationID  *string                `json:"previous_reconciliation_id,omitempty"`
+	Changes                   []ReconciliationChange `json:"changes"`
+	EvidenceHash              string                 `json:"evidence_hash"`
+	ObservedAt                time.Time              `json:"observed_at"`
+	CreatedAt                 time.Time              `json:"created_at"`
+}
+
+type ReconciliationHistoryPage struct {
+	Reconciliations []ReconciliationHistoryItem `json:"reconciliations"`
+	NextCursor      string                      `json:"next_cursor,omitempty"`
+}
+
 type ReconciliationStore interface {
 	LatestReconciliation(context.Context, string, string) (PortfolioReconciliation, error)
 	LatestReliableReconciliation(context.Context, string, string) (PortfolioReconciliation, error)
+	ListReconciliations(context.Context, string, string, int, string) ([]PortfolioReconciliation, error)
 	CreateReconciliation(context.Context, string, PortfolioReconciliation, []byte) (PortfolioReconciliation, error)
 }
 
@@ -346,6 +383,31 @@ func normalizeReconciliationCommand(command ReconciliationCommand) (Reconciliati
 		return ReconciliationCommand{}, ErrInvalidReconciliationCommand
 	}
 	return command, nil
+}
+
+func normalizeReconciliationHistoryQuery(query ReconciliationHistoryQuery) (ReconciliationHistoryQuery, error) {
+	query.Cursor = strings.TrimSpace(query.Cursor)
+	if query.Limit == 0 {
+		query.Limit = defaultReconciliationHistoryLimit
+	}
+	if query.Limit < 1 || query.Limit > maxReconciliationHistoryLimit || len(query.Cursor) > 128 || strings.IndexFunc(query.Cursor, unicode.IsControl) >= 0 {
+		return ReconciliationHistoryQuery{}, ErrInvalidReconciliationHistory
+	}
+	return query, nil
+}
+
+func reconciliationHistoryItem(report PortfolioReconciliation) ReconciliationHistoryItem {
+	return ReconciliationHistoryItem{
+		ID: report.ID, FinancialAccountID: report.FinancialAccountID, Provider: report.Provider,
+		ComparisonStatus: report.ComparisonStatus, BalancesStatus: report.BalancesStatus,
+		PositionsStatus: report.PositionsStatus, PerformanceStatus: report.PerformanceStatus,
+		RealizedPerformanceStatus: report.RealizedPerformanceStatus, AutonomySignal: report.AutonomySignal,
+		AutonomyEnforcementActive: report.AutonomyEnforcementActive, BlocksNewActions: report.BlocksNewActions,
+		ObservedPositionCount: report.ObservedPositionCount, PerformancePositionCount: report.PerformancePositionCount,
+		ChangeCount: report.ChangeCount, BlockingChangeCount: report.BlockingChangeCount,
+		PreviousReconciliationID: report.PreviousReconciliationID, Changes: report.Changes,
+		EvidenceHash: report.EvidenceHash, ObservedAt: report.ObservedAt, CreatedAt: report.CreatedAt,
+	}
 }
 
 // RunReconciliation is the explicit owner path. A database advisory lock keeps
@@ -613,4 +675,37 @@ func (s *Service) LatestReconciliation(ctx context.Context, principal authorizat
 		return PortfolioReconciliation{}, err
 	}
 	return s.reconciliations.LatestReconciliation(ctx, principal.UserID, account.ID)
+}
+
+// ReconciliationHistory returns only immutable evidence already stored by
+// Arbion. It performs no provider read and carries no position inventory or
+// credential material across the HTTP boundary.
+func (s *Service) ReconciliationHistory(ctx context.Context, principal authorization.Principal, accountID string, query ReconciliationHistoryQuery) (ReconciliationHistoryPage, error) {
+	if !allowed(principal) {
+		return ReconciliationHistoryPage{}, ErrForbidden
+	}
+	if s.reconciliations == nil {
+		return ReconciliationHistoryPage{}, ErrReconciliationUnavailable
+	}
+	query, err := normalizeReconciliationHistoryQuery(query)
+	if err != nil {
+		return ReconciliationHistoryPage{}, err
+	}
+	account, err := s.GetAccount(ctx, principal, accountID)
+	if err != nil {
+		return ReconciliationHistoryPage{}, err
+	}
+	reports, err := s.reconciliations.ListReconciliations(ctx, principal.UserID, account.ID, query.Limit+1, query.Cursor)
+	if err != nil {
+		return ReconciliationHistoryPage{}, err
+	}
+	page := ReconciliationHistoryPage{Reconciliations: []ReconciliationHistoryItem{}}
+	if len(reports) > query.Limit {
+		reports = reports[:query.Limit]
+		page.NextCursor = reports[len(reports)-1].ID
+	}
+	for _, report := range reports {
+		page.Reconciliations = append(page.Reconciliations, reconciliationHistoryItem(report))
+	}
+	return page, nil
 }
