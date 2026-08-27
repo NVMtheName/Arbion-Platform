@@ -34,6 +34,7 @@ import { AIShadowScorecard } from "../ai-shadow-scorecard";
 import { MandateIdentitySummary } from "../mandate-identity-summary";
 import { AutonomyGuardrailSummary } from "../autonomy-guardrail-summary";
 import { CapitalBucketAllocationControls } from "../capital-bucket-allocation-controls";
+import { AutonomyReadinessControlPlane } from "../autonomy-readiness-control-plane";
 export default async function MandateReview({
   params,
 }: {
@@ -59,11 +60,16 @@ export default async function MandateReview({
     email_delivery_available?: boolean;
   };
   const m = automationResponse.automation;
+  const read = (key: string, legacy: string) =>
+    String(m[key] ?? m[legacy] ?? "—");
+  const financialAccountID = read("financial_account_id", "FinancialAccountID");
   const [
     instancesResponse,
     breakerResponse,
     accountsResponse,
     bucketsResponse,
+    financialConnectionsResponse,
+    aiConnectionsResponse,
   ] = await Promise.all([
     fetch(`${api}/api/strategy-instances`, {
       headers: { cookie: jar.toString() },
@@ -78,6 +84,14 @@ export default async function MandateReview({
       cache: "no-store",
     }),
     fetch(`${api}/api/capital-buckets`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+    fetch(`${api}/api/connections/financial`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+    fetch(`${api}/api/connections/ai`, {
       headers: { cookie: jar.toString() },
       cache: "no-store",
     }),
@@ -109,6 +123,20 @@ export default async function MandateReview({
           capital_buckets?: Record<string, unknown>[];
         }
       ).capital_buckets ?? [])
+    : [];
+  const financialConnections = financialConnectionsResponse.ok
+    ? ((
+        (await financialConnectionsResponse.json()) as {
+          connections?: Record<string, unknown>[];
+        }
+      ).connections ?? [])
+    : [];
+  const aiConnections = aiConnectionsResponse.ok
+    ? ((
+        (await aiConnectionsResponse.json()) as {
+          connections?: Record<string, unknown>[];
+        }
+      ).connections ?? [])
     : [];
   const currentVersion = Number(m.current_version ?? m.CurrentVersion ?? 0);
   const mandateInstances = instances.filter(
@@ -167,18 +195,30 @@ export default async function MandateReview({
   );
   const openPaperOption =
     openPaperOptions.length === 1 ? openPaperOptions[0] : undefined;
-  const read = (key: string, legacy: string) =>
-    String(m[key] ?? m[legacy] ?? "—");
   const flag = (key: string, legacy: string) =>
     Boolean(m[key] ?? m[legacy] ?? false);
   const count = (value: unknown) => (Array.isArray(value) ? value.length : 0);
   const automationType = read("automation_type", "AutomationType");
-  const financialAccountID = read("financial_account_id", "FinancialAccountID");
   const financialAccount = accounts.find(
     (item) => String(item.id ?? item.ID ?? "") === financialAccountID,
   );
   const financialProvider = String(
     financialAccount?.provider ?? financialAccount?.Provider ?? "",
+  );
+  const financialConnectionID = String(
+    financialAccount?.provider_connection_id ??
+      financialAccount?.ProviderConnectionID ??
+      "",
+  );
+  const financialConnection = financialConnections.find(
+    (item) => String(item.id ?? item.ID ?? "") === financialConnectionID,
+  );
+  const aiProviderConnectionID = read(
+    "ai_provider_connection_id",
+    "AIProviderConnectionID",
+  );
+  const aiConnection = aiConnections.find(
+    (item) => String(item.id ?? item.ID ?? "") === aiProviderConnectionID,
   );
   const capitalBucketID = read("capital_bucket_id", "CapitalBucketID");
   const capitalBucket = capitalBuckets.find(
@@ -188,6 +228,26 @@ export default async function MandateReview({
     symbols?: string[];
     Symbols?: string[];
   };
+  const reconciliationResponse =
+    financialAccountID && financialAccountID !== "—"
+      ? await fetch(
+          `${api}/api/accounts/${encodeURIComponent(financialAccountID)}/reconciliations/latest`,
+          { headers: { cookie: jar.toString() }, cache: "no-store" },
+        )
+      : null;
+  const reconciliation = reconciliationResponse?.ok
+    ? (
+        (await reconciliationResponse.json()) as {
+          reconciliation?: Record<string, unknown>;
+        }
+      ).reconciliation
+    : undefined;
+  const scorecard = scorecardResponse.scorecard as
+    | Record<string, unknown>
+    | undefined;
+  const evidenceGate = (scorecard?.evidence_gate ?? scorecard?.EvidenceGate) as
+    | Record<string, unknown>
+    | undefined;
   return (
     <main className="connections-page automation-page">
       <AppPageHeader backHref="/automations" backLabel="Automations" />
@@ -217,6 +277,28 @@ export default async function MandateReview({
         support. A separately confirmed attestation may permit PAPER-only
         simulation, but never SHADOW, LIVE, or broker execution.
       </p>
+      {automationType === "AI_AUTONOMOUS" && (
+        <AutonomyReadinessControlPlane
+          provider={financialProvider}
+          modelID={read("ai_model_id", "AIModelID")}
+          mandateStatus={read("status", "Status")}
+          currentVersion={currentVersion}
+          automationType={automationType}
+          autonomyLevel={read("autonomy_level", "AutonomyLevel")}
+          executionMode={read("execution_mode", "ExecutionMode")}
+          financialAccount={financialAccount}
+          financialConnection={financialConnection}
+          aiConnection={aiConnection}
+          capitalBucket={capitalBucket}
+          instance={instance}
+          schedule={scheduleResponse.schedule as Record<string, unknown>}
+          evidenceGate={evidenceGate}
+          reconciliation={reconciliation}
+          automationBreaker={breaker as unknown as Record<string, unknown>}
+          schedulerEnabled={Boolean(scheduleResponse.scheduler_enabled)}
+          observedAt={new Date().toISOString()}
+        />
+      )}
       <AutomationCircuitBreakerControls automationId={id} breaker={breaker} />
       {capitalBucket && (
         <CapitalBucketAllocationControls
