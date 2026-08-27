@@ -39,7 +39,9 @@ SELECT
     WHERE s.strategy_instance_id IS NULL OR s.consecutive_failures>0 OR s.last_status='FAILED'),
   (SELECT count(*) FROM active_ai a LEFT JOIN latest_reconciliation r ON r.user_id=a.user_id AND r.financial_account_id=a.financial_account_id
     WHERE r.financial_account_id IS NULL OR r.comparison_status<>'MATCHED' OR r.balances_status<>'READY' OR r.positions_status<>'READY'
-      OR NOT r.autonomy_enforcement_active OR r.blocks_new_actions OR r.observed_at<$1-interval '24 hours' OR r.observed_at>$1+interval '5 minutes'),
+      OR NOT r.autonomy_enforcement_active OR r.blocks_new_actions
+      OR r.observed_at<($1::timestamptz-interval '24 hours')
+      OR r.observed_at>($1::timestamptz+interval '5 minutes')),
   (SELECT count(*) FROM active_ai WHERE account_status<>'active' OR connection_status<>'active'),
   (SELECT count(*) FROM risk_circuit_breakers WHERE scope='GLOBAL' AND state='OPEN'),
   (SELECT count(*) FROM risk_circuit_breakers WHERE scope<>'GLOBAL' AND state='OPEN'),
