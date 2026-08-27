@@ -35,6 +35,7 @@ import { MandateIdentitySummary } from "../mandate-identity-summary";
 import { AutonomyGuardrailSummary } from "../autonomy-guardrail-summary";
 import { CapitalBucketAllocationControls } from "../capital-bucket-allocation-controls";
 import { AutonomyReadinessControlPlane } from "../autonomy-readiness-control-plane";
+import { DecisionReplayLab } from "../decision-replay-lab";
 export default async function MandateReview({
   params,
 }: {
@@ -512,6 +513,18 @@ export default async function MandateReview({
                   scorecardResponse.scorecard as
                     | Record<string, unknown>
                     | undefined
+                }
+              />
+              <DecisionReplayLab
+                decisions={
+                  Array.isArray(decisions.decisions)
+                    ? (decisions.decisions as Record<string, unknown>[])
+                    : []
+                }
+                outcomes={
+                  Array.isArray(outcomes.outcomes)
+                    ? (outcomes.outcomes as Record<string, unknown>[])
+                    : []
                 }
               />
               <AIDecisionJournal
