@@ -37,7 +37,11 @@ func (handler *authHandler) runPortfolioReconciliation(writer stdhttp.ResponseWr
 		writeError(writer, stdhttp.StatusServiceUnavailable, "RECONCILIATION_UNAVAILABLE", "Portfolio reconciliation is not available.")
 		return
 	}
-	report, err := handler.financial.RunReconciliation(request.Context(), principal(request), request.PathValue("id"))
+	var command financialconnection.ReconciliationCommand
+	if !decodeOptional(writer, request, &command) {
+		return
+	}
+	report, err := handler.financial.RunReconciliationCommand(request.Context(), principal(request), request.PathValue("id"), command)
 	if err != nil {
 		handler.financialError(writer, err)
 		return

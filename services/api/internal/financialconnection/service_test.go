@@ -214,6 +214,17 @@ type reconciliationStoreFake struct {
 	items []PortfolioReconciliation
 }
 
+type reconciliationAuditFake struct {
+	actions  []string
+	metadata []map[string]any
+}
+
+func (audit *reconciliationAuditFake) Record(_ context.Context, _ *string, action string, metadata map[string]any) error {
+	audit.actions = append(audit.actions, action)
+	audit.metadata = append(audit.metadata, metadata)
+	return nil
+}
+
 func (store *reconciliationStoreFake) LatestReconciliation(_ context.Context, _, accountID string) (PortfolioReconciliation, error) {
 	for index := len(store.items) - 1; index >= 0; index-- {
 		if store.items[index].FinancialAccountID == accountID {
@@ -242,6 +253,10 @@ func (store *reconciliationStoreFake) CreateReconciliation(_ context.Context, _ 
 }
 
 func reconciliationService(t *testing.T, provider *coinbaseProviderFake, reports ReconciliationStore) *Service {
+	return reconciliationServiceWithAudit(t, provider, reports, nil)
+}
+
+func reconciliationServiceWithAudit(t *testing.T, provider *coinbaseProviderFake, reports ReconciliationStore, audit Auditor) *Service {
 	t.Helper()
 	store := &connectionStoreFake{
 		connection: Connection{ID: "connection-1", Provider: "coinbase", Status: "active"},
@@ -254,7 +269,7 @@ func reconciliationService(t *testing.T, provider *coinbaseProviderFake, reports
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := NewService(store, &vaultFake{values: map[string][]byte{"connection-1": raw}}, nil, nil, nil, NamedProvider{ID: "coinbase", Provider: provider})
+	service := NewService(store, &vaultFake{values: map[string][]byte{"connection-1": raw}}, nil, nil, audit, NamedProvider{ID: "coinbase", Provider: provider})
 	service.ConfigureReconciliation(reports)
 	return service
 }
@@ -417,6 +432,53 @@ func TestPortfolioReconciliationDoesNotContinueProviderReadsAfterTerminalAuthori
 	}
 	if report.ComparisonStatus != "INCOMPLETE" || report.BalancesStatus != "UNAVAILABLE" || report.PositionsStatus != "UNAVAILABLE" || provider.positions != 0 {
 		t.Fatalf("terminal authorization failure crossed another provider read boundary: report=%#v positions=%d", report, provider.positions)
+	}
+}
+
+func TestOwnerMustAcknowledgeExactCurrentDriftBeforeReconciliation(t *testing.T) {
+	provider := &coinbaseProviderFake{}
+	reports := &reconciliationStoreFake{}
+	audit := &reconciliationAuditFake{}
+	service := reconciliationServiceWithAudit(t, provider, reports, audit)
+
+	if _, err := service.RunReconciliation(context.Background(), founder(), "account-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RunReconciliation(context.Background(), founder(), "account-1"); err != nil {
+		t.Fatal(err)
+	}
+	provider.positionData = []financial.Position{{Symbol: "BTC", Quantity: "0.2", Direction: "long", InstrumentType: "CRYPTO"}}
+	drift, err := service.RunReconciliation(context.Background(), founder(), "account-1")
+	if err != nil || drift.ComparisonStatus != "DRIFT_DETECTED" {
+		t.Fatalf("test drift was not recorded: %#v err=%v", drift, err)
+	}
+	readsBeforeReview := provider.balances + provider.positions
+	if _, err = service.RunReconciliationCommand(context.Background(), founder(), "account-1", ReconciliationCommand{AcknowledgeCurrentDrift: true}); !errors.Is(err, ErrInvalidReconciliationCommand) {
+		t.Fatalf("drift acknowledgement without an immutable evidence identity was accepted: %v", err)
+	}
+	if _, err = service.RunReconciliation(context.Background(), founder(), "account-1"); !errors.Is(err, ErrReconciliationReviewRequired) {
+		t.Fatalf("unacknowledged drift was not rejected: %v", err)
+	}
+	if _, err = service.RunReconciliationCommand(context.Background(), founder(), "account-1", ReconciliationCommand{ExpectedReconciliationID: "stale-review", AcknowledgeCurrentDrift: true}); !errors.Is(err, ErrReconciliationChanged) {
+		t.Fatalf("stale drift acknowledgement was accepted: %v", err)
+	}
+	if provider.balances+provider.positions != readsBeforeReview {
+		t.Fatalf("rejected review contacted the provider: %#v", provider)
+	}
+
+	confirmed, err := service.RunReconciliationCommand(context.Background(), founder(), "account-1", ReconciliationCommand{ExpectedReconciliationID: drift.ID, AcknowledgeCurrentDrift: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.ComparisonStatus != "MATCHED" || confirmed.BlocksNewActions {
+		t.Fatalf("reviewed stable broker state did not clear safely: %#v", confirmed)
+	}
+	last := len(audit.metadata) - 1
+	if last < 0 || audit.actions[last] != "financial.portfolio_reconciled" || audit.metadata[last]["trigger"] != "OWNER_DRIFT_REVIEW" || audit.metadata[last]["reviewed_prior_drift"] != true || audit.metadata[last]["reviewed_reconciliation_id"] != drift.ID {
+		t.Fatalf("owner drift review was not audit-evidenced: actions=%#v metadata=%#v", audit.actions, audit.metadata)
+	}
+	if provider.orders != 0 || provider.fills != 0 || provider.previews != 0 || provider.disconnected != 0 {
+		t.Fatalf("owner review crossed a broker mutation boundary: %#v", provider)
 	}
 }
 

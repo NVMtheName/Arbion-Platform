@@ -95,6 +95,8 @@ export function PortfolioReconciliationPanel({
   const [report, setReport] = useState(initialReport);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [driftReviewed, setDriftReviewed] = useState(false);
+  const driftReviewRequired = report?.comparison_status === "DRIFT_DETECTED";
 
   async function reconcile() {
     setBusy(true);
@@ -102,7 +104,14 @@ export function PortfolioReconciliationPanel({
     try {
       const response = await fetch(
         `/api/accounts/${encodeURIComponent(accountID)}/reconciliations`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            expected_reconciliation_id: report?.id ?? "",
+            acknowledge_current_drift: driftReviewRequired && driftReviewed,
+          }),
+        },
       );
       const body = (await response.json().catch(() => ({}))) as {
         reconciliation?: PortfolioReconciliation;
@@ -116,6 +125,7 @@ export function PortfolioReconciliationPanel({
         return;
       }
       setReport(body.reconciliation);
+      setDriftReviewed(false);
       setMessage(
         body.reconciliation.comparison_status === "DRIFT_DETECTED"
           ? "A broker-reported quantity changed. New AI proposals stay held until a later complete snapshot matches this state."
@@ -149,9 +159,32 @@ export function PortfolioReconciliationPanel({
             snapshot.
           </p>
         </div>
-        <button disabled={busy} onClick={reconcile} type="button">
-          {busy ? "Reconciling…" : "Reconcile now"}
-        </button>
+        <div className="reconciliation-review-action">
+          {driftReviewRequired && (
+            <label>
+              <input
+                checked={driftReviewed}
+                disabled={busy}
+                onChange={(event) => setDriftReviewed(event.target.checked)}
+                type="checkbox"
+              />
+              <span>
+                I reviewed the tradable-inventory changes shown below.
+              </span>
+            </label>
+          )}
+          <button
+            disabled={busy || (driftReviewRequired && !driftReviewed)}
+            onClick={reconcile}
+            type="button"
+          >
+            {busy
+              ? "Reconciling…"
+              : driftReviewRequired
+                ? "Confirm review & reconcile"
+                : "Reconcile now"}
+          </button>
+        </div>
       </header>
 
       {!report ? (
@@ -219,6 +252,8 @@ export function PortfolioReconciliationPanel({
                       {changeDescription(change)}
                       {change.control_impact === "NON_TRADABLE_QUANTITY_ONLY" &&
                         " · Recorded, non-blocking"}
+                      {change.control_impact === "TRADABLE_INVENTORY" &&
+                        " · Owner review required"}
                     </span>
                   </li>
                 ))}

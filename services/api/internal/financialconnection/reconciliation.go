@@ -17,8 +17,11 @@ import (
 )
 
 var (
-	ErrReconciliationUnavailable = errors.New("portfolio reconciliation unavailable")
-	ErrReconciliationNotFound    = errors.New("portfolio reconciliation not found")
+	ErrReconciliationUnavailable    = errors.New("portfolio reconciliation unavailable")
+	ErrReconciliationNotFound       = errors.New("portfolio reconciliation not found")
+	ErrReconciliationReviewRequired = errors.New("portfolio reconciliation drift review required")
+	ErrReconciliationChanged        = errors.New("portfolio reconciliation changed")
+	ErrInvalidReconciliationCommand = errors.New("portfolio reconciliation command invalid")
 )
 
 const (
@@ -86,6 +89,11 @@ type PortfolioReconciliation struct {
 	EvidenceHash              string                   `json:"evidence_hash"`
 	ObservedAt                time.Time                `json:"observed_at"`
 	CreatedAt                 time.Time                `json:"created_at"`
+}
+
+type ReconciliationCommand struct {
+	ExpectedReconciliationID string `json:"expected_reconciliation_id"`
+	AcknowledgeCurrentDrift  bool   `json:"acknowledge_current_drift"`
 }
 
 type ReconciliationStore interface {
@@ -332,13 +340,57 @@ func reconciliationLockKey(userID, accountID string) string {
 	return "portfolio-reconciliation:" + userID + ":" + accountID
 }
 
+func normalizeReconciliationCommand(command ReconciliationCommand) (ReconciliationCommand, error) {
+	command.ExpectedReconciliationID = strings.TrimSpace(command.ExpectedReconciliationID)
+	if len(command.ExpectedReconciliationID) > 128 || strings.IndexFunc(command.ExpectedReconciliationID, unicode.IsControl) >= 0 || (command.AcknowledgeCurrentDrift && command.ExpectedReconciliationID == "") {
+		return ReconciliationCommand{}, ErrInvalidReconciliationCommand
+	}
+	return command, nil
+}
+
 // RunReconciliation is the explicit owner path. A database advisory lock keeps
 // manual and scheduled snapshots for the same account from racing each other.
 func (s *Service) RunReconciliation(ctx context.Context, principal authorization.Principal, accountID string) (PortfolioReconciliation, error) {
+	return s.RunReconciliationCommand(ctx, principal, accountID, ReconciliationCommand{})
+}
+
+func (s *Service) RunReconciliationCommand(ctx context.Context, principal authorization.Principal, accountID string, command ReconciliationCommand) (PortfolioReconciliation, error) {
+	if !allowed(principal) {
+		return PortfolioReconciliation{}, ErrForbidden
+	}
+	if s.reconciliations == nil {
+		return PortfolioReconciliation{}, ErrReconciliationUnavailable
+	}
+	command, err := normalizeReconciliationCommand(command)
+	if err != nil {
+		return PortfolioReconciliation{}, err
+	}
 	var report PortfolioReconciliation
-	err := s.store.WithLock(ctx, reconciliationLockKey(principal.UserID, accountID), func() error {
+	err = s.store.WithLock(ctx, reconciliationLockKey(principal.UserID, accountID), func() error {
+		latest, latestErr := s.reconciliations.LatestReconciliation(ctx, principal.UserID, accountID)
+		if latestErr != nil && !errors.Is(latestErr, ErrReconciliationNotFound) {
+			return latestErr
+		}
+		if command.ExpectedReconciliationID != "" && (latestErr != nil || latest.ID != command.ExpectedReconciliationID) {
+			return ErrReconciliationChanged
+		}
+		if latestErr == nil && latest.ComparisonStatus == "DRIFT_DETECTED" {
+			if !command.AcknowledgeCurrentDrift || command.ExpectedReconciliationID == "" {
+				return ErrReconciliationReviewRequired
+			}
+		} else if command.AcknowledgeCurrentDrift {
+			return ErrReconciliationChanged
+		}
+		trigger := "OWNER"
+		if command.AcknowledgeCurrentDrift {
+			trigger = "OWNER_DRIFT_REVIEW"
+		}
 		var runErr error
-		report, runErr = s.runReconciliationAt(ctx, principal, accountID, time.Now().UTC(), "OWNER")
+		reviewedID := ""
+		if command.AcknowledgeCurrentDrift {
+			reviewedID = command.ExpectedReconciliationID
+		}
+		report, runErr = s.runReconciliationAt(ctx, principal, accountID, time.Now().UTC(), trigger, reviewedID)
 		return runErr
 	})
 	return report, err
@@ -370,7 +422,7 @@ func (s *Service) EnsureScheduledReconciliation(ctx context.Context, principal a
 		if err == nil && !scheduledReconciliationDue(latest, now) {
 			return nil
 		}
-		_, err = s.runReconciliationAt(ctx, principal, account.ID, now, "SCHEDULED_FRESHNESS")
+		_, err = s.runReconciliationAt(ctx, principal, account.ID, now, "SCHEDULED_FRESHNESS", "")
 		return err
 	})
 }
@@ -398,7 +450,7 @@ func scheduledReconciliationDue(latest PortfolioReconciliation, now time.Time) b
 	}
 }
 
-func (s *Service) runReconciliationAt(ctx context.Context, principal authorization.Principal, accountID string, observedAt time.Time, trigger string) (PortfolioReconciliation, error) {
+func (s *Service) runReconciliationAt(ctx context.Context, principal authorization.Principal, accountID string, observedAt time.Time, trigger, reviewedReconciliationID string) (PortfolioReconciliation, error) {
 	if !allowed(principal) {
 		return PortfolioReconciliation{}, ErrForbidden
 	}
@@ -535,11 +587,16 @@ func (s *Service) runReconciliationAt(ctx context.Context, principal authorizati
 	report.EvidenceHash = hex.EncodeToString(digest[:])
 	report, err = s.reconciliations.CreateReconciliation(ctx, principal.UserID, report, digest[:])
 	if err == nil {
-		s.record(ctx, principal.UserID, "financial.portfolio_reconciled", map[string]any{
+		metadata := map[string]any{
 			"account_id": account.ID, "provider": account.Provider, "comparison_status": report.ComparisonStatus,
 			"position_count": report.ObservedPositionCount, "change_count": report.ChangeCount,
 			"blocking_change_count": report.BlockingChangeCount, "trigger": trigger,
-		})
+		}
+		if trigger == "OWNER_DRIFT_REVIEW" {
+			metadata["reviewed_prior_drift"] = true
+			metadata["reviewed_reconciliation_id"] = reviewedReconciliationID
+		}
+		s.record(ctx, principal.UserID, "financial.portfolio_reconciled", metadata)
 	}
 	return report, err
 }
