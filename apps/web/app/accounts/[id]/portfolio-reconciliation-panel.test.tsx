@@ -27,6 +27,7 @@ const baseline: PortfolioReconciliation = {
   observed_position_count: 3,
   performance_position_count: 0,
   change_count: 0,
+  blocking_change_count: 0,
   changes: [],
   evidence_hash: "a".repeat(64),
   observed_at: "2026-08-26T18:00:00Z",
@@ -82,12 +83,14 @@ describe("PortfolioReconciliationPanel", () => {
           autonomy_signal: "REVIEW_RECOMMENDED",
           blocks_new_actions: true,
           change_count: 1,
+          blocking_change_count: 1,
           changes: [
             {
               symbol: "BTC",
               instrument_type: "CRYPTO",
               direction: "long",
               change_type: "QUANTITY_CHANGED",
+              control_impact: "TRADABLE_INVENTORY",
               previous_quantity: "0.1",
               current_quantity: "0.2",
             },
@@ -102,6 +105,58 @@ describe("PortfolioReconciliationPanel", () => {
     expect(screen.getByText("0.1 → 0.2")).toBeInTheDocument();
     expect(
       screen.getByText(/This gate can hold new AI proposals/i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows exact unavailable-only movement without presenting it as tradable drift", async () => {
+    const report: PortfolioReconciliation = {
+      ...baseline,
+      id: "reconciliation-3",
+      comparison_status: "MATCHED",
+      autonomy_signal: "CLEAR",
+      blocks_new_actions: false,
+      change_count: 1,
+      blocking_change_count: 0,
+      changes: [
+        {
+          symbol: "USDC",
+          instrument_type: "CRYPTO",
+          direction: "long",
+          change_type: "QUANTITY_CHANGED",
+          control_impact: "NON_TRADABLE_QUANTITY_ONLY",
+          previous_quantity: "17548.529979",
+          current_quantity: "17548.557979",
+          previous_available_quantity: "10.705979",
+          current_available_quantity: "10.705979",
+          previous_unavailable_quantity: "17537.824",
+          current_unavailable_quantity: "17537.852",
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ reconciliation: report }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <PortfolioReconciliationPanel
+        accountID="account-1"
+        accountName="Coinbase Portfolio"
+        initialReport={baseline}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile now" }));
+    await waitFor(() =>
+      expect(screen.getByText("AI proposal gate clear")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Trading inventory matched")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Available to trade unchanged at 10\.705979/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Recorded, non-blocking/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/An exact unavailable-to-trade movement was recorded/i),
     ).toBeInTheDocument();
   });
 });

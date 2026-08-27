@@ -188,6 +188,23 @@ func TestReconciliationAutonomyGatePreservesLegacyEvidenceAndFailsClosed(t *test
 	}
 }
 
+func TestReconciliationChangeImpactPreservesEvidenceAndFailsClosed(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00029_reconciliation_change_impact.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"blocking_change_count", "DRIFT_DETECTED", "portfolio_reconciliations_immutable", "enforce_reconciliation_change_impact", "TRADABLE_INVENTORY", "NON_TRADABLE_QUANTITY_ONLY", "cannot remove classified non-tradable reconciliation history"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("reconciliation change-impact migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order", "broker_order", "LIVE_EXECUTION"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("reconciliation change-impact migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00013_paper_lifecycle_events.sql")
 	if err != nil {

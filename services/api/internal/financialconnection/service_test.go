@@ -299,11 +299,98 @@ func TestPortfolioReconciliationBuildsImmutableBaselineMatchAndDriftEvidence(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if drifted.ComparisonStatus != "DRIFT_DETECTED" || drifted.AutonomySignal != "REVIEW_RECOMMENDED" || drifted.ChangeCount != 1 || len(drifted.Changes) != 1 || drifted.Changes[0].ChangeType != "QUANTITY_CHANGED" || !drifted.BlocksNewActions {
+	if drifted.ComparisonStatus != "DRIFT_DETECTED" || drifted.AutonomySignal != "REVIEW_RECOMMENDED" || drifted.ChangeCount != 1 || drifted.BlockingChangeCount != 1 || len(drifted.Changes) != 1 || drifted.Changes[0].ChangeType != "QUANTITY_CHANGED" || drifted.Changes[0].ControlImpact != "TRADABLE_INVENTORY" || !drifted.BlocksNewActions {
 		t.Fatalf("unexpected drift report: %#v", drifted)
 	}
 	if provider.orders != 0 || provider.fills != 0 || provider.previews != 0 || provider.disconnected != 0 {
 		t.Fatalf("reconciliation crossed a mutation or unrelated provider boundary: %#v", provider)
+	}
+}
+
+func TestCoinbaseReconciliationClassifiesExactUnavailableOnlyMovementWithoutGuessingItsCause(t *testing.T) {
+	decimal := func(value string) *financial.Decimal {
+		result := financial.Decimal(value)
+		return &result
+	}
+	previous := []ReconciliationPosition{{
+		Symbol: "USDC", InstrumentType: "CRYPTO", Direction: "long", Quantity: "17548.529979",
+		AvailableQuantity: decimal("10.705979"), UnavailableQuantity: decimal("17537.824"),
+	}}
+	current := []ReconciliationPosition{{
+		Symbol: "USDC", InstrumentType: "CRYPTO", Direction: "long", Quantity: "17548.557979",
+		AvailableQuantity: decimal("10.705979"), UnavailableQuantity: decimal("17537.852"),
+	}}
+
+	changes := compareReconciliationPositions("coinbase", previous, current)
+	if len(changes) != 1 || changes[0].ControlImpact != "NON_TRADABLE_QUANTITY_ONLY" || changes[0].PreviousAvailableQuantity == nil || *changes[0].PreviousAvailableQuantity != "10.705979" || changes[0].CurrentUnavailableQuantity == nil || *changes[0].CurrentUnavailableQuantity != "17537.852" {
+		t.Fatalf("exact unavailable-only movement was not classified safely: %#v", changes)
+	}
+
+	current[0].AvailableQuantity = decimal("10.733979")
+	current[0].UnavailableQuantity = decimal("17537.824")
+	changes = compareReconciliationPositions("coinbase", previous, current)
+	if len(changes) != 1 || changes[0].ControlImpact != "TRADABLE_INVENTORY" {
+		t.Fatalf("available inventory movement did not remain blocking: %#v", changes)
+	}
+
+	current[0].Quantity = previous[0].Quantity
+	current[0].AvailableQuantity = decimal("10.733979")
+	current[0].UnavailableQuantity = decimal("17537.796")
+	changes = compareReconciliationPositions("coinbase", previous, current)
+	if len(changes) != 1 || changes[0].ControlImpact != "TRADABLE_INVENTORY" {
+		t.Fatalf("offsetting available inventory movement was missed: %#v", changes)
+	}
+
+	current[0].Quantity = "17548.557979"
+	current[0].AvailableQuantity = decimal("10.705979")
+	current[0].UnavailableQuantity = decimal("17537.851")
+	changes = compareReconciliationPositions("coinbase", previous, current)
+	if len(changes) != 1 || changes[0].ControlImpact != "TRADABLE_INVENTORY" {
+		t.Fatalf("non-reconciling provider quantities did not fail closed: %#v", changes)
+	}
+
+	changes = compareReconciliationPositions("schwab", previous, []ReconciliationPosition{{
+		Symbol: "USDC", InstrumentType: "CRYPTO", Direction: "long", Quantity: "17548.557979",
+		AvailableQuantity: decimal("10.705979"), UnavailableQuantity: decimal("17537.852"),
+	}})
+	if len(changes) != 1 || changes[0].ControlImpact != "TRADABLE_INVENTORY" {
+		t.Fatalf("Coinbase-only classification escaped the provider boundary: %#v", changes)
+	}
+}
+
+func TestCoinbaseUnavailableOnlyMovementKeepsAutonomousProposalGateClear(t *testing.T) {
+	decimal := func(value string) *financial.Decimal {
+		result := financial.Decimal(value)
+		return &result
+	}
+	provider := &coinbaseProviderFake{positionData: []financial.Position{{
+		Symbol: "USDC", Quantity: "17548.529979", Direction: "long", InstrumentType: "crypto",
+		AvailableQuantity: decimal("10.705979"), UnavailableToTradeQuantity: decimal("17537.824"),
+	}}}
+	reports := &reconciliationStoreFake{}
+	service := reconciliationService(t, provider, reports)
+	if _, err := service.RunReconciliation(context.Background(), founder(), "account-1"); err != nil {
+		t.Fatal(err)
+	}
+	provider.positionData[0].Quantity = "17548.557979"
+	provider.positionData[0].UnavailableToTradeQuantity = decimal("17537.852")
+
+	report, err := service.RunReconciliation(context.Background(), founder(), "account-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ComparisonStatus != "MATCHED" || report.AutonomySignal != "CLEAR" || report.BlocksNewActions || report.ChangeCount != 1 || report.BlockingChangeCount != 0 || len(report.Changes) != 1 || report.Changes[0].ControlImpact != "NON_TRADABLE_QUANTITY_ONLY" {
+		t.Fatalf("unavailable-only movement did not preserve the clear gate: %#v", report)
+	}
+
+	provider.positionData[0].Quantity = "17548.585979"
+	provider.positionData[0].AvailableQuantity = decimal("10.733979")
+	report, err = service.RunReconciliation(context.Background(), founder(), "account-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ComparisonStatus != "DRIFT_DETECTED" || !report.BlocksNewActions || report.BlockingChangeCount != 1 || report.Changes[0].ControlImpact != "TRADABLE_INVENTORY" {
+		t.Fatalf("tradable inventory movement did not fail closed: %#v", report)
 	}
 }
 

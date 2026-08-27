@@ -41,7 +41,7 @@ func reconciliationRule(c *EvaluationContext, action ProposedAction) RiskCheck {
 	if snapshot.ComparisonStatus == "INCOMPLETE" || snapshot.BalancesStatus != "READY" || snapshot.PositionsStatus != "READY" {
 		return check(ReconciliationIncomplete, false, "The latest broker reconciliation has incomplete balance or position coverage.")
 	}
-	if snapshot.ComparisonStatus == "DRIFT_DETECTED" || snapshot.AutonomySignal == "REVIEW_RECOMMENDED" || snapshot.ChangeCount > 0 {
+	if snapshot.ComparisonStatus == "DRIFT_DETECTED" || snapshot.AutonomySignal == "REVIEW_RECOMMENDED" || snapshot.BlockingChangeCount > 0 {
 		return check(ReconciliationDriftDetected, false, "Broker-reported position drift must be confirmed by a later matching snapshot.")
 	}
 	if snapshot.ComparisonStatus != "MATCHED" || snapshot.AutonomySignal != "CLEAR" || snapshot.BlocksNewActions {

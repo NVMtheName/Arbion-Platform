@@ -10,8 +10,13 @@ export type PortfolioReconciliationChange = {
     | "POSITION_APPEARED"
     | "POSITION_DISAPPEARED"
     | "QUANTITY_CHANGED";
+  control_impact: "TRADABLE_INVENTORY" | "NON_TRADABLE_QUANTITY_ONLY";
   previous_quantity?: string;
   current_quantity?: string;
+  previous_available_quantity?: string;
+  current_available_quantity?: string;
+  previous_unavailable_quantity?: string;
+  current_unavailable_quantity?: string;
 };
 
 export type PortfolioReconciliation = {
@@ -29,13 +34,14 @@ export type PortfolioReconciliation = {
   observed_position_count: number;
   performance_position_count: number;
   change_count: number;
+  blocking_change_count: number;
   changes: PortfolioReconciliationChange[];
   evidence_hash: string;
   observed_at: string;
 };
 
 function statusLabel(status: PortfolioReconciliation["comparison_status"]) {
-  if (status === "MATCHED") return "Holdings matched";
+  if (status === "MATCHED") return "Trading inventory matched";
   if (status === "DRIFT_DETECTED") return "Position change detected";
   if (status === "INCOMPLETE") return "Coverage incomplete";
   return "Baseline captured";
@@ -70,6 +76,9 @@ function changeDescription(change: PortfolioReconciliationChange) {
   }
   if (change.change_type === "POSITION_DISAPPEARED") {
     return `No longer reported · previously ${quantity(change.previous_quantity)}`;
+  }
+  if (change.control_impact === "NON_TRADABLE_QUANTITY_ONLY") {
+    return `Unavailable to trade ${quantity(change.previous_unavailable_quantity)} → ${quantity(change.current_unavailable_quantity)} · Available to trade unchanged at ${quantity(change.current_available_quantity)}`;
   }
   return `${quantity(change.previous_quantity)} → ${quantity(change.current_quantity)}`;
 }
@@ -111,7 +120,9 @@ export function PortfolioReconciliationPanel({
         body.reconciliation.comparison_status === "DRIFT_DETECTED"
           ? "A broker-reported quantity changed. New AI proposals stay held until a later complete snapshot matches this state."
           : body.reconciliation.comparison_status === "MATCHED"
-            ? "Broker state matched the prior complete snapshot. The reconciliation gate is clear for new AI proposals."
+            ? body.reconciliation.change_count > 0
+              ? "An exact unavailable-to-trade movement was recorded. Available inventory is unchanged, so the reconciliation gate is clear for new AI proposals."
+              : "Broker state matched the prior complete snapshot. The reconciliation gate is clear for new AI proposals."
             : "A new immutable provider snapshot was recorded. Capture a second matching snapshot to clear new AI proposals.",
       );
     } catch {
@@ -204,7 +215,11 @@ export function PortfolioReconciliationPanel({
                     key={`${change.symbol}-${change.instrument_type}-${change.direction}`}
                   >
                     <strong>{change.symbol}</strong>
-                    <span>{changeDescription(change)}</span>
+                    <span>
+                      {changeDescription(change)}
+                      {change.control_impact === "NON_TRADABLE_QUANTITY_ONLY" &&
+                        " · Recorded, non-blocking"}
+                    </span>
                   </li>
                 ))}
               </ul>
