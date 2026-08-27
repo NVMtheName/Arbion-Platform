@@ -20,6 +20,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/orderintent"
 	"github.com/arbion/platform/services/api/internal/platform/config"
+	"github.com/arbion/platform/services/api/internal/platformops"
 	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/arbion/platform/services/api/internal/strategy"
 )
@@ -40,6 +41,7 @@ type authHandler struct {
 	evaluations            *strategy.EvaluationService
 	breakers               breakerController
 	orderIntents           *orderintent.Service
+	platformOperations     platformOperationsController
 	schedulerEnabled       bool
 	emailDeliveryAvailable bool
 	cfg                    config.Auth
@@ -176,7 +178,7 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 }
 
 func NewFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies ...*strategy.InstanceService) stdhttp.Handler {
-	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, firstStrategy(strategies), nil, nil, nil, nil)
+	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, firstStrategy(strategies), nil, nil, nil, nil, nil)
 }
 
 func NewFullApplicationHandlerWithEvaluation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService, breakers ...*risk.BreakerService) stdhttp.Handler {
@@ -184,15 +186,19 @@ func NewFullApplicationHandlerWithEvaluation(database ReadinessChecker, cfg conf
 	if len(breakers) > 0 {
 		breakerService = breakers[0]
 	}
-	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, strategies, evaluations, breakerService, nil, nil)
+	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, strategies, evaluations, breakerService, nil, nil, nil)
 }
 
 func NewFullApplicationHandlerWithEvaluationAndMarkets(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService, breakers *risk.BreakerService, markets MarketIntelligence) stdhttp.Handler {
-	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, strategies, evaluations, breakers, markets, nil)
+	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, strategies, evaluations, breakers, markets, nil, nil)
 }
 
 func NewFullApplicationHandlerWithEvaluationMarketsAndOrderIntents(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService, breakers *risk.BreakerService, markets MarketIntelligence, orderIntents *orderintent.Service) stdhttp.Handler {
-	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, strategies, evaluations, breakers, markets, orderIntents)
+	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, strategies, evaluations, breakers, markets, orderIntents, nil)
+}
+
+func NewFullApplicationHandlerWithEvaluationMarketsOrderIntentsAndPlatformOperations(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService, breakers *risk.BreakerService, markets MarketIntelligence, orderIntents *orderintent.Service, operations *platformops.Service) stdhttp.Handler {
+	return newFullApplicationHandlerWithAutomation(database, cfg, service, admin, ai, finances, automations, strategies, evaluations, breakers, markets, orderIntents, operations)
 }
 
 func firstStrategy(strategies []*strategy.InstanceService) *strategy.InstanceService {
@@ -202,12 +208,13 @@ func firstStrategy(strategies []*strategy.InstanceService) *strategy.InstanceSer
 	return strategies[0]
 }
 
-func newFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService, breakers breakerController, markets MarketIntelligence, orderIntents *orderintent.Service) stdhttp.Handler {
+func newFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg config.Config, service *auth.Service, admin *authorization.Service, ai *aiconnection.Service, finances *financialconnection.Service, automations *automation.Service, strategies *strategy.InstanceService, evaluations *strategy.EvaluationService, breakers breakerController, markets MarketIntelligence, orderIntents *orderintent.Service, operations platformOperationsController) stdhttp.Handler {
 	h := &authHandler{service: service, admin: admin, ai: ai, cfg: cfg.Auth, financialProviders: financial.DefaultRegistry(), marketSources: marketintelligence.DefaultSources(), markets: markets, marketFinancial: finances, schwabConfigured: cfg.Schwab.ClientID != "" && cfg.Schwab.ClientSecret != "", schedulerEnabled: cfg.Scheduler.Enabled, emailDeliveryAvailable: cfg.Email.DeliveryMode == "smtp", financial: finances, automation: automations}
 	h.strategies = strategies
 	h.evaluations = evaluations
 	h.breakers = breakers
 	h.orderIntents = orderIntents
+	h.platformOperations = operations
 	mux := stdhttp.NewServeMux()
 	mux.HandleFunc("GET /healthz", health)
 	mux.HandleFunc("GET /readyz", readiness(database, cfg.Database.ReadinessTimeout))
@@ -218,6 +225,7 @@ func newFullApplicationHandlerWithAutomation(database ReadinessChecker, cfg conf
 	registerStrategyRoutes(mux, h)
 	registerOrderIntentRoutes(mux, h)
 	registerBreakerRoutes(mux, h)
+	registerPlatformOperationsRoutes(mux, h)
 	mux.Handle("/", base)
 	return securityHeaders(mux)
 }

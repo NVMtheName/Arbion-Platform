@@ -7,6 +7,10 @@ import {
   PlatformCircuitBreakerControls,
   type PlatformCircuitBreaker,
 } from "./platform-circuit-breaker-controls";
+import {
+  PlatformOperationsReadiness,
+  type PlatformOperationsOverview,
+} from "./platform-operations-readiness";
 type User = { id: string; email: string; role: string; entitlement: string };
 export default async function Admin() {
   const c = await cookies();
@@ -26,20 +30,31 @@ export default async function Admin() {
   if (!response.ok) redirect("/dashboard");
   const { users } = (await response.json()) as { users: User[] };
   let platformBreaker: PlatformCircuitBreaker | null | undefined;
+  let platformOperations: PlatformOperationsOverview | undefined;
   if (user.role === "superadmin") {
-    const platformResponse = await fetch(
-      `${base}/api/admin/risk/circuit-breaker`,
-      {
+    const [platformResponse, operationsResponse] = await Promise.all([
+      fetch(`${base}/api/admin/risk/circuit-breaker`, {
         headers: { cookie: c.toString() },
         cache: "no-store",
-      },
-    );
+      }),
+      fetch(base + "/api/admin/operations/readiness", {
+        headers: { cookie: c.toString() },
+        cache: "no-store",
+      }),
+    ]);
     platformBreaker = platformResponse.ok
       ? ((
           (await platformResponse.json()) as {
             circuit_breaker?: PlatformCircuitBreaker | null;
           }
         ).circuit_breaker ?? null)
+      : undefined;
+    platformOperations = operationsResponse.ok
+      ? (
+          (await operationsResponse.json()) as {
+            operations: PlatformOperationsOverview;
+          }
+        ).operations
       : undefined;
   }
   return (
@@ -59,6 +74,18 @@ export default async function Admin() {
               Arbion could not verify the current platform-stop state, so this
               page will not present a potentially stale engage or release
               action.
+            </p>
+          </section>
+        ))}
+      {user.role === "superadmin" &&
+        (platformOperations ? (
+          <PlatformOperationsReadiness operations={platformOperations} />
+        ) : (
+          <section className="content-card" role="status">
+            <h2>Production operations unavailable</h2>
+            <p>
+              Arbion could not verify the aggregate production snapshot. Treat
+              the control plane as requiring review until this evidence loads.
             </p>
           </section>
         ))}
