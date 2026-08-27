@@ -13,6 +13,9 @@ type breakerController interface {
 	CurrentAutomation(context.Context, authorization.Principal, string) (*risk.CircuitBreaker, error)
 	EngageAutomation(context.Context, authorization.Principal, string, risk.BreakerCommand) (risk.CircuitBreaker, error)
 	ReleaseAutomation(context.Context, authorization.Principal, string, risk.BreakerCommand) (risk.CircuitBreaker, error)
+	CurrentAccount(context.Context, authorization.Principal, string) (*risk.CircuitBreaker, error)
+	EngageAccount(context.Context, authorization.Principal, string, risk.BreakerCommand) (risk.CircuitBreaker, error)
+	ReleaseAccount(context.Context, authorization.Principal, string, risk.BreakerCommand) (risk.CircuitBreaker, error)
 }
 
 func registerBreakerRoutes(mux *stdhttp.ServeMux, handler *authHandler) {
@@ -22,6 +25,9 @@ func registerBreakerRoutes(mux *stdhttp.ServeMux, handler *authHandler) {
 	mux.Handle("GET /api/automations/{id}/circuit-breaker", handler.require(stdhttp.HandlerFunc(handler.currentAutomationBreaker)))
 	mux.Handle("POST /api/automations/{id}/circuit-breaker/engage", handler.require(stdhttp.HandlerFunc(handler.engageAutomationBreaker)))
 	mux.Handle("POST /api/automations/{id}/circuit-breaker/release", handler.require(stdhttp.HandlerFunc(handler.releaseAutomationBreaker)))
+	mux.Handle("GET /api/accounts/{id}/circuit-breaker", handler.require(stdhttp.HandlerFunc(handler.currentAccountBreaker)))
+	mux.Handle("POST /api/accounts/{id}/circuit-breaker/engage", handler.require(stdhttp.HandlerFunc(handler.engageAccountBreaker)))
+	mux.Handle("POST /api/accounts/{id}/circuit-breaker/release", handler.require(stdhttp.HandlerFunc(handler.releaseAccountBreaker)))
 }
 
 func (handler *authHandler) breakerError(writer stdhttp.ResponseWriter, err error) {
@@ -29,7 +35,7 @@ func (handler *authHandler) breakerError(writer stdhttp.ResponseWriter, err erro
 	case errors.Is(err, risk.ErrBreakerForbidden):
 		writeError(writer, 403, "PERMISSION_DENIED", "Automation entitlement is required.")
 	case errors.Is(err, risk.ErrBreakerNotFound):
-		writeError(writer, 404, "NOT_FOUND", "The requested automation was not found.")
+		writeError(writer, 404, "NOT_FOUND", "The requested safety-control resource was not found.")
 	case errors.Is(err, risk.ErrBreakerConflict):
 		writeError(writer, 409, "CIRCUIT_BREAKER_CONFLICT", "The emergency-stop state changed. Refresh and review its latest state.")
 	case errors.Is(err, risk.ErrBreakerInvalid):
@@ -58,6 +64,28 @@ func (handler *authHandler) engageAutomationBreaker(writer stdhttp.ResponseWrite
 func (handler *authHandler) releaseAutomationBreaker(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
 	handler.breakerMutation(writer, request, func(command risk.BreakerCommand) (risk.CircuitBreaker, error) {
 		return handler.breakers.ReleaseAutomation(request.Context(), principal(request), request.PathValue("id"), command)
+	})
+}
+
+func (handler *authHandler) currentAccountBreaker(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	breaker, err := handler.breakers.CurrentAccount(request.Context(), principal(request), request.PathValue("id"))
+	if err != nil {
+		handler.breakerError(writer, err)
+		return
+	}
+	writer.Header().Set("Cache-Control", "no-store")
+	writeJSON(writer, 200, map[string]any{"circuit_breaker": breaker, "live_execution_available": false})
+}
+
+func (handler *authHandler) engageAccountBreaker(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	handler.breakerMutation(writer, request, func(command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+		return handler.breakers.EngageAccount(request.Context(), principal(request), request.PathValue("id"), command)
+	})
+}
+
+func (handler *authHandler) releaseAccountBreaker(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	handler.breakerMutation(writer, request, func(command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+		return handler.breakers.ReleaseAccount(request.Context(), principal(request), request.PathValue("id"), command)
 	})
 }
 

@@ -59,3 +59,40 @@ func (store *PostgresBreakerStore) ReleaseAutomationBreaker(ctx context.Context,
 	}
 	return breaker, err
 }
+
+func (store *PostgresBreakerStore) AccountOwned(ctx context.Context, userID, accountID string) (bool, error) {
+	var owned bool
+	err := store.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM financial_accounts WHERE id=$1 AND user_id=$2)`, accountID, userID).Scan(&owned)
+	return owned, err
+}
+
+func (store *PostgresBreakerStore) OpenAccountBreaker(ctx context.Context, userID, accountID string) (*CircuitBreaker, error) {
+	breaker, err := scanBreaker(store.db.QueryRow(ctx, `SELECT `+breakerColumns+` FROM risk_circuit_breakers b WHERE b.scope='ACCOUNT' AND b.scope_id=$1 AND b.state='OPEN' AND EXISTS(SELECT 1 FROM financial_accounts a WHERE a.id=b.scope_id AND a.user_id=$2)`, accountID, userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &breaker, nil
+}
+
+func (store *PostgresBreakerStore) EngageAccountBreaker(ctx context.Context, userID, accountID, reason string, engagedAt time.Time) (CircuitBreaker, error) {
+	breaker, err := scanBreaker(store.db.QueryRow(ctx, `INSERT INTO risk_circuit_breakers(scope,scope_id,state,reason,source,engaged_by_user_id,engaged_at) SELECT 'ACCOUNT',a.id,'OPEN',$3,'UI',$2,$4 FROM financial_accounts a WHERE a.id=$1 AND a.user_id=$2 RETURNING `+breakerColumns, accountID, userID, reason, engagedAt))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CircuitBreaker{}, ErrBreakerNotFound
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == "23505" {
+		return CircuitBreaker{}, ErrBreakerConflict
+	}
+	return breaker, err
+}
+
+func (store *PostgresBreakerStore) ReleaseAccountBreaker(ctx context.Context, userID, accountID string, releasedAt time.Time) (CircuitBreaker, error) {
+	breaker, err := scanBreaker(store.db.QueryRow(ctx, `UPDATE risk_circuit_breakers b SET state='CLOSED',released_by_user_id=$2,released_at=$3 WHERE b.scope='ACCOUNT' AND b.scope_id=$1 AND b.state='OPEN' AND EXISTS(SELECT 1 FROM financial_accounts a WHERE a.id=b.scope_id AND a.user_id=$2) RETURNING `+breakerColumns, accountID, userID, releasedAt))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CircuitBreaker{}, ErrBreakerConflict
+	}
+	return breaker, err
+}

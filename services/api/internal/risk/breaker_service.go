@@ -23,6 +23,10 @@ type BreakerStore interface {
 	OpenAutomationBreaker(context.Context, string, string) (*CircuitBreaker, error)
 	EngageAutomationBreaker(context.Context, string, string, string, time.Time) (CircuitBreaker, error)
 	ReleaseAutomationBreaker(context.Context, string, string, time.Time) (CircuitBreaker, error)
+	AccountOwned(context.Context, string, string) (bool, error)
+	OpenAccountBreaker(context.Context, string, string) (*CircuitBreaker, error)
+	EngageAccountBreaker(context.Context, string, string, string, time.Time) (CircuitBreaker, error)
+	ReleaseAccountBreaker(context.Context, string, string, time.Time) (CircuitBreaker, error)
 }
 
 type BreakerAuditor interface {
@@ -127,21 +131,92 @@ func (service *BreakerService) ReleaseAutomation(ctx context.Context, principal 
 	return breaker, nil
 }
 
+func (service *BreakerService) CurrentAccount(ctx context.Context, principal authorization.Principal, accountID string) (*CircuitBreaker, error) {
+	if !breakerAllowed(principal) {
+		return nil, ErrBreakerForbidden
+	}
+	owned, err := service.store.AccountOwned(ctx, principal.UserID, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if !owned {
+		return nil, ErrBreakerNotFound
+	}
+	return service.store.OpenAccountBreaker(ctx, principal.UserID, accountID)
+}
+
+func (service *BreakerService) EngageAccount(ctx context.Context, principal authorization.Principal, accountID string, command BreakerCommand) (CircuitBreaker, error) {
+	if !breakerAllowed(principal) {
+		return CircuitBreaker{}, ErrBreakerForbidden
+	}
+	if !command.Confirm {
+		return CircuitBreaker{}, ErrBreakerInvalid
+	}
+	reason, err := validateBreakerReason(command.Reason)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	owned, err := service.store.AccountOwned(ctx, principal.UserID, accountID)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	if !owned {
+		return CircuitBreaker{}, ErrBreakerNotFound
+	}
+	breaker, err := service.store.EngageAccountBreaker(ctx, principal.UserID, accountID, reason, service.now())
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	service.record(ctx, principal.UserID, "account_circuit_breaker.engaged", breaker, reason)
+	return breaker, nil
+}
+
+func (service *BreakerService) ReleaseAccount(ctx context.Context, principal authorization.Principal, accountID string, command BreakerCommand) (CircuitBreaker, error) {
+	if !breakerAllowed(principal) {
+		return CircuitBreaker{}, ErrBreakerForbidden
+	}
+	if !command.Confirm {
+		return CircuitBreaker{}, ErrBreakerInvalid
+	}
+	reason, err := validateBreakerReason(command.Reason)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	owned, err := service.store.AccountOwned(ctx, principal.UserID, accountID)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	if !owned {
+		return CircuitBreaker{}, ErrBreakerNotFound
+	}
+	breaker, err := service.store.ReleaseAccountBreaker(ctx, principal.UserID, accountID, service.now())
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	service.record(ctx, principal.UserID, "account_circuit_breaker.released", breaker, reason)
+	return breaker, nil
+}
+
 func (service *BreakerService) record(ctx context.Context, userID, action string, breaker CircuitBreaker, reason string) {
 	if service.audit == nil {
 		return
 	}
-	automationID := ""
+	scopeID := ""
 	if breaker.ScopeID != nil {
-		automationID = *breaker.ScopeID
+		scopeID = *breaker.ScopeID
 	}
-	_ = service.audit.Record(ctx, &userID, action, map[string]any{
-		"automation_id":              automationID,
+	metadata := map[string]any{
 		"circuit_breaker_id":         breaker.ID,
 		"reason":                     reason,
-		"scope":                      ScopeAutomation,
+		"scope":                      breaker.Scope,
 		"source":                     "UI",
 		"live_execution_available":   false,
 		"broker_execution_requested": false,
-	})
+	}
+	if breaker.Scope == ScopeAccount {
+		metadata["financial_account_id"] = scopeID
+	} else if breaker.Scope == ScopeAutomation {
+		metadata["automation_id"] = scopeID
+	}
+	_ = service.audit.Record(ctx, &userID, action, metadata)
 }

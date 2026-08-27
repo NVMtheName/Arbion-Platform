@@ -10,17 +10,22 @@ import (
 )
 
 type breakerStoreFake struct {
-	owned          bool
-	current        *CircuitBreaker
-	engaged        CircuitBreaker
-	released       CircuitBreaker
-	engageUser     string
-	engageMandate  string
-	engageReason   string
-	engageTime     time.Time
-	releaseUser    string
-	releaseMandate string
-	releaseTime    time.Time
+	owned           bool
+	current         *CircuitBreaker
+	engaged         CircuitBreaker
+	released        CircuitBreaker
+	engageUser      string
+	engageMandate   string
+	engageReason    string
+	engageTime      time.Time
+	releaseUser     string
+	releaseMandate  string
+	releaseTime     time.Time
+	accountCurrent  *CircuitBreaker
+	accountEngaged  CircuitBreaker
+	accountReleased CircuitBreaker
+	engageAccount   string
+	releaseAccount  string
 }
 
 func (store *breakerStoreFake) AutomationOwned(context.Context, string, string) (bool, error) {
@@ -36,6 +41,20 @@ func (store *breakerStoreFake) EngageAutomationBreaker(_ context.Context, userID
 func (store *breakerStoreFake) ReleaseAutomationBreaker(_ context.Context, userID, automationID string, at time.Time) (CircuitBreaker, error) {
 	store.releaseUser, store.releaseMandate, store.releaseTime = userID, automationID, at
 	return store.released, nil
+}
+func (store *breakerStoreFake) AccountOwned(context.Context, string, string) (bool, error) {
+	return store.owned, nil
+}
+func (store *breakerStoreFake) OpenAccountBreaker(context.Context, string, string) (*CircuitBreaker, error) {
+	return store.accountCurrent, nil
+}
+func (store *breakerStoreFake) EngageAccountBreaker(_ context.Context, userID, accountID, reason string, at time.Time) (CircuitBreaker, error) {
+	store.engageUser, store.engageAccount, store.engageReason, store.engageTime = userID, accountID, reason, at
+	return store.accountEngaged, nil
+}
+func (store *breakerStoreFake) ReleaseAccountBreaker(_ context.Context, userID, accountID string, at time.Time) (CircuitBreaker, error) {
+	store.releaseUser, store.releaseAccount, store.releaseTime = userID, accountID, at
+	return store.accountReleased, nil
 }
 
 type breakerAuditFake struct {
@@ -122,5 +141,53 @@ func TestCurrentAutomationBreakerReturnsOpenStateOrNil(t *testing.T) {
 	current, err = service.CurrentAutomation(context.Background(), founderPrincipal(), automationID)
 	if err != nil || current != nil {
 		t.Fatalf("cleared breaker did not return nil: %#v err=%v", current, err)
+	}
+}
+
+func TestAccountBreakerEngageAndReleaseAreOwnerScopedAndAudited(t *testing.T) {
+	now := time.Date(2026, 8, 27, 14, 0, 0, 0, time.UTC)
+	accountID := "account"
+	engaged := CircuitBreaker{ID: "breaker", Scope: ScopeAccount, ScopeID: &accountID, State: BreakerOpen, Reason: "account connectivity requires review", Source: "UI", EngagedAt: now}
+	released := engaged
+	released.State = BreakerClosed
+	released.ReleasedAt = &now
+	store := &breakerStoreFake{owned: true, accountEngaged: engaged, accountReleased: released, accountCurrent: &engaged}
+	audit := &breakerAuditFake{}
+	service := NewBreakerService(store, audit)
+	service.now = func() time.Time { return now }
+
+	current, err := service.CurrentAccount(context.Background(), founderPrincipal(), accountID)
+	if err != nil || current == nil || current.Scope != ScopeAccount {
+		t.Fatalf("account breaker was not owner-scoped: current=%#v err=%v", current, err)
+	}
+	result, err := service.EngageAccount(context.Background(), founderPrincipal(), accountID, BreakerCommand{Reason: "  account connectivity requires review  ", Confirm: true})
+	if err != nil || result.State != BreakerOpen || store.engageUser != "owner" || store.engageAccount != accountID || store.engageReason != "account connectivity requires review" || !store.engageTime.Equal(now) {
+		t.Fatalf("account engage changed: result=%#v store=%#v err=%v", result, store, err)
+	}
+	if audit.action != "account_circuit_breaker.engaged" || audit.metadata["financial_account_id"] != accountID || audit.metadata["scope"] != ScopeAccount || audit.metadata["broker_execution_requested"] != false {
+		t.Fatalf("account engage audit evidence is incomplete: %#v", audit)
+	}
+
+	result, err = service.ReleaseAccount(context.Background(), founderPrincipal(), accountID, BreakerCommand{Reason: "connection and holdings were reviewed", Confirm: true})
+	if err != nil || result.State != BreakerClosed || store.releaseUser != "owner" || store.releaseAccount != accountID || !store.releaseTime.Equal(now) {
+		t.Fatalf("account release changed: result=%#v store=%#v err=%v", result, store, err)
+	}
+	if audit.action != "account_circuit_breaker.released" || audit.metadata["reason"] != "connection and holdings were reviewed" || audit.metadata["live_execution_available"] != false {
+		t.Fatalf("account release audit evidence is incomplete: %#v", audit)
+	}
+}
+
+func TestAccountBreakerRejectsUnownedAndInvalidCommands(t *testing.T) {
+	store := &breakerStoreFake{owned: true}
+	service := NewBreakerService(store, nil)
+	if _, err := service.EngageAccount(context.Background(), founderPrincipal(), "account", BreakerCommand{Reason: "planned maintenance", Confirm: false}); !errors.Is(err, ErrBreakerInvalid) {
+		t.Fatalf("unconfirmed account stop was accepted: %v", err)
+	}
+	store.owned = false
+	if _, err := service.CurrentAccount(context.Background(), founderPrincipal(), "other"); !errors.Is(err, ErrBreakerNotFound) {
+		t.Fatalf("unowned account was not hidden: %v", err)
+	}
+	if _, err := service.ReleaseAccount(context.Background(), founderPrincipal(), "other", BreakerCommand{Reason: "connection was reviewed", Confirm: true}); !errors.Is(err, ErrBreakerNotFound) {
+		t.Fatalf("unowned account release was accepted: %v", err)
 	}
 }
