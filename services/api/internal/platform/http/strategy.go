@@ -134,7 +134,7 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 	case errors.Is(e, strategy.ErrOpenExposure):
 		writeError(w, 409, "PAPER_POSITION_OPEN", "Resolve every open simulated position before finishing this PAPER strategy.")
 	case errors.Is(e, strategy.ErrMandateStale):
-		writeError(w, 409, "MANDATE_NOT_READY", "The exact mandate version for this strategy is no longer current and ready.")
+		writeError(w, 409, "MANDATE_NOT_READY", "The strategy's pinned mandate version is not eligible for this non-live action.")
 	case errors.Is(e, strategy.ErrConflict):
 		writeError(w, 409, "STRATEGY_CONFLICT", "The strategy state changed or this request conflicts with an existing record.")
 	case errors.Is(e, strategy.ErrDuplicate):
