@@ -28,6 +28,7 @@ import {
   AIShadowEvaluationControls,
   type AIShadowParameters,
 } from "../ai-shadow-evaluation-controls";
+import { AIShadowParameterControls } from "../ai-shadow-parameter-controls";
 import { AIDecisionJournal } from "../ai-decision-journal";
 import { AIShadowScorecard } from "../ai-shadow-scorecard";
 import { MandateIdentitySummary } from "../mandate-identity-summary";
@@ -330,6 +331,17 @@ export default async function MandateReview({
           <AutonomyGuardrailSummary
             riskPolicy={
               (m.risk_parameters ?? m.Risk ?? {}) as Record<string, unknown>
+            }
+          />
+          <AIShadowParameterControls
+            automationId={id}
+            currentVersion={currentVersion}
+            status={read("status", "Status")}
+            hasActiveInstance={hasActiveInstance}
+            parameters={
+              (m.strategy_parameters ??
+                m.StrategyParameters ??
+                {}) as AIShadowParameters
             }
           />
           <AIShadowEvaluationControls
