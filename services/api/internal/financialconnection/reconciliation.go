@@ -21,7 +21,12 @@ var (
 	ErrReconciliationNotFound    = errors.New("portfolio reconciliation not found")
 )
 
-const maxReconciliationPositions = 1000
+const (
+	maxReconciliationPositions                  = 1000
+	scheduledReconciliationConfirmationDelay    = 30 * time.Minute
+	scheduledReconciliationIncompleteRetryDelay = time.Hour
+	scheduledReconciliationRefreshAge           = 12 * time.Hour
+)
 
 const (
 	reconciliationControlTradableInventory = "TRADABLE_INVENTORY"
@@ -323,7 +328,77 @@ func terminalReconciliationAuthorizationError(err error) bool {
 	return errors.As(err, &providerError) && (providerError.Code == financial.AuthorizationFailed || providerError.Code == financial.AuthorizationExpired || providerError.Code == financial.PermissionDenied)
 }
 
+func reconciliationLockKey(userID, accountID string) string {
+	return "portfolio-reconciliation:" + userID + ":" + accountID
+}
+
+// RunReconciliation is the explicit owner path. A database advisory lock keeps
+// manual and scheduled snapshots for the same account from racing each other.
 func (s *Service) RunReconciliation(ctx context.Context, principal authorization.Principal, accountID string) (PortfolioReconciliation, error) {
+	var report PortfolioReconciliation
+	err := s.store.WithLock(ctx, reconciliationLockKey(principal.UserID, accountID), func() error {
+		var runErr error
+		report, runErr = s.runReconciliationAt(ctx, principal, accountID, time.Now().UTC(), "OWNER")
+		return runErr
+	})
+	return report, err
+}
+
+// EnsureScheduledReconciliation keeps AI Shadow evidence current using only
+// provider balance and position reads. It never retries through confirmed
+// drift, so a later stable snapshot cannot silently acknowledge a real change.
+func (s *Service) EnsureScheduledReconciliation(ctx context.Context, principal authorization.Principal, accountID string, now time.Time) error {
+	if !allowed(principal) {
+		return ErrForbidden
+	}
+	if s.reconciliations == nil {
+		return ErrReconciliationUnavailable
+	}
+	now = now.UTC()
+	return s.store.WithLock(ctx, reconciliationLockKey(principal.UserID, accountID), func() error {
+		account, err := s.GetAccount(ctx, principal, accountID)
+		if err != nil {
+			return err
+		}
+		if account.Status != "active" {
+			return ErrDisabled
+		}
+		latest, err := s.reconciliations.LatestReconciliation(ctx, principal.UserID, account.ID)
+		if err != nil && !errors.Is(err, ErrReconciliationNotFound) {
+			return err
+		}
+		if err == nil && !scheduledReconciliationDue(latest, now) {
+			return nil
+		}
+		_, err = s.runReconciliationAt(ctx, principal, account.ID, now, "SCHEDULED_FRESHNESS")
+		return err
+	})
+}
+
+func scheduledReconciliationDue(latest PortfolioReconciliation, now time.Time) bool {
+	if now.IsZero() || latest.ObservedAt.IsZero() || latest.ObservedAt.After(now) {
+		return false
+	}
+	age := now.Sub(latest.ObservedAt)
+	complete := latest.BalancesStatus == "READY" && latest.PositionsStatus == "READY"
+	switch latest.ComparisonStatus {
+	case "BASELINE":
+		return latest.AutonomyEnforcementActive && complete && age >= scheduledReconciliationConfirmationDelay
+	case "MATCHED":
+		if latest.BlocksNewActions || !complete {
+			return false
+		}
+		return !latest.AutonomyEnforcementActive || age >= scheduledReconciliationRefreshAge
+	case "INCOMPLETE":
+		return latest.AutonomyEnforcementActive && age >= scheduledReconciliationIncompleteRetryDelay
+	case "DRIFT_DETECTED":
+		return false
+	default:
+		return false
+	}
+}
+
+func (s *Service) runReconciliationAt(ctx context.Context, principal authorization.Principal, accountID string, observedAt time.Time, trigger string) (PortfolioReconciliation, error) {
 	if !allowed(principal) {
 		return PortfolioReconciliation{}, ErrForbidden
 	}
@@ -348,7 +423,7 @@ func (s *Service) RunReconciliation(ctx context.Context, principal authorization
 	if err != nil {
 		return PortfolioReconciliation{}, err
 	}
-	observedAt := time.Now().UTC()
+	observedAt = observedAt.UTC()
 	balancesStatus := "READY"
 	positionsStatus := "READY"
 	balances, balanceErr := provider.GetBalances(ctx, &credentials, account.ProviderAccountID)
@@ -463,7 +538,7 @@ func (s *Service) RunReconciliation(ctx context.Context, principal authorization
 		s.record(ctx, principal.UserID, "financial.portfolio_reconciled", map[string]any{
 			"account_id": account.ID, "provider": account.Provider, "comparison_status": report.ComparisonStatus,
 			"position_count": report.ObservedPositionCount, "change_count": report.ChangeCount,
-			"blocking_change_count": report.BlockingChangeCount,
+			"blocking_change_count": report.BlockingChangeCount, "trigger": trigger,
 		})
 	}
 	return report, err

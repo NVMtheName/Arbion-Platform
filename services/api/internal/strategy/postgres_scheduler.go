@@ -44,7 +44,7 @@ func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, lea
 		FROM candidate c WHERE s.strategy_instance_id=c.strategy_instance_id
 		RETURNING s.*
 	)
-	SELECT c.strategy_instance_id::text,c.user_id::text,COALESCE(u.normalized_email,''),u.email_verified_at IS NOT NULL,c.mandate_id::text,c.mandate_version,
+	SELECT c.strategy_instance_id::text,c.user_id::text,i.financial_account_id::text,COALESCE(u.normalized_email,''),u.email_verified_at IS NOT NULL,c.mandate_id::text,c.mandate_version,
 		i.execution_mode,i.current_state,c.interval_minutes,c.session,c.next_run_at,c.lease_token::text,
 		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,evaluation_completed}')::boolean,false),
 		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,lifecycle_required}')::boolean,false),
@@ -54,7 +54,7 @@ func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, lea
 	JOIN strategy_instances i ON i.id=c.strategy_instance_id
 	JOIN automation_mandate_versions v ON v.mandate_id=c.mandate_id AND v.version_number=c.mandate_version
 	JOIN users u ON u.id=c.user_id`, now, int(leaseFor/time.Second)).Scan(
-		&run.StrategyInstanceID, &run.UserID, &run.OwnerEmail, &run.OwnerEmailVerified, &run.MandateID, &run.MandateVersion,
+		&run.StrategyInstanceID, &run.UserID, &run.FinancialAccountID, &run.OwnerEmail, &run.OwnerEmailVerified, &run.MandateID, &run.MandateVersion,
 		&run.ExecutionMode, &run.CurrentState, &run.IntervalMinutes, &run.Session,
 		&run.ScheduledFor, &run.LeaseToken, &run.NotifyEvaluation, &run.NotifyLifecycle,
 		&run.NotifyFirstFailure, &run.PreviousErrorCode, &run.ConsecutiveFailures,
