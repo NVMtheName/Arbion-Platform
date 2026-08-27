@@ -648,6 +648,15 @@ func (h *authHandler) requireAdmin(next stdhttp.Handler) stdhttp.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+func (h *authHandler) requireSuperadmin(next stdhttp.Handler) stdhttp.Handler {
+	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if authorization.RequireSuperadmin(principal(r)) != nil {
+			writeError(w, 403, "superadmin_required", "Superadmin access is required.")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 func (h *authHandler) adminMe(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	u, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
 	writeJSON(w, 200, map[string]any{"user": u})

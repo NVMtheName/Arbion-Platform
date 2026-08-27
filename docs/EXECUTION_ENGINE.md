@@ -74,7 +74,7 @@ Before a Coinbase `Create Order` adapter may exist, the following must be implem
 4. explicit owner approval with step-up authentication for manual live orders, plus an immutable mandate path for any later automation;
 5. an Arbion-owned stable idempotency key used as Coinbase `client_order_id`, with a transactionally claimed dispatch attempt;
 6. unknown-outcome handling that stops and reconciles instead of blindly retrying;
-7. broker-authoritative order/fill polling, drift detection, scoped kill switches, and operational alerts; and
+7. broker-authoritative order/fill polling, drift detection, the implemented automation/account/owner/platform kill-switch hierarchy, and operational alerts; and
 8. a dedicated security review proving that neither the browser nor Neural Engine can receive financial credentials, preview IDs, provider order IDs, or direct dispatch authority.
 
 The AI-facing tool set may eventually include structured proposal and preview tools. It must not contain an unrestricted `place_order` tool. An AI proposal enters the same durable Order Intent and deterministic control path as a UI ticket and cannot satisfy its own approval requirement.

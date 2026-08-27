@@ -77,6 +77,7 @@ jobs:
       - run: go test -race ./internal/marketintelligence -run TestPostgresWatchlistIsOwnerScopedUniqueAndHardBounded -count=1
       - run: go test -race ./internal/orderintent -run TestPostgresOrderIntentIsIdempotentOwnerScopedImmutableAndNonExecuting -count=1
       - run: go test -race ./internal/financialconnection -run TestPostgresConnectionLifecycleIsAccountScoped -count=1
+      - run: go test -race ./internal/risk -run TestPostgresGlobalBreakerIsDurableExclusiveAndSuperadminBound -count=1
 
   ai:
     runs-on: ubuntu-latest
