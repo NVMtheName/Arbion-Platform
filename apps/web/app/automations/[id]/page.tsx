@@ -529,9 +529,12 @@ export default async function MandateReview({
                 }
               />
               <StrategySimulationWorkbench
+                automationId={id}
                 versions={mandateVersions}
                 currentVersion={currentVersion}
                 capitalBucket={capitalBucket}
+                status={read("status", "Status")}
+                hasActiveInstance={hasActiveInstance}
                 decisions={
                   Array.isArray(decisions.decisions)
                     ? (decisions.decisions as Record<string, unknown>[])

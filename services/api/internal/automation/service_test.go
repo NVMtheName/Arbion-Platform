@@ -17,6 +17,8 @@ type fakeStore struct {
 	transitionStatus string
 	transitionSource string
 	updatedCommand   MandateCommand
+	updatedExpected  int
+	updatedSource    string
 }
 
 type fakeAuditor struct {
@@ -65,8 +67,10 @@ func (f *fakeStore) ListMandates(context.Context, string) ([]Mandate, error) {
 func (f *fakeStore) GetMandate(context.Context, string, string) (Mandate, error) {
 	return f.created, nil
 }
-func (f *fakeStore) UpdateMandate(_ context.Context, _, _ string, _ int, command MandateCommand, unverified bool, _ string) (Mandate, error) {
+func (f *fakeStore) UpdateMandate(_ context.Context, _, _ string, expected int, command MandateCommand, unverified bool, source string) (Mandate, error) {
 	f.updatedCommand = command
+	f.updatedExpected = expected
+	f.updatedSource = source
 	f.created.CurrentVersion++
 	f.created.Status = "DRAFT"
 	f.created.CapabilityUnverified = unverified
@@ -548,6 +552,58 @@ func TestAIShadowParameterUpdateCreatesValidatedDraft(t *testing.T) {
 	f.created.AutomationType = "STRATEGY"
 	if _, err = service.UpdateAIShadowParameters(context.Background(), founder, "m", 5, AIShadowParameters{Objective: "Preserve capital.", MaxProposalNotional: "1000"}); err != ErrInvalid {
 		t.Fatalf("deterministic strategy accepted AI Shadow controls: %v", err)
+	}
+}
+
+func TestAIShadowScenarioDraftOnlyChangesReviewedResearchLimits(t *testing.T) {
+	connection, model := "ai", "gpt-5.6-sol"
+	f := baseStore()
+	f.created = Mandate{
+		ID:                     "m",
+		UserID:                 founder.UserID,
+		FinancialAccountID:     "a",
+		AutomationType:         "AI_AUTONOMOUS",
+		AIProviderConnectionID: &connection,
+		AIModelID:              &model,
+		CapitalBucketID:        "b",
+		AutonomyLevel:          "FULL_AUTONOMOUS",
+		ExecutionMode:          "SHADOW",
+		Status:                 "READY",
+		CurrentVersion:         7,
+		StrategyParameters:     []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1000"}`),
+		Risk:                   RiskPolicy{MaxTradesPerDay: intPointer(1)},
+		AllowedUniverse:        Universe{Symbols: []string{"SPY"}},
+		ScheduleConditions:     []byte(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR"}`),
+	}
+	auditor := &fakeAuditor{}
+	service := NewService(f, auditor)
+
+	if _, err := service.CreateAIShadowScenarioDraft(context.Background(), founder, "m", AIShadowScenarioDraftCommand{ExpectedVersion: 7, MaxProposalNotional: "500", MaxTradesPerDay: 2}); err != ErrInvalid {
+		t.Fatalf("unconfirmed scenario created a draft: %v", err)
+	}
+	if _, err := service.CreateAIShadowScenarioDraft(context.Background(), founder, "m", AIShadowScenarioDraftCommand{ExpectedVersion: 7, MaxProposalNotional: "500", MaxTradesPerDay: 49, Confirm: true}); err != ErrInvalid {
+		t.Fatalf("out-of-bounds daily limit created a draft: %v", err)
+	}
+	if _, err := service.CreateAIShadowScenarioDraft(context.Background(), founder, "m", AIShadowScenarioDraftCommand{ExpectedVersion: 7, MaxProposalNotional: "1000.0", MaxTradesPerDay: 1, Confirm: true}); err != ErrInvalid {
+		t.Fatalf("unchanged scenario created a draft: %v", err)
+	}
+
+	updated, err := service.CreateAIShadowScenarioDraft(context.Background(), founder, "m", AIShadowScenarioDraftCommand{ExpectedVersion: 7, MaxProposalNotional: "500", MaxTradesPerDay: 2, Confirm: true})
+	if err != nil || updated.Status != "DRAFT" || updated.CurrentVersion != 8 {
+		t.Fatalf("reviewed scenario did not create a draft: %#v %v", updated, err)
+	}
+	parameters, err := ParseAIShadowParameters(f.updatedCommand.StrategyParameters)
+	if err != nil || parameters.Objective != "Preserve capital." || parameters.MaxProposalNotional != "500" {
+		t.Fatalf("scenario did not preserve the objective and update only the ceiling: %#v %v", parameters, err)
+	}
+	if f.updatedCommand.Risk.MaxTradesPerDay == nil || *f.updatedCommand.Risk.MaxTradesPerDay != 2 {
+		t.Fatalf("scenario daily limit was not preserved: %#v", f.updatedCommand.Risk)
+	}
+	if f.updatedCommand.ExecutionMode != "SHADOW" || f.updatedCommand.AutonomyLevel != "FULL_AUTONOMOUS" || f.updatedCommand.FinancialAccountID != "a" || f.updatedCommand.CapitalBucketID != "b" || f.updatedCommand.AIModelID == nil || *f.updatedCommand.AIModelID != model {
+		t.Fatalf("scenario changed protected mandate identity or authority: %#v", f.updatedCommand)
+	}
+	if f.updatedExpected != 7 || f.updatedSource != "UI" || auditor.action != "automation_mandate.ai_shadow_scenario_draft_created" || auditor.data["live_execution_available"] != false || auditor.data["review_required"] != true {
+		t.Fatalf("scenario concurrency or audit evidence was incomplete: %#v %#v", f, auditor)
 	}
 }
 
