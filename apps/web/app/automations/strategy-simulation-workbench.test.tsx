@@ -250,7 +250,7 @@ describe("Strategy Simulation Workbench", () => {
     });
     expect(within(review).getByText("$500.00")).toBeInTheDocument();
     expect(
-      screen.getByText(/scheduled evaluation pauses/i),
+      screen.getByText(/continues on that exact schedule/i),
     ).toBeInTheDocument();
     const createButton = screen.getByRole("button", { name: "Create DRAFT" });
     expect(createButton).toBeDisabled();

@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/arbion/platform/services/api/internal/authorization"
 )
@@ -734,6 +735,76 @@ func commandFrom(m Mandate) MandateCommand {
 		EffectiveUntil:                 m.EffectiveUntil,
 	}
 }
+
+// MandateFromVersion reconstructs the immutable reviewed mandate used by a
+// pinned strategy instance. Mutable identity and ownership come only from the
+// owner-scoped current record; every configurable field comes from the version
+// snapshot.
+func MandateFromVersion(current Mandate, version Version) (Mandate, error) {
+	if current.ID == "" || current.UserID == "" || version.MandateID != current.ID || version.VersionNumber < 1 {
+		return Mandate{}, ErrInvalid
+	}
+	var stored struct {
+		MandateCommand
+		Status               string `json:"status"`
+		CapabilityUnverified bool   `json:"capability_unverified"`
+		ExecutionCapable     bool   `json:"execution_capable"`
+	}
+	if err := json.Unmarshal(version.Snapshot, &stored); err != nil || stored.Status == "" || stored.ExecutionCapable {
+		return Mandate{}, ErrInvalid
+	}
+	return Mandate{
+		ID:                             current.ID,
+		UserID:                         current.UserID,
+		FinancialAccountID:             stored.FinancialAccountID,
+		AutomationType:                 stored.AutomationType,
+		StrategyIdentifier:             stored.StrategyIdentifier,
+		AIProviderConnectionID:         stored.AIProviderConnectionID,
+		AIModelID:                      stored.AIModelID,
+		CapitalBucketID:                stored.CapitalBucketID,
+		AutonomyLevel:                  stored.AutonomyLevel,
+		ExecutionMode:                  stored.ExecutionMode,
+		Status:                         stored.Status,
+		CurrentVersion:                 version.VersionNumber,
+		StrategyParameters:             stored.StrategyParameters,
+		Risk:                           stored.Risk,
+		AllowedUniverse:                stored.AllowedUniverse,
+		ProhibitedUniverse:             stored.ProhibitedUniverse,
+		MarginAllowed:                  stored.MarginAllowed,
+		OptionsAllowed:                 stored.OptionsAllowed,
+		CapabilityUnverified:           stored.CapabilityUnverified,
+		PaperOptionsSimulationAttested: stored.PaperOptionsSimulationAttested,
+		ScheduleConditions:             stored.ScheduleConditions,
+		EffectiveFrom:                  timeOrZero(stored.EffectiveFrom),
+		EffectiveUntil:                 stored.EffectiveUntil,
+		CreatedAt:                      current.CreatedAt,
+		UpdatedAt:                      version.CreatedAt,
+		ExecutionCapable:               false,
+	}, nil
+}
+
+func timeOrZero(value *time.Time) time.Time {
+	if value == nil {
+		return time.Time{}
+	}
+	return *value
+}
+
+func (s *Service) AtVersion(c context.Context, p authorization.Principal, id string, versionNumber int) (Mandate, error) {
+	if !allowed(p) {
+		return Mandate{}, ErrForbidden
+	}
+	current, err := s.store.GetMandate(c, p.UserID, id)
+	if err != nil {
+		return Mandate{}, ErrNotFound
+	}
+	version, err := s.store.Version(c, p.UserID, id, versionNumber)
+	if err != nil {
+		return Mandate{}, ErrNotFound
+	}
+	return MandateFromVersion(current, version)
+}
+
 func (s *Service) Versions(c context.Context, p authorization.Principal, id string) ([]Version, error) {
 	if !allowed(p) {
 		return nil, ErrForbidden
