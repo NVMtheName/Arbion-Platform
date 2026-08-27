@@ -29,12 +29,21 @@ type ScheduledEvaluator interface {
 	Evaluate(context.Context, authorization.Principal, string, string) (EvaluationOutcome, error)
 }
 
+type ScheduledReconciler interface {
+	EnsureScheduledReconciliation(context.Context, authorization.Principal, string, time.Time) error
+}
+
 type Scheduler struct {
-	store     ScheduleStore
-	evaluator ScheduledEvaluator
-	notifier  automationnotification.Sender
-	now       func() time.Time
-	logger    *slog.Logger
+	store      ScheduleStore
+	evaluator  ScheduledEvaluator
+	reconciler ScheduledReconciler
+	notifier   automationnotification.Sender
+	now        func() time.Time
+	logger     *slog.Logger
+}
+
+func (s *Scheduler) ConfigureReconciliation(reconciler ScheduledReconciler) {
+	s.reconciler = reconciler
 }
 
 func NewScheduler(store ScheduleStore, evaluator ScheduledEvaluator, notifier ...automationnotification.Sender) *Scheduler {
@@ -98,11 +107,19 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 	} else {
 		principal := authorization.Principal{UserID: run.UserID, Entitlement: authorization.EntitlementFounder}
 		eventID := fmt.Sprintf("scheduled:%d", run.ScheduledFor.UTC().Unix())
-		_, err = s.evaluator.Evaluate(ctx, principal, run.StrategyInstanceID, eventID)
-		if err == nil || errors.Is(err, ErrDuplicate) {
-			completion.Status = "SUCCEEDED"
-		} else {
-			completion.Status, completion.ErrorCode = "FAILED", classifyScheduleError(err)
+		if run.ExecutionMode == Shadow && run.CurrentState == AIMonitoring && s.reconciler != nil {
+			err = s.reconciler.EnsureScheduledReconciliation(ctx, principal, run.FinancialAccountID, now)
+			if err != nil {
+				completion.Status, completion.ErrorCode = "FAILED", "RECONCILIATION_REFRESH_FAILED"
+			}
+		}
+		if completion.Status == "" {
+			_, err = s.evaluator.Evaluate(ctx, principal, run.StrategyInstanceID, eventID)
+			if err == nil || errors.Is(err, ErrDuplicate) {
+				completion.Status = "SUCCEEDED"
+			} else {
+				completion.Status, completion.ErrorCode = "FAILED", classifyScheduleError(err)
+			}
 		}
 	}
 	if err := s.store.CompleteSchedule(ctx, *run, completion); err != nil {

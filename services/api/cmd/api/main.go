@@ -114,6 +114,7 @@ func main() {
 	if cfg.Scheduler.Enabled {
 		notifications := automationnotification.NewEmailSender(emailSender, cfg.Email.PublicBaseURL)
 		scheduler := strategy.NewScheduler(strategyStore, evaluations, notifications)
+		scheduler.ConfigureReconciliation(financialConnections)
 		go scheduler.Run(context.Background())
 		slog.Info("non-live strategy scheduler enabled")
 	}

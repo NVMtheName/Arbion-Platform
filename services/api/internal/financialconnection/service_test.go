@@ -420,6 +420,97 @@ func TestPortfolioReconciliationDoesNotContinueProviderReadsAfterTerminalAuthori
 	}
 }
 
+func TestScheduledReconciliationBootstrapsConfirmsAndRefreshesWithoutBrokerActions(t *testing.T) {
+	now := time.Date(2026, 8, 27, 15, 0, 0, 0, time.UTC)
+	provider := &coinbaseProviderFake{}
+	reports := &reconciliationStoreFake{}
+	service := reconciliationService(t, provider, reports)
+
+	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports.items) != 1 || reports.items[0].ComparisonStatus != "BASELINE" || provider.balances != 1 || provider.positions != 1 {
+		t.Fatalf("missing evidence did not create one read-only baseline: reports=%#v provider=%#v", reports.items, provider)
+	}
+	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now.Add(29*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports.items) != 1 || provider.balances != 1 || provider.positions != 1 {
+		t.Fatalf("baseline confirmation delay was bypassed: reports=%d provider=%#v", len(reports.items), provider)
+	}
+	confirmedAt := now.Add(31 * time.Minute)
+	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", confirmedAt); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports.items) != 2 || reports.items[1].ComparisonStatus != "MATCHED" || reports.items[1].BlocksNewActions || provider.balances != 2 || provider.positions != 2 {
+		t.Fatalf("stable baseline was not confirmed safely: reports=%#v provider=%#v", reports.items, provider)
+	}
+	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", confirmedAt.Add(12*time.Hour-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports.items) != 2 {
+		t.Fatalf("healthy evidence refreshed too early: %d", len(reports.items))
+	}
+	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", confirmedAt.Add(12*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports.items) != 3 || reports.items[2].ComparisonStatus != "MATCHED" || provider.balances != 3 || provider.positions != 3 {
+		t.Fatalf("healthy evidence did not refresh before expiry: reports=%#v provider=%#v", reports.items, provider)
+	}
+	if provider.orders != 0 || provider.fills != 0 || provider.previews != 0 || provider.disconnected != 0 {
+		t.Fatalf("scheduled reconciliation crossed a broker mutation boundary: %#v", provider)
+	}
+}
+
+func TestScheduledReconciliationRetriesIncompleteButNeverClearsDrift(t *testing.T) {
+	now := time.Date(2026, 8, 27, 15, 0, 0, 0, time.UTC)
+	provider := &coinbaseProviderFake{}
+	reports := &reconciliationStoreFake{items: []PortfolioReconciliation{{
+		ID: "incomplete", FinancialAccountID: "account-1", Provider: "coinbase",
+		ComparisonStatus: "INCOMPLETE", BalancesStatus: "UNAVAILABLE", PositionsStatus: "READY",
+		AutonomyEnforcementActive: true, BlocksNewActions: true, ObservedAt: now.Add(-59 * time.Minute),
+	}}}
+	service := reconciliationService(t, provider, reports)
+
+	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports.items) != 1 || provider.balances != 0 || provider.positions != 0 {
+		t.Fatalf("incomplete evidence retried before the bounded delay: reports=%d provider=%#v", len(reports.items), provider)
+	}
+	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports.items) != 2 || reports.items[1].ComparisonStatus != "BASELINE" || provider.balances != 1 || provider.positions != 1 {
+		t.Fatalf("incomplete evidence was not retried with provider reads only: reports=%#v provider=%#v", reports.items, provider)
+	}
+
+	reports.items = append(reports.items, PortfolioReconciliation{
+		ID: "drift", FinancialAccountID: "account-1", Provider: "coinbase",
+		ComparisonStatus: "DRIFT_DETECTED", BalancesStatus: "READY", PositionsStatus: "READY",
+		AutonomyEnforcementActive: true, BlocksNewActions: true, ObservedAt: now.Add(2 * time.Minute),
+	})
+	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now.Add(48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports.items) != 3 || provider.balances != 1 || provider.positions != 1 {
+		t.Fatalf("confirmed drift was automatically cleared: reports=%#v provider=%#v", reports.items, provider)
+	}
+}
+
+func TestScheduledReconciliationRejectsFutureEvidenceAndRefreshesLegacyMatch(t *testing.T) {
+	now := time.Date(2026, 8, 27, 15, 0, 0, 0, time.UTC)
+	complete := PortfolioReconciliation{ComparisonStatus: "MATCHED", BalancesStatus: "READY", PositionsStatus: "READY"}
+	complete.ObservedAt = now.Add(time.Minute)
+	if scheduledReconciliationDue(complete, now) {
+		t.Fatal("future-dated evidence was automatically superseded")
+	}
+	complete.ObservedAt = now.Add(-time.Minute)
+	if !scheduledReconciliationDue(complete, now) {
+		t.Fatal("legacy advisory match was not selected for an enforced refresh")
+	}
+}
+
 func TestSchwabAuthorizationStoresTheWeeklyReauthorizationDeadline(t *testing.T) {
 	store := &connectionStoreFake{}
 	states := oauthstate.New(oauthstate.NewMemoryStore(), time.Minute)

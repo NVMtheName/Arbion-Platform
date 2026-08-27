@@ -385,6 +385,7 @@ type ScheduleStatus struct {
 type ScheduledRun struct {
 	StrategyInstanceID  string
 	UserID              string
+	FinancialAccountID  string
 	OwnerEmail          string
 	OwnerEmailVerified  bool
 	MandateID           string

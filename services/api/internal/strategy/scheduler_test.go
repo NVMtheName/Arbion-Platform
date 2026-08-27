@@ -37,6 +37,22 @@ type scheduledEvaluatorFake struct {
 	err       error
 }
 
+type scheduledReconcilerFake struct {
+	calls     int
+	principal authorization.Principal
+	accountID string
+	now       time.Time
+	err       error
+}
+
+func (f *scheduledReconcilerFake) EnsureScheduledReconciliation(_ context.Context, principal authorization.Principal, accountID string, now time.Time) error {
+	f.calls++
+	f.principal = principal
+	f.accountID = accountID
+	f.now = now
+	return f.err
+}
+
 type scheduleNotifierFake struct {
 	events []automationnotification.Event
 	err    error
@@ -55,7 +71,7 @@ func (f *scheduledEvaluatorFake) Evaluate(_ context.Context, principal authoriza
 }
 
 func scheduledRun(state State, scheduledFor time.Time) *ScheduledRun {
-	return &ScheduledRun{StrategyInstanceID: "instance", UserID: "owner", OwnerEmail: "owner@example.com", OwnerEmailVerified: true, MandateID: "mandate", ExecutionMode: Paper, CurrentState: state, IntervalMinutes: 60, Session: "US_EQUITIES_REGULAR", ScheduledFor: scheduledFor, LeaseToken: "lease"}
+	return &ScheduledRun{StrategyInstanceID: "instance", UserID: "owner", FinancialAccountID: "account", OwnerEmail: "owner@example.com", OwnerEmailVerified: true, MandateID: "mandate", ExecutionMode: Paper, CurrentState: state, IntervalMinutes: 60, Session: "US_EQUITIES_REGULAR", ScheduledFor: scheduledFor, LeaseToken: "lease"}
 }
 
 func TestSchedulerEvaluatesActionableStateWithStableEventID(t *testing.T) {
@@ -112,6 +128,63 @@ func TestSchedulerRunsContinuousAIShadowOutsideEquitiesSession(t *testing.T) {
 	}
 	if evaluator.calls != 1 || store.completion.Status != "SUCCEEDED" {
 		t.Fatalf("continuous AI shadow was improperly session-gated: calls=%d completion=%#v", evaluator.calls, store.completion)
+	}
+}
+
+func TestSchedulerRefreshesAIShadowReconciliationBeforeEvaluation(t *testing.T) {
+	now := time.Date(2026, 8, 22, 15, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now)
+	run.ExecutionMode = Shadow
+	run.Session = "CONTINUOUS"
+	store := &scheduleStoreFake{run: run}
+	evaluator := &scheduledEvaluatorFake{}
+	reconciler := &scheduledReconcilerFake{}
+	scheduler := NewScheduler(store, evaluator)
+	scheduler.ConfigureReconciliation(reconciler)
+	scheduler.now = func() time.Time { return now }
+
+	if claimed, err := scheduler.RunOnce(context.Background()); err != nil || !claimed {
+		t.Fatalf("AI Shadow schedule failed: claimed=%v err=%v", claimed, err)
+	}
+	if reconciler.calls != 1 || reconciler.accountID != "account" || !reconciler.now.Equal(now) || reconciler.principal.UserID != "owner" || evaluator.calls != 1 || store.completion.Status != "SUCCEEDED" {
+		t.Fatalf("reconciliation did not precede the evaluation boundary: reconciler=%#v evaluator_calls=%d completion=%#v", reconciler, evaluator.calls, store.completion)
+	}
+}
+
+func TestSchedulerDoesNotReconcilePaperStrategy(t *testing.T) {
+	now := time.Date(2026, 8, 18, 15, 0, 0, 0, time.UTC)
+	store := &scheduleStoreFake{run: scheduledRun(ReadyForPut, now)}
+	evaluator := &scheduledEvaluatorFake{}
+	reconciler := &scheduledReconcilerFake{}
+	scheduler := NewScheduler(store, evaluator)
+	scheduler.ConfigureReconciliation(reconciler)
+	scheduler.now = func() time.Time { return now }
+
+	if claimed, err := scheduler.RunOnce(context.Background()); err != nil || !claimed {
+		t.Fatalf("PAPER schedule failed: claimed=%v err=%v", claimed, err)
+	}
+	if reconciler.calls != 0 || evaluator.calls != 1 || store.completion.Status != "SUCCEEDED" {
+		t.Fatalf("PAPER schedule crossed the AI reconciliation boundary: reconciler_calls=%d evaluator_calls=%d completion=%#v", reconciler.calls, evaluator.calls, store.completion)
+	}
+}
+
+func TestSchedulerFailsClosedWhenAIShadowReconciliationCannotRun(t *testing.T) {
+	now := time.Date(2026, 8, 22, 15, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now)
+	run.ExecutionMode = Shadow
+	run.Session = "CONTINUOUS"
+	store := &scheduleStoreFake{run: run}
+	evaluator := &scheduledEvaluatorFake{}
+	reconciler := &scheduledReconcilerFake{err: errors.New("sensitive provider detail")}
+	scheduler := NewScheduler(store, evaluator)
+	scheduler.ConfigureReconciliation(reconciler)
+	scheduler.now = func() time.Time { return now }
+
+	if claimed, err := scheduler.RunOnce(context.Background()); err != nil || !claimed {
+		t.Fatalf("failed reconciliation was not durably completed: claimed=%v err=%v", claimed, err)
+	}
+	if reconciler.calls != 1 || evaluator.calls != 0 || store.completion.Status != "FAILED" || store.completion.ErrorCode != "RECONCILIATION_REFRESH_FAILED" {
+		t.Fatalf("unsafe evaluation or raw error leakage: reconciler=%#v evaluator_calls=%d completion=%#v", reconciler, evaluator.calls, store.completion)
 	}
 }
 
