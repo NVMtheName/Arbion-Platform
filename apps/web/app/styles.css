@@ -203,6 +203,76 @@ select {
   margin: 0;
   overflow-wrap: anywhere;
 }
+.platform-operations {
+  margin: 24px 0;
+  border-color: rgba(25, 201, 214, 0.24);
+  background:
+    radial-gradient(
+      circle at 100% 0%,
+      rgba(25, 201, 214, 0.08),
+      transparent 36%
+    ),
+    #07110e;
+}
+.platform-operations-status {
+  width: fit-content;
+}
+.platform-operations-status.status-attention {
+  color: #f0ca83;
+  border-color: rgba(237, 189, 102, 0.35);
+}
+.platform-operations-status.status-stopped {
+  color: #ffcdcd;
+  border-color: rgba(184, 90, 90, 0.48);
+}
+.platform-operations-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.platform-operations-metrics div {
+  padding: 14px;
+  border: 1px solid rgba(139, 181, 163, 0.12);
+  border-radius: 10px;
+  background: rgba(3, 13, 10, 0.5);
+}
+.platform-operations-metrics dd {
+  font-size: 1.45rem;
+  font-weight: 760;
+}
+.platform-operations-signals {
+  display: grid;
+  gap: 9px;
+  padding: 0;
+  list-style: none;
+}
+.platform-operations-signals li {
+  padding: 13px 15px;
+  border: 1px solid rgba(139, 181, 163, 0.14);
+  border-left: 3px solid #5ee0a0;
+  border-radius: 9px;
+  background: rgba(3, 13, 10, 0.5);
+  color: #b9cdc3;
+  line-height: 1.5;
+}
+.platform-operations-signals li.signal-attention {
+  border-left-color: #d8a952;
+}
+.platform-operations-signals li.signal-stopped {
+  border-left-color: #b85a5a;
+}
+.platform-operations-signals strong {
+  color: #edf7f1;
+  font-size: 0.76rem;
+  letter-spacing: 0.05em;
+}
+.platform-operations-footer {
+  color: #8ba198;
+  font-size: 0.8rem;
+}
+@media (max-width: 720px) {
+  .platform-operations-metrics {
+    grid-template-columns: 1fr;
+  }
+}
 .mandate-controls fieldset {
   display: grid;
   gap: 10px;

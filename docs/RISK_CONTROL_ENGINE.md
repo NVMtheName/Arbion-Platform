@@ -35,7 +35,7 @@ The engine treats capital buckets and pending commitments as a ledger of permiss
 
 Each evaluation contributes structured evidence to the [Decision Journal](AUTOMATION_ENGINE.md#decision-journal-and-explainability) and links to mandate/version, intent, account snapshot, market-input references, policy/rule versions, approvals, breaker state, and eventual order. Private model chain-of-thought is never required or stored.
 
-Operational controls should expose aggregate automation, worker, broker, and reconciliation health without secrets. The implemented platform-wide stop requires a current active superadmin, explicit reason and confirmation, durable actor/timestamp evidence, and a fresh non-replayable TOTP step before release. Administrative dual control remains a future option for a multi-operator deployment.
+The implemented superadmin production snapshot exposes only aggregate AI Shadow schedule, reconciliation, financial-connection, circuit-breaker, and execution-boundary counts without user, account, symbol, provider identifier, credential, or raw-error dimensions. It checks the current active database role and is read-only. The implemented platform-wide stop requires a current active superadmin, explicit reason and confirmation, durable actor/timestamp evidence, and a fresh non-replayable TOTP step before release. Administrative dual control and broader worker telemetry remain future options.
 
 See [Execution Engine](EXECUTION_ENGINE.md) for lifecycle and reconciliation and [Security](SECURITY.md) for trust boundaries.
 
