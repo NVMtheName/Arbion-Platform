@@ -33,6 +33,7 @@ import { AIDecisionJournal } from "../ai-decision-journal";
 import { AIShadowScorecard } from "../ai-shadow-scorecard";
 import { MandateIdentitySummary } from "../mandate-identity-summary";
 import { AutonomyGuardrailSummary } from "../autonomy-guardrail-summary";
+import { CapitalBucketAllocationControls } from "../capital-bucket-allocation-controls";
 export default async function MandateReview({
   params,
 }: {
@@ -217,6 +218,42 @@ export default async function MandateReview({
         simulation, but never SHADOW, LIVE, or broker execution.
       </p>
       <AutomationCircuitBreakerControls automationId={id} breaker={breaker} />
+      {capitalBucket && (
+        <CapitalBucketAllocationControls
+          bucketId={capitalBucketID}
+          financialAccountId={financialAccountID}
+          name={String(
+            capitalBucket.name ?? capitalBucket.Name ?? "Capital bucket",
+          )}
+          allocationType={String(
+            capitalBucket.allocation_type ??
+              capitalBucket.AllocationType ??
+              "FIXED_AMOUNT",
+          )}
+          allocationValue={String(
+            capitalBucket.allocation_value ??
+              capitalBucket.AllocationValue ??
+              "",
+          )}
+          currency={String(
+            capitalBucket.currency ?? capitalBucket.Currency ?? "USD",
+          )}
+          protectedAmount={String(
+            capitalBucket.protected_amount ??
+              capitalBucket.ProtectedAmount ??
+              "0",
+          )}
+          allocationLimit={
+            (capitalBucket.allocation_limit ??
+              capitalBucket.AllocationLimit) as string | undefined
+          }
+          isReserve={Boolean(
+            capitalBucket.is_reserve ?? capitalBucket.IsReserve,
+          )}
+          status={String(capitalBucket.status ?? capitalBucket.Status ?? "")}
+          hasActiveInstance={hasActiveInstance}
+        />
+      )}
       <MandateControls
         automationId={id}
         currentVersion={currentVersion}
