@@ -524,7 +524,6 @@ func TestAIShadowScheduleUpdateCreatesDraftAndEnforcesProviderSession(t *testing
 		Status:                         "READY",
 		CurrentVersion:                 2,
 		StrategyParameters:             []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`),
-		Risk:                           RiskPolicy{MaxTradesPerDay: intPointer(6)},
 		AllowedUniverse:                Universe{Symbols: []string{"SPY"}},
 		ScheduleConditions:             []byte(`{"enabled":false}`),
 		PaperOptionsSimulationAttested: false,
@@ -538,6 +537,9 @@ func TestAIShadowScheduleUpdateCreatesDraftAndEnforcesProviderSession(t *testing
 	parsed, err := ParseScheduleConditions(f.updatedCommand.ScheduleConditions)
 	if err != nil || !parsed.Enabled || parsed.IntervalMinutes != 60 || parsed.Session != "US_EQUITIES_REGULAR" {
 		t.Fatalf("Schwab AI shadow schedule was not preserved: %#v %v", parsed, err)
+	}
+	if f.updatedCommand.Risk.MaxTradesPerDay == nil || *f.updatedCommand.Risk.MaxTradesPerDay != 1 {
+		t.Fatalf("legacy Schwab AI shadow mandate did not receive the conservative daily action limit: %#v", f.updatedCommand.Risk)
 	}
 
 	if _, err = service.UpdateSchedule(context.Background(), founder, "m", 3, ScheduleConditions{Enabled: true, IntervalMinutes: 60, Session: "CONTINUOUS"}); err != ErrInvalid {

@@ -572,6 +572,12 @@ func (s *Service) UpdateSchedule(c context.Context, p authorization.Principal, i
 		return Mandate{}, err
 	}
 	cmd := commandFrom(old)
+	legacyDailyActionLimitApplied := false
+	if old.AutomationType == "AI_AUTONOMOUS" && cmd.Risk.MaxTradesPerDay == nil {
+		conservativeLimit := 1
+		cmd.Risk.MaxTradesPerDay = &conservativeLimit
+		legacyDailyActionLimitApplied = true
+	}
 	cmd.ScheduleConditions = raw
 	unverified, err := s.validate(c, p, cmd, false)
 	if err != nil {
@@ -579,7 +585,7 @@ func (s *Service) UpdateSchedule(c context.Context, p authorization.Principal, i
 	}
 	updated, err := s.store.UpdateMandate(c, p.UserID, id, expected, cmd, unverified, "UI")
 	if err == nil {
-		s.auditEvent(c, p, "automation_mandate.schedule_changed", map[string]any{"mandate_id": id, "version": updated.CurrentVersion, "enabled": schedule.Enabled, "source": "UI"})
+		s.auditEvent(c, p, "automation_mandate.schedule_changed", map[string]any{"mandate_id": id, "version": updated.CurrentVersion, "enabled": schedule.Enabled, "legacy_daily_action_limit_applied": legacyDailyActionLimitApplied, "source": "UI"})
 	}
 	return updated, err
 }
