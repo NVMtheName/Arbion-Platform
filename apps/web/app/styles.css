@@ -9044,8 +9044,31 @@ h1 {
   background: rgba(32, 105, 88, 0.38);
 }
 .reconciliation-console-header button:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.58;
+}
+.reconciliation-review-action {
+  display: grid;
+  flex: 0 0 min(320px, 42%);
+  gap: 10px;
+  justify-items: end;
+}
+.reconciliation-review-action label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  max-width: 320px;
+  color: #d9b1a7;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  cursor: pointer;
+}
+.reconciliation-review-action input {
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  accent-color: var(--brand-mint);
 }
 .reconciliation-empty {
   display: grid;
@@ -9196,6 +9219,13 @@ h1 {
   }
   .reconciliation-console-header button {
     width: 100%;
+  }
+  .reconciliation-review-action {
+    width: 100%;
+    justify-items: stretch;
+  }
+  .reconciliation-review-action label {
+    max-width: none;
   }
   .reconciliation-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));

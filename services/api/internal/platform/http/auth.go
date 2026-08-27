@@ -266,6 +266,18 @@ func (h *authHandler) financialError(w stdhttp.ResponseWriter, e error) {
 		status = stdhttp.StatusNotFound
 		code = "RECONCILIATION_NOT_FOUND"
 		message = "No portfolio reconciliation has been recorded for this account."
+	} else if errors.Is(e, financialconnection.ErrReconciliationReviewRequired) {
+		status = stdhttp.StatusConflict
+		code = "RECONCILIATION_REVIEW_REQUIRED"
+		message = "Review the current tradable-inventory changes and explicitly confirm them before capturing another snapshot."
+	} else if errors.Is(e, financialconnection.ErrReconciliationChanged) {
+		status = stdhttp.StatusConflict
+		code = "RECONCILIATION_CHANGED"
+		message = "The reconciliation evidence changed. Refresh the account before confirming your review."
+	} else if errors.Is(e, financialconnection.ErrInvalidReconciliationCommand) {
+		status = stdhttp.StatusBadRequest
+		code = "INVALID_RECONCILIATION_COMMAND"
+		message = "The reconciliation review request is invalid."
 	} else {
 		var pe *financial.ProviderError
 		if errors.As(e, &pe) {
@@ -758,6 +770,22 @@ func decode(w stdhttp.ResponseWriter, r *stdhttp.Request, v any) bool {
 	d := json.NewDecoder(r.Body)
 	d.DisallowUnknownFields()
 	if d.Decode(v) != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "Request body is invalid.")
+		return false
+	}
+	if d.Decode(&struct{}{}) != io.EOF {
+		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "Request body must contain one JSON object.")
+		return false
+	}
+	return true
+}
+func decodeOptional(w stdhttp.ResponseWriter, r *stdhttp.Request, v any) bool {
+	r.Body = stdhttp.MaxBytesReader(w, r.Body, 4<<10)
+	d := json.NewDecoder(r.Body)
+	d.DisallowUnknownFields()
+	if err := d.Decode(v); errors.Is(err, io.EOF) {
+		return true
+	} else if err != nil {
 		writeError(w, stdhttp.StatusBadRequest, "invalid_request", "Request body is invalid.")
 		return false
 	}

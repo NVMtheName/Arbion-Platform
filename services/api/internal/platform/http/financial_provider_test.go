@@ -151,6 +151,58 @@ func TestPortfolioReconciliationRoutesRequireAuthenticationAndApprovedOrigin(t *
 	}
 }
 
+func TestPortfolioReconciliationReviewErrorsAreSafeAndActionable(t *testing.T) {
+	for _, testCase := range []struct {
+		err         error
+		status      int
+		code        string
+		messagePart string
+	}{
+		{financialconnection.ErrReconciliationReviewRequired, http.StatusConflict, "RECONCILIATION_REVIEW_REQUIRED", "explicitly confirm"},
+		{financialconnection.ErrReconciliationChanged, http.StatusConflict, "RECONCILIATION_CHANGED", "Refresh the account"},
+		{financialconnection.ErrInvalidReconciliationCommand, http.StatusBadRequest, "INVALID_RECONCILIATION_COMMAND", "request is invalid"},
+	} {
+		recorder := httptest.NewRecorder()
+		(&authHandler{}).financialError(recorder, testCase.err)
+		var response struct {
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+			t.Fatal(err)
+		}
+		if recorder.Code != testCase.status || response.Error.Code != testCase.code || !strings.Contains(response.Error.Message, testCase.messagePart) {
+			t.Fatalf("unexpected review error: status=%d response=%+v", recorder.Code, response)
+		}
+	}
+}
+
+func TestOptionalReconciliationCommandBodyIsStrictAndBackwardCompatible(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		body   string
+		ok     bool
+		status int
+	}{
+		{name: "legacy empty body", body: "", ok: true, status: http.StatusOK},
+		{name: "valid command", body: `{"expected_reconciliation_id":"snapshot-1","acknowledge_current_drift":true}`, ok: true, status: http.StatusOK},
+		{name: "unknown field", body: `{"approve":true}`, status: http.StatusBadRequest},
+		{name: "multiple objects", body: `{}` + "\n" + `{}`, status: http.StatusBadRequest},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/accounts/account-1/reconciliations", strings.NewReader(testCase.body))
+			var command financialconnection.ReconciliationCommand
+			ok := decodeOptional(recorder, request, &command)
+			if ok != testCase.ok || recorder.Code != testCase.status {
+				t.Fatalf("decode result=%v status=%d command=%#v", ok, recorder.Code, command)
+			}
+		})
+	}
+}
+
 func TestOrderIntentRoutesRequireAuthenticationAndApprovedOrigin(t *testing.T) {
 	mini := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
