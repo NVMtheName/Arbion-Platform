@@ -26,6 +26,10 @@ type breakerControllerFake struct {
 	currentError    error
 	engagementError error
 	releaseError    error
+	accountID       string
+	accountCurrent  *risk.CircuitBreaker
+	accountEngaged  risk.CircuitBreaker
+	accountReleased risk.CircuitBreaker
 }
 
 func (fake *breakerControllerFake) CurrentAutomation(_ context.Context, principal authorization.Principal, automationID string) (*risk.CircuitBreaker, error) {
@@ -39,6 +43,18 @@ func (fake *breakerControllerFake) EngageAutomation(_ context.Context, principal
 func (fake *breakerControllerFake) ReleaseAutomation(_ context.Context, principal authorization.Principal, automationID string, command risk.BreakerCommand) (risk.CircuitBreaker, error) {
 	fake.principal, fake.automationID, fake.releaseCommand = principal, automationID, command
 	return fake.released, fake.releaseError
+}
+func (fake *breakerControllerFake) CurrentAccount(_ context.Context, principal authorization.Principal, accountID string) (*risk.CircuitBreaker, error) {
+	fake.principal, fake.accountID = principal, accountID
+	return fake.accountCurrent, fake.currentError
+}
+func (fake *breakerControllerFake) EngageAccount(_ context.Context, principal authorization.Principal, accountID string, command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+	fake.principal, fake.accountID, fake.engageCommand = principal, accountID, command
+	return fake.accountEngaged, fake.engagementError
+}
+func (fake *breakerControllerFake) ReleaseAccount(_ context.Context, principal authorization.Principal, accountID string, command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+	fake.principal, fake.accountID, fake.releaseCommand = principal, accountID, command
+	return fake.accountReleased, fake.releaseError
 }
 
 func breakerRequest(method, path, body string) *stdhttp.Request {
@@ -93,5 +109,36 @@ func TestAutomationBreakerTransportRequiresCSRFAndMapsConflicts(t *testing.T) {
 	handler.releaseAutomationBreaker(recorder, breakerRequest(stdhttp.MethodPost, "/api/automations/mandate-1/circuit-breaker/release", `{"reason":"cause reviewed and cleared","confirm":true}`))
 	if recorder.Code != stdhttp.StatusConflict || !strings.Contains(recorder.Body.String(), "CIRCUIT_BREAKER_CONFLICT") {
 		t.Fatalf("conflict was not stable: %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAccountBreakerTransportIsOwnerScopedAndNonLive(t *testing.T) {
+	accountID := "account-1"
+	now := time.Date(2026, 8, 27, 14, 0, 0, 0, time.UTC)
+	breaker := risk.CircuitBreaker{ID: "breaker-1", Scope: risk.ScopeAccount, ScopeID: &accountID, State: risk.BreakerOpen, Reason: "account connectivity requires review", Source: "UI", EngagedAt: now}
+	fake := &breakerControllerFake{accountCurrent: &breaker, accountEngaged: breaker}
+	handler := &authHandler{breakers: fake, cfg: config.Auth{AllowedOrigins: []string{"http://localhost:3000"}}}
+
+	currentRequest := breakerRequest(stdhttp.MethodGet, "/api/accounts/account-1/circuit-breaker", "")
+	currentRequest.SetPathValue("id", accountID)
+	currentRecorder := httptest.NewRecorder()
+	handler.currentAccountBreaker(currentRecorder, currentRequest)
+	if currentRecorder.Code != stdhttp.StatusOK || currentRecorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(currentRecorder.Body.String(), `"live_execution_available":false`) {
+		t.Fatalf("unexpected account breaker response: %d %s", currentRecorder.Code, currentRecorder.Body.String())
+	}
+
+	engageRequest := breakerRequest(stdhttp.MethodPost, "/api/accounts/account-1/circuit-breaker/engage", `{"reason":"account connectivity requires review","confirm":true}`)
+	engageRequest.SetPathValue("id", accountID)
+	engageRecorder := httptest.NewRecorder()
+	handler.engageAccountBreaker(engageRecorder, engageRequest)
+	if engageRecorder.Code != stdhttp.StatusOK {
+		t.Fatalf("account engage failed: %d %s", engageRecorder.Code, engageRecorder.Body.String())
+	}
+	if fake.principal.UserID != "owner" || fake.accountID != accountID || fake.engageCommand.Reason != "account connectivity requires review" || !fake.engageCommand.Confirm {
+		t.Fatalf("account engage command changed: %#v", fake)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(engageRecorder.Body.Bytes(), &response); err != nil || response["broker_action_requested"] != false {
+		t.Fatalf("account non-live boundary missing: %s err=%v", engageRecorder.Body.String(), err)
 	}
 }

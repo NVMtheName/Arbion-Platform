@@ -4,6 +4,10 @@ import { notFound, redirect } from "next/navigation";
 
 import { AppPageHeader } from "../../app-page-header";
 import {
+  AccountCircuitBreakerControls,
+  type AccountCircuitBreaker,
+} from "./account-circuit-breaker-controls";
+import {
   CryptoPortfolioCommandCenter,
   type CoinbaseOrderHistory,
   type CoinbaseTradeActivity,
@@ -75,6 +79,17 @@ export default async function AccountPage({
   if (ar.status === 404) notFound();
   if (!ar.ok) throw new Error("Unable to load account");
   const account = ((await ar.json()) as { account: Account }).account;
+  const breakerResponse = await fetch(
+    `${base}/api/accounts/${id}/circuit-breaker`,
+    { headers, cache: "no-store" },
+  );
+  const accountBreaker = breakerResponse.ok
+    ? ((
+        (await breakerResponse.json()) as {
+          circuit_breaker?: AccountCircuitBreaker | null;
+        }
+      ).circuit_breaker ?? null)
+    : undefined;
 
   if (account.provider === "coinbase") {
     const portfolioResponse = await fetch(
@@ -311,6 +326,13 @@ export default async function AccountPage({
           accountName={account.display_name}
           initialReport={initialReconciliation}
         />
+        {accountBreaker !== undefined && (
+          <AccountCircuitBreakerControls
+            accountId={account.id}
+            accountName={account.display_name}
+            breaker={accountBreaker}
+          />
+        )}
       </main>
     );
   }
@@ -389,6 +411,13 @@ export default async function AccountPage({
         accountName={account.display_name}
         initialReport={initialReconciliation}
       />
+      {accountBreaker !== undefined && (
+        <AccountCircuitBreakerControls
+          accountId={account.id}
+          accountName={account.display_name}
+          breaker={accountBreaker}
+        />
+      )}
       <p className="security-note">
         Connected-account data is informational. This page cannot place orders
         or move assets.
