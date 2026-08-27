@@ -9184,6 +9184,139 @@ h1 {
   color: #a5cbb9;
   font-size: 0.7rem;
 }
+.reconciliation-history {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(139, 181, 163, 0.12);
+}
+.reconciliation-history > header,
+.reconciliation-history-row,
+.reconciliation-history details li {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.reconciliation-history > header h3,
+.reconciliation-history > header p,
+.reconciliation-history > ol,
+.reconciliation-history > ol > li > p,
+.reconciliation-history details ul,
+.reconciliation-history-message {
+  margin: 0;
+}
+.reconciliation-history > header h3 {
+  margin-top: 4px;
+  color: #e5f4ec;
+  font-size: 1rem;
+}
+.reconciliation-history > header > span {
+  padding: 5px 8px;
+  border: 1px solid rgba(139, 181, 163, 0.13);
+  border-radius: 999px;
+  color: #789086;
+  font-size: 0.62rem;
+}
+.reconciliation-history > ol {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 0;
+  list-style: none;
+}
+.reconciliation-history > ol > li {
+  padding: 14px;
+  border: 1px solid rgba(139, 181, 163, 0.1);
+  border-radius: 12px;
+  background: rgba(2, 12, 10, 0.24);
+}
+.reconciliation-history-row > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.reconciliation-history-row .reconciliation-status,
+.reconciliation-history-row time {
+  padding: 5px 8px;
+  border: 1px solid rgba(139, 181, 163, 0.13);
+  border-radius: 999px;
+  font-size: 0.61rem;
+}
+.reconciliation-history-row time,
+.reconciliation-history > ol > li > p,
+.reconciliation-history > ol > li > footer,
+.reconciliation-history > footer {
+  color: #647b70;
+}
+.reconciliation-history-row strong {
+  color: #b9d3c7;
+  font-size: 0.68rem;
+  text-align: right;
+}
+.reconciliation-history > ol > li > p {
+  margin-top: 10px;
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+.reconciliation-history details {
+  margin-top: 11px;
+  color: #8fb2a1;
+  font-size: 0.68rem;
+}
+.reconciliation-history details summary {
+  cursor: pointer;
+}
+.reconciliation-history details ul {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(139, 181, 163, 0.1);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.12);
+  list-style: none;
+}
+.reconciliation-history details li strong {
+  min-width: 48px;
+  color: #edf3ef;
+}
+.reconciliation-history details li span {
+  flex: 1;
+  color: #879d92;
+}
+.reconciliation-history details li small {
+  color: #d9b1a7;
+  text-align: right;
+}
+.reconciliation-history > ol > li > footer {
+  margin-top: 10px;
+  font-size: 0.6rem;
+}
+.reconciliation-history > button {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px solid rgba(91, 219, 190, 0.25);
+  border-radius: 9px;
+  background: rgba(32, 105, 88, 0.16);
+  color: #bde8d4;
+  font: inherit;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+.reconciliation-history > button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+.reconciliation-history-message,
+.reconciliation-history > footer {
+  margin-top: 10px;
+  font-size: 0.64rem;
+  line-height: 1.5;
+}
+.reconciliation-history-message {
+  color: #d9b1a7;
+}
 
 @media (max-width: 900px) {
   .portfolio-ledger-page {
@@ -9269,6 +9402,15 @@ h1 {
   }
   .reconciliation-metrics article:last-child {
     border-bottom: 0;
+  }
+  .reconciliation-history-row,
+  .reconciliation-history details li {
+    flex-direction: column;
+    gap: 7px;
+  }
+  .reconciliation-history-row strong,
+  .reconciliation-history details li small {
+    text-align: left;
   }
 }
 

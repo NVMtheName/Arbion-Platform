@@ -22,6 +22,7 @@ import type { CoinbaseCapitalPolicy } from "./coinbase-order-preview";
 import {
   PortfolioReconciliationPanel,
   type PortfolioReconciliation,
+  type PortfolioReconciliationHistory,
 } from "./portfolio-reconciliation-panel";
 import {
   PortfolioHoldingsLedger,
@@ -132,6 +133,9 @@ export default async function AccountPage({
     let initialOrderHistory: CoinbaseOrderHistory | undefined;
     let initialTradingCosts: CoinbaseTradingCostSummary | undefined;
     let initialReconciliation: PortfolioReconciliation | undefined;
+    let initialReconciliationHistory:
+      | PortfolioReconciliationHistory
+      | undefined;
     const [
       activityResponse,
       orderResponse,
@@ -141,6 +145,7 @@ export default async function AccountPage({
       marketTradesResponse,
       venueStatsResponse,
       reconciliationResponse,
+      reconciliationHistoryResponse,
       bucketsResponse,
     ] = await Promise.all([
       fetch(`${base}/api/accounts/${encodeURIComponent(id)}/activity/fills`, {
@@ -184,6 +189,10 @@ export default async function AccountPage({
         : Promise.resolve(undefined),
       fetch(
         `${base}/api/accounts/${encodeURIComponent(id)}/reconciliations/latest`,
+        { headers, cache: "no-store" },
+      ),
+      fetch(
+        `${base}/api/accounts/${encodeURIComponent(id)}/reconciliations?limit=8`,
         { headers, cache: "no-store" },
       ),
       fetch(`${base}/api/capital-buckets`, {
@@ -270,6 +279,12 @@ export default async function AccountPage({
       };
       initialReconciliation = reconciliationPayload.reconciliation;
     }
+    if (reconciliationHistoryResponse.ok) {
+      const historyPayload = (await reconciliationHistoryResponse.json()) as {
+        history: PortfolioReconciliationHistory;
+      };
+      initialReconciliationHistory = historyPayload.history;
+    }
     if (historyResponse?.ok) {
       const historyPayload = (await historyResponse.json()) as {
         history: CryptoCandleSeries;
@@ -325,6 +340,7 @@ export default async function AccountPage({
           accountID={account.id}
           accountName={account.display_name}
           initialReport={initialReconciliation}
+          initialHistory={initialReconciliationHistory}
         />
         {accountBreaker !== undefined && (
           <AccountCircuitBreakerControls
@@ -337,7 +353,7 @@ export default async function AccountPage({
     );
   }
 
-  const [br, pr, rr] = await Promise.all([
+  const [br, pr, rr, rh] = await Promise.all([
     fetch(`${base}/api/accounts/${id}/balances`, {
       headers,
       cache: "no-store",
@@ -347,6 +363,10 @@ export default async function AccountPage({
       cache: "no-store",
     }),
     fetch(`${base}/api/accounts/${id}/reconciliations/latest`, {
+      headers,
+      cache: "no-store",
+    }),
+    fetch(`${base}/api/accounts/${id}/reconciliations?limit=8`, {
       headers,
       cache: "no-store",
     }),
@@ -360,6 +380,9 @@ export default async function AccountPage({
   const initialReconciliation = rr.ok
     ? ((await rr.json()) as { reconciliation: PortfolioReconciliation })
         .reconciliation
+    : undefined;
+  const initialReconciliationHistory = rh.ok
+    ? ((await rh.json()) as { history: PortfolioReconciliationHistory }).history
     : undefined;
   const holdings: PortfolioHolding[] = positions.map((position, index) => ({
     key: `${account.id}-${position.symbol}-${index}`,
@@ -410,6 +433,7 @@ export default async function AccountPage({
         accountID={account.id}
         accountName={account.display_name}
         initialReport={initialReconciliation}
+        initialHistory={initialReconciliationHistory}
       />
       {accountBreaker !== undefined && (
         <AccountCircuitBreakerControls

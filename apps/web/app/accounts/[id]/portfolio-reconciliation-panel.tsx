@@ -35,9 +35,16 @@ export type PortfolioReconciliation = {
   performance_position_count: number;
   change_count: number;
   blocking_change_count: number;
+  previous_reconciliation_id?: string;
   changes: PortfolioReconciliationChange[];
   evidence_hash: string;
   observed_at: string;
+  created_at?: string;
+};
+
+export type PortfolioReconciliationHistory = {
+  reconciliations: PortfolioReconciliation[];
+  next_cursor?: string;
 };
 
 function statusLabel(status: PortfolioReconciliation["comparison_status"]) {
@@ -87,12 +94,26 @@ export function PortfolioReconciliationPanel({
   accountID,
   accountName,
   initialReport,
+  initialHistory,
 }: {
   accountID: string;
   accountName: string;
   initialReport?: PortfolioReconciliation;
+  initialHistory?: PortfolioReconciliationHistory;
 }) {
   const [report, setReport] = useState(initialReport);
+  const [history, setHistory] = useState<PortfolioReconciliation[]>(
+    initialHistory?.reconciliations.length
+      ? initialHistory.reconciliations
+      : initialReport
+        ? [initialReport]
+        : [],
+  );
+  const [historyCursor, setHistoryCursor] = useState(
+    initialHistory?.next_cursor ?? "",
+  );
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyMessage, setHistoryMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [driftReviewed, setDriftReviewed] = useState(false);
@@ -125,6 +146,10 @@ export function PortfolioReconciliationPanel({
         return;
       }
       setReport(body.reconciliation);
+      setHistory((current) => [
+        body.reconciliation!,
+        ...current.filter((item) => item.id !== body.reconciliation!.id),
+      ]);
       setDriftReviewed(false);
       setMessage(
         body.reconciliation.comparison_status === "DRIFT_DETECTED"
@@ -141,6 +166,45 @@ export function PortfolioReconciliationPanel({
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function loadEarlierHistory() {
+    if (!historyCursor) return;
+    setHistoryBusy(true);
+    setHistoryMessage("");
+    try {
+      const response = await fetch(
+        `/api/accounts/${encodeURIComponent(accountID)}/reconciliations?limit=8&cursor=${encodeURIComponent(historyCursor)}`,
+        { method: "GET" },
+      );
+      const body = (await response.json().catch(() => ({}))) as {
+        history?: PortfolioReconciliationHistory;
+        error?: { message?: string };
+      };
+      if (!response.ok || !body.history) {
+        setHistoryMessage(
+          body.error?.message ??
+            "Earlier reconciliation evidence could not be loaded.",
+        );
+        return;
+      }
+      setHistory((current) => {
+        const known = new Set(current.map((item) => item.id));
+        return [
+          ...current,
+          ...body.history!.reconciliations.filter(
+            (item) => !known.has(item.id),
+          ),
+        ];
+      });
+      setHistoryCursor(body.history.next_cursor ?? "");
+    } catch {
+      setHistoryMessage(
+        "Earlier reconciliation evidence could not be loaded. No provider request was made.",
+      );
+    } finally {
+      setHistoryBusy(false);
     }
   }
 
@@ -266,6 +330,96 @@ export function PortfolioReconciliationPanel({
             pause the current shadow engine.
           </footer>
         </>
+      )}
+      {history.length > 0 && (
+        <section
+          className="reconciliation-history"
+          aria-labelledby="reconciliation-history-title"
+        >
+          <header>
+            <div>
+              <p className="eyebrow">ACCOUNT-SCOPED · NEWEST FIRST</p>
+              <h3 id="reconciliation-history-title">Reconciliation history</h3>
+            </div>
+            <span>{history.length} loaded</span>
+          </header>
+          <ol>
+            {history.map((item) => (
+              <li key={item.id}>
+                <div className="reconciliation-history-row">
+                  <div>
+                    <span
+                      className={`reconciliation-status is-${item.comparison_status.toLowerCase()}`}
+                    >
+                      {statusLabel(item.comparison_status)}
+                    </span>
+                    <time dateTime={item.observed_at}>
+                      {observedAt(item.observed_at)}
+                    </time>
+                  </div>
+                  <strong>
+                    {item.blocking_change_count > 0
+                      ? `${item.blocking_change_count} review-required change${item.blocking_change_count === 1 ? "" : "s"}`
+                      : item.change_count > 0
+                        ? `${item.change_count} recorded non-blocking change${item.change_count === 1 ? "" : "s"}`
+                        : "No quantity changes"}
+                  </strong>
+                </div>
+                <p>
+                  {item.observed_position_count} positions · Balance feed{" "}
+                  {item.balances_status.toLowerCase()} · Position feed{" "}
+                  {item.positions_status.toLowerCase()} ·{" "}
+                  {item.blocks_new_actions
+                    ? "new AI proposals held"
+                    : "AI proposal gate clear"}
+                </p>
+                {item.changes.length > 0 && (
+                  <details>
+                    <summary>Review exact changes</summary>
+                    <ul>
+                      {item.changes.map((change) => (
+                        <li
+                          key={`${item.id}-${change.symbol}-${change.instrument_type}-${change.direction}`}
+                        >
+                          <strong>{change.symbol}</strong>
+                          <span>{changeDescription(change)}</span>
+                          <small>
+                            {change.control_impact === "TRADABLE_INVENTORY"
+                              ? "Owner review required"
+                              : "Recorded, non-blocking"}
+                          </small>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+                <footer>
+                  Evidence {item.evidence_hash.slice(0, 12)}…
+                  {item.previous_reconciliation_id &&
+                    ` · Compared with ${item.previous_reconciliation_id.slice(0, 8)}…`}
+                </footer>
+              </li>
+            ))}
+          </ol>
+          {historyCursor && (
+            <button
+              disabled={historyBusy}
+              onClick={loadEarlierHistory}
+              type="button"
+            >
+              {historyBusy ? "Loading evidence…" : "Load earlier snapshots"}
+            </button>
+          )}
+          {historyMessage && (
+            <p className="reconciliation-history-message" aria-live="polite">
+              {historyMessage}
+            </p>
+          )}
+          <footer>
+            Stored evidence only. Loading history does not contact Coinbase or
+            Schwab and cannot acknowledge a change.
+          </footer>
+        </section>
       )}
       {message && (
         <p className="reconciliation-message" aria-live="polite">

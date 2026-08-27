@@ -3,6 +3,7 @@ package financialconnection
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -102,6 +103,30 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 	loaded, err := store.LatestReconciliation(ctx, userID, accountA)
 	if err != nil || loaded.ID != reconciliation.ID || !loaded.AutonomyEnforcementActive || !loaded.BlocksNewActions || loaded.BlockingChangeCount != 0 || len(loaded.Positions) != 1 || loaded.Positions[0].Quantity != "0.100000000000000000" || loaded.Balances.Cash == nil || loaded.Balances.Cash.Amount != "25.000000000000000000" {
 		t.Fatalf("immutable reconciliation evidence did not round-trip: %#v err=%v", loaded, err)
+	}
+	matched, err := store.CreateReconciliation(ctx, userID, PortfolioReconciliation{
+		FinancialAccountID: accountA, Provider: "coinbase", ComparisonStatus: "MATCHED",
+		BalancesStatus: "READY", PositionsStatus: "READY", PerformanceStatus: "UNAVAILABLE",
+		RealizedPerformanceStatus: "UNAVAILABLE", AutonomySignal: "CLEAR",
+		AutonomyEnforcementActive: true, BlocksNewActions: false,
+		ObservedPositionCount: 1, PreviousReconciliationID: &reconciliation.ID, Changes: []ReconciliationChange{},
+		Balances:   financial.Balances{Cash: &financial.Money{Amount: "25", Currency: "USD"}},
+		Positions:  []ReconciliationPosition{{Symbol: "BTC", InstrumentType: "CRYPTO", Direction: "long", Quantity: "0.1", PerformanceStatus: "UNAVAILABLE"}},
+		ObservedAt: reconciliation.ObservedAt.Add(time.Minute),
+	}, make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := store.ListReconciliations(ctx, userID, accountA, 1, "")
+	if err != nil || len(history) != 1 || history[0].ID != matched.ID || len(history[0].Positions) != 0 {
+		t.Fatalf("bounded history did not return newest summary evidence: %#v err=%v", history, err)
+	}
+	history, err = store.ListReconciliations(ctx, userID, accountA, 2, matched.ID)
+	if err != nil || len(history) != 1 || history[0].ID != reconciliation.ID {
+		t.Fatalf("history cursor did not remain account-scoped: %#v err=%v", history, err)
+	}
+	if _, err = store.ListReconciliations(ctx, userID, accountB, 2, matched.ID); !errors.Is(err, ErrInvalidReconciliationHistory) {
+		t.Fatalf("cross-account history cursor was accepted: %v", err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE portfolio_reconciliations SET autonomy_signal='CLEAR' WHERE id=$1`, reconciliation.ID); err == nil {
 		t.Fatal("immutable portfolio reconciliation was updateable")
