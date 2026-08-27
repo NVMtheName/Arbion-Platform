@@ -562,7 +562,9 @@ func (s *Service) UpdateSchedule(c context.Context, p authorization.Principal, i
 	if err != nil {
 		return Mandate{}, ErrNotFound
 	}
-	if old.AutomationType != "STRATEGY" || old.StrategyIdentifier == nil {
+	validType := (old.AutomationType == "STRATEGY" && old.StrategyIdentifier != nil) ||
+		(old.AutomationType == "AI_AUTONOMOUS" && old.StrategyIdentifier == nil)
+	if !validType {
 		return Mandate{}, ErrInvalid
 	}
 	raw, err := json.Marshal(schedule)

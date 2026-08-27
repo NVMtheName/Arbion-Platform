@@ -507,3 +507,40 @@ func TestScheduleUpdateCreatesDraftAndPreservesNonLiveBoundary(t *testing.T) {
 		t.Fatalf("live schedule was accepted: %v", err)
 	}
 }
+
+func TestAIShadowScheduleUpdateCreatesDraftAndEnforcesProviderSession(t *testing.T) {
+	connection, model := "ai", "gpt-5.6-sol"
+	f := baseStore()
+	f.created = Mandate{
+		ID:                             "m",
+		UserID:                         founder.UserID,
+		FinancialAccountID:             "a",
+		AutomationType:                 "AI_AUTONOMOUS",
+		AIProviderConnectionID:         &connection,
+		AIModelID:                      &model,
+		CapitalBucketID:                "b",
+		AutonomyLevel:                  "FULL_AUTONOMOUS",
+		ExecutionMode:                  "SHADOW",
+		Status:                         "READY",
+		CurrentVersion:                 2,
+		StrategyParameters:             []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`),
+		Risk:                           RiskPolicy{MaxTradesPerDay: intPointer(6)},
+		AllowedUniverse:                Universe{Symbols: []string{"SPY"}},
+		ScheduleConditions:             []byte(`{"enabled":false}`),
+		PaperOptionsSimulationAttested: false,
+	}
+	service := NewService(f, nil)
+
+	updated, err := service.UpdateSchedule(context.Background(), founder, "m", 2, ScheduleConditions{Enabled: true, IntervalMinutes: 60, Session: "US_EQUITIES_REGULAR"})
+	if err != nil || updated.Status != "DRAFT" || updated.CurrentVersion != 3 {
+		t.Fatalf("Schwab AI shadow schedule did not create a draft version: %#v %v", updated, err)
+	}
+	parsed, err := ParseScheduleConditions(f.updatedCommand.ScheduleConditions)
+	if err != nil || !parsed.Enabled || parsed.IntervalMinutes != 60 || parsed.Session != "US_EQUITIES_REGULAR" {
+		t.Fatalf("Schwab AI shadow schedule was not preserved: %#v %v", parsed, err)
+	}
+
+	if _, err = service.UpdateSchedule(context.Background(), founder, "m", 3, ScheduleConditions{Enabled: true, IntervalMinutes: 60, Session: "CONTINUOUS"}); err != ErrInvalid {
+		t.Fatalf("Schwab continuous session mismatch accepted: %v", err)
+	}
+}
