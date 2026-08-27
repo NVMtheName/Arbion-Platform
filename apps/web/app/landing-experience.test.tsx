@@ -21,5 +21,20 @@ describe("Arbion landing experience", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/no live prices shown/i)).toBeInTheDocument();
     expect(screen.getByText(/no live execution path/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        name: /know the boundaries before you connect/i,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/NVM Technologies, LLC/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/not a broker, exchange, bank/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/full legal suite is under counsel review/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /contact support@arbion.ai/i }),
+    ).toHaveAttribute("href", "mailto:support@arbion.ai");
   });
 });
