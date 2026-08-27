@@ -36,6 +36,7 @@ import { AutonomyGuardrailSummary } from "../autonomy-guardrail-summary";
 import { CapitalBucketAllocationControls } from "../capital-bucket-allocation-controls";
 import { AutonomyReadinessControlPlane } from "../autonomy-readiness-control-plane";
 import { DecisionReplayLab } from "../decision-replay-lab";
+import { StrategySimulationWorkbench } from "../strategy-simulation-workbench";
 export default async function MandateReview({
   params,
 }: {
@@ -71,6 +72,7 @@ export default async function MandateReview({
     bucketsResponse,
     financialConnectionsResponse,
     aiConnectionsResponse,
+    versionsResponse,
   ] = await Promise.all([
     fetch(`${api}/api/strategy-instances`, {
       headers: { cookie: jar.toString() },
@@ -93,6 +95,10 @@ export default async function MandateReview({
       cache: "no-store",
     }),
     fetch(`${api}/api/connections/ai`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+    fetch(`${api}/api/automations/${id}/versions`, {
       headers: { cookie: jar.toString() },
       cache: "no-store",
     }),
@@ -138,6 +144,13 @@ export default async function MandateReview({
           connections?: Record<string, unknown>[];
         }
       ).connections ?? [])
+    : [];
+  const mandateVersions = versionsResponse.ok
+    ? ((
+        (await versionsResponse.json()) as {
+          versions?: Record<string, unknown>[];
+        }
+      ).versions ?? [])
     : [];
   const currentVersion = Number(m.current_version ?? m.CurrentVersion ?? 0);
   const mandateInstances = instances.filter(
@@ -513,6 +526,16 @@ export default async function MandateReview({
                   scorecardResponse.scorecard as
                     | Record<string, unknown>
                     | undefined
+                }
+              />
+              <StrategySimulationWorkbench
+                versions={mandateVersions}
+                currentVersion={currentVersion}
+                capitalBucket={capitalBucket}
+                decisions={
+                  Array.isArray(decisions.decisions)
+                    ? (decisions.decisions as Record<string, unknown>[])
+                    : []
                 }
               />
               <DecisionReplayLab
