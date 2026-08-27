@@ -33,6 +33,9 @@ type breakerControllerFake struct {
 	userCurrent     *risk.CircuitBreaker
 	userEngaged     risk.CircuitBreaker
 	userReleased    risk.CircuitBreaker
+	globalCurrent   *risk.CircuitBreaker
+	globalEngaged   risk.CircuitBreaker
+	globalReleased  risk.CircuitBreaker
 }
 
 func (fake *breakerControllerFake) CurrentAutomation(_ context.Context, principal authorization.Principal, automationID string) (*risk.CircuitBreaker, error) {
@@ -71,6 +74,18 @@ func (fake *breakerControllerFake) ReleaseUser(_ context.Context, principal auth
 	fake.principal, fake.releaseCommand = principal, command
 	return fake.userReleased, fake.releaseError
 }
+func (fake *breakerControllerFake) CurrentGlobal(_ context.Context, principal authorization.Principal) (*risk.CircuitBreaker, error) {
+	fake.principal = principal
+	return fake.globalCurrent, fake.currentError
+}
+func (fake *breakerControllerFake) EngageGlobal(_ context.Context, principal authorization.Principal, command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+	fake.principal, fake.engageCommand = principal, command
+	return fake.globalEngaged, fake.engagementError
+}
+func (fake *breakerControllerFake) ReleaseGlobal(_ context.Context, principal authorization.Principal, command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+	fake.principal, fake.releaseCommand = principal, command
+	return fake.globalReleased, fake.releaseError
+}
 
 func breakerRequest(method, path, body string) *stdhttp.Request {
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -78,6 +93,12 @@ func breakerRequest(method, path, body string) *stdhttp.Request {
 	request.Header.Set("Content-Type", "application/json")
 	request.SetPathValue("id", "mandate-1")
 	user := auth.SafeUser{ID: "owner", Role: "user", Entitlement: "founder"}
+	return request.WithContext(context.WithValue(request.Context(), identityKey{}, user))
+}
+
+func globalBreakerRequest(method, path, body string) *stdhttp.Request {
+	request := breakerRequest(method, path, body)
+	user := auth.SafeUser{ID: "owner", Role: "superadmin", Entitlement: "founder"}
 	return request.WithContext(context.WithValue(request.Context(), identityKey{}, user))
 }
 
@@ -182,5 +203,49 @@ func TestUserBreakerTransportIsAuthenticatedAndNonLive(t *testing.T) {
 	var response map[string]any
 	if err := json.Unmarshal(engageRecorder.Body.Bytes(), &response); err != nil || response["broker_action_requested"] != false {
 		t.Fatalf("user non-live boundary missing: %s err=%v", engageRecorder.Body.String(), err)
+	}
+}
+
+func TestGlobalBreakerTransportIsSuperadminScopedMFAReleasedAndNonLive(t *testing.T) {
+	now := time.Date(2026, 8, 27, 19, 0, 0, 0, time.UTC)
+	breaker := risk.CircuitBreaker{ID: "global-breaker", Scope: risk.ScopeGlobal, State: risk.BreakerOpen, Reason: "platform safety review is required", Source: "ADMIN_UI", EngagedAt: now}
+	fake := &breakerControllerFake{globalCurrent: &breaker, globalEngaged: breaker, globalReleased: breaker}
+	handler := &authHandler{breakers: fake, cfg: config.Auth{AllowedOrigins: []string{"http://localhost:3000"}}}
+
+	currentRecorder := httptest.NewRecorder()
+	handler.currentGlobalBreaker(currentRecorder, globalBreakerRequest(stdhttp.MethodGet, "/api/admin/risk/circuit-breaker", ""))
+	if currentRecorder.Code != stdhttp.StatusOK || currentRecorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(currentRecorder.Body.String(), `"live_execution_available":false`) {
+		t.Fatalf("unexpected global breaker response: %d %s", currentRecorder.Code, currentRecorder.Body.String())
+	}
+
+	engageRecorder := httptest.NewRecorder()
+	handler.engageGlobalBreaker(engageRecorder, globalBreakerRequest(stdhttp.MethodPost, "/api/admin/risk/circuit-breaker/engage", `{"reason":"platform safety review is required","confirm":true}`))
+	if engageRecorder.Code != stdhttp.StatusOK || fake.principal.Role != authorization.RoleSuperadmin || fake.engageCommand.Reason != "platform safety review is required" {
+		t.Fatalf("global engage was not superadmin-scoped: status=%d fake=%#v", engageRecorder.Code, fake)
+	}
+
+	releaseRecorder := httptest.NewRecorder()
+	handler.releaseGlobalBreaker(releaseRecorder, globalBreakerRequest(stdhttp.MethodPost, "/api/admin/risk/circuit-breaker/release", `{"reason":"all platform conditions were reviewed","confirm":true,"mfa_code":"123456"}`))
+	if releaseRecorder.Code != stdhttp.StatusOK || fake.releaseCommand.MFACode != "123456" || fake.releaseCommand.Reason != "all platform conditions were reviewed" {
+		t.Fatalf("global release lost step-up evidence: status=%d fake=%#v", releaseRecorder.Code, fake)
+	}
+	var response map[string]any
+	if err := json.Unmarshal(releaseRecorder.Body.Bytes(), &response); err != nil || response["broker_action_requested"] != false || response["live_execution_available"] != false {
+		t.Fatalf("global non-live boundary missing: %s err=%v", releaseRecorder.Body.String(), err)
+	}
+}
+
+func TestGlobalBreakerTransportMapsAdminAndStepUpFailures(t *testing.T) {
+	handler := &authHandler{breakers: &breakerControllerFake{}, cfg: config.Auth{AllowedOrigins: []string{"http://localhost:3000"}}}
+
+	adminRecorder := httptest.NewRecorder()
+	handler.breakerError(adminRecorder, risk.ErrBreakerAdminRequired)
+	if adminRecorder.Code != stdhttp.StatusForbidden || !strings.Contains(adminRecorder.Body.String(), "SUPERADMIN_REQUIRED") {
+		t.Fatalf("global admin failure was not stable: %d %s", adminRecorder.Code, adminRecorder.Body.String())
+	}
+	mfaRecorder := httptest.NewRecorder()
+	handler.breakerError(mfaRecorder, risk.ErrBreakerStepUp)
+	if mfaRecorder.Code != stdhttp.StatusUnauthorized || !strings.Contains(mfaRecorder.Body.String(), "INVALID_MFA_CODE") {
+		t.Fatalf("global MFA failure was not stable: %d %s", mfaRecorder.Code, mfaRecorder.Body.String())
 	}
 }

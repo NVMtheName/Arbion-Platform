@@ -3,6 +3,10 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../app-page-header";
+import {
+  PlatformCircuitBreakerControls,
+  type PlatformCircuitBreaker,
+} from "./platform-circuit-breaker-controls";
 type User = { id: string; email: string; role: string; entitlement: string };
 export default async function Admin() {
   const c = await cookies();
@@ -21,6 +25,23 @@ export default async function Admin() {
   });
   if (!response.ok) redirect("/dashboard");
   const { users } = (await response.json()) as { users: User[] };
+  let platformBreaker: PlatformCircuitBreaker | null | undefined;
+  if (user.role === "superadmin") {
+    const platformResponse = await fetch(
+      `${base}/api/admin/risk/circuit-breaker`,
+      {
+        headers: { cookie: c.toString() },
+        cache: "no-store",
+      },
+    );
+    platformBreaker = platformResponse.ok
+      ? ((
+          (await platformResponse.json()) as {
+            circuit_breaker?: PlatformCircuitBreaker | null;
+          }
+        ).circuit_breaker ?? null)
+      : undefined;
+  }
   return (
     <main className="dashboard">
       <AppPageHeader />
@@ -28,6 +49,19 @@ export default async function Admin() {
       <h1>Arbion Admin</h1>
       <p>System role: {user.role}</p>
       <p>entitlement: {user.entitlement}</p>
+      {user.role === "superadmin" &&
+        (platformBreaker !== undefined ? (
+          <PlatformCircuitBreakerControls breaker={platformBreaker} />
+        ) : (
+          <section className="content-card" role="status">
+            <h2>Platform safety control unavailable</h2>
+            <p>
+              Arbion could not verify the current platform-stop state, so this
+              page will not present a potentially stale engage or release
+              action.
+            </p>
+          </section>
+        ))}
       <h2>Users</h2>
       <div className="admin-table">
         {users.map((u) => (

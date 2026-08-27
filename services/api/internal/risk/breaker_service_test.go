@@ -29,6 +29,10 @@ type breakerStoreFake struct {
 	userCurrent     *CircuitBreaker
 	userEngaged     CircuitBreaker
 	userReleased    CircuitBreaker
+	activeAdmin     bool
+	globalCurrent   *CircuitBreaker
+	globalEngaged   CircuitBreaker
+	globalReleased  CircuitBreaker
 }
 
 func (store *breakerStoreFake) AutomationOwned(context.Context, string, string) (bool, error) {
@@ -73,6 +77,36 @@ func (store *breakerStoreFake) ReleaseUserBreaker(_ context.Context, userID stri
 	store.releaseUser, store.releaseTime = userID, at
 	return store.userReleased, nil
 }
+func (store *breakerStoreFake) ActiveSuperadmin(context.Context, string) (bool, error) {
+	return store.activeAdmin, nil
+}
+func (store *breakerStoreFake) OpenGlobalBreaker(context.Context, string) (*CircuitBreaker, error) {
+	return store.globalCurrent, nil
+}
+func (store *breakerStoreFake) EngageGlobalBreaker(_ context.Context, userID, reason string, at time.Time) (CircuitBreaker, error) {
+	store.engageUser, store.engageReason, store.engageTime = userID, reason, at
+	return store.globalEngaged, nil
+}
+func (store *breakerStoreFake) ReleaseGlobalBreaker(_ context.Context, userID string, at time.Time) (CircuitBreaker, error) {
+	store.releaseUser, store.releaseTime = userID, at
+	return store.globalReleased, nil
+}
+
+type breakerStepUpFake struct {
+	userID string
+	code   string
+	calls  int
+	err    error
+}
+
+func (stepUp *breakerStepUpFake) VerifySafetyControlStepUp(_ context.Context, userID, code string) (string, time.Time, error) {
+	stepUp.userID, stepUp.code = userID, code
+	stepUp.calls++
+	if stepUp.err != nil || code != "123456" {
+		return "", time.Time{}, errors.New("invalid step-up")
+	}
+	return "totp", time.Now().UTC(), nil
+}
 
 type breakerAuditFake struct {
 	userID   *string
@@ -87,6 +121,10 @@ func (audit *breakerAuditFake) Record(_ context.Context, userID *string, action 
 
 func founderPrincipal() authorization.Principal {
 	return authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+}
+
+func superadminPrincipal() authorization.Principal {
+	return authorization.Principal{UserID: "owner", Role: authorization.RoleSuperadmin, Entitlement: authorization.EntitlementFounder}
 }
 
 func TestAutomationBreakerRequiresOwnerConfirmationAndReason(t *testing.T) {
@@ -254,5 +292,58 @@ func TestUserBreakerRequiresEntitlementConfirmationAndExistingUser(t *testing.T)
 	store.owned = false
 	if _, err := service.ReleaseUser(context.Background(), founderPrincipal(), BreakerCommand{Reason: "all accounts were reviewed", Confirm: true}); !errors.Is(err, ErrBreakerNotFound) {
 		t.Fatalf("missing user release was accepted: %v", err)
+	}
+}
+
+func TestGlobalBreakerIsSuperadminOnlyAuditedAndRequiresMFAForRelease(t *testing.T) {
+	now := time.Date(2026, 8, 27, 19, 0, 0, 0, time.UTC)
+	engaged := CircuitBreaker{ID: "global-breaker", Scope: ScopeGlobal, State: BreakerOpen, Reason: "platform safety review is required", Source: "ADMIN_UI", EngagedAt: now}
+	released := engaged
+	released.State = BreakerClosed
+	released.ReleasedAt = &now
+	store := &breakerStoreFake{activeAdmin: true, globalEngaged: engaged, globalReleased: released}
+	audit := &breakerAuditFake{}
+	stepUp := &breakerStepUpFake{}
+	service := NewBreakerService(store, audit, stepUp)
+	service.now = func() time.Time { return now }
+
+	result, err := service.EngageGlobal(context.Background(), superadminPrincipal(), BreakerCommand{Reason: "  platform safety review is required  ", Confirm: true})
+	if err != nil || result.Scope != ScopeGlobal || result.ScopeID != nil || store.engageUser != "owner" || store.engageReason != "platform safety review is required" {
+		t.Fatalf("global stop was not superadmin-bound: result=%#v store=%#v err=%v", result, store, err)
+	}
+	if audit.action != "global_circuit_breaker.engaged" || audit.metadata["scope"] != ScopeGlobal || audit.metadata["source"] != "ADMIN_UI" || audit.metadata["broker_execution_requested"] != false {
+		t.Fatalf("global engage audit evidence is incomplete: %#v", audit)
+	}
+	store.globalCurrent = &engaged
+	current, err := service.CurrentGlobal(context.Background(), superadminPrincipal())
+	if err != nil || current == nil || current.ID != "global-breaker" {
+		t.Fatalf("open global stop was unavailable: %#v %v", current, err)
+	}
+	if _, err = service.ReleaseGlobal(context.Background(), superadminPrincipal(), BreakerCommand{Reason: "all platform conditions were reviewed", Confirm: true}); !errors.Is(err, ErrBreakerStepUp) || stepUp.calls != 1 {
+		t.Fatalf("global release did not require a fresh authenticator code: calls=%d err=%v", stepUp.calls, err)
+	}
+	result, err = service.ReleaseGlobal(context.Background(), superadminPrincipal(), BreakerCommand{Reason: "all platform conditions were reviewed", Confirm: true, MFACode: "123456"})
+	if err != nil || result.State != BreakerClosed || stepUp.calls != 2 || stepUp.userID != "owner" || stepUp.code != "123456" || store.releaseUser != "owner" {
+		t.Fatalf("global release did not preserve superadmin step-up: result=%#v step=%#v store=%#v err=%v", result, stepUp, store, err)
+	}
+	if audit.action != "global_circuit_breaker.released" || audit.metadata["reason"] != "all platform conditions were reviewed" || audit.metadata["live_execution_available"] != false {
+		t.Fatalf("global release audit evidence is incomplete: %#v", audit)
+	}
+}
+
+func TestGlobalBreakerRejectsNonSuperadminsAndStaleAdminSessions(t *testing.T) {
+	store := &breakerStoreFake{activeAdmin: true}
+	service := NewBreakerService(store, nil, &breakerStepUpFake{})
+	for _, principal := range []authorization.Principal{
+		founderPrincipal(),
+		{UserID: "admin", Role: authorization.RoleAdmin, Entitlement: authorization.EntitlementFounder},
+	} {
+		if _, err := service.EngageGlobal(context.Background(), principal, BreakerCommand{Reason: "platform safety review is required", Confirm: true}); !errors.Is(err, ErrBreakerAdminRequired) {
+			t.Fatalf("non-superadmin engaged the global stop: principal=%#v err=%v", principal, err)
+		}
+	}
+	store.activeAdmin = false
+	if _, err := service.CurrentGlobal(context.Background(), superadminPrincipal()); !errors.Is(err, ErrBreakerAdminRequired) {
+		t.Fatalf("stale superadmin session reached global state: %v", err)
 	}
 }

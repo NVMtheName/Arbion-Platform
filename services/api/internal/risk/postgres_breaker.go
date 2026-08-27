@@ -133,3 +133,47 @@ func (store *PostgresBreakerStore) ReleaseUserBreaker(ctx context.Context, userI
 	}
 	return breaker, err
 }
+
+func (store *PostgresBreakerStore) ActiveSuperadmin(ctx context.Context, userID string) (bool, error) {
+	var active bool
+	err := store.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='superadmin' AND status='active')`, userID).Scan(&active)
+	return active, err
+}
+
+func (store *PostgresBreakerStore) OpenGlobalBreaker(ctx context.Context, userID string) (*CircuitBreaker, error) {
+	breaker, err := scanBreaker(store.db.QueryRow(ctx, `SELECT `+breakerColumns+` FROM risk_circuit_breakers b WHERE b.scope='GLOBAL' AND b.scope_id IS NULL AND b.state='OPEN' AND EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND u.role='superadmin' AND u.status='active')`, userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		active, activeErr := store.ActiveSuperadmin(ctx, userID)
+		if activeErr != nil {
+			return nil, activeErr
+		}
+		if !active {
+			return nil, ErrBreakerAdminRequired
+		}
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &breaker, nil
+}
+
+func (store *PostgresBreakerStore) EngageGlobalBreaker(ctx context.Context, userID, reason string, engagedAt time.Time) (CircuitBreaker, error) {
+	breaker, err := scanBreaker(store.db.QueryRow(ctx, `INSERT INTO risk_circuit_breakers(scope,scope_id,state,reason,source,engaged_by_user_id,engaged_at) SELECT 'GLOBAL',NULL,'OPEN',$2,'ADMIN_UI',u.id,$3 FROM users u WHERE u.id=$1 AND u.role='superadmin' AND u.status='active' RETURNING `+breakerColumns, userID, reason, engagedAt))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CircuitBreaker{}, ErrBreakerAdminRequired
+	}
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == "23505" {
+		return CircuitBreaker{}, ErrBreakerConflict
+	}
+	return breaker, err
+}
+
+func (store *PostgresBreakerStore) ReleaseGlobalBreaker(ctx context.Context, userID string, releasedAt time.Time) (CircuitBreaker, error) {
+	breaker, err := scanBreaker(store.db.QueryRow(ctx, `UPDATE risk_circuit_breakers b SET state='CLOSED',released_by_user_id=$1,released_at=$2 WHERE b.scope='GLOBAL' AND b.scope_id IS NULL AND b.state='OPEN' AND EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND u.role='superadmin' AND u.status='active') RETURNING `+breakerColumns, userID, releasedAt))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CircuitBreaker{}, ErrBreakerConflict
+	}
+	return breaker, err
+}

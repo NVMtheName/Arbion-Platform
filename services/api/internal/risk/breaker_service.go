@@ -12,10 +12,12 @@ import (
 )
 
 var (
-	ErrBreakerForbidden = errors.New("automation circuit breaker entitlement required")
-	ErrBreakerInvalid   = errors.New("invalid automation circuit breaker command")
-	ErrBreakerNotFound  = errors.New("automation circuit breaker resource not found")
-	ErrBreakerConflict  = errors.New("automation circuit breaker state conflict")
+	ErrBreakerForbidden     = errors.New("automation circuit breaker entitlement required")
+	ErrBreakerAdminRequired = errors.New("superadmin circuit breaker authority required")
+	ErrBreakerStepUp        = errors.New("fresh authenticator verification required")
+	ErrBreakerInvalid       = errors.New("invalid automation circuit breaker command")
+	ErrBreakerNotFound      = errors.New("automation circuit breaker resource not found")
+	ErrBreakerConflict      = errors.New("automation circuit breaker state conflict")
 )
 
 type BreakerStore interface {
@@ -31,6 +33,10 @@ type BreakerStore interface {
 	OpenUserBreaker(context.Context, string) (*CircuitBreaker, error)
 	EngageUserBreaker(context.Context, string, string, time.Time) (CircuitBreaker, error)
 	ReleaseUserBreaker(context.Context, string, time.Time) (CircuitBreaker, error)
+	ActiveSuperadmin(context.Context, string) (bool, error)
+	OpenGlobalBreaker(context.Context, string) (*CircuitBreaker, error)
+	EngageGlobalBreaker(context.Context, string, string, time.Time) (CircuitBreaker, error)
+	ReleaseGlobalBreaker(context.Context, string, time.Time) (CircuitBreaker, error)
 }
 
 type BreakerAuditor interface {
@@ -38,18 +44,28 @@ type BreakerAuditor interface {
 }
 
 type BreakerService struct {
-	store BreakerStore
-	audit BreakerAuditor
-	now   func() time.Time
+	store  BreakerStore
+	audit  BreakerAuditor
+	stepUp BreakerStepUpVerifier
+	now    func() time.Time
+}
+
+type BreakerStepUpVerifier interface {
+	VerifySafetyControlStepUp(context.Context, string, string) (string, time.Time, error)
 }
 
 type BreakerCommand struct {
 	Reason  string `json:"reason"`
 	Confirm bool   `json:"confirm"`
+	MFACode string `json:"mfa_code,omitempty"`
 }
 
-func NewBreakerService(store BreakerStore, audit BreakerAuditor) *BreakerService {
-	return &BreakerService{store: store, audit: audit, now: func() time.Time { return time.Now().UTC() }}
+func NewBreakerService(store BreakerStore, audit BreakerAuditor, stepUp ...BreakerStepUpVerifier) *BreakerService {
+	service := &BreakerService{store: store, audit: audit, now: func() time.Time { return time.Now().UTC() }}
+	if len(stepUp) > 0 {
+		service.stepUp = stepUp[0]
+	}
+	return service
 }
 
 func breakerAllowed(principal authorization.Principal) bool {
@@ -267,6 +283,85 @@ func (service *BreakerService) ReleaseUser(ctx context.Context, principal author
 	return breaker, nil
 }
 
+func (service *BreakerService) CurrentGlobal(ctx context.Context, principal authorization.Principal) (*CircuitBreaker, error) {
+	if authorization.RequireSuperadmin(principal) != nil {
+		return nil, ErrBreakerAdminRequired
+	}
+	active, err := service.store.ActiveSuperadmin(ctx, principal.UserID)
+	if err != nil {
+		return nil, err
+	}
+	if !active {
+		return nil, ErrBreakerAdminRequired
+	}
+	return service.store.OpenGlobalBreaker(ctx, principal.UserID)
+}
+
+func (service *BreakerService) EngageGlobal(ctx context.Context, principal authorization.Principal, command BreakerCommand) (CircuitBreaker, error) {
+	if authorization.RequireSuperadmin(principal) != nil {
+		return CircuitBreaker{}, ErrBreakerAdminRequired
+	}
+	if !command.Confirm {
+		return CircuitBreaker{}, ErrBreakerInvalid
+	}
+	reason, err := validateBreakerReason(command.Reason)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	active, err := service.store.ActiveSuperadmin(ctx, principal.UserID)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	if !active {
+		return CircuitBreaker{}, ErrBreakerAdminRequired
+	}
+	breaker, err := service.store.EngageGlobalBreaker(ctx, principal.UserID, reason, service.now())
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	service.record(ctx, principal.UserID, "global_circuit_breaker.engaged", breaker, reason)
+	return breaker, nil
+}
+
+func (service *BreakerService) ReleaseGlobal(ctx context.Context, principal authorization.Principal, command BreakerCommand) (CircuitBreaker, error) {
+	if authorization.RequireSuperadmin(principal) != nil {
+		return CircuitBreaker{}, ErrBreakerAdminRequired
+	}
+	if !command.Confirm {
+		return CircuitBreaker{}, ErrBreakerInvalid
+	}
+	reason, err := validateBreakerReason(command.Reason)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	active, err := service.store.ActiveSuperadmin(ctx, principal.UserID)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	if !active {
+		return CircuitBreaker{}, ErrBreakerAdminRequired
+	}
+	current, err := service.store.OpenGlobalBreaker(ctx, principal.UserID)
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	if current == nil {
+		return CircuitBreaker{}, ErrBreakerConflict
+	}
+	if service.stepUp == nil {
+		return CircuitBreaker{}, ErrBreakerStepUp
+	}
+	if _, _, err = service.stepUp.VerifySafetyControlStepUp(ctx, principal.UserID, strings.TrimSpace(command.MFACode)); err != nil {
+		return CircuitBreaker{}, ErrBreakerStepUp
+	}
+	breaker, err := service.store.ReleaseGlobalBreaker(ctx, principal.UserID, service.now())
+	if err != nil {
+		return CircuitBreaker{}, err
+	}
+	service.record(ctx, principal.UserID, "global_circuit_breaker.released", breaker, reason)
+	return breaker, nil
+}
+
 func (service *BreakerService) record(ctx context.Context, userID, action string, breaker CircuitBreaker, reason string) {
 	if service.audit == nil {
 		return
@@ -279,7 +374,7 @@ func (service *BreakerService) record(ctx context.Context, userID, action string
 		"circuit_breaker_id":         breaker.ID,
 		"reason":                     reason,
 		"scope":                      breaker.Scope,
-		"source":                     "UI",
+		"source":                     breaker.Source,
 		"live_execution_available":   false,
 		"broker_execution_requested": false,
 	}

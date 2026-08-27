@@ -91,7 +91,7 @@ func main() {
 	automations := automation.NewService(automation.NewPostgresStore(pool), users)
 	strategyStore := strategy.NewPostgresStore(pool)
 	strategies := strategy.NewInstanceService(strategyStore, automations, users)
-	breakers := risk.NewBreakerService(risk.NewPostgresBreakerStore(pool), users)
+	breakers := risk.NewBreakerService(risk.NewPostgresBreakerStore(pool), users, authService)
 	markets, err := newMarketIntelligenceService(cfg.MarketData, marketintelligence.NewPostgresHealthStore(pool), marketintelligence.NewPostgresWatchlistStore(pool))
 	if err != nil {
 		slog.Error("market intelligence unavailable", "error", err)

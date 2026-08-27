@@ -19,6 +19,9 @@ type breakerController interface {
 	CurrentUser(context.Context, authorization.Principal) (*risk.CircuitBreaker, error)
 	EngageUser(context.Context, authorization.Principal, risk.BreakerCommand) (risk.CircuitBreaker, error)
 	ReleaseUser(context.Context, authorization.Principal, risk.BreakerCommand) (risk.CircuitBreaker, error)
+	CurrentGlobal(context.Context, authorization.Principal) (*risk.CircuitBreaker, error)
+	EngageGlobal(context.Context, authorization.Principal, risk.BreakerCommand) (risk.CircuitBreaker, error)
+	ReleaseGlobal(context.Context, authorization.Principal, risk.BreakerCommand) (risk.CircuitBreaker, error)
 }
 
 func registerBreakerRoutes(mux *stdhttp.ServeMux, handler *authHandler) {
@@ -34,12 +37,19 @@ func registerBreakerRoutes(mux *stdhttp.ServeMux, handler *authHandler) {
 	mux.Handle("GET /api/risk/circuit-breaker", handler.require(stdhttp.HandlerFunc(handler.currentUserBreaker)))
 	mux.Handle("POST /api/risk/circuit-breaker/engage", handler.require(stdhttp.HandlerFunc(handler.engageUserBreaker)))
 	mux.Handle("POST /api/risk/circuit-breaker/release", handler.require(stdhttp.HandlerFunc(handler.releaseUserBreaker)))
+	mux.Handle("GET /api/admin/risk/circuit-breaker", handler.require(handler.requireSuperadmin(stdhttp.HandlerFunc(handler.currentGlobalBreaker))))
+	mux.Handle("POST /api/admin/risk/circuit-breaker/engage", handler.require(handler.requireSuperadmin(stdhttp.HandlerFunc(handler.engageGlobalBreaker))))
+	mux.Handle("POST /api/admin/risk/circuit-breaker/release", handler.require(handler.requireSuperadmin(stdhttp.HandlerFunc(handler.releaseGlobalBreaker))))
 }
 
 func (handler *authHandler) breakerError(writer stdhttp.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, risk.ErrBreakerForbidden):
 		writeError(writer, 403, "PERMISSION_DENIED", "Automation entitlement is required.")
+	case errors.Is(err, risk.ErrBreakerAdminRequired):
+		writeError(writer, 403, "SUPERADMIN_REQUIRED", "Superadmin access is required for the platform-wide emergency stop.")
+	case errors.Is(err, risk.ErrBreakerStepUp):
+		writeError(writer, 401, "INVALID_MFA_CODE", "A fresh authenticator code is required to release the platform-wide emergency stop.")
 	case errors.Is(err, risk.ErrBreakerNotFound):
 		writeError(writer, 404, "NOT_FOUND", "The requested safety-control resource was not found.")
 	case errors.Is(err, risk.ErrBreakerConflict):
@@ -117,6 +127,28 @@ func (handler *authHandler) releaseUserBreaker(writer stdhttp.ResponseWriter, re
 	})
 }
 
+func (handler *authHandler) currentGlobalBreaker(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	breaker, err := handler.breakers.CurrentGlobal(request.Context(), principal(request))
+	if err != nil {
+		handler.breakerError(writer, err)
+		return
+	}
+	writer.Header().Set("Cache-Control", "no-store")
+	writeJSON(writer, 200, map[string]any{"circuit_breaker": breaker, "live_execution_available": false})
+}
+
+func (handler *authHandler) engageGlobalBreaker(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	handler.breakerMutation(writer, request, func(command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+		return handler.breakers.EngageGlobal(request.Context(), principal(request), command)
+	})
+}
+
+func (handler *authHandler) releaseGlobalBreaker(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
+	handler.breakerMutation(writer, request, func(command risk.BreakerCommand) (risk.CircuitBreaker, error) {
+		return handler.breakers.ReleaseGlobal(request.Context(), principal(request), command)
+	})
+}
+
 func (handler *authHandler) breakerMutation(writer stdhttp.ResponseWriter, request *stdhttp.Request, mutate func(risk.BreakerCommand) (risk.CircuitBreaker, error)) {
 	if !handler.csrf(request) {
 		writeError(writer, 403, "csrf_rejected", "Request origin is not allowed.")
@@ -127,6 +159,7 @@ func (handler *authHandler) breakerMutation(writer stdhttp.ResponseWriter, reque
 		return
 	}
 	breaker, err := mutate(command)
+	command.MFACode = ""
 	if err != nil {
 		handler.breakerError(writer, err)
 		return
