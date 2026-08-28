@@ -11,6 +11,20 @@ export type StrategyFleetItem = {
   financialConnectionContextAvailable?: boolean;
   financialConnectionStatus?: string;
   financialAuthorizationExpiresAt?: string;
+  capitalContextAvailable?: boolean;
+  capitalBindingValid?: boolean;
+  capitalBucketName?: string;
+  capitalBucketStatus?: string;
+  capitalAllocationType?: string;
+  capitalAllocationValue?: string;
+  capitalCurrency?: string;
+  capitalProtectedAmount?: string;
+  capitalAllocationLimit?: string;
+  capitalReservationStatus?: string;
+  capitalReservationAmount?: string;
+  capitalReservationCurrency?: string;
+  capitalReservationBasis?: string;
+  capitalReservationAccountLimit?: string;
   automationType: string;
   mandateStatus: string;
   autonomyLevel: string;
@@ -150,6 +164,22 @@ function requiresOperationalData(item: StrategyFleetItem) {
   return isAI(item) && item.instanceStatus === "ACTIVE";
 }
 
+function requiresCapitalData(item: StrategyFleetItem) {
+  return (
+    isAI(item) &&
+    Boolean(
+      item.instanceStatus && ["ACTIVE", "PAUSED"].includes(item.instanceStatus),
+    )
+  );
+}
+
+function capitalBindingHealthy(item: StrategyFleetItem) {
+  if (!requiresCapitalData(item)) return true;
+  return (
+    item.capitalContextAvailable === true && item.capitalBindingValid === true
+  );
+}
+
 function financialConnectionHealthy(item: StrategyFleetItem) {
   if (!requiresOperationalData(item)) return true;
   return (
@@ -179,6 +209,7 @@ function needsReview(item: StrategyFleetItem) {
     item.currentState === "ERROR" ||
     item.accountContextAvailable === false ||
     item.instanceContextAvailable === false ||
+    !capitalBindingHealthy(item) ||
     !financialConnectionHealthy(item) ||
     !reconciliationHealthy(item) ||
     item.scheduleAvailable === false ||
@@ -208,6 +239,10 @@ function healthLabel(item: StrategyFleetItem) {
     return "Engine state unavailable";
   if (item.accountContextAvailable === false)
     return "Account context unavailable";
+  if (item.capitalContextAvailable === false)
+    return "Capital context unavailable";
+  if (requiresCapitalData(item) && !capitalBindingHealthy(item))
+    return "Capital binding needs review";
   if (item.financialConnectionContextAvailable === false)
     return "Connection context unavailable";
   if (requiresOperationalData(item) && !financialConnectionHealthy(item)) {
@@ -255,6 +290,7 @@ export function selectStrategyFleetNextAction(
   if (
     item.accountContextAvailable === false ||
     item.financialConnectionContextAvailable === false ||
+    item.capitalContextAvailable === false ||
     item.instanceContextAvailable === false
   ) {
     return {
@@ -269,11 +305,25 @@ export function selectStrategyFleetNextAction(
       actionLabel: "Refresh automations",
     };
   }
+  if (requiresCapitalData(item) && !capitalBindingHealthy(item)) {
+    return {
+      ...identity,
+      key: `capital-binding:${item.id}`,
+      priority: 1,
+      tone: "ATTENTION",
+      eyebrow: "CAPITAL BINDING NEEDS REVIEW",
+      title: `Review ${item.title} capital authority`,
+      detail:
+        "Arbion could not verify one active, non-reserve bucket and its exact non-live reservation for this engine. Existing database controls remain enforced and no broker funds moved.",
+      href: "/capital",
+      actionLabel: "Review capital control",
+    };
+  }
   if (requiresOperationalData(item) && !financialConnectionHealthy(item)) {
     return {
       ...identity,
       key: `financial-connection:${item.id}`,
-      priority: 1,
+      priority: 2,
       tone: "ATTENTION",
       eyebrow: "FINANCIAL CONNECTION NEEDS REVIEW",
       title: `Restore ${providerLabel(item.provider)} account access`,
@@ -293,7 +343,7 @@ export function selectStrategyFleetNextAction(
     return {
       ...identity,
       key: `portfolio-evidence:${item.id}`,
-      priority: 2,
+      priority: 3,
       tone: "ATTENTION",
       eyebrow: "PORTFOLIO EVIDENCE NEEDS REVIEW",
       title: drift
@@ -318,7 +368,7 @@ export function selectStrategyFleetNextAction(
   if (item.instanceStatus === "ERROR" || item.currentState === "ERROR") {
     return {
       ...identity,
-      priority: 3,
+      priority: 4,
       tone: "ATTENTION",
       eyebrow: "ENGINE REVIEW REQUIRED",
       title: `Review ${item.title} runtime evidence`,
@@ -335,7 +385,7 @@ export function selectStrategyFleetNextAction(
   ) {
     return {
       ...identity,
-      priority: 4,
+      priority: 5,
       tone: "ATTENTION",
       eyebrow: "SCHEDULE NEEDS REVIEW",
       title: `Review ${item.title} schedule health`,
@@ -350,7 +400,7 @@ export function selectStrategyFleetNextAction(
   if (item.evidenceAvailable === false) {
     return {
       ...identity,
-      priority: 5,
+      priority: 6,
       tone: "ATTENTION",
       eyebrow: "EVIDENCE STATUS UNAVAILABLE",
       title: `Refresh ${item.title} evidence`,
@@ -363,7 +413,7 @@ export function selectStrategyFleetNextAction(
   if (item.decisionAvailable === false) {
     return {
       ...identity,
-      priority: 6,
+      priority: 7,
       tone: "ATTENTION",
       eyebrow: "DECISION STATUS UNAVAILABLE",
       title: `Refresh ${item.title} decision pulse`,
@@ -379,7 +429,7 @@ export function selectStrategyFleetNextAction(
   ) {
     return {
       ...identity,
-      priority: 7,
+      priority: 8,
       tone: "READY",
       eyebrow: "SHADOW EVIDENCE REVIEWABLE",
       title: `Review ${item.title} evidence`,
@@ -589,6 +639,131 @@ function latestTelemetryLabel(item: StrategyFleetItem) {
 
 function exactState(value?: string) {
   return value ? readable(value) : "Unavailable";
+}
+
+function conciseCapitalDecimal(value?: string) {
+  if (!value || !/^\d+(\.\d{1,10})?$/.test(value)) return undefined;
+  const [whole, fraction = ""] = value.split(".");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const compact = fraction.replace(/0+$/, "");
+  return `${grouped}${compact ? `.${compact}` : ""}`;
+}
+
+function capitalMoney(currency?: string, value?: string) {
+  const amount = conciseCapitalDecimal(value);
+  if (!amount || !currency || !/^[A-Z]{3}$/.test(currency))
+    return "Unavailable";
+  return currency === "USD" ? `$${amount}` : `${currency} ${amount}`;
+}
+
+function capitalPolicyLabel(item: StrategyFleetItem) {
+  if (item.capitalAllocationType === "PERCENT_OF_AVAILABLE_CASH")
+    return `${conciseCapitalDecimal(item.capitalAllocationValue) ?? "Unavailable"}% of available cash`;
+  if (item.capitalAllocationType === "PERCENT_OF_BUYING_POWER")
+    return `${conciseCapitalDecimal(item.capitalAllocationValue) ?? "Unavailable"}% of buying power`;
+  if (item.capitalAllocationType === "FIXED_AMOUNT")
+    return capitalMoney(item.capitalCurrency, item.capitalAllocationValue);
+  return "Unavailable";
+}
+
+function capitalBasisLabel(value?: string) {
+  if (value === "PAPER_STARTING_CASH") return "Paper starting cash";
+  if (value === "BUCKET_FIXED_CAPACITY") return "Fixed budget capacity";
+  if (value === "BUCKET_ABSOLUTE_LIMIT") return "Percentage budget cap";
+  if (value === "UNRESOLVED_LEGACY") return "Legacy exclusive policy";
+  return "Unavailable";
+}
+
+function StrategyFleetCapitalAuthority({ item }: { item: StrategyFleetItem }) {
+  if (!requiresCapitalData(item)) return null;
+  if (!capitalBindingHealthy(item)) {
+    return (
+      <section
+        className="strategy-fleet-capital needs-review"
+        aria-label={`${item.title} capital authority`}
+      >
+        <header>
+          <span>CAPITAL AUTHORITY</span>
+          <strong>Review required</strong>
+        </header>
+        <p>
+          Exact bucket and reservation facts are hidden until the complete
+          owner-scoped capital binding can be verified.
+        </p>
+        <Link href="/capital">Review capital control →</Link>
+        <small>
+          Database controls remain enforced · no provider funds moved
+        </small>
+      </section>
+    );
+  }
+
+  const accountLimit = item.capitalReservationAccountLimit;
+  const bucketCap = accountLimit ? undefined : item.capitalAllocationLimit;
+  return (
+    <section
+      className="strategy-fleet-capital is-verified"
+      aria-label={`${item.title} capital authority`}
+    >
+      <header>
+        <span>CAPITAL AUTHORITY</span>
+        <strong>Bounded</strong>
+      </header>
+      <dl>
+        <div>
+          <dt>Budget</dt>
+          <dd>{item.capitalBucketName ?? "Trading budget"}</dd>
+        </div>
+        <div>
+          <dt>Policy</dt>
+          <dd>{capitalPolicyLabel(item)}</dd>
+        </div>
+        <div>
+          <dt>Active claim</dt>
+          <dd>
+            {capitalMoney(
+              item.capitalReservationCurrency,
+              item.capitalReservationAmount,
+            )}{" "}
+            · {readable(item.executionMode)}
+          </dd>
+        </div>
+        <div>
+          <dt>Protected</dt>
+          <dd>
+            {capitalMoney(item.capitalCurrency, item.capitalProtectedAmount)}
+          </dd>
+        </div>
+        <div>
+          <dt>
+            {accountLimit
+              ? "Account ceiling"
+              : bucketCap
+                ? "Budget cap"
+                : "Sharing"}
+          </dt>
+          <dd>
+            {accountLimit
+              ? capitalMoney(item.capitalCurrency, accountLimit)
+              : bucketCap
+                ? capitalMoney(item.capitalCurrency, bucketCap)
+                : "Exclusive active claim"}
+          </dd>
+        </div>
+        <div>
+          <dt>Claim basis</dt>
+          <dd>{capitalBasisLabel(item.capitalReservationBasis)}</dd>
+        </div>
+      </dl>
+      <p>
+        <span>Database-enforced non-live reservation</span>
+        <Link href="/capital">Capital center →</Link>
+      </p>
+      <small>
+        Policy ledger only · no broker custody or execution authority
+      </small>
+    </section>
+  );
 }
 
 function StrategyFleetDataHealth({ item }: { item: StrategyFleetItem }) {
@@ -1092,6 +1267,7 @@ export function StrategyFleet({
                 </div>
               </dl>
 
+              <StrategyFleetCapitalAuthority item={item} />
               <StrategyFleetDataHealth item={item} />
               <StrategyFleetDecision item={item} />
               <StrategyFleetEvidence item={item} />
