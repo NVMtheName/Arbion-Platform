@@ -116,24 +116,40 @@ async function aiEngineSummaries(
         (item) => recordString(item, "id", "ID") === mandateID,
       );
       const account = accounts.find((item) => item.id === accountID);
-      const [scheduleResult, decisionsResult] = await Promise.all([
-        fetchDashboardJSON<{
-          schedule?: Record<string, unknown>;
-        }>(
-          `${base}/api/strategy-instances/${encodeURIComponent(id)}/schedule`,
-          headers,
-        ),
-        fetchDashboardJSON<{
-          decisions?: Record<string, unknown>[];
-        }>(
-          `${base}/api/strategy-instances/${encodeURIComponent(id)}/decisions`,
-          headers,
-        ),
-      ]);
+      const [scheduleResult, decisionsResult, scorecardResult] =
+        await Promise.all([
+          fetchDashboardJSON<{
+            schedule?: Record<string, unknown>;
+          }>(
+            `${base}/api/strategy-instances/${encodeURIComponent(id)}/schedule`,
+            headers,
+          ),
+          fetchDashboardJSON<{
+            decisions?: Record<string, unknown>[];
+          }>(
+            `${base}/api/strategy-instances/${encodeURIComponent(id)}/decisions`,
+            headers,
+          ),
+          fetchDashboardJSON<{
+            scorecard?: Record<string, unknown>;
+          }>(
+            `${base}/api/strategy-instances/${encodeURIComponent(id)}/shadow-scorecard`,
+            headers,
+          ),
+        ]);
       const schedule = scheduleResult.payload?.schedule;
       const lastDecision = decisionsResult.payload?.decisions?.find(
         (decision) => recordString(decision, "source", "Source") === "AI",
       );
+      const scorecard = scorecardResult.payload?.scorecard;
+      const rawEvidenceGate =
+        scorecard?.evidence_gate ?? scorecard?.EvidenceGate;
+      const evidenceGate =
+        rawEvidenceGate &&
+        typeof rawEvidenceGate === "object" &&
+        !Array.isArray(rawEvidenceGate)
+          ? (rawEvidenceGate as Record<string, unknown>)
+          : undefined;
 
       return {
         id,
@@ -155,6 +171,38 @@ async function aiEngineSummaries(
         scheduleStatus: recordString(schedule, "last_status", "LastStatus"),
         scheduleAvailable: scheduleResult.available,
         journalAvailable: decisionsResult.available,
+        evidenceAvailable: scorecardResult.available && Boolean(evidenceGate),
+        evidenceStatus: recordString(evidenceGate, "status", "Status"),
+        oneHourSampleSize:
+          recordNumber(
+            evidenceGate,
+            "one_hour_sample_size",
+            "OneHourSampleSize",
+          ) ?? 0,
+        twentyFourHourSampleSize:
+          recordNumber(
+            evidenceGate,
+            "twenty_four_hour_sample_size",
+            "TwentyFourHourSampleSize",
+          ) ?? 0,
+        minimumSamplePerHorizon:
+          recordNumber(
+            evidenceGate,
+            "minimum_sample_per_horizon",
+            "MinimumSamplePerHorizon",
+          ) ?? 20,
+        evidenceWindowHours:
+          recordNumber(
+            evidenceGate,
+            "evidence_window_hours",
+            "EvidenceWindowHours",
+          ) ?? 0,
+        minimumEvidenceWindowHours:
+          recordNumber(
+            evidenceGate,
+            "minimum_evidence_window_hours",
+            "MinimumEvidenceWindowHours",
+          ) ?? 168,
         consecutiveFailures:
           recordNumber(
             schedule,

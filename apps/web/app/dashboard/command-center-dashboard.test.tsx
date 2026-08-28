@@ -62,6 +62,13 @@ describe("Portfolio-first command center", () => {
             lastDecision: "ALLOW_WOULD_HAVE_SUBMITTED",
             lastDecisionSymbol: "XRP",
             lastDecisionAt: "2026-08-26T15:17:14Z",
+            evidenceAvailable: true,
+            evidenceStatus: "COLLECTING_EVIDENCE",
+            oneHourSampleSize: 8,
+            twentyFourHourSampleSize: 4,
+            minimumSamplePerHorizon: 20,
+            evidenceWindowHours: 72,
+            minimumEvidenceWindowHours: 168,
           },
         ]}
         user={{
@@ -88,6 +95,10 @@ describe("Portfolio-first command center", () => {
     expect(cockpit).toHaveTextContent("Would have submitted · XRP");
     expect(cockpit).toHaveTextContent("Healthy schedule");
     expect(cockpit).toHaveTextContent("Shadow only");
+    expect(cockpit).toHaveTextContent("Collecting evidence");
+    expect(cockpit).toHaveTextContent(
+      "8/20 one-hour · 4/20 24-hour · 72h/168h window",
+    );
     expect(cockpit).toHaveTextContent("No broker order can be sent");
     expect(
       screen.getByRole("link", { name: "Review journal →" }),
@@ -162,5 +173,6 @@ describe("Portfolio-first command center", () => {
     });
     expect(cockpit).toHaveTextContent("Decision journal unavailable");
     expect(cockpit).not.toHaveTextContent("Healthy schedule");
+    expect(cockpit).toHaveTextContent("Evidence unavailable");
   });
 });

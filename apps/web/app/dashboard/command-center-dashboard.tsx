@@ -52,6 +52,13 @@ export type DashboardAIEngineSummary = {
   lastDecision?: string;
   lastDecisionSymbol?: string;
   lastDecisionAt?: string;
+  evidenceAvailable?: boolean;
+  evidenceStatus?: string;
+  oneHourSampleSize?: number;
+  twentyFourHourSampleSize?: number;
+  minimumSamplePerHorizon?: number;
+  evidenceWindowHours?: number;
+  minimumEvidenceWindowHours?: number;
 };
 
 type DashboardProps = {
@@ -183,6 +190,39 @@ function engineStatus(engine: DashboardAIEngineSummary) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function evidenceStatusLabel(status?: string) {
+  if (status === "EVIDENCE_REVIEWABLE") return "Reviewable evidence";
+  if (status === "COLLECTING_EVIDENCE") return "Collecting evidence";
+  if (status) return status.replaceAll("_", " ");
+  return "Evidence unavailable";
+}
+
+function evidenceSummary(engine: DashboardAIEngineSummary) {
+  if (!engine.evidenceAvailable) {
+    return {
+      label: "Evidence unavailable",
+      detail: "Open the strategy to inspect its immutable Shadow scorecard.",
+      completed: 0,
+      required: 1,
+    };
+  }
+
+  const minimum = Math.max(engine.minimumSamplePerHorizon ?? 20, 1);
+  const oneHour = Math.max(engine.oneHourSampleSize ?? 0, 0);
+  const twentyFourHour = Math.max(engine.twentyFourHourSampleSize ?? 0, 0);
+  const required = minimum * 2;
+  const completed = Math.min(oneHour + twentyFourHour, required);
+  const window = Math.max(engine.evidenceWindowHours ?? 0, 0);
+  const minimumWindow = Math.max(engine.minimumEvidenceWindowHours ?? 168, 0);
+
+  return {
+    label: evidenceStatusLabel(engine.evidenceStatus),
+    detail: `${oneHour}/${minimum} one-hour · ${twentyFourHour}/${minimum} 24-hour · ${window}h/${minimumWindow}h window`,
+    completed,
+    required,
+  };
 }
 
 export function CommandCenterDashboard({
@@ -349,73 +389,91 @@ export function CommandCenterDashboard({
           </div>
         ) : (
           <div className="ai-engine-grid">
-            {aiEngines.map((engine) => (
-              <article key={engine.id}>
-                <header>
-                  <div>
-                    <span
-                      className={`provider-mark provider-${engine.provider}`}
-                    >
-                      {providerInitial(engine.provider)}
-                    </span>
+            {aiEngines.map((engine) => {
+              const evidence = evidenceSummary(engine);
+              return (
+                <article key={engine.id}>
+                  <header>
                     <div>
-                      <strong>{engine.accountName}</strong>
-                      <small>{providerLabel(engine.provider)}</small>
+                      <span
+                        className={`provider-mark provider-${engine.provider}`}
+                      >
+                        {providerInitial(engine.provider)}
+                      </span>
+                      <div>
+                        <strong>{engine.accountName}</strong>
+                        <small>{providerLabel(engine.provider)}</small>
+                      </div>
                     </div>
+                    <div className="ai-engine-badges">
+                      <span
+                        className={
+                          engine.status === "ACTIVE"
+                            ? "is-monitoring"
+                            : "is-paused"
+                        }
+                      >
+                        {engineStatus(engine)}
+                      </span>
+                      <span className="is-shadow">Shadow only</span>
+                    </div>
+                  </header>
+                  <dl>
+                    <div>
+                      <dt>Model</dt>
+                      <dd>{engine.modelID ?? "Not recorded"}</dd>
+                    </div>
+                    <div>
+                      <dt>Latest decision</dt>
+                      <dd>{decisionLabel(engine)}</dd>
+                    </div>
+                    <div>
+                      <dt>Last cycle</dt>
+                      <dd>
+                        {readableTime(
+                          engine.lastDecisionAt ?? engine.lastEvaluatedAt,
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Next cycle</dt>
+                      <dd>
+                        {engine.nextRunAt
+                          ? readableTime(engine.nextRunAt)
+                          : "Not scheduled"}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div
+                    className="ai-engine-evidence"
+                    aria-label="Shadow evidence progress"
+                  >
+                    <div className="ai-engine-evidence-heading">
+                      <span>Shadow evidence</span>
+                      <strong>{evidence.label}</strong>
+                    </div>
+                    <progress
+                      max={evidence.required}
+                      value={evidence.completed}
+                      aria-label={`${evidence.completed} of ${evidence.required} evidence marks`}
+                    />
+                    <small>{evidence.detail}</small>
                   </div>
-                  <div className="ai-engine-badges">
+                  <footer>
                     <span
                       className={
-                        engine.status === "ACTIVE"
-                          ? "is-monitoring"
-                          : "is-paused"
+                        engineNeedsReview(engine) ? "needs-review" : "healthy"
                       }
                     >
-                      {engineStatus(engine)}
+                      <i /> {engineHealth(engine)}
                     </span>
-                    <span className="is-shadow">Shadow only</span>
-                  </div>
-                </header>
-                <dl>
-                  <div>
-                    <dt>Model</dt>
-                    <dd>{engine.modelID ?? "Not recorded"}</dd>
-                  </div>
-                  <div>
-                    <dt>Latest decision</dt>
-                    <dd>{decisionLabel(engine)}</dd>
-                  </div>
-                  <div>
-                    <dt>Last cycle</dt>
-                    <dd>
-                      {readableTime(
-                        engine.lastDecisionAt ?? engine.lastEvaluatedAt,
-                      )}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Next cycle</dt>
-                    <dd>
-                      {engine.nextRunAt
-                        ? readableTime(engine.nextRunAt)
-                        : "Not scheduled"}
-                    </dd>
-                  </div>
-                </dl>
-                <footer>
-                  <span
-                    className={
-                      engineNeedsReview(engine) ? "needs-review" : "healthy"
-                    }
-                  >
-                    <i /> {engineHealth(engine)}
-                  </span>
-                  <Link href={`/automations/${engine.mandateID}`}>
-                    Review journal →
-                  </Link>
-                </footer>
-              </article>
-            ))}
+                    <Link href={`/automations/${engine.mandateID}`}>
+                      Review journal →
+                    </Link>
+                  </footer>
+                </article>
+              );
+            })}
           </div>
         )}
         <p className="ai-engine-safety">
