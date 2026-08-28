@@ -208,7 +208,10 @@ export default async function Automations() {
           <Link className="button-link" href="/automations/new">
             Launch AI Shadow Engine
           </Link>
-          <Link href="/activity">Open decision journal →</Link>
+          <div className="strategy-fleet-secondary-actions">
+            <Link href="/capital">Capital budgets →</Link>
+            <Link href="/activity">Decision journal →</Link>
+          </div>
         </div>
       </section>
       <StrategyFleet

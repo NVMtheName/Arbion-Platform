@@ -617,20 +617,25 @@ export default function AutomationBuilder() {
           </div>
         </header>
         {eligibleBuckets.length > 0 ? (
-          <label className="strategy-budget-select">
-            Trading budget
-            <select
-              required
-              value={selectedBucketID}
-              onChange={(event) => setBucketID(event.target.value)}
-            >
-              {eligibleBuckets.map((bucket) => (
-                <option key={bucket.id} value={bucket.id}>
-                  {bucket.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="strategy-budget-select">
+            <label>
+              Trading budget
+              <select
+                required
+                value={selectedBucketID}
+                onChange={(event) => setBucketID(event.target.value)}
+              >
+                {eligibleBuckets.map((bucket) => (
+                  <option key={bucket.id} value={bucket.id}>
+                    {bucket.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Link href="/capital">
+              Review reservations or create another budget →
+            </Link>
+          </div>
         ) : (
           <div className="strategy-budget-create">
             <label>
@@ -651,6 +656,9 @@ export default function AutomationBuilder() {
             >
               Save isolated budget
             </button>
+            <Link href="/capital">
+              Need a shared account ceiling? Open Capital Center →
+            </Link>
           </div>
         )}
         <div className="strategy-launch-grid">

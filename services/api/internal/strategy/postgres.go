@@ -270,6 +270,28 @@ func (s *PostgresStore) CapitalReservation(c context.Context, userID, instanceID
 	return reservation, err
 }
 
+func (s *PostgresStore) CapitalReservations(c context.Context, userID string) ([]CapitalReservation, error) {
+	rows, err := s.db.Query(c, `SELECT id::text,strategy_instance_id::text,financial_account_id::text,capital_bucket_id::text,execution_mode,reservation_amount::text,currency,reservation_basis,account_allocation_limit::text,CASE WHEN released_at IS NULL THEN 'ACTIVE' ELSE 'RELEASED' END,reserved_at,released_at,release_reason
+		FROM strategy_capital_reservations WHERE user_id=$1 AND released_at IS NULL ORDER BY reserved_at DESC,id DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	reservations := []CapitalReservation{}
+	for rows.Next() {
+		var reservation CapitalReservation
+		if err = rows.Scan(
+			&reservation.ID, &reservation.StrategyInstanceID, &reservation.FinancialAccountID, &reservation.CapitalBucketID,
+			&reservation.ExecutionMode, &reservation.ReservationAmount, &reservation.Currency, &reservation.ReservationBasis,
+			&reservation.AccountAllocationLimit, &reservation.Status, &reservation.ReservedAt, &reservation.ReleasedAt, &reservation.ReleaseReason,
+		); err != nil {
+			return nil, err
+		}
+		reservations = append(reservations, reservation)
+	}
+	return reservations, rows.Err()
+}
+
 func (s *PostgresStore) Schedule(c context.Context, u, id string) (ScheduleStatus, error) {
 	var status ScheduleStatus
 	status.StrategyInstanceID = id

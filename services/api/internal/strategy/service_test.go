@@ -78,6 +78,8 @@ type journalPersistenceFake struct {
 	finishError        error
 	reservation        CapitalReservation
 	reservationError   error
+	reservations       []CapitalReservation
+	reservationsError  error
 }
 
 func (f *journalPersistenceFake) Initialize(_ context.Context, userID string, mandate automation.Mandate, cash string, state State) (Instance, error) {
@@ -117,6 +119,10 @@ func (f *journalPersistenceFake) CapitalReservation(_ context.Context, userID, i
 	f.requestedUser = userID
 	f.requestedID = instanceID
 	return f.reservation, f.reservationError
+}
+func (f *journalPersistenceFake) CapitalReservations(_ context.Context, userID string) ([]CapitalReservation, error) {
+	f.requestedUser = userID
+	return f.reservations, f.reservationsError
 }
 func (f *journalPersistenceFake) StrategyTransitionEntries(_ context.Context, userID, instanceID string, limit int, after *StrategyTransitionCursor) ([]StrategyTransitionEvidence, error) {
 	f.requestedUser = userID
@@ -365,6 +371,25 @@ func TestCapitalReservationIsOwnerScopedAndDurable(t *testing.T) {
 	store.instance.UserID = "different-owner"
 	if _, err = service.CapitalReservation(context.Background(), principal, "instance"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross-owner reservation lookup did not fail closed: %v", err)
+	}
+}
+
+func TestCapitalReservationsAreOwnerScopedAndRequireEntitlement(t *testing.T) {
+	amount := "25.0000000000"
+	store := &journalPersistenceFake{reservations: []CapitalReservation{{
+		ID: "reservation", StrategyInstanceID: "instance", FinancialAccountID: "account",
+		CapitalBucketID: "bucket", ExecutionMode: Shadow, ReservationAmount: &amount,
+		Currency: "USD", ReservationBasis: "BUCKET_FIXED_CAPACITY", Status: "ACTIVE",
+	}}}
+	service := NewInstanceService(store, nil)
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+	reservations, err := service.CapitalReservations(context.Background(), principal)
+	if err != nil || len(reservations) != 1 || reservations[0].ID != "reservation" || store.requestedUser != "owner" {
+		t.Fatalf("owner reservation inventory was not preserved: reservations=%#v store=%#v err=%v", reservations, store, err)
+	}
+	principal.Entitlement = authorization.EntitlementFree
+	if _, err = service.CapitalReservations(context.Background(), principal); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("unentitled reservation inventory was not rejected: %v", err)
 	}
 }
 
