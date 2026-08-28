@@ -5,6 +5,10 @@ import Link from "next/link";
 
 import { ArbionBrand } from "../brand";
 import { LogoutButton } from "./logout-button";
+import {
+  OwnerAttentionCenter,
+  type OwnerAttentionOverview,
+} from "./owner-attention-center";
 
 type DashboardUser = {
   email: string;
@@ -57,6 +61,8 @@ type DashboardProps = {
   modelID?: string;
   accounts: DashboardAccountSummary[];
   aiEngines?: DashboardAIEngineSummary[];
+  attention?: OwnerAttentionOverview;
+  attentionAvailable?: boolean;
 };
 
 const enter = {
@@ -186,6 +192,8 @@ export function CommandCenterDashboard({
   modelID,
   accounts,
   aiEngines = [],
+  attention,
+  attentionAvailable = true,
 }: DashboardProps) {
   const activeAccounts = accounts.filter(
     (account) => account.status === "active",
@@ -261,6 +269,11 @@ export function CommandCenterDashboard({
           </Link>
         </motion.div>
       </motion.section>
+
+      <OwnerAttentionCenter
+        attention={attention}
+        available={attentionAvailable}
+      />
 
       {!setupComplete && (
         <motion.section
