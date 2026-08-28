@@ -2,6 +2,7 @@ type Entity = Record<string, unknown> | null | undefined;
 
 const maximumRoutes = 20;
 const maximumSymbols = 100;
+const maximumSymbolHorizons = 2;
 const maximumHorizons = 4;
 const maximumBlockers = 20;
 const maximumScheduleRuns = 12;
@@ -136,6 +137,31 @@ function normalizeHorizons(scorecard: Entity) {
       "average_directional_change_percent",
       "AverageDirectionalChangePercent",
     ),
+    median_directional_change_percent: entityDecimal(
+      item,
+      "median_directional_change_percent",
+      "MedianDirectionalChangePercent",
+    ),
+    best_directional_change_percent: entityDecimal(
+      item,
+      "best_directional_change_percent",
+      "BestDirectionalChangePercent",
+    ),
+    worst_directional_change_percent: entityDecimal(
+      item,
+      "worst_directional_change_percent",
+      "WorstDirectionalChangePercent",
+    ),
+    average_directional_change_usd: entityDecimal(
+      item,
+      "average_directional_change_usd",
+      "AverageDirectionalChangeUSD",
+    ),
+    cumulative_directional_change_usd: entityDecimal(
+      item,
+      "cumulative_directional_change_usd",
+      "CumulativeDirectionalChangeUSD",
+    ),
     first_evaluated_at: entityTimestamp(
       item,
       "first_evaluated_at",
@@ -151,6 +177,36 @@ function normalizeHorizons(scorecard: Entity) {
       item,
       "minimum_sample_for_observational_label",
       "MinimumSampleForObservationalLabel",
+    ),
+  }));
+}
+
+function normalizeSymbolHorizons(symbol: Entity) {
+  const source = value(symbol, "horizons", "Horizons");
+  return records(source, maximumSymbolHorizons).map((item) => ({
+    horizon: entityText(item, "horizon", "Horizon"),
+    sample_size: entityInteger(item, "sample_size", "SampleSize"),
+    favorable_marks: entityInteger(item, "favorable_marks", "FavorableMarks"),
+    unfavorable_marks: entityInteger(
+      item,
+      "unfavorable_marks",
+      "UnfavorableMarks",
+    ),
+    flat_marks: entityInteger(item, "flat_marks", "FlatMarks"),
+    favorable_rate_percent: entityDecimal(
+      item,
+      "favorable_rate_percent",
+      "FavorableRatePercent",
+    ),
+    average_directional_change_percent: entityDecimal(
+      item,
+      "average_directional_change_percent",
+      "AverageDirectionalChangePercent",
+    ),
+    average_directional_change_usd: entityDecimal(
+      item,
+      "average_directional_change_usd",
+      "AverageDirectionalChangeUSD",
     ),
   }));
 }
@@ -255,6 +311,7 @@ function normalizeSymbols(behavior: Entity) {
       "twenty_four_hour_outcome_marks",
       "TwentyFourHourOutcomeMarks",
     ),
+    horizons: normalizeSymbolHorizons(item),
   }));
 }
 
@@ -326,7 +383,7 @@ export function buildAutonomyEvidenceReport(props: Props) {
     .map(([source]) => source);
 
   return {
-    schema_version: "arbion.autonomy-evidence-report.v1",
+    schema_version: "arbion.autonomy-evidence-report.v2",
     generated_at: reportTimestamp(props.generatedAt),
     report_status: missingSources.length === 0 ? "COMPLETE" : "PARTIAL",
     source: "OWNER_AUTHENTICATED_CURRENT_STATE",

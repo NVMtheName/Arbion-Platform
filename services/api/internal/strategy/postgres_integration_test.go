@@ -591,8 +591,15 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		t.Fatalf("legacy AI route provenance was inferred: %#v", legacyRoute)
 	}
 	symbolBehavior := behavior.Symbols[0]
-	if symbolBehavior.Symbol != "AAPL" || symbolBehavior.ProposedDecisions != 1 || symbolBehavior.RiskHeldDecisions != 0 || symbolBehavior.WouldHaveSubmittedDecisions != 1 || symbolBehavior.OneHourOutcomeMarks != 1 || symbolBehavior.TwentyFourHourOutcomeMarks != 0 {
+	if symbolBehavior.Symbol != "AAPL" || symbolBehavior.ProposedDecisions != 1 || symbolBehavior.RiskHeldDecisions != 0 || symbolBehavior.WouldHaveSubmittedDecisions != 1 || symbolBehavior.OneHourOutcomeMarks != 1 || symbolBehavior.TwentyFourHourOutcomeMarks != 0 || len(symbolBehavior.Horizons) != 2 {
 		t.Fatalf("AI symbol behavior was incorrect: %#v", symbolBehavior)
+	}
+	oneHourSymbol, twentyFourHourSymbol := symbolBehavior.Horizons[0], symbolBehavior.Horizons[1]
+	if oneHourSymbol.Horizon != ShadowOutcomeOneHour || oneHourSymbol.SampleSize != 1 || oneHourSymbol.FavorableMarks != 0 || oneHourSymbol.UnfavorableMarks != 1 || oneHourSymbol.FlatMarks != 0 || oneHourSymbol.FavorableRatePercent == nil || *oneHourSymbol.FavorableRatePercent != "0.0000000000" || oneHourSymbol.AverageDirectionalChangePercent == nil || *oneHourSymbol.AverageDirectionalChangePercent != "-5.0000000000" || oneHourSymbol.AverageDirectionalChangeUSD == nil || *oneHourSymbol.AverageDirectionalChangeUSD != "-0.0500000000" {
+		t.Fatalf("one-hour AI symbol evidence was incorrect: %#v", oneHourSymbol)
+	}
+	if twentyFourHourSymbol.Horizon != ShadowOutcomeTwentyFourHours || twentyFourHourSymbol.SampleSize != 0 || twentyFourHourSymbol.FavorableRatePercent != nil || twentyFourHourSymbol.AverageDirectionalChangePercent != nil || twentyFourHourSymbol.AverageDirectionalChangeUSD != nil {
+		t.Fatalf("pending 24-hour AI symbol evidence was incorrect: %#v", twentyFourHourSymbol)
 	}
 	if _, err = store.ShadowScorecard(ctx, "99999999-9999-4999-8999-999999999999", aiInstance.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("AI shadow scorecard crossed its owner boundary: %v", err)

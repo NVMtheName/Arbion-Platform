@@ -47,6 +47,51 @@ function object(record: RawScore | undefined, key: string, legacy: string) {
     : undefined;
 }
 
+function symbolHorizon(record: RawScore, horizon: string) {
+  const source = read(record, "horizons", "Horizons");
+  if (!Array.isArray(source)) return undefined;
+  return source.find(
+    (item): item is RawScore =>
+      Boolean(item) &&
+      typeof item === "object" &&
+      !Array.isArray(item) &&
+      read(item as RawScore, "horizon", "Horizon") === horizon,
+  );
+}
+
+function SymbolHorizonEvidence({
+  score,
+  fallbackCount,
+}: {
+  score?: RawScore;
+  fallbackCount: number;
+}) {
+  const samples = score
+    ? number(score, "sample_size", "SampleSize")
+    : fallbackCount;
+  if (samples === 0) return <span role="cell">Awaiting mark</span>;
+  const average = score
+    ? read(
+        score,
+        "average_directional_change_percent",
+        "AverageDirectionalChangePercent",
+      )
+    : undefined;
+  const favorableRate = score
+    ? read(score, "favorable_rate_percent", "FavorableRatePercent")
+    : undefined;
+  return (
+    <span role="cell" className="shadow-symbol-outcome">
+      <strong>
+        {samples} mark{samples === 1 ? "" : "s"}
+      </strong>
+      <small>
+        {signedPercent(average)} avg · {percent(favorableRate)} favorable
+      </small>
+    </span>
+  );
+}
+
 function strings(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
@@ -417,52 +462,63 @@ export function AIShadowScorecard({ scorecard }: { scorecard?: RawScore }) {
                   <span role="columnheader">Proposed</span>
                   <span role="columnheader">Risk held</span>
                   <span role="columnheader">Shadow cleared</span>
-                  <span role="columnheader">1h / 24h marks</span>
+                  <span role="columnheader">1-hour evidence</span>
+                  <span role="columnheader">24-hour evidence</span>
                 </div>
-                {symbols.map((symbol) => (
-                  <div
-                    role="row"
-                    key={String(read(symbol, "symbol", "Symbol"))}
-                  >
-                    <strong role="cell">
-                      {String(read(symbol, "symbol", "Symbol"))}
-                    </strong>
-                    <span role="cell">
-                      {number(
-                        symbol,
-                        "proposed_decisions",
-                        "ProposedDecisions",
-                      )}
-                    </span>
-                    <span role="cell">
-                      {number(
-                        symbol,
-                        "risk_held_decisions",
-                        "RiskHeldDecisions",
-                      )}
-                    </span>
-                    <span role="cell">
-                      {number(
-                        symbol,
-                        "would_have_submitted_decisions",
-                        "WouldHaveSubmittedDecisions",
-                      )}
-                    </span>
-                    <span role="cell">
-                      {number(
-                        symbol,
-                        "one_hour_outcome_marks",
-                        "OneHourOutcomeMarks",
-                      )}{" "}
-                      /{" "}
-                      {number(
-                        symbol,
-                        "twenty_four_hour_outcome_marks",
-                        "TwentyFourHourOutcomeMarks",
-                      )}
-                    </span>
-                  </div>
-                ))}
+                {symbols.map((symbol) => {
+                  const oneHour = symbolHorizon(symbol, "ONE_HOUR");
+                  const twentyFourHours = symbolHorizon(
+                    symbol,
+                    "TWENTY_FOUR_HOURS",
+                  );
+                  return (
+                    <div
+                      role="row"
+                      key={String(read(symbol, "symbol", "Symbol"))}
+                    >
+                      <strong role="cell">
+                        {String(read(symbol, "symbol", "Symbol"))}
+                      </strong>
+                      <span role="cell">
+                        {number(
+                          symbol,
+                          "proposed_decisions",
+                          "ProposedDecisions",
+                        )}
+                      </span>
+                      <span role="cell">
+                        {number(
+                          symbol,
+                          "risk_held_decisions",
+                          "RiskHeldDecisions",
+                        )}
+                      </span>
+                      <span role="cell">
+                        {number(
+                          symbol,
+                          "would_have_submitted_decisions",
+                          "WouldHaveSubmittedDecisions",
+                        )}
+                      </span>
+                      <SymbolHorizonEvidence
+                        score={oneHour}
+                        fallbackCount={number(
+                          symbol,
+                          "one_hour_outcome_marks",
+                          "OneHourOutcomeMarks",
+                        )}
+                      />
+                      <SymbolHorizonEvidence
+                        score={twentyFourHours}
+                        fallbackCount={number(
+                          symbol,
+                          "twenty_four_hour_outcome_marks",
+                          "TwentyFourHourOutcomeMarks",
+                        )}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

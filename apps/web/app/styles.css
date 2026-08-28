@@ -3680,20 +3680,32 @@ button:disabled {
   color: #e5f8ff;
 }
 .shadow-symbol-behavior [role="table"] {
-  overflow: hidden;
+  overflow-x: auto;
   border: 1px solid #304c60;
   border-radius: 10px;
 }
 .shadow-symbol-behavior [role="row"] {
   display: grid;
-  grid-template-columns: 1.2fr repeat(4, minmax(0, 1fr));
+  grid-template-columns: 0.8fr repeat(3, minmax(80px, 0.7fr)) repeat(
+      2,
+      minmax(150px, 1.4fr)
+    );
   gap: 10px;
+  min-width: 760px;
   padding: 10px 12px;
   border-top: 1px solid #243c4d;
 }
 .shadow-symbol-behavior [role="row"]:first-child {
   border-top: 0;
   background: #101b28;
+}
+.shadow-symbol-outcome {
+  display: grid;
+  gap: 3px;
+}
+.shadow-symbol-outcome small {
+  color: #91adbd;
+  line-height: 1.35;
 }
 .shadow-evidence-gate {
   margin: 20px 0;

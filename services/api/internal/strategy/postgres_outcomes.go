@@ -349,30 +349,71 @@ func (s *PostgresStore) shadowBehaviorScore(ctx context.Context, userID, instanc
 			(COUNT(*) FILTER (WHERE status='RISK_DENIED'))::integer AS risk_held_decisions,
 			(COUNT(*) FILTER (WHERE status='WOULD_HAVE_SUBMITTED'))::integer AS would_have_submitted_decisions
 		FROM executions GROUP BY symbol
-	), symbol_marks AS (
-		SELECT e.symbol,
-			(COUNT(o.id) FILTER (WHERE o.horizon='ONE_HOUR'))::integer AS one_hour_outcome_marks,
-			(COUNT(o.id) FILTER (WHERE o.horizon='TWENTY_FOUR_HOURS'))::integer AS twenty_four_hour_outcome_marks
-		FROM executions e
-		JOIN shadow_execution_outcomes o
-		  ON o.execution_record_id=e.id AND o.strategy_instance_id=$1 AND o.user_id=$2
-		GROUP BY e.symbol
+	), horizons(horizon,ordinal) AS (
+		VALUES ('ONE_HOUR'::text,1),('TWENTY_FOUR_HOURS'::text,2)
 	)
 	SELECT d.symbol,d.proposed_decisions,d.risk_held_decisions,d.would_have_submitted_decisions,
-		COALESCE(m.one_hour_outcome_marks,0),COALESCE(m.twenty_four_hour_outcome_marks,0)
-	FROM symbol_decisions d LEFT JOIN symbol_marks m USING(symbol)
-	ORDER BY d.proposed_decisions DESC,d.symbol`, instanceID, userID)
+		h.horizon,
+		COUNT(o.id)::integer,
+		(COUNT(*) FILTER (WHERE o.directional_change_percent>0))::integer,
+		(COUNT(*) FILTER (WHERE o.directional_change_percent<0))::integer,
+		(COUNT(*) FILTER (WHERE o.directional_change_percent=0))::integer,
+		COALESCE(round(((COUNT(*) FILTER (WHERE o.directional_change_percent>0))::numeric / NULLIF(COUNT(o.id),0)::numeric)*100,10)::text,''),
+		COALESCE(round(avg(o.directional_change_percent),10)::text,''),
+		COALESCE(round(avg(o.directional_change_usd),10)::text,'')
+	FROM symbol_decisions d
+	CROSS JOIN horizons h
+	LEFT JOIN executions e ON e.symbol=d.symbol AND e.status='WOULD_HAVE_SUBMITTED'
+	LEFT JOIN shadow_execution_outcomes o
+	  ON o.execution_record_id=e.id AND o.strategy_instance_id=$1 AND o.user_id=$2 AND o.horizon=h.horizon
+	GROUP BY d.symbol,d.proposed_decisions,d.risk_held_decisions,d.would_have_submitted_decisions,h.horizon,h.ordinal
+	ORDER BY d.proposed_decisions DESC,d.symbol,h.ordinal`, instanceID, userID)
 	if err != nil {
 		return ShadowBehaviorScore{}, err
 	}
 	defer symbolRows.Close()
+	symbolIndexes := map[string]int{}
 	for symbolRows.Next() {
-		var symbol ShadowSymbolBehavior
-		if err = symbolRows.Scan(&symbol.Symbol, &symbol.ProposedDecisions, &symbol.RiskHeldDecisions,
-			&symbol.WouldHaveSubmittedDecisions, &symbol.OneHourOutcomeMarks, &symbol.TwentyFourHourOutcomeMarks); err != nil {
+		var symbolName, favorableRate, averageChange, averageUSD string
+		var proposedDecisions, riskHeldDecisions, wouldHaveSubmittedDecisions int
+		var horizon ShadowSymbolHorizonBehavior
+		if err = symbolRows.Scan(&symbolName, &proposedDecisions, &riskHeldDecisions,
+			&wouldHaveSubmittedDecisions, &horizon.Horizon, &horizon.SampleSize,
+			&horizon.FavorableMarks, &horizon.UnfavorableMarks, &horizon.FlatMarks,
+			&favorableRate, &averageChange, &averageUSD); err != nil {
 			return ShadowBehaviorScore{}, err
 		}
-		behavior.Symbols = append(behavior.Symbols, symbol)
+		if favorableRate != "" {
+			horizon.FavorableRatePercent = &favorableRate
+		}
+		if averageChange != "" {
+			horizon.AverageDirectionalChangePercent = &averageChange
+		}
+		if averageUSD != "" {
+			horizon.AverageDirectionalChangeUSD = &averageUSD
+		}
+		index, exists := symbolIndexes[symbolName]
+		if !exists {
+			index = len(behavior.Symbols)
+			symbolIndexes[symbolName] = index
+			behavior.Symbols = append(behavior.Symbols, ShadowSymbolBehavior{
+				Symbol: symbolName, ProposedDecisions: proposedDecisions,
+				RiskHeldDecisions: riskHeldDecisions, WouldHaveSubmittedDecisions: wouldHaveSubmittedDecisions,
+				Horizons: []ShadowSymbolHorizonBehavior{},
+			})
+		} else if behavior.Symbols[index].ProposedDecisions != proposedDecisions ||
+			behavior.Symbols[index].RiskHeldDecisions != riskHeldDecisions ||
+			behavior.Symbols[index].WouldHaveSubmittedDecisions != wouldHaveSubmittedDecisions {
+			return ShadowBehaviorScore{}, ErrConflict
+		}
+		if horizon.Horizon == ShadowOutcomeOneHour {
+			behavior.Symbols[index].OneHourOutcomeMarks = horizon.SampleSize
+		} else if horizon.Horizon == ShadowOutcomeTwentyFourHours {
+			behavior.Symbols[index].TwentyFourHourOutcomeMarks = horizon.SampleSize
+		} else {
+			return ShadowBehaviorScore{}, ErrInvalid
+		}
+		behavior.Symbols[index].Horizons = append(behavior.Symbols[index].Horizons, horizon)
 	}
 	if err = symbolRows.Err(); err != nil {
 		return ShadowBehaviorScore{}, err
