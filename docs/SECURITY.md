@@ -4,6 +4,8 @@
 
 Production startup rejects missing or development-placeholder database credentials, credential encryption keys, and internal AI tokens. Trusted origins are explicit and restricted to `https://www.arbion.ai`; wildcards and reflected Host/Origin trust are forbidden. Session cookies are `HttpOnly`, `SameSite=Lax`, scoped to `/`, and forced `Secure` in production while localhost development remains usable.
 
+Release packaging resolves an exact Git commit, records it in `.release-sha`, disables macOS extended-attribute serialization, and rejects AppleDouble or `__MACOSX` metadata. Production repeats that hygiene check before Compose validation or any container replacement. Docker build contexts exclude desktop metadata, and the API embeds only canonical version-prefixed SQL migrations, preventing transport artifacts from becoming executable build or migration inputs.
+
 `CREDENTIAL_ENCRYPTION_KEY` is a cryptographically random, base64-encoded 32-byte key generated once per environment. Back it up in a restricted secret store; never commit or casually rotate it. Losing it can make encrypted provider credentials unreadable. Automatic rotation is intentionally out of scope.
 
 Container logs use stdout/stderr, but operators must never log environment dumps or secret-bearing requests. Schwab secrets/codes/tokens, AI API keys, encryption keys, session cookies, internal tokens, and database passwords are prohibited from logs and support bundles. Backups contain sensitive customer and product data and require encryption and restricted access.

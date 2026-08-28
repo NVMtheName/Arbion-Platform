@@ -17,6 +17,7 @@ __pycache__/
 *.out
 *.tsbuildinfo
 .DS_Store
+._*
 
 # Terraform local state, plans, and operator backend/variable files
 **/.terraform/*

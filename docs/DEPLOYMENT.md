@@ -45,13 +45,19 @@ The encryption key must be cryptographically random, generated once, securely ba
 
 The safe sequence is: review and back up; validate Compose; build images; start healthy PostgreSQL/Redis; run the one-shot embedded Goose migrations exactly once; start AI/API/Web; wait for health; start Caddy; verify public health. Migration failure stops deployment and the API's completed-migration dependency prevents a healthy release. Runtime schema creation is not used.
 
+Package a reviewed Git commit with the repository helper rather than a desktop archive utility. The helper resolves the exact commit, adds the `.release-sha` marker, disables macOS extended-attribute serialization, refuses to overwrite an existing archive, and rejects AppleDouble or `__MACOSX` entries before publishing the bundle:
+
+```bash
+./scripts/package-release.sh <reviewed-git-sha> /path/to/arbion-<reviewed-git-sha>.tar.gz
+```
+
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml config --quiet
 ARBION_PRODUCTION_ENV_FILE=.env.production ./scripts/deploy-production.sh
 ./scripts/smoke-production.sh
 ```
 
-The deploy script fails fast, does not echo secrets, delete volumes, or overwrite data. Never run `docker compose down -v` in production.
+The deploy script runs the release-hygiene gate before Compose validation, image builds, migrations, or container replacement. It rejects AppleDouble `._*` files and `__MACOSX` directories outside ignored rollback and Git storage. Docker build contexts exclude the same metadata, and only version-prefixed SQL files can enter the embedded migration filesystem. The deploy script otherwise fails fast, does not echo secrets, delete volumes, or overwrite data. Never run `docker compose down -v` in production.
 
 ## Health checks and logging
 

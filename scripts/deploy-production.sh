@@ -6,7 +6,12 @@ env_file="${ARBION_PRODUCTION_ENV_FILE:-.env.production}"
 compose=(docker compose --env-file "$env_file" -f docker-compose.prod.yml)
 
 [[ -f "$env_file" ]] || { echo "Missing production environment file: $env_file" >&2; exit 1; }
-for command in docker curl; do command -v "$command" >/dev/null || { echo "Required command not found: $command" >&2; exit 1; }; done
+for command in docker curl find; do command -v "$command" >/dev/null || { echo "Required command not found: $command" >&2; exit 1; }; done
+
+# Reject contaminated release trees before Compose validation, image builds, or
+# any container replacement. This keeps host-side release transport metadata
+# outside executable and embedded build inputs.
+./scripts/check-release-hygiene.sh
 
 # Compose expands and validates required variables without printing their values.
 "${compose[@]}" config --quiet
