@@ -14,8 +14,12 @@ import (
 )
 
 type memoryStore struct {
-	items      map[string]Connection
-	preference *Preference
+	items           map[string]Connection
+	preference      *Preference
+	dependencies    bool
+	inUse           bool
+	dependencyCalls int
+	inUseCalls      int
 }
 
 func (ms *memoryStore) List(_ context.Context, user string) ([]Connection, error) {
@@ -81,7 +85,12 @@ func (ms *memoryStore) Delete(_ context.Context, user, id string) error {
 	return nil
 }
 func (ms *memoryStore) HasDependencies(context.Context, string, string) (bool, error) {
-	return false, nil
+	ms.dependencyCalls++
+	return ms.dependencies, nil
+}
+func (ms *memoryStore) ConnectionInUse(context.Context, string, string) (bool, error) {
+	ms.inUseCalls++
+	return ms.inUse, nil
 }
 
 type blobs struct{ data map[string][]byte }
@@ -317,6 +326,56 @@ func TestCredentialLifecycleIsEncryptedAndSafe(t *testing.T) {
 	}
 	if _, ok := ms.items[c.ID]; ok {
 		t.Fatal("delete retained connection")
+	}
+}
+
+func TestCredentialReplacementAndDisableFailClosedWhileAutomationUsesConnection(t *testing.T) {
+	s, ms, bs := setup(t)
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	c, err := s.Create(context.Background(), p, "openai", "Mine", []byte("original-secret-AB12"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := append([]byte(nil), bs.data[c.ID]...)
+	ms.items[c.ID] = Connection{ID: c.ID, Provider: "openai", Status: "active", Enabled: true, CredentialHint: "••••••••AB12"}
+	ms.inUse = true
+
+	if _, err = s.Replace(context.Background(), p, c.ID, []byte("replacement-ZZ99")); !errors.Is(err, ErrConflict) {
+		t.Fatalf("in-use credential replacement was not blocked: %v", err)
+	}
+	if string(bs.data[c.ID]) != string(before) || ms.items[c.ID].Status != "active" || ms.items[c.ID].CredentialHint != "••••••••AB12" {
+		t.Fatal("blocked replacement changed the credential or connection state")
+	}
+	if _, err = s.SetEnabled(context.Background(), p, c.ID, false); !errors.Is(err, ErrConflict) {
+		t.Fatalf("in-use disable was not blocked: %v", err)
+	}
+	if string(bs.data[c.ID]) != string(before) || ms.items[c.ID].Status != "active" || !ms.items[c.ID].Enabled {
+		t.Fatal("blocked disable changed the credential or connection state")
+	}
+	if ms.inUseCalls != 2 {
+		t.Fatalf("expected both disruptive mutations to check runtime use, got %d calls", ms.inUseCalls)
+	}
+}
+
+func TestDeleteFailsClosedForDurableDependencies(t *testing.T) {
+	s, ms, bs := setup(t)
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	c, err := s.Create(context.Background(), p, "openai", "Mine", []byte("original-secret-AB12"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms.dependencies = true
+	if err = s.Delete(context.Background(), p, c.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("dependent connection deletion was not blocked: %v", err)
+	}
+	if bs.data[c.ID] == nil {
+		t.Fatal("blocked deletion removed the credential")
+	}
+	if _, ok := ms.items[c.ID]; !ok {
+		t.Fatal("blocked deletion removed the connection")
+	}
+	if ms.dependencyCalls != 1 {
+		t.Fatalf("expected one durable dependency check, got %d", ms.dependencyCalls)
 	}
 }
 func TestOwnershipUsesNotFound(t *testing.T) {

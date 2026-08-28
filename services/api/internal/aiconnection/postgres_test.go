@@ -48,3 +48,52 @@ func TestCreateCastsCredentialHintForJSONConstruction(t *testing.T) {
 		t.Fatalf("unexpected create arguments: %#v", db.args)
 	}
 }
+
+func TestDurableDependenciesUseCurrentOwnerScopedSchema(t *testing.T) {
+	db := &captureDB{}
+	_, err := NewPostgresStore(db, DefaultRegistry()).HasDependencies(context.Background(), "user-1", "connection-1")
+	if err == nil {
+		t.Fatal("expected the capture row to stop the scan")
+	}
+	for _, required := range []string{
+		"provider_connections",
+		"provider_category='ai'",
+		"neural_engine_preferences",
+		"automation_mandates",
+		"automation_mandate_versions",
+		"snapshot->>'ai_provider_connection_id'",
+	} {
+		if !strings.Contains(db.query, required) {
+			t.Fatalf("durable dependency query is missing %q: %s", required, db.query)
+		}
+	}
+	if strings.Contains(db.query, "automation_configs") {
+		t.Fatalf("durable dependency query uses the retired automation table: %s", db.query)
+	}
+	if len(db.args) != 2 || db.args[0] != "connection-1" || db.args[1] != "user-1" {
+		t.Fatalf("unexpected dependency arguments: %#v", db.args)
+	}
+}
+
+func TestRuntimeUseIncludesCurrentMandatesAndPinnedImmutableVersions(t *testing.T) {
+	db := &captureDB{}
+	_, err := NewPostgresStore(db, DefaultRegistry()).ConnectionInUse(context.Background(), "user-1", "connection-1")
+	if err == nil {
+		t.Fatal("expected the capture row to stop the scan")
+	}
+	for _, required := range []string{
+		"provider_category='ai'",
+		"m.status IN ('READY','PAUSED')",
+		"strategy_instances",
+		"i.status IN ('ACTIVE','PAUSED')",
+		"v.version_number=i.mandate_version",
+		"snapshot->>'ai_provider_connection_id'",
+	} {
+		if !strings.Contains(db.query, required) {
+			t.Fatalf("runtime dependency query is missing %q: %s", required, db.query)
+		}
+	}
+	if len(db.args) != 2 || db.args[0] != "connection-1" || db.args[1] != "user-1" {
+		t.Fatalf("unexpected runtime arguments: %#v", db.args)
+	}
+}

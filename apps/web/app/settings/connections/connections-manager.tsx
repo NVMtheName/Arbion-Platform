@@ -252,6 +252,12 @@ export function ConnectionsManager({
                         </div>
                         {replacing === c.id && (
                           <form onSubmit={(e) => replace(e, c.id)}>
+                            <p className="connection-card-state">
+                              Finish dependent autonomous strategies and move
+                              their mandates out of Ready or Paused first. If
+                              replacement is blocked, the current key stays
+                              active and unchanged.
+                            </p>
                             <label>
                               New API key
                               <input
@@ -262,7 +268,7 @@ export function ConnectionsManager({
                                 autoComplete="off"
                               />
                             </label>
-                            <button>Save replacement</button>
+                            <button>Store replacement for verification</button>
                           </form>
                         )}
                       </div>
@@ -290,7 +296,7 @@ export function ConnectionsManager({
                       autoComplete="off"
                     />
                   </label>
-                  <button>Save and verify</button>
+                  <button>Save API key</button>
                 </form>
               )}
             </article>

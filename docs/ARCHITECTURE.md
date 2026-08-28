@@ -104,6 +104,8 @@ AI-provider credentials and financial-provider credentials are separate secret c
 
 The Go `aiconnection` domain owns authenticated AI-provider connection lifecycle and uses the shared credential vault, provider connection and Neural preference tables, audit store, authorization policy, and narrow Python client. Its centralized registry describes `openai`, `anthropic`, and `gemini`; adding a provider extends that registry and its Python adapter rather than transport handlers. Production service-to-service traffic requires workload identity, TLS, and restrictive networking beyond the local shared-token mechanism.
 
+AI connection lifecycle mutations are dependency-aware at the server boundary. Removal is refused while the connection remains referenced by a Neural preference, current mandate, or immutable mandate version. Credential replacement and disablement are refused before Vault or connection-state mutation whenever a READY/PAUSED mandate or an ACTIVE/PAUSED strategy instance uses the connection; runtime checks follow the instance's pinned immutable mandate version even when a newer DRAFT selects another model connection. A blocked operation leaves the current credential and verified state unchanged. Replacement otherwise enters `pending` and requires explicit verification, so it is deliberately not presented as zero-downtime rotation.
+
 ## Authentication architecture
 
 ## Authorization and entitlement
