@@ -1804,6 +1804,93 @@ button:disabled {
   font-size: 0.69rem;
   font-weight: 680;
 }
+.strategy-fleet-runtime {
+  margin: 0 0 12px;
+  padding: 15px;
+  border: 1px solid rgba(80, 178, 221, 0.24);
+  border-radius: 11px;
+  background:
+    radial-gradient(
+      circle at 100% 0,
+      rgba(80, 178, 221, 0.1),
+      transparent 15rem
+    ),
+    rgba(4, 15, 24, 0.74);
+}
+.strategy-fleet-runtime.needs-review {
+  border-color: rgba(216, 169, 82, 0.27);
+  border-style: dashed;
+  background: rgba(28, 22, 8, 0.56);
+}
+.strategy-fleet-runtime > header,
+.strategy-fleet-runtime > p {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.strategy-fleet-runtime > header span {
+  color: #718693;
+  font-size: 0.57rem;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+}
+.strategy-fleet-runtime > header strong {
+  color: #88cce9;
+  font-size: 0.63rem;
+  text-transform: uppercase;
+}
+.strategy-fleet-runtime.needs-review > header strong {
+  color: #e1bd79;
+}
+.strategy-fleet-runtime dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 13px 0 0;
+}
+.strategy-fleet-runtime dl > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(80, 178, 221, 0.11);
+  border-radius: 8px;
+  background: rgba(2, 8, 15, 0.34);
+}
+.strategy-fleet-runtime > p {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(80, 178, 221, 0.11);
+  color: #71828d;
+  font-size: 0.57rem;
+  line-height: 1.45;
+}
+.strategy-fleet-runtime.needs-review > p {
+  display: block;
+  margin-bottom: 10px;
+  padding-top: 0;
+  border-top: 0;
+}
+.strategy-fleet-runtime > p a,
+.strategy-fleet-runtime > a {
+  flex: 0 0 auto;
+  color: #88cce9;
+  font-size: 0.57rem;
+  font-weight: 720;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.strategy-fleet-runtime > p a:hover,
+.strategy-fleet-runtime > a:hover {
+  color: #b8e7fa;
+}
+.strategy-fleet-runtime > small {
+  display: block;
+  margin-top: 8px;
+  color: #536875;
+  font-size: 0.54rem;
+}
 .strategy-fleet-capital {
   margin: 0 0 12px;
   padding: 15px;
@@ -2449,6 +2536,13 @@ button:disabled {
   }
   .strategy-fleet-data-health dl {
     grid-template-columns: 1fr;
+  }
+  .strategy-fleet-runtime dl {
+    grid-template-columns: 1fr;
+  }
+  .strategy-fleet-runtime > p {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .strategy-fleet-capital dl {
     grid-template-columns: 1fr;

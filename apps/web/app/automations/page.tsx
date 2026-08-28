@@ -6,6 +6,10 @@ import { AppPageHeader } from "../app-page-header";
 import { capitalReservationMatchesPolicy } from "./capital-authority";
 import { asList } from "./response";
 import {
+  projectPinnedAIRuntime,
+  scheduleMatchesPinnedAIRuntime,
+} from "./runtime-contract";
+import {
   reconciliationFreshWithinTwentyFourHours,
   StrategyFleet,
   type StrategyFleetItem,
@@ -113,6 +117,9 @@ function currentInstance(mandate: RecordValue, instances: RecordValue[]) {
       ["ACTIVE", "PAUSED"].includes(text(instance, "status", "Status") ?? ""),
     ) ??
     matches.find(
+      (instance) => text(instance, "status", "Status") === "ERROR",
+    ) ??
+    matches.find(
       (instance) =>
         number(instance, "mandate_version", "MandateVersion") === version,
     )
@@ -136,8 +143,26 @@ async function fleetItem(
   instanceContextAvailable: boolean,
 ): Promise<StrategyFleetItem> {
   const id = text(mandate, "id", "ID") ?? "";
+  const mutableAutomationType =
+    text(mandate, "automation_type", "AutomationType") ?? "UNKNOWN";
+  const instance = currentInstance(mandate, instances);
+  const instanceID = text(instance, "id", "ID");
+  const instanceStatus = text(instance, "status", "Status");
+  const instanceIsAIRuntime =
+    text(instance, "strategy_identifier", "StrategyIdentifier") === "ai_shadow";
+  const expectsPinnedRuntime =
+    Boolean(instanceID) &&
+    ["ACTIVE", "PAUSED", "ERROR"].includes(instanceStatus ?? "") &&
+    instanceIsAIRuntime;
+  const pinnedMandateVersion = number(
+    instance,
+    "mandate_version",
+    "MandateVersion",
+  );
   const accountID =
-    text(mandate, "financial_account_id", "FinancialAccountID") ?? "";
+    (expectsPinnedRuntime
+      ? text(instance, "financial_account_id", "FinancialAccountID")
+      : text(mandate, "financial_account_id", "FinancialAccountID")) ?? "";
   const account = accounts.find(
     (candidate) => text(candidate, "id", "ID") === accountID,
   );
@@ -149,11 +174,10 @@ async function fleetItem(
   const financialConnection = financialConnections.find(
     (candidate) => text(candidate, "id", "ID") === financialConnectionID,
   );
-  const instance = currentInstance(mandate, instances);
-  const instanceID = text(instance, "id", "ID");
-  const instanceStatus = text(instance, "status", "Status");
   const capitalBucketID =
-    text(mandate, "capital_bucket_id", "CapitalBucketID") ?? "";
+    (expectsPinnedRuntime
+      ? text(instance, "capital_bucket_id", "CapitalBucketID")
+      : text(mandate, "capital_bucket_id", "CapitalBucketID")) ?? "";
   const capitalBucket = capitalBuckets.find(
     (candidate) => text(candidate, "id", "ID") === capitalBucketID,
   );
@@ -210,18 +234,18 @@ async function fleetItem(
     "reservation_basis",
     "ReservationBasis",
   );
-  const automationType =
-    text(mandate, "automation_type", "AutomationType") ?? "UNKNOWN";
   const expectsSchedule =
     Boolean(instanceID) && ["ACTIVE", "PAUSED"].includes(instanceStatus ?? "");
   const expectsEvidence =
-    Boolean(instanceID) && automationType === "AI_AUTONOMOUS";
+    Boolean(instanceID) &&
+    (instanceIsAIRuntime || mutableAutomationType === "AI_AUTONOMOUS");
   const expectsOperationalData =
-    instanceStatus === "ACTIVE" && automationType === "AI_AUTONOMOUS";
+    instanceStatus === "ACTIVE" &&
+    (instanceIsAIRuntime || mutableAutomationType === "AI_AUTONOMOUS");
   const expectsCapitalData =
     Boolean(instanceID) &&
     ["ACTIVE", "PAUSED"].includes(instanceStatus ?? "") &&
-    automationType === "AI_AUTONOMOUS";
+    (instanceIsAIRuntime || mutableAutomationType === "AI_AUTONOMOUS");
   const capitalContextAvailable =
     capitalBucketContextAvailable && capitalReservationContextAvailable;
   const capitalBindingValid =
@@ -258,13 +282,22 @@ async function fleetItem(
       reservationAccountLimit: capitalReservationAccountLimit,
     });
   const [
+    versionResult,
     scheduleResult,
     scorecardResult,
     decisionResult,
     reconciliationResult,
   ] = await Promise.all([
-    expectsSchedule
-      ? fetchOptional<{ schedule?: RecordValue }>(
+    expectsPinnedRuntime
+      ? pinnedMandateVersion
+        ? fetchOptional<{ version?: RecordValue }>(
+            `${base}/api/automations/${encodeURIComponent(id)}/versions/${pinnedMandateVersion}`,
+            headers,
+          )
+        : Promise.resolve({ available: false as const, payload: undefined })
+      : Promise.resolve({ available: true as const, payload: undefined }),
+    expectsSchedule || expectsPinnedRuntime
+      ? fetchOptional<RecordValue>(
           `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/schedule`,
           headers,
         )
@@ -288,7 +321,40 @@ async function fleetItem(
         )
       : Promise.resolve({ available: true as const, payload: undefined }),
   ]);
-  const schedule = scheduleResult.payload?.schedule;
+  if (
+    [
+      versionResult,
+      scheduleResult,
+      scorecardResult,
+      decisionResult,
+      reconciliationResult,
+    ].some((result) => "status" in result && result.status === 401)
+  )
+    redirect("/login");
+  const runtimeContract = expectsPinnedRuntime
+    ? projectPinnedAIRuntime({
+        mandate,
+        instance: instance ?? {},
+        versionAvailable: versionResult.available,
+        version: versionResult.payload?.version,
+      })
+    : undefined;
+  const runtimeScheduleBindingValid = expectsPinnedRuntime
+    ? scheduleMatchesPinnedAIRuntime({
+        contract: runtimeContract!,
+        instanceID: instanceID ?? "",
+        mandateID: id,
+        scheduleAvailable: scheduleResult.available,
+        envelope: scheduleResult.payload,
+      })
+    : undefined;
+  const displayConfiguration = expectsPinnedRuntime
+    ? runtimeContract?.configuration
+    : mandate;
+  const automationType =
+    text(displayConfiguration, "automation_type", "AutomationType") ??
+    mutableAutomationType;
+  const schedule = record(scheduleResult.payload?.schedule);
   const scorecard = scorecardResult.payload?.scorecard;
   const evidenceGate = (scorecard?.evidence_gate ?? scorecard?.EvidenceGate) as
     | RecordValue
@@ -326,7 +392,7 @@ async function fleetItem(
   return {
     id,
     financialAccountID: accountID,
-    title: strategyTitle(mandate),
+    title: strategyTitle(displayConfiguration ?? mandate),
     accountName:
       text(account, "display_name", "DisplayName") ?? "Connected account",
     provider: text(account, "provider", "Provider") ?? "connected_account",
@@ -359,23 +425,59 @@ async function fleetItem(
     capitalReservationCurrency,
     capitalReservationBasis,
     capitalReservationAccountLimit,
+    runtimeVersionContextAvailable: expectsPinnedRuntime
+      ? runtimeContract?.contextAvailable
+      : undefined,
+    runtimeBindingValid: expectsPinnedRuntime
+      ? runtimeContract?.bindingValid
+      : undefined,
+    runtimeScheduleBindingValid,
+    runtimeMandateVersion: runtimeContract?.pinnedVersion,
+    currentMandateVersion:
+      runtimeContract?.currentVersion ??
+      number(mandate, "current_version", "CurrentVersion"),
+    runtimeSnapshotStatus: expectsPinnedRuntime
+      ? text(runtimeContract?.configuration, "status", "Status")
+      : undefined,
+    newerDraftAvailable: runtimeContract?.newerDraftAvailable,
+    runtimeMaxProposalNotional: runtimeContract?.maxProposalNotional,
+    runtimeMaxTradesPerDay: runtimeContract?.maxTradesPerDay,
+    runtimeLegacyDailyActionLimitMissing:
+      runtimeContract?.legacyDailyActionLimitMissing,
+    runtimeScheduleEnabled: runtimeContract?.scheduleEnabled,
+    runtimeScheduleIntervalMinutes: runtimeContract?.scheduleIntervalMinutes,
+    runtimeScheduleSession: runtimeContract?.scheduleSession,
     automationType,
     mandateStatus: text(mandate, "status", "Status") ?? "UNKNOWN",
     autonomyLevel:
-      text(mandate, "autonomy_level", "AutonomyLevel") ?? "UNKNOWN",
+      text(displayConfiguration, "autonomy_level", "AutonomyLevel") ??
+      "UNKNOWN",
     executionMode:
-      text(mandate, "execution_mode", "ExecutionMode") ?? "UNKNOWN",
-    modelID: text(mandate, "ai_model_id", "AIModelID"),
-    symbols: symbols(mandate),
+      (expectsPinnedRuntime
+        ? text(instance, "execution_mode", "ExecutionMode")
+        : text(mandate, "execution_mode", "ExecutionMode")) ?? "UNKNOWN",
+    modelID: text(displayConfiguration, "ai_model_id", "AIModelID"),
+    symbols: displayConfiguration ? symbols(displayConfiguration) : [],
     instanceStatus,
     currentState: text(instance, "current_state", "CurrentState"),
     lastEvaluatedAt: text(instance, "last_evaluated_at", "LastEvaluatedAt"),
     scheduleAvailable: expectsSchedule ? scheduleResult.available : undefined,
-    scheduleEnabled: flag(schedule, "enabled", "Enabled"),
-    scheduleStatus: text(schedule, "last_status", "LastStatus"),
+    scheduleEnabled:
+      !expectsPinnedRuntime || runtimeScheduleBindingValid
+        ? flag(schedule, "enabled", "Enabled")
+        : undefined,
+    scheduleStatus:
+      !expectsPinnedRuntime || runtimeScheduleBindingValid
+        ? text(schedule, "last_status", "LastStatus")
+        : undefined,
     consecutiveFailures:
-      number(schedule, "consecutive_failures", "ConsecutiveFailures") ?? 0,
-    nextRunAt: text(schedule, "next_run_at", "NextRunAt"),
+      !expectsPinnedRuntime || runtimeScheduleBindingValid
+        ? (number(schedule, "consecutive_failures", "ConsecutiveFailures") ?? 0)
+        : 0,
+    nextRunAt:
+      !expectsPinnedRuntime || runtimeScheduleBindingValid
+        ? text(schedule, "next_run_at", "NextRunAt")
+        : undefined,
     evidenceAvailable: expectsEvidence ? evidenceAvailable : undefined,
     evidenceStatus: text(evidenceGate, "status", "Status"),
     oneHourSampleSize: number(

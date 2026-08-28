@@ -31,6 +31,19 @@ const coinbaseEngine: StrategyFleetItem = {
   capitalReservationCurrency: "USD",
   capitalReservationBasis: "BUCKET_FIXED_CAPACITY",
   capitalReservationAccountLimit: "1000.0000000000",
+  runtimeVersionContextAvailable: true,
+  runtimeBindingValid: true,
+  runtimeScheduleBindingValid: true,
+  runtimeMandateVersion: 6,
+  currentMandateVersion: 6,
+  runtimeSnapshotStatus: "READY",
+  newerDraftAvailable: false,
+  runtimeMaxProposalNotional: "1.0000000000",
+  runtimeMaxTradesPerDay: 1,
+  runtimeLegacyDailyActionLimitMissing: false,
+  runtimeScheduleEnabled: true,
+  runtimeScheduleIntervalMinutes: 60,
+  runtimeScheduleSession: "CONTINUOUS",
   automationType: "AI_AUTONOMOUS",
   mandateStatus: "READY",
   autonomyLevel: "FULL_AUTONOMOUS",
@@ -128,9 +141,26 @@ describe("StrategyFleet", () => {
     expect(summary).toHaveTextContent("Attention0engine health signals");
     expect(summary).toHaveTextContent("Drafts1not initialized");
     expect(screen.getByText("Coinbase Portfolio ••••a5d0")).toBeInTheDocument();
-    expect(screen.getByText("gpt-5.6-sol")).toBeInTheDocument();
-    expect(screen.getByText("BTC · ETH · XRP +1")).toBeInTheDocument();
+    expect(screen.getAllByText("gpt-5.6-sol")).toHaveLength(2);
+    expect(screen.getAllByText("BTC · ETH · XRP +1")).toHaveLength(2);
     expect(screen.getByText("Healthy schedule")).toBeInTheDocument();
+    const runtimeContract = screen.getByRole("region", {
+      name: "AI Shadow Engine immutable runtime contract",
+    });
+    expect(runtimeContract).toHaveTextContent("PINNED v6");
+    expect(runtimeContract).toHaveTextContent("Ready · immutable");
+    expect(runtimeContract).toHaveTextContent("$1");
+    expect(runtimeContract).toHaveTextContent("1 action / UTC day");
+    expect(runtimeContract).toHaveTextContent("60 min · Continuous");
+    expect(runtimeContract).toHaveTextContent("v6 · Matches runtime");
+    expect(runtimeContract).toHaveTextContent(
+      "Version and schedule identities match",
+    );
+    expect(
+      within(runtimeContract).getByRole("link", {
+        name: /Exact configuration/i,
+      }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#configuration-controls");
     const dataHealth = screen.getByRole("region", {
       name: "AI Shadow Engine account data health",
     });
@@ -256,6 +286,121 @@ describe("StrategyFleet", () => {
       "Review AI Shadow Engine capital authority",
     );
     expect(queue).toHaveTextContent("no broker funds moved");
+  });
+
+  it("fails closed when the pinned version or schedule identity cannot be verified", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            runtimeBindingValid: false,
+            runtimeScheduleBindingValid: false,
+          },
+        ]}
+      />,
+    );
+
+    const runtimeContract = screen.getByRole("region", {
+      name: "AI Shadow Engine immutable runtime contract",
+    });
+    expect(runtimeContract).toHaveTextContent("Review required");
+    expect(runtimeContract).toHaveTextContent(
+      "hidden until the exact pinned mandate version and schedule binding can be verified",
+    );
+    expect(runtimeContract).not.toHaveTextContent("PINNED v6");
+    expect(runtimeContract).not.toHaveTextContent("$1");
+    expect(screen.getByText("Pinned model unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Pinned universe unavailable")).toBeInTheDocument();
+    expect(
+      within(runtimeContract).getByRole("link", {
+        name: /Review runtime contract/i,
+      }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#configuration-controls");
+
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    expect(queue).toHaveTextContent("Review AI Shadow Engine runtime contract");
+    expect(queue).toHaveTextContent("no runtime setting or broker action");
+  });
+
+  it("keeps a newer editable draft separate from the immutable running version", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            mandateStatus: "DRAFT",
+            runtimeMandateVersion: 6,
+            currentMandateVersion: 7,
+            newerDraftAvailable: true,
+          },
+        ]}
+      />,
+    );
+
+    const runtimeContract = screen.getByRole("region", {
+      name: "AI Shadow Engine immutable runtime contract",
+    });
+    expect(runtimeContract).toHaveTextContent("PINNED v6");
+    expect(runtimeContract).toHaveTextContent("v7 · Draft separate");
+    expect(runtimeContract).toHaveTextContent(
+      "Version and schedule identities match",
+    );
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    expect(queue).toHaveTextContent("Finish reviewing AI Shadow Engine");
+  });
+
+  it("does not label a newer ready configuration as the running version", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            mandateStatus: "READY",
+            runtimeMandateVersion: 6,
+            currentMandateVersion: 7,
+            newerDraftAvailable: false,
+          },
+        ]}
+      />,
+    );
+
+    const runtimeContract = screen.getByRole("region", {
+      name: "AI Shadow Engine immutable runtime contract",
+    });
+    expect(runtimeContract).toHaveTextContent("PINNED v6");
+    expect(runtimeContract).toHaveTextContent("v7 · Ready separate");
+    expect(runtimeContract).not.toHaveTextContent("v7 · Matches runtime");
+  });
+
+  it("shows a legacy missing daily ceiling without inventing a value", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            runtimeMaxTradesPerDay: undefined,
+            runtimeLegacyDailyActionLimitMissing: true,
+          },
+        ]}
+      />,
+    );
+
+    const runtimeContract = screen.getByRole("region", {
+      name: "AI Shadow Engine immutable runtime contract",
+    });
+    expect(runtimeContract).toHaveTextContent("Not recorded · legacy");
+    expect(runtimeContract).toHaveTextContent(
+      "Legacy daily ceiling is absent and not inferred",
+    );
+    expect(runtimeContract).not.toHaveTextContent("1 action / UTC day");
+    expect(
+      screen.getByRole("region", { name: "No owner action right now." }),
+    ).toBeInTheDocument();
   });
 
   it("surfaces exact blocking portfolio drift ahead of later lifecycle work", () => {
