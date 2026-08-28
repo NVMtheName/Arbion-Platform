@@ -40,6 +40,12 @@ const coinbaseEngine: StrategyFleetItem = {
   latestDecisionType: "ABSTAIN",
   latestDecisionAt: "2026-08-26T16:17:39Z",
   latestDecisionSymbol: "NONE",
+  latestDecisionAIProvider: "openai",
+  latestDecisionAIModelID: "gpt-5.6-sol",
+  latestDecisionAIProfile: "deep",
+  latestDecisionLatencyMS: 1842,
+  latestDecisionInputUsage: 12540,
+  latestDecisionOutputUsage: 422,
 };
 
 describe("StrategyFleet", () => {
@@ -163,6 +169,11 @@ describe("StrategyFleet", () => {
     expect(pulse).toHaveTextContent("No action proposed");
     expect(pulse).toHaveTextContent("Risk gate not reached");
     expect(pulse).toHaveTextContent("No execution record");
+    expect(pulse).toHaveTextContent("OpenAI · gpt-5.6-sol · Deep");
+    expect(pulse).toHaveTextContent("1,842 ms · 12,540 in / 422 out");
+    expect(
+      within(pulse).getByRole("link", { name: /Decision journal/i }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#decision-journal");
   });
 
   it("shows a deterministic risk hold without presenting an order", () => {
@@ -269,6 +280,31 @@ describe("StrategyFleet", () => {
     expect(
       screen.getByRole("region", { name: "No owner action right now." }),
     ).toBeInTheDocument();
+  });
+
+  it("keeps missing route provenance explicitly unattributed", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            latestDecisionAIProvider: undefined,
+            latestDecisionAIModelID: undefined,
+            latestDecisionAIProfile: undefined,
+            latestDecisionLatencyMS: undefined,
+            latestDecisionInputUsage: undefined,
+            latestDecisionOutputUsage: undefined,
+          },
+        ]}
+      />,
+    );
+
+    const pulse = screen.getByRole("region", {
+      name: "AI Shadow Engine latest AI decision",
+    });
+    expect(pulse).toHaveTextContent("Unattributed legacy route");
+    expect(pulse).toHaveTextContent("Telemetry unavailable");
+    expect(pulse).not.toHaveTextContent("OpenAI");
   });
 
   it("surfaces an exact reviewable snapshot without granting authority", () => {
