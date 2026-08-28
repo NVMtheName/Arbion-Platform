@@ -540,6 +540,52 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 	return portfolio, nil
 }
 
+func (s *PostgresStore) AIPaperSpotFills(c context.Context, userID, instanceID string, limit int, after *AIPaperSpotFillCursor) ([]AIPaperSpotFill, error) {
+	query := `SELECT f.id::text,f.strategy_instance_id::text,f.execution_record_id::text,f.proposed_action_id,f.risk_evaluation_id::text,
+		f.symbol,f.instrument,f.side,f.quantity::text,f.requested_notional::text,f.reference_price::text,f.fill_price::text,
+		f.gross_notional::text,f.fee::text,f.previous_cash::text,f.previous_position_quantity::text,f.resulting_cash::text,
+		f.resulting_position_quantity::text,f.pricing_basis,f.market_provider,f.market_feed,f.market_quality,
+		f.market_observed_at,f.simulated_at,f.simulation_only
+		FROM ai_paper_spot_fills f
+		JOIN strategy_instances i ON i.id=f.strategy_instance_id AND i.user_id=f.user_id
+		WHERE f.strategy_instance_id=$1 AND f.user_id=$2
+		  AND i.strategy_identifier='ai_shadow' AND i.execution_mode='PAPER'
+		ORDER BY f.simulated_at DESC,f.id DESC LIMIT $3`
+	args := []any{instanceID, userID, limit}
+	if after != nil {
+		query = `SELECT f.id::text,f.strategy_instance_id::text,f.execution_record_id::text,f.proposed_action_id,f.risk_evaluation_id::text,
+			f.symbol,f.instrument,f.side,f.quantity::text,f.requested_notional::text,f.reference_price::text,f.fill_price::text,
+			f.gross_notional::text,f.fee::text,f.previous_cash::text,f.previous_position_quantity::text,f.resulting_cash::text,
+			f.resulting_position_quantity::text,f.pricing_basis,f.market_provider,f.market_feed,f.market_quality,
+			f.market_observed_at,f.simulated_at,f.simulation_only
+			FROM ai_paper_spot_fills f
+			JOIN strategy_instances i ON i.id=f.strategy_instance_id AND i.user_id=f.user_id
+			WHERE f.strategy_instance_id=$1 AND f.user_id=$2
+			  AND i.strategy_identifier='ai_shadow' AND i.execution_mode='PAPER'
+			  AND (f.simulated_at,f.id)<($3,$4)
+			ORDER BY f.simulated_at DESC,f.id DESC LIMIT $5`
+		args = []any{instanceID, userID, after.SimulatedAt, after.ID, limit}
+	}
+	rows, err := s.db.Query(c, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	fills := []AIPaperSpotFill{}
+	for rows.Next() {
+		var fill AIPaperSpotFill
+		if err = rows.Scan(&fill.ID, &fill.StrategyInstanceID, &fill.ExecutionRecordID, &fill.ProposedActionID, &fill.RiskEvaluationID,
+			&fill.Symbol, &fill.Instrument, &fill.Side, &fill.Quantity, &fill.RequestedNotional, &fill.ReferencePrice, &fill.FillPrice,
+			&fill.GrossNotional, &fill.Fee, &fill.PreviousCash, &fill.PreviousPositionQuantity, &fill.ResultingCash,
+			&fill.ResultingPositionQuantity, &fill.PricingBasis, &fill.MarketProvider, &fill.MarketFeed, &fill.MarketQuality,
+			&fill.MarketObservedAt, &fill.SimulatedAt, &fill.SimulationOnly); err != nil {
+			return nil, err
+		}
+		fills = append(fills, fill)
+	}
+	return fills, rows.Err()
+}
+
 var _ Persistence = (*PostgresStore)(nil)
 var _ Repository = (*PostgresStore)(nil)
 

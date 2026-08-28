@@ -126,6 +126,14 @@ func TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected(t *testing.T)
 	if err = pool.QueryRow(ctx, `SELECT simulation_only::text FROM ai_paper_spot_fills WHERE user_id=$1`, userID).Scan(&simulationOnly); err != nil || simulationOnly != "true" {
 		t.Fatalf("paper fill lost its simulation-only marker: %q %v", simulationOnly, err)
 	}
+	fills, err := store.AIPaperSpotFills(ctx, userID, instance.ID, 25, nil)
+	if err != nil || len(fills) != 1 || fills[0].ExecutionRecordID == "" || fills[0].MarketProvider != "coinbase" || fills[0].MarketFeed != "advanced_trade" || !fills[0].SimulationOnly {
+		t.Fatalf("owner AI Paper fill projection is wrong: fills=%#v err=%v", fills, err)
+	}
+	otherOwnerFills, err := store.AIPaperSpotFills(ctx, "99999999-9999-4999-8999-999999999999", instance.ID, 25, nil)
+	if err != nil || len(otherOwnerFills) != 0 {
+		t.Fatalf("AI Paper fill projection crossed owners: fills=%#v err=%v", otherOwnerFills, err)
+	}
 
 	staleAction := action
 	staleAction.ID = "ai-paper:buy:stale"

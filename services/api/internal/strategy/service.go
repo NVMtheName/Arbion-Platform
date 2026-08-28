@@ -114,6 +114,9 @@ type CapitalReservationReader interface {
 type CapitalReservationListReader interface {
 	CapitalReservations(context.Context, string) ([]CapitalReservation, error)
 }
+type AIPaperSpotFillReader interface {
+	AIPaperSpotFills(context.Context, string, string, int, *AIPaperSpotFillCursor) ([]AIPaperSpotFill, error)
+}
 type DecisionJournalEntry struct {
 	ID, StrategyInstanceID, StrategyState, Source, DecisionType           string
 	StructuredRationale                                                   json.RawMessage
@@ -555,6 +558,37 @@ func (s *InstanceService) PaperPortfolio(c context.Context, p authorization.Prin
 		return PaperPortfolio{}, ErrNotFound
 	}
 	return portfolio, nil
+}
+
+func (s *InstanceService) AIPaperSpotFills(c context.Context, p authorization.Principal, id string, limit int, cursor *AIPaperSpotFillCursor) (AIPaperSpotFillPage, error) {
+	if !entitled(p) {
+		return AIPaperSpotFillPage{}, ErrForbidden
+	}
+	if limit < 1 || limit > 100 || (cursor != nil && (cursor.SimulatedAt.IsZero() || cursor.ID == "")) {
+		return AIPaperSpotFillPage{}, ErrInvalid
+	}
+	instance, err := s.store.Get(c, p.UserID, id)
+	if err != nil {
+		return AIPaperSpotFillPage{}, ErrNotFound
+	}
+	if instance.ExecutionMode != Paper || instance.StrategyIdentifier != "ai_shadow" {
+		return AIPaperSpotFillPage{}, ErrInvalid
+	}
+	reader, ok := s.store.(AIPaperSpotFillReader)
+	if !ok {
+		return AIPaperSpotFillPage{}, ErrInvalid
+	}
+	fills, err := reader.AIPaperSpotFills(c, p.UserID, id, limit+1, cursor)
+	if err != nil {
+		return AIPaperSpotFillPage{}, err
+	}
+	page := AIPaperSpotFillPage{Fills: fills}
+	if len(page.Fills) > limit {
+		last := page.Fills[limit-1]
+		page.Fills = page.Fills[:limit]
+		page.NextCursor = &AIPaperSpotFillCursor{SimulatedAt: last.SimulatedAt, ID: last.ID}
+	}
+	return page, nil
 }
 
 func (s *InstanceService) Journal(c context.Context, p authorization.Principal, limit int, cursor *JournalCursor) (JournalPage, error) {

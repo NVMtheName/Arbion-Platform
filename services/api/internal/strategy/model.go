@@ -400,6 +400,47 @@ type PaperPosition struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// AIPaperSpotFill is the owner-facing projection of one immutable simulated
+// spot fill. All monetary values remain exact decimal strings and the market
+// fields identify the provider-derived reference used by the simulator.
+type AIPaperSpotFill struct {
+	ID                        string    `json:"id"`
+	StrategyInstanceID        string    `json:"strategy_instance_id"`
+	ExecutionRecordID         string    `json:"execution_record_id"`
+	ProposedActionID          string    `json:"proposed_action_id"`
+	RiskEvaluationID          string    `json:"risk_evaluation_id"`
+	Symbol                    string    `json:"symbol"`
+	Instrument                string    `json:"instrument"`
+	Side                      string    `json:"side"`
+	Quantity                  string    `json:"quantity"`
+	RequestedNotional         string    `json:"requested_notional"`
+	ReferencePrice            string    `json:"reference_price"`
+	FillPrice                 string    `json:"fill_price"`
+	GrossNotional             string    `json:"gross_notional"`
+	Fee                       string    `json:"fee"`
+	PreviousCash              string    `json:"previous_cash"`
+	PreviousPositionQuantity  string    `json:"previous_position_quantity"`
+	ResultingCash             string    `json:"resulting_cash"`
+	ResultingPositionQuantity string    `json:"resulting_position_quantity"`
+	PricingBasis              string    `json:"pricing_basis"`
+	MarketProvider            string    `json:"market_provider"`
+	MarketFeed                string    `json:"market_feed"`
+	MarketQuality             string    `json:"market_quality"`
+	MarketObservedAt          time.Time `json:"market_observed_at"`
+	SimulatedAt               time.Time `json:"simulated_at"`
+	SimulationOnly            bool      `json:"simulation_only"`
+}
+
+type AIPaperSpotFillCursor struct {
+	SimulatedAt time.Time
+	ID          string
+}
+
+type AIPaperSpotFillPage struct {
+	Fills      []AIPaperSpotFill
+	NextCursor *AIPaperSpotFillCursor
+}
+
 // JournalCursor identifies a stable point in the reverse-chronological
 // decision feed. IDs disambiguate entries that share the same timestamp.
 type JournalCursor struct {

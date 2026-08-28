@@ -1,6 +1,6 @@
 export type PaperPosition = {
   symbol: string;
-  instrument: "EQUITY" | "OPTION";
+  instrument: "EQUITY" | "OPTION" | "CRYPTO";
   option_type?: "PUT" | "CALL";
   strike?: string;
   expiration?: string;
@@ -8,6 +8,27 @@ export type PaperPosition = {
   average_price: string;
   is_open: boolean;
   updated_at: string;
+};
+
+export type AIPaperSpotFill = {
+  id: string;
+  symbol: string;
+  instrument: "EQUITY" | "CRYPTO";
+  side: "BUY" | "SELL";
+  quantity: string;
+  reference_price: string;
+  fill_price: string;
+  gross_notional: string;
+  fee: string;
+  resulting_cash: string;
+  resulting_position_quantity: string;
+  pricing_basis: string;
+  market_provider: string;
+  market_feed: string;
+  market_quality: string;
+  market_observed_at: string;
+  simulated_at: string;
+  simulation_only: boolean;
 };
 
 export type PaperPortfolio = {
@@ -44,6 +65,7 @@ function quantity(value: string) {
 }
 
 function contract(position: PaperPosition, currency: string) {
+  if (position.instrument === "CRYPTO") return "Crypto spot";
   if (position.instrument !== "OPTION") return "Shares";
   return `${position.option_type ?? "Option"} · ${money(
     position.strike ?? "0",
@@ -54,9 +76,11 @@ function contract(position: PaperPosition, currency: string) {
 export function PaperPortfolioSummary({
   portfolio,
   executionMode,
+  fills = [],
 }: {
   portfolio?: PaperPortfolio;
   executionMode: string;
+  fills?: AIPaperSpotFill[];
 }) {
   if (executionMode !== "PAPER") {
     return (
@@ -149,6 +173,58 @@ export function PaperPortfolioSummary({
           No simulated positions have been created for this strategy yet.
         </p>
       )}
+      <div className="paper-fill-ledger">
+        <p className="eyebrow">AI PAPER FILL LEDGER · IMMUTABLE</p>
+        <h3>Simulated spot executions</h3>
+        <p>
+          Each row records the exact provider market reference, deterministic
+          slippage, and fee used by Arbion. It is simulation evidence—not a
+          broker order or account transaction.
+        </p>
+        {fills.length > 0 ? (
+          <div className="paper-position-table-wrap">
+            <table
+              className="paper-position-table"
+              aria-label="Immutable AI Paper simulated fills"
+            >
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Action</th>
+                  <th>Quantity</th>
+                  <th>Market → simulated fill</th>
+                  <th>Fee</th>
+                  <th>Market source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fills.map((fill) => (
+                  <tr key={fill.id}>
+                    <td>{new Date(fill.simulated_at).toLocaleString()}</td>
+                    <td>
+                      {fill.side} {fill.symbol}
+                    </td>
+                    <td>{quantity(fill.quantity)}</td>
+                    <td>
+                      {money(fill.reference_price, portfolio.currency)} →{" "}
+                      {money(fill.fill_price, portfolio.currency)}
+                    </td>
+                    <td>{money(fill.fee, portfolio.currency)}</td>
+                    <td>
+                      {fill.market_provider} · {fill.market_feed} ·{" "}
+                      {fill.market_quality}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="security-note">
+            No AI Paper simulated fills exist for this strategy yet.
+          </p>
+        )}
+      </div>
     </section>
   );
 }

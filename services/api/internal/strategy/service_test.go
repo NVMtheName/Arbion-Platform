@@ -80,6 +80,10 @@ type journalPersistenceFake struct {
 	reservationError   error
 	reservations       []CapitalReservation
 	reservationsError  error
+	paperFills         []AIPaperSpotFill
+	paperFillError     error
+	paperFillLimit     int
+	paperFillAfter     *AIPaperSpotFillCursor
 }
 
 func (f *journalPersistenceFake) Initialize(_ context.Context, userID string, mandate automation.Mandate, cash string, state State) (Instance, error) {
@@ -123,6 +127,19 @@ func (f *journalPersistenceFake) CapitalReservation(_ context.Context, userID, i
 func (f *journalPersistenceFake) CapitalReservations(_ context.Context, userID string) ([]CapitalReservation, error) {
 	f.requestedUser = userID
 	return f.reservations, f.reservationsError
+}
+func (f *journalPersistenceFake) AIPaperSpotFills(_ context.Context, userID, instanceID string, limit int, after *AIPaperSpotFillCursor) ([]AIPaperSpotFill, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	f.paperFillLimit = limit
+	f.paperFillAfter = after
+	if f.paperFillError != nil {
+		return nil, f.paperFillError
+	}
+	if len(f.paperFills) < limit {
+		limit = len(f.paperFills)
+	}
+	return f.paperFills[:limit], nil
 }
 func (f *journalPersistenceFake) StrategyTransitionEntries(_ context.Context, userID, instanceID string, limit int, after *StrategyTransitionCursor) ([]StrategyTransitionEvidence, error) {
 	f.requestedUser = userID
@@ -729,6 +746,39 @@ func TestPaperPortfolioIsOwnerScopedAndPaperOnly(t *testing.T) {
 
 	if _, err = service.PaperPortfolio(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, "instance-1"); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("unentitled portfolio request was accepted: %v", err)
+	}
+}
+
+func TestAIPaperSpotFillsAreOwnerScopedPaperOnlyAndPaginated(t *testing.T) {
+	now := time.Date(2026, 8, 28, 19, 0, 0, 0, time.UTC)
+	store := &journalPersistenceFake{
+		instance: Instance{ID: "instance-1", StrategyIdentifier: "ai_shadow", ExecutionMode: Paper},
+		paperFills: []AIPaperSpotFill{
+			{ID: "11111111-1111-4111-8111-111111111111", StrategyInstanceID: "instance-1", Symbol: "BTC", SimulationOnly: true, SimulatedAt: now},
+			{ID: "22222222-2222-4222-8222-222222222222", StrategyInstanceID: "instance-1", Symbol: "ETH", SimulationOnly: true, SimulatedAt: now.Add(-time.Minute)},
+		},
+	}
+	service := NewInstanceService(store, nil)
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+	page, err := service.AIPaperSpotFills(context.Background(), principal, "instance-1", 1, nil)
+	if err != nil || len(page.Fills) != 1 || page.Fills[0].Symbol != "BTC" || page.NextCursor == nil || page.NextCursor.ID != page.Fills[0].ID {
+		t.Fatalf("AI Paper fill page changed: page=%#v err=%v", page, err)
+	}
+	if store.requestedUser != "owner" || store.requestedID != "instance-1" || store.paperFillLimit != 2 {
+		t.Fatalf("AI Paper fill owner boundary changed: %#v", store)
+	}
+
+	store.instance.ExecutionMode = Shadow
+	if _, err = service.AIPaperSpotFills(context.Background(), principal, "instance-1", 25, nil); !errors.Is(err, ErrInvalid) || store.paperFillLimit != 2 {
+		t.Fatalf("Shadow instance reached AI Paper fills: limit=%d err=%v", store.paperFillLimit, err)
+	}
+	store.instance.ExecutionMode = Paper
+	store.instance.StrategyIdentifier = "wheel"
+	if _, err = service.AIPaperSpotFills(context.Background(), principal, "instance-1", 25, nil); !errors.Is(err, ErrInvalid) || store.paperFillLimit != 2 {
+		t.Fatalf("non-AI Paper instance reached AI Paper fills: limit=%d err=%v", store.paperFillLimit, err)
+	}
+	if _, err = service.AIPaperSpotFills(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, "instance-1", 25, nil); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("unentitled AI Paper fill request was accepted: %v", err)
 	}
 }
 
