@@ -20,6 +20,9 @@ type scheduleStoreFake struct {
 	reconciliationMarker     string
 	reconciliationMarkerTime time.Time
 	markerErr                error
+	scorecard                *ShadowScorecard
+	scorecardErr             error
+	scorecardCalls           int
 }
 
 func (f *scheduleStoreFake) ClaimDueSchedule(context.Context, time.Time, time.Duration) (*ScheduledRun, error) {
@@ -39,6 +42,16 @@ func (f *scheduleStoreFake) RecordReconciliationNotification(_ context.Context, 
 	f.reconciliationMarker = reconciliationID
 	f.reconciliationMarkerTime = deliveredAt
 	return nil
+}
+func (f *scheduleStoreFake) ShadowScorecard(context.Context, string, string) (ShadowScorecard, error) {
+	f.scorecardCalls++
+	if f.scorecardErr != nil {
+		return ShadowScorecard{}, f.scorecardErr
+	}
+	if f.scorecard == nil {
+		return ShadowScorecard{}, ErrNotFound
+	}
+	return *f.scorecard, nil
 }
 
 type scheduledEvaluatorFake struct {
@@ -340,6 +353,80 @@ func TestScheduleNotificationsAreOptInVerifiedAndDeduplicated(t *testing.T) {
 		if event := scheduleNotification(suppressed[index], completions[index]); event != nil {
 			t.Fatalf("notification was not suppressed: %#v", event)
 		}
+	}
+}
+
+func TestSuccessfulAIShadowEvaluationAddsDurableGateStatusToExistingOptInEmail(t *testing.T) {
+	now := time.Date(2026, 9, 1, 1, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now.Add(-time.Minute))
+	run.ExecutionMode = Shadow
+	run.Session = "CONTINUOUS"
+	run.NotifyEvaluation = true
+	store := &scheduleStoreFake{
+		run: run,
+		scorecard: &ShadowScorecard{EvidenceGate: ShadowEvidenceGate{
+			Status:                 ShadowEvidenceReviewable,
+			ScheduleHealthy:        true,
+			LiveExecutionAvailable: false,
+		}},
+	}
+	notifier := &scheduleNotifierFake{}
+	scheduler := NewScheduler(store, &scheduledEvaluatorFake{}, notifier)
+	scheduler.now = func() time.Time { return now }
+
+	claimed, err := scheduler.RunOnce(context.Background())
+	if err != nil || !claimed || store.completion.Status != "SUCCEEDED" || store.scorecardCalls != 1 || len(notifier.events) != 1 {
+		t.Fatalf("reviewable gate was not read after durable completion: claimed=%v completion=%#v scorecard_calls=%d events=%#v err=%v", claimed, store.completion, store.scorecardCalls, notifier.events, err)
+	}
+	event := notifier.events[0]
+	if event.Kind != automationnotification.EvaluationCompleted || event.EvidenceGateStatus != ShadowEvidenceReviewable || event.ExecutionMode != string(Shadow) {
+		t.Fatalf("existing opt-in email was not safely enriched: %#v", event)
+	}
+}
+
+func TestAIShadowEvaluationFallsBackToGenericEmailWhenGateCannotBeVerified(t *testing.T) {
+	now := time.Date(2026, 9, 1, 2, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now.Add(-time.Minute))
+	run.ExecutionMode = Shadow
+	run.Session = "CONTINUOUS"
+	run.NotifyEvaluation = true
+	store := &scheduleStoreFake{run: run, scorecardErr: errors.New("database unavailable")}
+	notifier := &scheduleNotifierFake{}
+	scheduler := NewScheduler(store, &scheduledEvaluatorFake{}, notifier)
+	scheduler.now = func() time.Time { return now }
+
+	claimed, err := scheduler.RunOnce(context.Background())
+	if err != nil || !claimed || store.completion.Status != "SUCCEEDED" || len(notifier.events) != 1 || notifier.events[0].EvidenceGateStatus != "" {
+		t.Fatalf("unverified gate changed the completed schedule or invented readiness: claimed=%v completion=%#v events=%#v err=%v", claimed, store.completion, notifier.events, err)
+	}
+}
+
+func TestShadowGateIsNotReadWithoutDeliverableOptInEmail(t *testing.T) {
+	now := time.Date(2026, 9, 1, 3, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now.Add(-time.Minute))
+	run.ExecutionMode = Shadow
+	run.Session = "CONTINUOUS"
+	run.NotifyEvaluation = true
+	store := &scheduleStoreFake{
+		run:       run,
+		scorecard: &ShadowScorecard{EvidenceGate: ShadowEvidenceGate{Status: ShadowEvidenceReviewable}},
+	}
+	scheduler := NewScheduler(store, &scheduledEvaluatorFake{})
+	scheduler.now = func() time.Time { return now }
+
+	claimed, err := scheduler.RunOnce(context.Background())
+	if err != nil || !claimed || store.completion.Status != "SUCCEEDED" || store.scorecardCalls != 0 {
+		t.Fatalf("gate was read without an available notification path: claimed=%v completion=%#v scorecard_calls=%d err=%v", claimed, store.completion, store.scorecardCalls, err)
+	}
+
+	run.OwnerEmailVerified = false
+	store.run = run
+	notifier := &scheduleNotifierFake{}
+	scheduler = NewScheduler(store, &scheduledEvaluatorFake{}, notifier)
+	scheduler.now = func() time.Time { return now }
+	claimed, err = scheduler.RunOnce(context.Background())
+	if err != nil || !claimed || store.scorecardCalls != 0 || len(notifier.events) != 0 {
+		t.Fatalf("gate was read or email sent without a verified owner: claimed=%v scorecard_calls=%d events=%#v err=%v", claimed, store.scorecardCalls, notifier.events, err)
 	}
 }
 
