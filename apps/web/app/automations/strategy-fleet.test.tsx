@@ -22,6 +22,20 @@ const coinbaseEngine: StrategyFleetItem = {
   scheduleStatus: "SUCCEEDED",
   consecutiveFailures: 0,
   nextRunAt: "2026-08-26T17:17:39Z",
+  evidenceAvailable: true,
+  evidenceStatus: "COLLECTING_EVIDENCE",
+  oneHourSampleSize: 12,
+  twentyFourHourSampleSize: 4,
+  minimumSamplePerHorizon: 20,
+  evidenceWindowHours: 48,
+  minimumEvidenceWindowHours: 168,
+  evidenceScheduleHealthy: true,
+  evidenceBlockers: [
+    "ONE_HOUR_SAMPLE_INCOMPLETE",
+    "TWENTY_FOUR_HOUR_SAMPLE_INCOMPLETE",
+    "EVIDENCE_WINDOW_INCOMPLETE",
+  ],
+  currentEvidenceReviewed: false,
 };
 
 describe("StrategyFleet", () => {
@@ -129,6 +143,102 @@ describe("StrategyFleet", () => {
       "opening a control does not run a cycle or authorize an order",
     );
     expect(within(queue).queryByRole("list")).not.toBeInTheDocument();
+    const evidence = screen.getByRole("region", {
+      name: "AI Shadow Engine Shadow evidence",
+    });
+    expect(evidence).toHaveTextContent("Collecting");
+    expect(evidence).toHaveTextContent("12 / 20");
+    expect(evidence).toHaveTextContent("4 / 20");
+    expect(evidence).toHaveTextContent("48 / 168h");
+    expect(evidence).toHaveTextContent("3 remaining conditions");
+    expect(evidence).toHaveTextContent("never live authority");
+  });
+
+  it("surfaces an exact reviewable snapshot without granting authority", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            evidenceStatus: "EVIDENCE_REVIEWABLE",
+            oneHourSampleSize: 22,
+            twentyFourHourSampleSize: 20,
+            evidenceWindowHours: 171,
+            evidenceBlockers: [],
+          },
+        ]}
+      />,
+    );
+
+    const evidence = screen.getByRole("region", {
+      name: "AI Shadow Engine Shadow evidence",
+    });
+    expect(evidence).toHaveTextContent("Reviewable");
+    expect(evidence).toHaveTextContent("22 / 20");
+    expect(evidence).toHaveTextContent("20 / 20");
+    expect(evidence).toHaveTextContent("171 / 168h");
+    expect(evidence).toHaveTextContent("exact gate complete");
+    expect(
+      within(evidence).getByRole("progressbar", {
+        name: "1-hour Shadow outcome sample progress",
+      }),
+    ).toHaveAttribute("value", "20");
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    expect(
+      within(queue).getByRole("link", { name: /evidence review/i }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#shadow-evidence-review");
+    expect(queue).toHaveTextContent("grants no trading authority");
+  });
+
+  it("does not keep a currently reviewed snapshot in the owner queue", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            evidenceStatus: "EVIDENCE_REVIEWABLE",
+            oneHourSampleSize: 20,
+            twentyFourHourSampleSize: 20,
+            evidenceWindowHours: 168,
+            evidenceBlockers: [],
+            currentEvidenceReviewed: true,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Current snapshot reviewed")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "No owner action right now." }),
+    ).toBeInTheDocument();
+  });
+
+  it("fails closed when the immutable evidence scorecard is unavailable", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            evidenceAvailable: false,
+            evidenceStatus: undefined,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Evidence status unavailable")).toBeInTheDocument();
+    expect(screen.queryByText(/12 \/ 20/)).not.toBeInTheDocument();
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    expect(
+      within(queue).getByRole("link", { name: /Refresh evidence/i }),
+    ).toHaveAttribute("href", "/automations/ai-mandate");
+    expect(queue).toHaveTextContent(
+      "will not infer its sample or review status",
+    );
   });
 
   it("orders failed schedules before draft and paused owner choices", () => {

@@ -149,6 +149,7 @@ export function ShadowEvidenceReviewControls({
 
   return (
     <section
+      id="shadow-evidence-review"
       className="shadow-evidence-review"
       aria-label="Shadow evidence review"
     >

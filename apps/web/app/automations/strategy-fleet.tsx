@@ -19,6 +19,16 @@ export type StrategyFleetItem = {
   scheduleStatus?: string;
   consecutiveFailures: number;
   nextRunAt?: string;
+  evidenceAvailable?: boolean;
+  evidenceStatus?: string;
+  oneHourSampleSize?: number;
+  twentyFourHourSampleSize?: number;
+  minimumSamplePerHorizon?: number;
+  evidenceWindowHours?: number;
+  minimumEvidenceWindowHours?: number;
+  evidenceScheduleHealthy?: boolean;
+  evidenceBlockers?: string[];
+  currentEvidenceReviewed?: boolean;
   accountContextAvailable?: boolean;
   instanceContextAvailable?: boolean;
 };
@@ -102,6 +112,7 @@ function needsReview(item: StrategyFleetItem) {
     item.accountContextAvailable === false ||
     item.instanceContextAvailable === false ||
     item.scheduleAvailable === false ||
+    item.evidenceAvailable === false ||
     item.scheduleStatus === "FAILED" ||
     item.consecutiveFailures > 0
   );
@@ -195,6 +206,35 @@ export function selectStrategyFleetNextAction(
           : `${item.consecutiveFailures} consecutive ${item.consecutiveFailures === 1 ? "failure" : "failures"}. The scheduler failed closed without broker execution.`,
       href: `${destination}#schedule-controls`,
       actionLabel: "Review schedule",
+    };
+  }
+  if (item.evidenceAvailable === false) {
+    return {
+      ...identity,
+      priority: 3,
+      tone: "ATTENTION",
+      eyebrow: "EVIDENCE STATUS UNAVAILABLE",
+      title: `Refresh ${item.title} evidence`,
+      detail:
+        "Arbion could not refresh the immutable Shadow scorecard and will not infer its sample or review status.",
+      href: destination,
+      actionLabel: "Refresh evidence",
+    };
+  }
+  if (
+    item.evidenceStatus === "EVIDENCE_REVIEWABLE" &&
+    !item.currentEvidenceReviewed
+  ) {
+    return {
+      ...identity,
+      priority: 4,
+      tone: "READY",
+      eyebrow: "SHADOW EVIDENCE REVIEWABLE",
+      title: `Review ${item.title} evidence`,
+      detail:
+        "The exact non-live sample and time-window gate has passed. Review is an acknowledgment only and grants no trading authority.",
+      href: `${destination}#shadow-evidence-review`,
+      actionLabel: "Open evidence review",
     };
   }
   if (item.mandateStatus === "DRAFT") {
@@ -305,6 +345,134 @@ function coverageLabel(symbols: string[]) {
   if (symbols.length === 0) return "Not defined";
   if (symbols.length <= 3) return symbols.join(" · ");
   return `${symbols.slice(0, 3).join(" · ")} +${symbols.length - 3}`;
+}
+
+function boundedProgress(
+  value: number | undefined,
+  maximum: number | undefined,
+) {
+  if (
+    value === undefined ||
+    maximum === undefined ||
+    !Number.isFinite(value) ||
+    !Number.isFinite(maximum) ||
+    value < 0 ||
+    maximum <= 0
+  )
+    return undefined;
+  return { value: Math.min(value, maximum), maximum };
+}
+
+function StrategyFleetEvidence({ item }: { item: StrategyFleetItem }) {
+  if (!isAI(item)) return null;
+  if (!item.instanceStatus) {
+    return (
+      <section
+        className="strategy-fleet-evidence is-pending"
+        aria-label={`${item.title} Shadow evidence`}
+      >
+        <strong>Shadow evidence begins after initialization.</strong>
+        <p>No outcome samples are inferred before an instance exists.</p>
+      </section>
+    );
+  }
+  if (item.evidenceAvailable === false || !item.evidenceStatus) {
+    return (
+      <section
+        className="strategy-fleet-evidence is-unavailable"
+        aria-label={`${item.title} Shadow evidence`}
+      >
+        <strong>Evidence status unavailable</strong>
+        <p>Sample counts are hidden until the exact scorecard refreshes.</p>
+      </section>
+    );
+  }
+
+  const oneHour = boundedProgress(
+    item.oneHourSampleSize,
+    item.minimumSamplePerHorizon,
+  );
+  const twentyFourHour = boundedProgress(
+    item.twentyFourHourSampleSize,
+    item.minimumSamplePerHorizon,
+  );
+  const window = boundedProgress(
+    item.evidenceWindowHours,
+    item.minimumEvidenceWindowHours,
+  );
+  const valid = oneHour && twentyFourHour && window;
+  if (!valid) {
+    return (
+      <section
+        className="strategy-fleet-evidence is-unavailable"
+        aria-label={`${item.title} Shadow evidence`}
+      >
+        <strong>Evidence contract incomplete</strong>
+        <p>Arbion will not estimate a missing sample target or time window.</p>
+      </section>
+    );
+  }
+
+  const reviewable = item.evidenceStatus === "EVIDENCE_REVIEWABLE";
+  return (
+    <section
+      className={`strategy-fleet-evidence${reviewable ? " is-reviewable" : ""}`}
+      aria-label={`${item.title} Shadow evidence`}
+    >
+      <header>
+        <span>SHADOW EVIDENCE</span>
+        <strong>
+          {reviewable
+            ? item.currentEvidenceReviewed
+              ? "Current snapshot reviewed"
+              : "Reviewable"
+            : "Collecting"}
+        </strong>
+      </header>
+      <div>
+        <label>
+          <span>1-hour marks</span>
+          <strong>
+            {item.oneHourSampleSize} / {item.minimumSamplePerHorizon}
+          </strong>
+          <progress
+            aria-label="1-hour Shadow outcome sample progress"
+            max={oneHour.maximum}
+            value={oneHour.value}
+          />
+        </label>
+        <label>
+          <span>24-hour marks</span>
+          <strong>
+            {item.twentyFourHourSampleSize} / {item.minimumSamplePerHorizon}
+          </strong>
+          <progress
+            aria-label="24-hour Shadow outcome sample progress"
+            max={twentyFourHour.maximum}
+            value={twentyFourHour.value}
+          />
+        </label>
+        <label>
+          <span>Evidence window</span>
+          <strong>
+            {item.evidenceWindowHours} / {item.minimumEvidenceWindowHours}h
+          </strong>
+          <progress
+            aria-label="Shadow evidence window progress"
+            max={window.maximum}
+            value={window.value}
+          />
+        </label>
+      </div>
+      <p>
+        Scheduler {item.evidenceScheduleHealthy ? "healthy" : "not verified"}
+        {item.evidenceBlockers?.length
+          ? ` · ${item.evidenceBlockers.length} remaining ${item.evidenceBlockers.length === 1 ? "condition" : "conditions"}`
+          : " · exact gate complete"}
+        <span>Reviewability only · never live authority</span>
+      </p>
+    </section>
+  );
 }
 
 export function StrategyFleet({
@@ -537,6 +705,8 @@ export function StrategyFleet({
                   </dd>
                 </div>
               </dl>
+
+              <StrategyFleetEvidence item={item} />
 
               <footer>
                 <span className={healthClass(item)}>
