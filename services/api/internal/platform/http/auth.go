@@ -2,13 +2,17 @@ package http
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	stdhttp "net/http"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/auth"
@@ -58,6 +62,39 @@ type apiError struct {
 	} `json:"error"`
 }
 
+type securityActivityCursorPayload struct {
+	OccurredAt time.Time `json:"occurred_at"`
+	ID         string    `json:"id"`
+}
+
+var securityActivityUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
+
+func encodeSecurityActivityCursor(cursor *auth.SecurityActivityCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	payload, _ := json.Marshal(securityActivityCursorPayload{OccurredAt: cursor.OccurredAt, ID: cursor.ID})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeSecurityActivityCursor(encoded string) (*auth.SecurityActivityCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	if len(encoded) > 512 {
+		return nil, auth.ErrSecurityActivityInvalid
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, auth.ErrSecurityActivityInvalid
+	}
+	var decoded securityActivityCursorPayload
+	if err = json.Unmarshal(payload, &decoded); err != nil || decoded.OccurredAt.IsZero() || !securityActivityUUID.MatchString(decoded.ID) {
+		return nil, auth.ErrSecurityActivityInvalid
+	}
+	return &auth.SecurityActivityCursor{OccurredAt: decoded.OccurredAt, ID: decoded.ID}, nil
+}
+
 func NewApplicationHandler(database ReadinessChecker, timeout config.Config, service *auth.Service, admins ...*authorization.Service) stdhttp.Handler {
 	mux := stdhttp.NewServeMux()
 	mux.HandleFunc("GET /healthz", health)
@@ -77,6 +114,7 @@ func NewApplicationHandler(database ReadinessChecker, timeout config.Config, ser
 	mux.Handle("POST /api/auth/logout-all", h.require(stdhttp.HandlerFunc(h.logoutAll)))
 	mux.Handle("PUT /api/auth/password", h.require(stdhttp.HandlerFunc(h.changePassword)))
 	mux.Handle("GET /api/auth/mfa", h.require(stdhttp.HandlerFunc(h.mfaStatus)))
+	mux.Handle("GET /api/auth/security-activity", h.require(stdhttp.HandlerFunc(h.securityActivity)))
 	mux.Handle("POST /api/auth/mfa/totp/enroll", h.require(stdhttp.HandlerFunc(h.beginTOTPEnrollment)))
 	mux.Handle("POST /api/auth/mfa/totp/confirm", h.require(stdhttp.HandlerFunc(h.confirmTOTPEnrollment)))
 	mux.Handle("POST /api/auth/mfa/recovery-codes", h.require(stdhttp.HandlerFunc(h.regenerateRecoveryCodes)))
@@ -117,6 +155,7 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.Handle("POST /api/auth/logout-all", h.require(stdhttp.HandlerFunc(h.logoutAll)))
 	mux.Handle("PUT /api/auth/password", h.require(stdhttp.HandlerFunc(h.changePassword)))
 	mux.Handle("GET /api/auth/mfa", h.require(stdhttp.HandlerFunc(h.mfaStatus)))
+	mux.Handle("GET /api/auth/security-activity", h.require(stdhttp.HandlerFunc(h.securityActivity)))
 	mux.Handle("POST /api/auth/mfa/totp/enroll", h.require(stdhttp.HandlerFunc(h.beginTOTPEnrollment)))
 	mux.Handle("POST /api/auth/mfa/totp/confirm", h.require(stdhttp.HandlerFunc(h.confirmTOTPEnrollment)))
 	mux.Handle("POST /api/auth/mfa/recovery-codes", h.require(stdhttp.HandlerFunc(h.regenerateRecoveryCodes)))
@@ -919,9 +958,46 @@ func (h *authHandler) authError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 400, "weak_password", auth.ErrInvalidPassword.Error())
 	case errors.Is(e, auth.ErrRateLimited):
 		writeError(w, 429, "rate_limited", "Too many attempts. Try again later.")
+	case errors.Is(e, auth.ErrSecurityActivityInvalid):
+		writeError(w, 400, "invalid_pagination", "The security activity page is invalid.")
+	case errors.Is(e, auth.ErrSecurityActivityUnavailable):
+		writeError(w, 503, "security_activity_unavailable", "Security activity is temporarily unavailable.")
 	default:
 		writeError(w, 500, "internal_error", "The request could not be completed.")
 	}
+}
+
+func (h *authHandler) securityActivity(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	limit := 20
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 100 {
+			writeError(w, 400, "invalid_pagination", "Limit must be between 1 and 100.")
+			return
+		}
+		limit = parsed
+	}
+	cursor, err := decodeSecurityActivityCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeError(w, 400, "invalid_pagination", "The security activity cursor is invalid.")
+		return
+	}
+	user, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	page, err := h.service.SecurityActivity(r.Context(), user.ID, limit, cursor)
+	if err != nil {
+		h.authError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"activities":               page.Activities,
+		"next_cursor":              encodeSecurityActivityCursor(page.NextCursor),
+		"integrity_semantics":      "APPEND_ONLY_ACCOUNT_SECURITY_ACTIVITY",
+		"metadata_exposed":         false,
+		"credentials_exposed":      false,
+		"broker_data_exposed":      false,
+		"live_execution_available": false,
+	})
 }
 
 func (h *authHandler) mfaStatus(w stdhttp.ResponseWriter, r *stdhttp.Request) {

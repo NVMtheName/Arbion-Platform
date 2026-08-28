@@ -56,6 +56,26 @@ func TestReadiness(t *testing.T) {
 	}
 }
 
+func TestSecurityActivityCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
+	want := &auth.SecurityActivityCursor{
+		OccurredAt: time.Date(2026, 8, 28, 1, 30, 0, 123, time.UTC),
+		ID:         "11111111-1111-4111-8111-111111111111",
+	}
+	encoded := encodeSecurityActivityCursor(want)
+	got, err := decodeSecurityActivityCursor(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != want.ID || !got.OccurredAt.Equal(want.OccurredAt) {
+		t.Fatalf("security activity cursor changed during round trip: %#v", got)
+	}
+	for _, input := range []string{"not-base64", "e30", encodeSecurityActivityCursor(&auth.SecurityActivityCursor{OccurredAt: time.Now(), ID: "not-a-uuid"})} {
+		if _, err = decodeSecurityActivityCursor(input); err == nil {
+			t.Fatalf("malformed security activity cursor was accepted: %q", input)
+		}
+	}
+}
+
 type authUsers struct{ user auth.User }
 
 func (f *authUsers) Create(_ context.Context, email, n, hash, name, status string) (auth.User, error) {
@@ -76,6 +96,22 @@ func (f *authUsers) UpdatePassword(_ context.Context, id, currentHash, nextHash 
 type auditSink struct{}
 
 func (auditSink) Record(context.Context, *string, string, map[string]any) error { return nil }
+
+type securityActivitySink struct {
+	activities     []auth.SecurityActivity
+	requestedUser  string
+	requestedLimit int
+}
+
+func (*securityActivitySink) Record(context.Context, *string, string, map[string]any) error {
+	return nil
+}
+
+func (sink *securityActivitySink) SecurityActivities(_ context.Context, userID string, limit int, _ *auth.SecurityActivityCursor) ([]auth.SecurityActivity, error) {
+	sink.requestedUser = userID
+	sink.requestedLimit = limit
+	return sink.activities, nil
+}
 
 type authEmailTokens struct{}
 
@@ -181,6 +217,66 @@ func TestAuthenticationRoutesCSRFAndProtection(t *testing.T) {
 	}
 	if _, err := sessions.Get(context.Background(), cookie.Value); !errors.Is(err, auth.ErrUnauthenticated) {
 		t.Fatal("session retained after logout")
+	}
+}
+
+func TestSecurityActivityRouteIsAuthenticatedBoundedAndMetadataFree(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	sessions := auth.NewRedisStore(redisClient)
+	sink := &securityActivitySink{activities: []auth.SecurityActivity{{
+		ID:         "11111111-1111-4111-8111-111111111111",
+		Action:     "auth.login",
+		OccurredAt: time.Date(2026, 8, 28, 1, 30, 0, 0, time.UTC),
+	}}}
+	service := auth.NewService(&authUsers{}, sessions, sessions, sink, time.Hour)
+	cfg := config.Config{Database: config.Database{ReadinessTimeout: time.Second}, Auth: config.Auth{SessionCookie: "session", SessionTTL: time.Hour, AllowedOrigins: []string{"http://localhost:3000"}}}
+	handler := NewApplicationHandler(checker{}, cfg, service)
+
+	register := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{"email":"person@example.com","password":"correct horse battery staple","display_name":"Person"}`))
+	register.Header.Set("Origin", "http://localhost:3000")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, register)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("registration failed: %d %s", recorder.Code, recorder.Body.String())
+	}
+	cookie := recorder.Result().Cookies()[0]
+
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/security-activity?limit=1", nil)
+	request.AddCookie(cookie)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("security activity route failed: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if sink.requestedUser != "user-1" || sink.requestedLimit != 2 {
+		t.Fatalf("security activity owner or lookahead changed: %#v", sink)
+	}
+	body := recorder.Body.String()
+	for _, expected := range []string{`"action":"auth.login"`, `"metadata_exposed":false`, `"credentials_exposed":false`, `"broker_data_exposed":false`, `"live_execution_available":false`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("security activity response omitted %s: %s", expected, body)
+		}
+	}
+	for _, prohibited := range []string{"metadata\":{", "actor_id", "target_id", "email"} {
+		if strings.Contains(body, prohibited) {
+			t.Fatalf("security activity exposed %q: %s", prohibited, body)
+		}
+	}
+
+	anonymous := httptest.NewRequest(http.MethodGet, "/api/auth/security-activity", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, anonymous)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatal("anonymous security activity request was accepted")
+	}
+
+	malformed := httptest.NewRequest(http.MethodGet, "/api/auth/security-activity?cursor=not-base64", nil)
+	malformed.AddCookie(cookie)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, malformed)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("malformed security activity cursor was accepted: %d", recorder.Code)
 	}
 }
 

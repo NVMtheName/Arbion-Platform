@@ -12,6 +12,7 @@ import (
 
 type DB interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
+	Query(context.Context, string, ...any) (pgx.Rows, error)
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }
 type PostgresStore struct{ db DB }
@@ -190,4 +191,88 @@ func (s *PostgresStore) Record(ctx context.Context, userID *string, action strin
 	raw, _ := json.Marshal(metadata)
 	_, err := s.db.Exec(ctx, `INSERT INTO audit_events(user_id,actor_type,actor_id,action,target_type,target_id,metadata) VALUES($1,'user',$2,$3,'authentication',$2,$4)`, userID, userID, action, raw)
 	return err
+}
+
+var securityActivityActions = []string{
+	"auth.registration",
+	"auth.login",
+	"auth.login_mfa_required",
+	"auth.logout",
+	"auth.logout_all",
+	"auth.password_change_failed",
+	"auth.password_changed",
+	"auth.password_reset",
+	"auth.email_verified",
+	"auth.email_delivery_failed",
+	"auth.email_token_requested",
+	"auth.mfa_enrollment_started",
+	"auth.mfa_enabled",
+	"auth.mfa_disabled",
+	"auth.mfa_recovery_codes_replaced",
+	"auth.mfa_login_failed",
+	"ai_connection.created",
+	"ai_connection.credential_replaced",
+	"ai_connection.deleted",
+	"ai_connection.display_name_changed",
+	"ai_connection.disabled",
+	"ai_connection.enabled",
+	"ai_connection.verification_failed",
+	"ai_connection.verification_succeeded",
+	"financial.authorization_started",
+	"financial.authorization_completed",
+	"financial.authorization_failed",
+	"financial.connection_disabled",
+	"financial.connection_enabled",
+	"financial.connection_disconnected",
+	"financial.connection_requires_attention",
+	"automation_mandate.created",
+	"automation_mandate.autonomy_changed",
+	"automation_mandate.schedule_changed",
+	"automation_mandate.strategy_parameters_changed",
+	"automation_mandate.ai_shadow_parameters_changed",
+	"automation_mandate.paper_options_simulation_attestation_changed",
+	"strategy_instance.paused",
+	"strategy_instance.resumed",
+	"strategy_instance.completed",
+	"automation_circuit_breaker.engaged",
+	"automation_circuit_breaker.released",
+	"account_circuit_breaker.engaged",
+	"account_circuit_breaker.released",
+	"user_circuit_breaker.engaged",
+	"user_circuit_breaker.released",
+	"global_circuit_breaker.engaged",
+	"global_circuit_breaker.released",
+	"authorization.role_changed",
+	"entitlement.changed",
+	"order_intent.user_reviewed_nonexecuting",
+}
+
+func (s *PostgresStore) SecurityActivities(ctx context.Context, userID string, limit int, cursor *SecurityActivityCursor) ([]SecurityActivity, error) {
+	query := `SELECT id::text,action,occurred_at
+		FROM audit_events
+		WHERE user_id=$1 AND action=ANY($2::text[])
+		ORDER BY occurred_at DESC,id DESC LIMIT $3`
+	args := []any{userID, securityActivityActions, limit}
+	if cursor != nil {
+		query = `SELECT id::text,action,occurred_at
+			FROM audit_events
+			WHERE user_id=$1 AND action=ANY($2::text[])
+			  AND (occurred_at,id) < ($3,$4::uuid)
+			ORDER BY occurred_at DESC,id DESC LIMIT $5`
+		args = []any{userID, securityActivityActions, cursor.OccurredAt, cursor.ID, limit}
+	}
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	activities := []SecurityActivity{}
+	for rows.Next() {
+		var activity SecurityActivity
+		if err = rows.Scan(&activity.ID, &activity.Action, &activity.OccurredAt); err != nil {
+			return nil, err
+		}
+		activities = append(activities, activity)
+	}
+	return activities, rows.Err()
 }

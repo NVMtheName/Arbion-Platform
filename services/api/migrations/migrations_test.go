@@ -239,6 +239,18 @@ func TestNonLiveScheduleRunHistoryIsImmutableOwnerScopedAndNonExecuting(t *testi
 	}
 }
 
+func TestSecurityActivityAuditHistoryIsAppendOnlyAndCredentialFree(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00032_immutable_security_activity.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"audit_events_owner_activity_time_idx", "user_id,occurred_at DESC,id DESC", "reject_audit_event_mutation", "audit_events_append_only", "BEFORE UPDATE OR DELETE", "platform audit history is append-only"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("security activity migration missing %q", required)
+		}
+	}
+}
+
 func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00013_paper_lifecycle_events.sql")
 	if err != nil {

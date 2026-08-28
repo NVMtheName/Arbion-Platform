@@ -140,3 +140,60 @@ func TestPostgresTOTPMFALifecycle(t *testing.T) {
 		t.Fatalf("disabled factor remained: %#v %v", status, err)
 	}
 }
+
+func TestPostgresSecurityActivityIsOwnerScopedFilteredAndAppendOnly(t *testing.T) {
+	databaseURL := os.Getenv("AUTH_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("AUTH_TEST_DATABASE_URL is not configured")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	store := NewPostgresStore(pool)
+	suffix := time.Now().UnixNano()
+	ownerEmail := fmt.Sprintf("security-owner-%d@example.com", suffix)
+	owner, err := store.Create(ctx, ownerEmail, ownerEmail, "password-hash", "Security Owner", "active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignEmail := fmt.Sprintf("security-foreign-%d@example.com", suffix)
+	foreign, err := store.Create(ctx, foreignEmail, foreignEmail, "password-hash", "Security Foreign", "active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	insert := func(userID, action string, occurredAt time.Time) string {
+		var id string
+		if insertErr := pool.QueryRow(ctx, `INSERT INTO audit_events(user_id,actor_type,actor_id,action,target_type,target_id,occurred_at,metadata) VALUES($1,'user',$2,$3,'authentication',$2,$4,'{}') RETURNING id::text`, userID, userID, action, occurredAt).Scan(&id); insertErr != nil {
+			t.Fatal(insertErr)
+		}
+		return id
+	}
+	newestID := insert(owner.ID, "auth.login", now)
+	secondID := insert(owner.ID, "auth.mfa_enabled", now.Add(-time.Minute))
+	thirdID := insert(owner.ID, "financial.connection_disabled", now.Add(-2*time.Minute))
+	insert(owner.ID, "neural_shadow_decision.completed", now.Add(time.Minute))
+	insert(foreign.ID, "auth.login", now.Add(2*time.Minute))
+
+	firstPage, err := store.SecurityActivities(ctx, owner.ID, 2, nil)
+	if err != nil || len(firstPage) != 2 || firstPage[0].ID != newestID || firstPage[1].ID != secondID {
+		t.Fatalf("owner security activity projection was not bounded and filtered: %#v %v", firstPage, err)
+	}
+	secondPage, err := store.SecurityActivities(ctx, owner.ID, 2, &SecurityActivityCursor{OccurredAt: firstPage[1].OccurredAt, ID: firstPage[1].ID})
+	if err != nil || len(secondPage) != 1 || secondPage[0].ID != thirdID {
+		t.Fatalf("security activity cursor was unstable: %#v %v", secondPage, err)
+	}
+	foreignPage, err := store.SecurityActivities(ctx, foreign.ID, 10, nil)
+	if err != nil || len(foreignPage) != 1 {
+		t.Fatalf("foreign security activity projection failed: %#v %v", foreignPage, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE audit_events SET action='auth.logout' WHERE id=$1`, newestID); err == nil {
+		t.Fatal("append-only security activity was updated")
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM audit_events WHERE id=$1`, newestID); err == nil {
+		t.Fatal("append-only security activity was deleted")
+	}
+}
