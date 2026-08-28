@@ -525,7 +525,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err = pool.QueryRow(ctx, `INSERT INTO portfolio_reconciliations(user_id,financial_account_id,provider_name,comparison_status,balances_status,positions_status,performance_status,realized_performance_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,observed_position_count,performance_position_count,change_count,blocking_change_count,changes,evidence_hash,observed_at) VALUES($1,$2,'schwab','DRIFT_DETECTED','READY','READY','UNAVAILABLE','UNAVAILABLE','REVIEW_RECOMMENDED',true,true,0,0,1,1,'[{"symbol":"SPY","instrument_type":"EQUITY","direction":"long","change_type":"POSITION_APPEARED","control_impact":"TRADABLE_INVENTORY","current_quantity":"1"}]',decode(repeat('cd',32),'hex'),$3) RETURNING id::text`, userID, aiAccountID, markTime).Scan(&driftID); err != nil {
 		t.Fatal(err)
 	}
-	deliveredAt := aiClaimAt.Add(time.Minute)
+	deliveredAt := aiClaimAt.Add(time.Minute).Truncate(time.Microsecond)
 	run := ScheduledRun{StrategyInstanceID: aiInstance.ID, UserID: userID, FinancialAccountID: aiAccountID}
 	if err = store.RecordReconciliationNotification(ctx, run, driftID, deliveredAt); err != nil {
 		t.Fatal(err)
