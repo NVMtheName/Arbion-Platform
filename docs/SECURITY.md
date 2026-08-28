@@ -58,6 +58,8 @@ The autonomous AI Shadow Engine extends the same credential separation to Coinba
 
 The SHADOW scorecard's evidence gate is informational and fail-closed. It derives sample counts and time span only from immutable hypothetical outcome marks and derives schedule health only from the owner-scoped durable scheduler row. Missing marks, a short observation window, an unverified schedule, or any consecutive failure remains an explicit blocker. Even `EVIDENCE_REVIEWABLE` grants no role, permission, execution approval, provider call, or live-trading capability.
 
+The downloadable owner Autonomy Evidence Report is a bounded point-in-time projection of the same authenticated automation-review facts. It uses an explicit schema version and source-availability map, retains missing sources as `PARTIAL`, caps all repeated fields, and selects only credential-free control state and aggregate Shadow evidence. It never exports credentials or hints, tokens, raw provider payloads, balances, holdings, quantities, private prompts or rationale, or broker order identifiers. Report generation is local to the rendered review, performs no API mutation or provider/model call, and cannot grant execution authority; the immutable Decision Journal remains authoritative.
+
 ### Financial connectors and providers
 
 Financial providers are external systems. Their data and callbacks require authentication, schema validation, provenance, freshness checks, and replay defenses. Go connector adapters receive financial credentials only when needed and only after control-plane authorization. A provider's acceptance of a request does not replace Arbion audit and reconciliation.
