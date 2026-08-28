@@ -17,6 +17,20 @@ const coinbaseEngine: StrategyFleetItem = {
   financialConnectionAvailable: true,
   financialConnectionContextAvailable: true,
   financialConnectionStatus: "active",
+  capitalContextAvailable: true,
+  capitalBindingValid: true,
+  capitalBucketName: "Coinbase AI Shadow",
+  capitalBucketStatus: "ACTIVE",
+  capitalAllocationType: "FIXED_AMOUNT",
+  capitalAllocationValue: "1000.0000000000",
+  capitalCurrency: "USD",
+  capitalProtectedAmount: "0.0000000000",
+  capitalAllocationLimit: "1000.0000000000",
+  capitalReservationStatus: "ACTIVE",
+  capitalReservationAmount: "1000.0000000000",
+  capitalReservationCurrency: "USD",
+  capitalReservationBasis: "BUCKET_FIXED_CAPACITY",
+  capitalReservationAccountLimit: "1000.0000000000",
   automationType: "AI_AUTONOMOUS",
   mandateStatus: "READY",
   autonomyLevel: "FULL_AUTONOMOUS",
@@ -131,6 +145,21 @@ describe("StrategyFleet", () => {
       "href",
       "/accounts/coinbase-account#reconciliation-title",
     );
+    const capitalAuthority = screen.getByRole("region", {
+      name: "AI Shadow Engine capital authority",
+    });
+    expect(capitalAuthority).toHaveTextContent("Bounded");
+    expect(capitalAuthority).toHaveTextContent("Coinbase AI Shadow");
+    expect(capitalAuthority).toHaveTextContent("$1,000");
+    expect(capitalAuthority).toHaveTextContent("$0");
+    expect(capitalAuthority).toHaveTextContent("Fixed budget capacity");
+    expect(capitalAuthority).toHaveTextContent("Shadow");
+    expect(capitalAuthority).toHaveTextContent(
+      "no broker custody or execution authority",
+    );
+    expect(
+      within(capitalAuthority).getByRole("link", { name: /Capital center/i }),
+    ).toHaveAttribute("href", "/capital");
     expect(screen.getByText("Covered Call")).toBeInTheDocument();
     expect(screen.getByText("Deterministic rules")).toBeInTheDocument();
     expect(screen.getByText("Draft configuration")).toBeInTheDocument();
@@ -189,6 +218,44 @@ describe("StrategyFleet", () => {
     expect(
       within(queue).getByRole("link", { name: /Review schedule/i }),
     ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
+  });
+
+  it("fails closed and hides partial capital values when the binding is invalid", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            capitalBindingValid: false,
+          },
+        ]}
+      />,
+    );
+
+    const capitalAuthority = screen.getByRole("region", {
+      name: "AI Shadow Engine capital authority",
+    });
+    expect(capitalAuthority).toHaveTextContent("Review required");
+    expect(capitalAuthority).toHaveTextContent(
+      "hidden until the complete owner-scoped capital binding can be verified",
+    );
+    expect(capitalAuthority).toHaveTextContent(
+      "Database controls remain enforced · no provider funds moved",
+    );
+    expect(capitalAuthority).not.toHaveTextContent("$1,000");
+    expect(
+      within(capitalAuthority).getByRole("link", {
+        name: /Review capital control/i,
+      }),
+    ).toHaveAttribute("href", "/capital");
+
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    expect(queue).toHaveTextContent(
+      "Review AI Shadow Engine capital authority",
+    );
+    expect(queue).toHaveTextContent("no broker funds moved");
   });
 
   it("surfaces exact blocking portfolio drift ahead of later lifecycle work", () => {

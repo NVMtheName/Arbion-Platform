@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../app-page-header";
+import { capitalReservationMatchesPolicy } from "./capital-authority";
 import { asList } from "./response";
 import {
   reconciliationFreshWithinTwentyFourHours,
@@ -66,6 +67,10 @@ function record(value: unknown) {
     : undefined;
 }
 
+function exactCapitalCurrency(value: string | undefined) {
+  return Boolean(value && /^[A-Z]{3}$/.test(value));
+}
+
 function strategyTitle(mandate: RecordValue) {
   if (text(mandate, "automation_type", "AutomationType") === "AI_AUTONOMOUS")
     return "AI Shadow Engine";
@@ -118,12 +123,16 @@ async function fleetItem(
   mandate: RecordValue,
   accounts: RecordValue[],
   financialConnections: RecordValue[],
+  capitalBuckets: RecordValue[],
+  capitalReservations: RecordValue[],
   instances: RecordValue[],
   base: string,
   headers: { cookie: string },
   observedAt: Date,
   accountContextAvailable: boolean,
   financialConnectionContextAvailable: boolean,
+  capitalBucketContextAvailable: boolean,
+  capitalReservationContextAvailable: boolean,
   instanceContextAvailable: boolean,
 ): Promise<StrategyFleetItem> {
   const id = text(mandate, "id", "ID") ?? "";
@@ -143,6 +152,64 @@ async function fleetItem(
   const instance = currentInstance(mandate, instances);
   const instanceID = text(instance, "id", "ID");
   const instanceStatus = text(instance, "status", "Status");
+  const capitalBucketID =
+    text(mandate, "capital_bucket_id", "CapitalBucketID") ?? "";
+  const capitalBucket = capitalBuckets.find(
+    (candidate) => text(candidate, "id", "ID") === capitalBucketID,
+  );
+  const instanceReservations = capitalReservations.filter(
+    (candidate) =>
+      text(candidate, "strategy_instance_id", "StrategyInstanceID") ===
+      instanceID,
+  );
+  const activeCapitalReservations = instanceReservations.filter(
+    (candidate) => text(candidate, "status", "Status") === "ACTIVE",
+  );
+  const capitalReservation =
+    activeCapitalReservations.length === 1
+      ? activeCapitalReservations[0]
+      : undefined;
+  const capitalAllocationType = text(
+    capitalBucket,
+    "allocation_type",
+    "AllocationType",
+  );
+  const capitalAllocationValue = text(
+    capitalBucket,
+    "allocation_value",
+    "AllocationValue",
+  );
+  const capitalCurrency = text(capitalBucket, "currency", "Currency");
+  const capitalProtectedAmount = text(
+    capitalBucket,
+    "protected_amount",
+    "ProtectedAmount",
+  );
+  const capitalAllocationLimit = text(
+    capitalBucket,
+    "allocation_limit",
+    "AllocationLimit",
+  );
+  const capitalReservationAmount = text(
+    capitalReservation,
+    "reservation_amount",
+    "ReservationAmount",
+  );
+  const capitalReservationCurrency = text(
+    capitalReservation,
+    "currency",
+    "Currency",
+  );
+  const capitalReservationAccountLimit = text(
+    capitalReservation,
+    "account_allocation_limit",
+    "AccountAllocationLimit",
+  );
+  const capitalReservationBasis = text(
+    capitalReservation,
+    "reservation_basis",
+    "ReservationBasis",
+  );
   const automationType =
     text(mandate, "automation_type", "AutomationType") ?? "UNKNOWN";
   const expectsSchedule =
@@ -151,6 +218,45 @@ async function fleetItem(
     Boolean(instanceID) && automationType === "AI_AUTONOMOUS";
   const expectsOperationalData =
     instanceStatus === "ACTIVE" && automationType === "AI_AUTONOMOUS";
+  const expectsCapitalData =
+    Boolean(instanceID) &&
+    ["ACTIVE", "PAUSED"].includes(instanceStatus ?? "") &&
+    automationType === "AI_AUTONOMOUS";
+  const capitalContextAvailable =
+    capitalBucketContextAvailable && capitalReservationContextAvailable;
+  const capitalBindingValid =
+    expectsCapitalData &&
+    capitalContextAvailable &&
+    Boolean(capitalBucket) &&
+    Boolean(capitalReservation) &&
+    activeCapitalReservations.length === 1 &&
+    Boolean(accountID) &&
+    Boolean(capitalBucketID) &&
+    Boolean(text(capitalReservation, "id", "ID")) &&
+    text(capitalBucket, "financial_account_id", "FinancialAccountID") ===
+      accountID &&
+    text(instance, "capital_bucket_id", "CapitalBucketID") ===
+      capitalBucketID &&
+    text(capitalBucket, "status", "Status") === "ACTIVE" &&
+    flag(capitalBucket, "is_reserve", "IsReserve") === false &&
+    text(capitalReservation, "financial_account_id", "FinancialAccountID") ===
+      accountID &&
+    text(capitalReservation, "capital_bucket_id", "CapitalBucketID") ===
+      capitalBucketID &&
+    text(instance, "execution_mode", "ExecutionMode") === "SHADOW" &&
+    text(capitalReservation, "execution_mode", "ExecutionMode") === "SHADOW" &&
+    text(capitalReservation, "status", "Status") === "ACTIVE" &&
+    exactCapitalCurrency(capitalCurrency) &&
+    capitalReservationCurrency === capitalCurrency &&
+    capitalReservationMatchesPolicy({
+      allocationType: capitalAllocationType,
+      allocationValue: capitalAllocationValue,
+      protectedAmount: capitalProtectedAmount,
+      allocationLimit: capitalAllocationLimit,
+      reservationAmount: capitalReservationAmount,
+      reservationBasis: capitalReservationBasis,
+      reservationAccountLimit: capitalReservationAccountLimit,
+    });
   const [
     scheduleResult,
     scorecardResult,
@@ -237,6 +343,22 @@ async function fleetItem(
       "authorization_expires_at",
       "AuthorizationExpiresAt",
     ),
+    capitalContextAvailable: expectsCapitalData
+      ? capitalContextAvailable
+      : undefined,
+    capitalBindingValid: expectsCapitalData ? capitalBindingValid : undefined,
+    capitalBucketName: text(capitalBucket, "name", "Name"),
+    capitalBucketStatus: text(capitalBucket, "status", "Status"),
+    capitalAllocationType,
+    capitalAllocationValue,
+    capitalCurrency,
+    capitalProtectedAmount,
+    capitalAllocationLimit,
+    capitalReservationStatus: text(capitalReservation, "status", "Status"),
+    capitalReservationAmount,
+    capitalReservationCurrency,
+    capitalReservationBasis,
+    capitalReservationAccountLimit,
     automationType,
     mandateStatus: text(mandate, "status", "Status") ?? "UNKNOWN",
     autonomyLevel:
@@ -398,6 +520,8 @@ export default async function Automations() {
     mandatesResult,
     accountsResult,
     financialConnectionsResult,
+    capitalBucketsResult,
+    capitalReservationsResult,
     instancesResult,
   ] = await Promise.all([
     fetchOptional<{ automations?: RecordValue[] | null }>(
@@ -412,6 +536,14 @@ export default async function Automations() {
       `${base}/api/connections/financial`,
       headers,
     ),
+    fetchOptional<{ capital_buckets?: RecordValue[] | null }>(
+      `${base}/api/capital-buckets`,
+      headers,
+    ),
+    fetchOptional<{ capital_reservations?: RecordValue[] | null }>(
+      `${base}/api/strategy-capital-reservations`,
+      headers,
+    ),
     fetchOptional<{ strategy_instances?: RecordValue[] | null }>(
       `${base}/api/strategy-instances`,
       headers,
@@ -421,6 +553,8 @@ export default async function Automations() {
     mandatesResult.status === 401 ||
     accountsResult.status === 401 ||
     financialConnectionsResult.status === 401 ||
+    capitalBucketsResult.status === 401 ||
+    capitalReservationsResult.status === 401 ||
     instancesResult.status === 401
   )
     redirect("/login");
@@ -429,6 +563,10 @@ export default async function Automations() {
   const accounts = asList(accountsResult.payload?.accounts);
   const financialConnections = asList(
     financialConnectionsResult.payload?.connections,
+  );
+  const capitalBuckets = asList(capitalBucketsResult.payload?.capital_buckets);
+  const capitalReservations = asList(
+    capitalReservationsResult.payload?.capital_reservations,
   );
   const instances = asList(instancesResult.payload?.strategy_instances);
   const observedAt = new Date();
@@ -439,12 +577,16 @@ export default async function Automations() {
             mandate,
             accounts,
             financialConnections,
+            capitalBuckets,
+            capitalReservations,
             instances,
             base,
             headers,
             observedAt,
             accountsResult.available,
             financialConnectionsResult.available,
+            capitalBucketsResult.available,
+            capitalReservationsResult.available,
             instancesResult.available,
           ),
         ),
@@ -459,6 +601,9 @@ export default async function Automations() {
       : "",
     !financialConnectionsResult.available
       ? "Financial connection state could not be refreshed."
+      : "",
+    !capitalBucketsResult.available || !capitalReservationsResult.available
+      ? "Capital bucket and reservation state could not be refreshed."
       : "",
   ].filter(Boolean);
 
