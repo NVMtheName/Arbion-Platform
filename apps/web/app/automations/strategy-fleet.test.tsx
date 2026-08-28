@@ -36,6 +36,10 @@ const coinbaseEngine: StrategyFleetItem = {
     "EVIDENCE_WINDOW_INCOMPLETE",
   ],
   currentEvidenceReviewed: false,
+  decisionAvailable: true,
+  latestDecisionType: "ABSTAIN",
+  latestDecisionAt: "2026-08-26T16:17:39Z",
+  latestDecisionSymbol: "NONE",
 };
 
 describe("StrategyFleet", () => {
@@ -152,6 +156,119 @@ describe("StrategyFleet", () => {
     expect(evidence).toHaveTextContent("48 / 168h");
     expect(evidence).toHaveTextContent("3 remaining conditions");
     expect(evidence).toHaveTextContent("never live authority");
+    const pulse = screen.getByRole("region", {
+      name: "AI Shadow Engine latest AI decision",
+    });
+    expect(pulse).toHaveTextContent("Abstained");
+    expect(pulse).toHaveTextContent("No action proposed");
+    expect(pulse).toHaveTextContent("Risk gate not reached");
+    expect(pulse).toHaveTextContent("No execution record");
+  });
+
+  it("shows a deterministic risk hold without presenting an order", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            latestDecisionType: "DENY_RISK_DENIED",
+            latestDecisionSymbol: "BTC",
+            latestDecisionSide: "BUY",
+            latestDecisionQuantity: "0.001",
+            latestDecisionRiskDecision: "DENY",
+            latestDecisionRiskReasons: [
+              "REPEAT_ACTION_COOLDOWN_ACTIVE",
+              "MAX_TRADES_PER_DAY_REACHED",
+            ],
+            latestDecisionExecutionStatus: "RISK_DENIED",
+          },
+        ]}
+      />,
+    );
+
+    const pulse = screen.getByRole("region", {
+      name: "AI Shadow Engine latest AI decision",
+    });
+    expect(pulse).toHaveTextContent("Held by controls");
+    expect(pulse).toHaveTextContent("Buy · 0.001 · BTC");
+    expect(pulse).toHaveTextContent("Repeat Action Cooldown Active +1");
+    expect(pulse).toHaveTextContent("Risk Denied · non-live");
+    expect(pulse).not.toHaveTextContent(/order submitted/i);
+  });
+
+  it("labels allowed evidence as Shadow-only would-have-submitted", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            latestDecisionType: "ALLOW_WOULD_HAVE_SUBMITTED",
+            latestDecisionSymbol: "ETH",
+            latestDecisionSide: "SELL",
+            latestDecisionQuantity: "0.25",
+            latestDecisionRiskDecision: "ALLOW",
+            latestDecisionExecutionStatus: "WOULD_HAVE_SUBMITTED",
+          },
+        ]}
+      />,
+    );
+
+    const pulse = screen.getByRole("region", {
+      name: "AI Shadow Engine latest AI decision",
+    });
+    expect(pulse).toHaveTextContent("Would have submitted");
+    expect(pulse).toHaveTextContent("Sell · 0.25 · ETH");
+    expect(pulse).toHaveTextContent("Allowed by deterministic controls");
+    expect(pulse).toHaveTextContent("Shadow record only");
+  });
+
+  it("fails closed when the bounded decision journal is unavailable", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            decisionAvailable: false,
+            latestDecisionType: undefined,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Latest decision unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("No action proposed")).not.toBeInTheDocument();
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    expect(
+      within(queue).getByRole("link", { name: /Refresh decision pulse/i }),
+    ).toHaveAttribute("href", "/automations/ai-mandate");
+    expect(queue).toHaveTextContent("will not infer a recent AI action");
+  });
+
+  it("states when the bounded journal has no completed AI entry", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            latestDecisionType: undefined,
+            latestDecisionAt: undefined,
+          },
+        ]}
+      />,
+    );
+
+    const pulse = screen.getByRole("region", {
+      name: "AI Shadow Engine latest AI decision",
+    });
+    expect(pulse).toHaveTextContent("Awaiting a completed AI decision");
+    expect(pulse).toHaveTextContent(
+      "No AI entry appears in the latest 10 immutable journal records",
+    );
+    expect(
+      screen.getByRole("region", { name: "No owner action right now." }),
+    ).toBeInTheDocument();
   });
 
   it("surfaces an exact reviewable snapshot without granting authority", () => {
@@ -228,7 +345,12 @@ describe("StrategyFleet", () => {
       />,
     );
 
-    expect(screen.getByText("Evidence status unavailable")).toBeInTheDocument();
+    const evidence = screen.getByRole("region", {
+      name: "AI Shadow Engine Shadow evidence",
+    });
+    expect(
+      within(evidence).getByText("Evidence status unavailable"),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/12 \/ 20/)).not.toBeInTheDocument();
     const queue = screen.getByRole("region", {
       name: "Your clearest path forward.",
