@@ -1,4 +1,4 @@
-name: Deploy application to AWS
+name: Deploy application to AWS ECS/Fargate
 on:
   workflow_dispatch:
 permissions: {contents: read}

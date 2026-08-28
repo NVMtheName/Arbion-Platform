@@ -132,5 +132,6 @@ jobs:
           docker compose -f docker-compose.prod.yml up --no-deps --exit-code-from migrate migrate
           docker compose -f docker-compose.prod.yml up -d --no-deps --build --wait --wait-timeout 120 web
       - run: docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile
-      - run: bash -n scripts/backup-postgres.sh scripts/check-host-capacity.sh scripts/check-memory-pressure.sh scripts/check-postgres-backup-freshness.sh scripts/check-production-containers.sh scripts/check-reboot-required.sh scripts/check-release-hygiene.sh scripts/check-tls-certificate.sh scripts/deploy-production.sh scripts/package-release.sh scripts/release-hygiene.test.sh scripts/send-ops-alert.sh scripts/smoke-production.sh scripts/verify-postgres-restore.sh
+      - run: bash -n scripts/backup-postgres.sh scripts/check-host-capacity.sh scripts/check-memory-pressure.sh scripts/check-postgres-backup-freshness.sh scripts/check-production-containers.sh scripts/check-reboot-required.sh scripts/check-release-hygiene.sh scripts/check-tls-certificate.sh scripts/deploy-lightsail-release.sh scripts/deploy-production.sh scripts/lightsail-deploy.test.sh scripts/package-release.sh scripts/release-hygiene.test.sh scripts/send-ops-alert.sh scripts/smoke-production.sh scripts/verify-postgres-restore.sh
       - run: ./scripts/release-hygiene.test.sh
+      - run: ./scripts/lightsail-deploy.test.sh

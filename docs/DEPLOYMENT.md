@@ -57,6 +57,26 @@ ARBION_PRODUCTION_ENV_FILE=.env.production ./scripts/deploy-production.sh
 ./scripts/smoke-production.sh
 ```
 
+For the current owner-operated Lightsail production host, package and transport
+the reviewed release with the host-safe helper from the operator workstation:
+
+```bash
+./scripts/deploy-lightsail-release.sh <reviewed-git-sha> <ssh-user>@<lightsail-public-ip> <ssh-private-key>
+```
+
+The helper verifies the release marker and checksum, preserves the root-owned
+`.env.production`, creates a code-only rollback archive, replaces only the
+release tree, runs the migration and Compose readiness gates, checks the public
+smoke contract, and confirms the expected six-service set. It never deletes
+named data volumes and never invokes a broker operation. Keep the SSH key
+outside the repository and use the host's restricted administration firewall.
+
+The repository also contains a separate manual `Deploy application to AWS
+ECS/Fargate` workflow for the Terraform-prepared scalable topology. Do not run
+that workflow for Lightsail: it requires an already-provisioned ECS cluster,
+ECR repositories, private networking, and task definitions. Provision and
+review that topology separately before using it.
+
 The deploy script runs the release-hygiene gate before Compose validation, image builds, migrations, or container replacement. It rejects AppleDouble `._*` files and `__MACOSX` directories outside ignored rollback and Git storage. Docker build contexts exclude the same metadata, and only version-prefixed SQL files can enter the embedded migration filesystem. The deploy script otherwise fails fast, does not echo secrets, delete volumes, or overwrite data. Never run `docker compose down -v` in production.
 
 ## Health checks and logging
