@@ -539,3 +539,26 @@ func TestAIPaperSpotLedgerIsOwnerBoundImmutableAndNonExecuting(t *testing.T) {
 		}
 	}
 }
+
+func TestAIPaperSpotPositionsAreDistinctAndProviderIndependent(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00037_ai_paper_spot_positions.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"instrument IN ('EQUITY','OPTION','CRYPTO')",
+		"paper_positions_one_spot_symbol_idx",
+		"paper_portfolio_id,symbol,instrument",
+		"option_type IS NULL AND strike IS NULL AND expiration IS NULL",
+		"cannot remove AI paper crypto position projection",
+	} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("AI PAPER spot-position migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order_id", "client_order_id", "'LIVE'", "create_order", "submit_order", "coinbase", "schwab"} {
+		if strings.Contains(strings.ToLower(string(body)), strings.ToLower(prohibited)) {
+			t.Errorf("AI PAPER spot-position migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
