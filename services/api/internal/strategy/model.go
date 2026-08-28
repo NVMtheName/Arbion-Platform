@@ -120,15 +120,6 @@ type LifecycleResult struct {
 	Duplicate          bool            `json:"duplicate"`
 }
 
-type Transition struct {
-	ID, StrategyInstanceID, Trigger                       string
-	PreviousState, NewState                               State
-	StateVersion                                          int
-	ProposedActionID, RiskEvaluationID, ExecutionRecordID *string
-	Metadata                                              json.RawMessage
-	OccurredAt                                            time.Time
-}
-
 type ExecutionStatus string
 
 const (
@@ -141,16 +132,6 @@ const (
 	ExecutionError     ExecutionStatus = "ERROR"
 )
 
-type ExecutionRecord struct {
-	ID, IdempotencyKey, UserID, StrategyInstanceID, MandateID, ProposedActionID, RiskEvaluationID string
-	MandateVersion                                                                                int
-	Mode                                                                                          ExecutionMode
-	Status                                                                                        ExecutionStatus
-	Symbol, Instrument, Side, Quantity                                                            string
-	Price, Notional                                                                               *string
-	Metadata                                                                                      json.RawMessage
-	CreatedAt                                                                                     time.Time
-}
 type ExecutionResult struct {
 	Status        ExecutionStatus `json:"status"`
 	Price         *string         `json:"price,omitempty"`

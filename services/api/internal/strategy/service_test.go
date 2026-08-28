@@ -43,6 +43,14 @@ type journalPersistenceFake struct {
 	pageLimit          int
 	pageAfter          *StrategyDecisionCursor
 	pageExecutionIDs   []string
+	runtimeTransitions []StrategyTransitionEvidence
+	runtimeExecutions  []StrategyExecutionEvidence
+	transitionError    error
+	executionError     error
+	transitionLimit    int
+	executionLimit     int
+	transitionAfter    *StrategyTransitionCursor
+	executionAfter     *StrategyExecutionCursor
 	createdReview      ShadowEvidenceReview
 	createReviewError  error
 	createReviewCalls  int
@@ -103,8 +111,31 @@ func (f *journalPersistenceFake) Get(_ context.Context, userID, instanceID strin
 	f.requestedID = instanceID
 	return f.instance, f.getError
 }
-func (*journalPersistenceFake) History(context.Context, string, string) ([]Transition, error) {
-	return nil, nil
+func (f *journalPersistenceFake) StrategyTransitionEntries(_ context.Context, userID, instanceID string, limit int, after *StrategyTransitionCursor) ([]StrategyTransitionEvidence, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	f.transitionLimit = limit
+	f.transitionAfter = after
+	if f.transitionError != nil {
+		return nil, f.transitionError
+	}
+	if len(f.runtimeTransitions) < limit {
+		limit = len(f.runtimeTransitions)
+	}
+	return f.runtimeTransitions[:limit], nil
+}
+func (f *journalPersistenceFake) StrategyExecutionEntries(_ context.Context, userID, instanceID string, limit int, after *StrategyExecutionCursor) ([]StrategyExecutionEvidence, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	f.executionLimit = limit
+	f.executionAfter = after
+	if f.executionError != nil {
+		return nil, f.executionError
+	}
+	if len(f.runtimeExecutions) < limit {
+		limit = len(f.runtimeExecutions)
+	}
+	return f.runtimeExecutions[:limit], nil
 }
 func (f *journalPersistenceFake) StrategyDecisionEntries(_ context.Context, userID, instanceID string, limit int, after *StrategyDecisionCursor) ([]DecisionJournalEntry, error) {
 	f.requestedUser = userID
@@ -124,9 +155,6 @@ func (f *journalPersistenceFake) ShadowOutcomesForExecutions(_ context.Context, 
 	f.requestedID = instanceID
 	f.pageExecutionIDs = append([]string(nil), executionIDs...)
 	return f.pageOutcomes, f.pageOutcomeError
-}
-func (*journalPersistenceFake) Executions(context.Context, string, string) ([]ExecutionRecord, error) {
-	return nil, nil
 }
 func (*journalPersistenceFake) ShadowOutcomes(context.Context, string, string) ([]ShadowOutcome, error) {
 	return nil, nil
@@ -382,6 +410,101 @@ func TestJournalRequiresAutomationEntitlement(t *testing.T) {
 	_, err := service.Journal(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, 25, nil)
 	if !errors.Is(err, ErrForbidden) || store.requestedUser != "" {
 		t.Fatalf("unentitled journal request was not rejected: %v", err)
+	}
+}
+
+func TestStrategyTransitionPageIsOwnerScopedAndStable(t *testing.T) {
+	now := time.Date(2026, 8, 28, 7, 0, 0, 0, time.UTC)
+	after := &StrategyTransitionCursor{StateVersion: 6, ID: "99999999-9999-4999-8999-999999999999"}
+	store := &journalPersistenceFake{
+		instance: Instance{ID: "instance-1", UserID: "owner"},
+		runtimeTransitions: []StrategyTransitionEvidence{
+			{ID: "11111111-1111-4111-8111-111111111111", StrategyInstanceID: "instance-1", PreviousState: AIMonitoring, NewState: AIMonitoring, StateVersion: 5, Trigger: "SCHEDULED_EVALUATION", OccurredAt: now},
+			{ID: "22222222-2222-4222-8222-222222222222", StrategyInstanceID: "instance-1", PreviousState: AIMonitoring, NewState: AIMonitoring, StateVersion: 4, Trigger: "SCHEDULED_EVALUATION", OccurredAt: now.Add(-time.Hour)},
+			{ID: "33333333-3333-4333-8333-333333333333", StrategyInstanceID: "instance-1", PreviousState: AIMonitoring, NewState: AIMonitoring, StateVersion: 3, Trigger: "SCHEDULED_EVALUATION", OccurredAt: now.Add(-2 * time.Hour)},
+		},
+	}
+	page, err := NewInstanceService(store, nil).TransitionPage(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", 2, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.requestedUser != "owner" || store.requestedID != "instance-1" || store.transitionLimit != 3 || store.transitionAfter != after {
+		t.Fatalf("transition owner boundary or lookahead changed: %#v", store)
+	}
+	if len(page.Transitions) != 2 || page.NextCursor == nil || page.NextCursor.StateVersion != 4 || page.NextCursor.ID != page.Transitions[1].ID {
+		t.Fatalf("unexpected transition page: %#v", page)
+	}
+}
+
+func TestStrategyExecutionPageIsOwnerScopedAndStable(t *testing.T) {
+	now := time.Date(2026, 8, 28, 7, 0, 0, 0, time.UTC)
+	after := &StrategyExecutionCursor{CreatedAt: now.Add(time.Minute), ID: "99999999-9999-4999-8999-999999999999"}
+	store := &journalPersistenceFake{
+		instance: Instance{ID: "instance-1", UserID: "owner"},
+		runtimeExecutions: []StrategyExecutionEvidence{
+			{ID: "11111111-1111-4111-8111-111111111111", StrategyInstanceID: "instance-1", MandateVersion: 4, Mode: Shadow, Status: WouldHaveSubmitted, Symbol: "XRP", Instrument: "CRYPTO_SPOT", Side: "SELL", Quantity: "1", CreatedAt: now},
+			{ID: "22222222-2222-4222-8222-222222222222", StrategyInstanceID: "instance-1", MandateVersion: 4, Mode: Shadow, Status: RiskDenied, Symbol: "XRP", Instrument: "CRYPTO_SPOT", Side: "SELL", Quantity: "1", CreatedAt: now.Add(-time.Hour)},
+			{ID: "33333333-3333-4333-8333-333333333333", StrategyInstanceID: "instance-1", MandateVersion: 4, Mode: Shadow, Status: WouldHaveSubmitted, Symbol: "XRP", Instrument: "CRYPTO_SPOT", Side: "BUY", Quantity: "1", CreatedAt: now.Add(-2 * time.Hour)},
+		},
+	}
+	page, err := NewInstanceService(store, nil).ExecutionPage(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", 2, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.requestedUser != "owner" || store.requestedID != "instance-1" || store.executionLimit != 3 || store.executionAfter != after {
+		t.Fatalf("execution owner boundary or lookahead changed: %#v", store)
+	}
+	if len(page.Executions) != 2 || page.NextCursor == nil || page.NextCursor.ID != page.Executions[1].ID || !page.NextCursor.CreatedAt.Equal(page.Executions[1].CreatedAt) {
+		t.Fatalf("unexpected execution page: %#v", page)
+	}
+}
+
+func TestStrategyRuntimePagesFailClosedBeforeAndAcrossOwnerBoundary(t *testing.T) {
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+	store := &journalPersistenceFake{instance: Instance{ID: "instance-1", UserID: "owner"}}
+	service := NewInstanceService(store, nil)
+	if _, err := service.TransitionPage(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, "instance-1", 16, nil); !errors.Is(err, ErrForbidden) || store.requestedID != "" {
+		t.Fatalf("unentitled transition history reached persistence: id=%q err=%v", store.requestedID, err)
+	}
+	if _, err := service.ExecutionPage(context.Background(), principal, "instance-1", 51, nil); !errors.Is(err, ErrInvalid) || store.requestedID != "" {
+		t.Fatalf("invalid execution limit reached persistence: id=%q err=%v", store.requestedID, err)
+	}
+	if _, err := service.TransitionPage(context.Background(), principal, "instance-1", 16, &StrategyTransitionCursor{}); !errors.Is(err, ErrInvalid) || store.requestedID != "" {
+		t.Fatalf("invalid transition cursor reached persistence: id=%q err=%v", store.requestedID, err)
+	}
+	store.instance.ID = "different-instance"
+	if _, err := service.ExecutionPage(context.Background(), principal, "instance-1", 16, nil); !errors.Is(err, ErrNotFound) || store.executionLimit != 0 {
+		t.Fatalf("foreign execution history crossed its owner boundary: limit=%d err=%v", store.executionLimit, err)
+	}
+}
+
+func TestStrategyExecutionPageRejectsUnknownPersistedStatus(t *testing.T) {
+	now := time.Date(2026, 8, 28, 7, 0, 0, 0, time.UTC)
+	store := &journalPersistenceFake{
+		instance: Instance{ID: "instance-1", UserID: "owner"},
+		runtimeExecutions: []StrategyExecutionEvidence{{
+			ID:                 "11111111-1111-4111-8111-111111111111",
+			StrategyInstanceID: "instance-1",
+			MandateVersion:     4,
+			Mode:               Shadow,
+			Status:             ExecutionStatus("LIVE_FILLED"),
+			Symbol:             "XRP",
+			Instrument:         "CRYPTO_SPOT",
+			Side:               "SELL",
+			Quantity:           "1",
+			CreatedAt:          now,
+		}},
+	}
+
+	_, err := NewInstanceService(store, nil).ExecutionPage(
+		context.Background(),
+		authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder},
+		"instance-1",
+		16,
+		nil,
+	)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unknown execution status did not fail closed: %v", err)
 	}
 }
 

@@ -32,8 +32,6 @@ type Persistence interface {
 	Finish(context.Context, string, string, int, time.Time) (Instance, error)
 	List(context.Context, string) ([]Instance, error)
 	Get(context.Context, string, string) (Instance, error)
-	History(context.Context, string, string) ([]Transition, error)
-	Executions(context.Context, string, string) ([]ExecutionRecord, error)
 	PaperPortfolio(context.Context, string, string) (PaperPortfolio, error)
 	Journal(context.Context, string, int, *JournalCursor) ([]JournalActivity, error)
 	Schedule(context.Context, string, string) (ScheduleStatus, error)
@@ -65,6 +63,49 @@ type ShadowEvidenceReviewStepUp interface {
 }
 type ScheduleRunReader interface {
 	ScheduleRuns(context.Context, string, string, int, *ScheduleRunCursor) ([]ScheduleRun, error)
+}
+type StrategyTransitionEvidence struct {
+	ID                 string    `json:"id"`
+	StrategyInstanceID string    `json:"-"`
+	PreviousState      State     `json:"previous_state"`
+	NewState           State     `json:"new_state"`
+	StateVersion       int       `json:"state_version"`
+	Trigger            string    `json:"trigger"`
+	OccurredAt         time.Time `json:"occurred_at"`
+}
+type StrategyTransitionCursor struct {
+	StateVersion int
+	ID           string
+}
+type StrategyTransitionPage struct {
+	Transitions []StrategyTransitionEvidence
+	NextCursor  *StrategyTransitionCursor
+}
+type StrategyExecutionEvidence struct {
+	ID                 string          `json:"id"`
+	StrategyInstanceID string          `json:"-"`
+	MandateVersion     int             `json:"mandate_version"`
+	Mode               ExecutionMode   `json:"mode"`
+	Status             ExecutionStatus `json:"status"`
+	Symbol             string          `json:"symbol"`
+	Instrument         string          `json:"instrument"`
+	Side               string          `json:"side"`
+	Quantity           string          `json:"quantity"`
+	Price              *string         `json:"price,omitempty"`
+	Notional           *string         `json:"notional,omitempty"`
+	CreatedAt          time.Time       `json:"created_at"`
+}
+type StrategyExecutionCursor struct {
+	CreatedAt time.Time
+	ID        string
+}
+type StrategyExecutionPage struct {
+	Executions []StrategyExecutionEvidence
+	NextCursor *StrategyExecutionCursor
+}
+type StrategyRuntimeHistoryReader interface {
+	StrategyTransitionEntries(context.Context, string, string, int, *StrategyTransitionCursor) ([]StrategyTransitionEvidence, error)
+	StrategyExecutionEntries(context.Context, string, string, int, *StrategyExecutionCursor) ([]StrategyExecutionEvidence, error)
 }
 type DecisionJournalEntry struct {
 	ID, StrategyInstanceID, StrategyState, Source, DecisionType           string
@@ -270,11 +311,40 @@ func (s *InstanceService) auditInstanceStatus(c context.Context, userID string, 
 		"source":               "UI",
 	})
 }
-func (s *InstanceService) History(c context.Context, p authorization.Principal, id string) ([]Transition, error) {
+func (s *InstanceService) TransitionPage(c context.Context, p authorization.Principal, id string, limit int, after *StrategyTransitionCursor) (StrategyTransitionPage, error) {
 	if !entitled(p) {
-		return nil, ErrForbidden
+		return StrategyTransitionPage{}, ErrForbidden
 	}
-	return s.store.History(c, p.UserID, id)
+	if id == "" || limit < 1 || limit > 50 || (after != nil && (after.StateVersion < 1 || after.ID == "")) {
+		return StrategyTransitionPage{}, ErrInvalid
+	}
+	instance, err := s.store.Get(c, p.UserID, id)
+	if err != nil || instance.ID != id {
+		return StrategyTransitionPage{}, ErrNotFound
+	}
+	reader, ok := s.store.(StrategyRuntimeHistoryReader)
+	if !ok {
+		return StrategyTransitionPage{}, ErrNotFound
+	}
+	transitions, err := reader.StrategyTransitionEntries(c, p.UserID, id, limit+1, after)
+	if err != nil {
+		return StrategyTransitionPage{}, err
+	}
+	if len(transitions) > limit+1 {
+		return StrategyTransitionPage{}, ErrInvalid
+	}
+	page := StrategyTransitionPage{Transitions: transitions}
+	if len(transitions) > limit {
+		page.Transitions = transitions[:limit]
+		last := page.Transitions[len(page.Transitions)-1]
+		page.NextCursor = &StrategyTransitionCursor{StateVersion: last.StateVersion, ID: last.ID}
+	}
+	for _, transition := range page.Transitions {
+		if transition.ID == "" || transition.StrategyInstanceID != id || transition.StateVersion < 1 || transition.PreviousState == "" || transition.NewState == "" || transition.Trigger == "" || transition.OccurredAt.IsZero() {
+			return StrategyTransitionPage{}, ErrInvalid
+		}
+	}
+	return page, nil
 }
 func (s *InstanceService) DecisionPage(c context.Context, p authorization.Principal, id string, limit int, after *StrategyDecisionCursor) (StrategyDecisionPage, error) {
 	if !entitled(p) {
@@ -331,11 +401,49 @@ func (s *InstanceService) DecisionPage(c context.Context, p authorization.Princi
 	}
 	return page, nil
 }
-func (s *InstanceService) Executions(c context.Context, p authorization.Principal, id string) ([]ExecutionRecord, error) {
+func (s *InstanceService) ExecutionPage(c context.Context, p authorization.Principal, id string, limit int, after *StrategyExecutionCursor) (StrategyExecutionPage, error) {
 	if !entitled(p) {
-		return nil, ErrForbidden
+		return StrategyExecutionPage{}, ErrForbidden
 	}
-	return s.store.Executions(c, p.UserID, id)
+	if id == "" || limit < 1 || limit > 50 || (after != nil && (after.CreatedAt.IsZero() || after.ID == "")) {
+		return StrategyExecutionPage{}, ErrInvalid
+	}
+	instance, err := s.store.Get(c, p.UserID, id)
+	if err != nil || instance.ID != id {
+		return StrategyExecutionPage{}, ErrNotFound
+	}
+	reader, ok := s.store.(StrategyRuntimeHistoryReader)
+	if !ok {
+		return StrategyExecutionPage{}, ErrNotFound
+	}
+	executions, err := reader.StrategyExecutionEntries(c, p.UserID, id, limit+1, after)
+	if err != nil {
+		return StrategyExecutionPage{}, err
+	}
+	if len(executions) > limit+1 {
+		return StrategyExecutionPage{}, ErrInvalid
+	}
+	page := StrategyExecutionPage{Executions: executions}
+	if len(executions) > limit {
+		page.Executions = executions[:limit]
+		last := page.Executions[len(page.Executions)-1]
+		page.NextCursor = &StrategyExecutionCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	for _, execution := range page.Executions {
+		if execution.ID == "" || execution.StrategyInstanceID != id || execution.MandateVersion < 1 || (execution.Mode != Paper && execution.Mode != Shadow) || !isNonLiveExecutionStatus(execution.Status) || execution.Symbol == "" || execution.Instrument == "" || execution.Side == "" || execution.Quantity == "" || execution.CreatedAt.IsZero() {
+			return StrategyExecutionPage{}, ErrInvalid
+		}
+	}
+	return page, nil
+}
+
+func isNonLiveExecutionStatus(status ExecutionStatus) bool {
+	switch status {
+	case ExecutionProposed, RiskDenied, SimulatedFilled, SimulatedRejected, WouldHaveSubmitted, ExecutionCanceled, ExecutionError:
+		return true
+	default:
+		return false
+	}
 }
 func (s *InstanceService) ShadowOutcomes(c context.Context, p authorization.Principal, id string) ([]ShadowOutcome, error) {
 	if !entitled(p) {

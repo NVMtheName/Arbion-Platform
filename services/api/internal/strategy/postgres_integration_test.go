@@ -267,6 +267,30 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		latestDecision.Notional == nil || *latestDecision.Notional != premium {
 		t.Fatalf("per-instance journal omitted linked risk or execution evidence: %#v", latestDecision)
 	}
+	transitionPage, err := store.StrategyTransitionEntries(ctx, userID, instance.ID, 2, nil)
+	if err != nil || len(transitionPage) != 2 || transitionPage[0].StateVersion != 3 || transitionPage[1].StateVersion != 2 {
+		t.Fatalf("bounded state history was not newest-first: %#v %v", transitionPage, err)
+	}
+	olderTransitions, err := store.StrategyTransitionEntries(ctx, userID, instance.ID, 2, &StrategyTransitionCursor{StateVersion: transitionPage[1].StateVersion, ID: transitionPage[1].ID})
+	if err != nil || len(olderTransitions) != 1 || olderTransitions[0].StateVersion != 1 || olderTransitions[0].Trigger != "INITIALIZED" {
+		t.Fatalf("state-history cursor was unstable: %#v %v", olderTransitions, err)
+	}
+	foreignTransitions, err := store.StrategyTransitionEntries(ctx, "99999999-9999-4999-8999-999999999999", instance.ID, 10, nil)
+	if err != nil || len(foreignTransitions) != 0 {
+		t.Fatalf("state history crossed its owner boundary: %#v %v", foreignTransitions, err)
+	}
+	executionPage, err := store.StrategyExecutionEntries(ctx, userID, instance.ID, 1, nil)
+	if err != nil || len(executionPage) != 1 || executionPage[0].Status != SimulatedFilled || !executionPage[0].CreatedAt.Equal(fillTime) || executionPage[0].Price == nil || *executionPage[0].Price != price {
+		t.Fatalf("bounded execution evidence was incomplete: %#v %v", executionPage, err)
+	}
+	olderExecutions, err := store.StrategyExecutionEntries(ctx, userID, instance.ID, 1, &StrategyExecutionCursor{CreatedAt: executionPage[0].CreatedAt, ID: executionPage[0].ID})
+	if err != nil || len(olderExecutions) != 1 || olderExecutions[0].Status != RiskDenied || !olderExecutions[0].CreatedAt.Equal(now) {
+		t.Fatalf("execution-history cursor was unstable: %#v %v", olderExecutions, err)
+	}
+	foreignExecutions, err := store.StrategyExecutionEntries(ctx, "99999999-9999-4999-8999-999999999999", instance.ID, 10, nil)
+	if err != nil || len(foreignExecutions) != 0 {
+		t.Fatalf("execution history crossed its owner boundary: %#v %v", foreignExecutions, err)
+	}
 	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 3)
 	facts, err := store.EvaluationFacts(ctx, Instance{ID: instance.ID, UserID: userID, FinancialAccountID: accountID, AutomationMandateID: mandateID, ExecutionMode: Paper}, fillTime)
 	if err != nil || facts.Paper == nil || facts.Paper.CurrentExposure != "19000.0000000000" || facts.ActionsToday != 2 {

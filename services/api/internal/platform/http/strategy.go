@@ -18,6 +18,7 @@ import (
 const (
 	defaultJournalPageSize              = 25
 	defaultStrategyDecisionPageSize     = 24
+	defaultStrategyRuntimePageSize      = 16
 	defaultShadowEvidenceReviewPageSize = 8
 )
 
@@ -34,6 +35,16 @@ type scheduleRunCursorPayload struct {
 }
 
 type strategyDecisionCursorPayload struct {
+	CreatedAt time.Time `json:"created_at"`
+	ID        string    `json:"id"`
+}
+
+type strategyTransitionCursorPayload struct {
+	StateVersion int    `json:"state_version"`
+	ID           string `json:"id"`
+}
+
+type strategyExecutionCursorPayload struct {
 	CreatedAt time.Time `json:"created_at"`
 	ID        string    `json:"id"`
 }
@@ -146,6 +157,58 @@ func decodeStrategyDecisionCursor(encoded string) (*strategy.StrategyDecisionCur
 		return nil, strategy.ErrInvalid
 	}
 	return &strategy.StrategyDecisionCursor{CreatedAt: decoded.CreatedAt, ID: decoded.ID}, nil
+}
+
+func encodeStrategyTransitionCursor(cursor *strategy.StrategyTransitionCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	payload, _ := json.Marshal(strategyTransitionCursorPayload{StateVersion: cursor.StateVersion, ID: cursor.ID})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeStrategyTransitionCursor(encoded string) (*strategy.StrategyTransitionCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	if len(encoded) > 512 {
+		return nil, strategy.ErrInvalid
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, strategy.ErrInvalid
+	}
+	var decoded strategyTransitionCursorPayload
+	if err = json.Unmarshal(payload, &decoded); err != nil || decoded.StateVersion < 1 || !journalUUID.MatchString(decoded.ID) {
+		return nil, strategy.ErrInvalid
+	}
+	return &strategy.StrategyTransitionCursor{StateVersion: decoded.StateVersion, ID: decoded.ID}, nil
+}
+
+func encodeStrategyExecutionCursor(cursor *strategy.StrategyExecutionCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	payload, _ := json.Marshal(strategyExecutionCursorPayload{CreatedAt: cursor.CreatedAt, ID: cursor.ID})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeStrategyExecutionCursor(encoded string) (*strategy.StrategyExecutionCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	if len(encoded) > 512 {
+		return nil, strategy.ErrInvalid
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, strategy.ErrInvalid
+	}
+	var decoded strategyExecutionCursorPayload
+	if err = json.Unmarshal(payload, &decoded); err != nil || decoded.CreatedAt.IsZero() || !journalUUID.MatchString(decoded.ID) {
+		return nil, strategy.ErrInvalid
+	}
+	return &strategy.StrategyExecutionCursor{CreatedAt: decoded.CreatedAt, ID: decoded.ID}, nil
 }
 
 func encodeShadowEvidenceReviewCursor(cursor *strategy.ShadowEvidenceReviewCursor) string {
@@ -289,12 +352,35 @@ func (h *authHandler) getStrategyInstance(w stdhttp.ResponseWriter, r *stdhttp.R
 	writeJSON(w, 200, map[string]any{"strategy_instance": v, "live_execution_available": false})
 }
 func (h *authHandler) strategyHistory(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-	v, e := h.strategies.History(r.Context(), principal(r), r.PathValue("id"))
-	if e != nil {
-		h.strategyError(w, e)
+	limit := defaultStrategyRuntimePageSize
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 50 {
+			writeError(w, 400, "INVALID_PAGINATION", "Limit must be between 1 and 50.")
+			return
+		}
+		limit = parsed
+	}
+	cursor, err := decodeStrategyTransitionCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeError(w, 400, "INVALID_PAGINATION", "The strategy transition cursor is invalid.")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"transitions": v})
+	page, err := h.strategies.TransitionPage(r.Context(), principal(r), r.PathValue("id"), limit, cursor)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"transitions":              page.Transitions,
+		"next_cursor":              encodeStrategyTransitionCursor(page.NextCursor),
+		"history_semantics":        "IMMUTABLE_OWNER_STRATEGY_STATE_HISTORY",
+		"ordering":                 "NEWEST_FIRST",
+		"state_mutation_available": false,
+		"broker_action_available":  false,
+		"live_execution_available": false,
+	})
 }
 func (h *authHandler) strategyDecisions(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	limit := defaultStrategyDecisionPageSize
@@ -332,12 +418,36 @@ func (h *authHandler) strategyDecisions(w stdhttp.ResponseWriter, r *stdhttp.Req
 	})
 }
 func (h *authHandler) strategyExecutions(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-	v, e := h.strategies.Executions(r.Context(), principal(r), r.PathValue("id"))
-	if e != nil {
-		h.strategyError(w, e)
+	limit := defaultStrategyRuntimePageSize
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 50 {
+			writeError(w, 400, "INVALID_PAGINATION", "Limit must be between 1 and 50.")
+			return
+		}
+		limit = parsed
+	}
+	cursor, err := decodeStrategyExecutionCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeError(w, 400, "INVALID_PAGINATION", "The strategy execution cursor is invalid.")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"executions": v})
+	page, err := h.strategies.ExecutionPage(r.Context(), principal(r), r.PathValue("id"), limit, cursor)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"executions":                  page.Executions,
+		"next_cursor":                 encodeStrategyExecutionCursor(page.NextCursor),
+		"history_semantics":           "IMMUTABLE_OWNER_NONLIVE_EXECUTION_HISTORY",
+		"execution_boundary":          "PAPER_OR_SHADOW_ONLY",
+		"broker_order_record":         false,
+		"broker_action_available":     false,
+		"live_execution_available":    false,
+		"execution_authority_granted": false,
+	})
 }
 
 func (h *authHandler) strategyShadowOutcomes(w stdhttp.ResponseWriter, r *stdhttp.Request) {
