@@ -410,8 +410,8 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || paused.Status != "PAUSED" || paused.StateVersion != 2 || paused.PausedAt == nil {
 		t.Fatalf("non-live pause did not preserve the account claim: %#v %v", paused, err)
 	}
-	if _, err = store.Initialize(ctx, userID, mandate, "20000", ReadyForPut); !errors.Is(err, ErrAccountInUse) {
-		t.Fatalf("paused strategy released its financial account claim: %v", err)
+	if _, err = store.Initialize(ctx, userID, mandate, "20000", ReadyForPut); !errors.Is(err, ErrMandateStale) {
+		t.Fatalf("stale mandate initialized after its immutable version was replaced: %v", err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE automation_mandates SET status='PAUSED' WHERE id=$1`, secondMandateID); err != nil {
 		t.Fatal(err)
@@ -439,6 +439,15 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		AIModelID: &aiModel, CapitalBucketID: aiBucketID, AutonomyLevel: "FULL_AUTONOMOUS",
 		ExecutionMode: "SHADOW", Status: "READY", CurrentVersion: 1,
 		ScheduleConditions: json.RawMessage(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR","notifications":{"reconciliation_review_required":true}}`),
+	}
+	if _, err = pool.Exec(ctx, `UPDATE provider_connections SET status='disabled' WHERE id=$1`, aiConnectionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Initialize(ctx, userID, aiMandate, "0", AIMonitoring); !errors.Is(err, ErrMandateStale) {
+		t.Fatalf("AI runtime initialized with an inactive provider connection: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE provider_connections SET status='active' WHERE id=$1`, aiConnectionID); err != nil {
+		t.Fatal(err)
 	}
 	aiInstance, err := store.Initialize(ctx, userID, aiMandate, "0", AIMonitoring)
 	if err != nil || aiInstance.StrategyIdentifier != "ai_shadow" || aiInstance.ExecutionMode != Shadow {

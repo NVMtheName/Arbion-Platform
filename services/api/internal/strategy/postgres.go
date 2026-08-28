@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/automation"
+	"github.com/arbion/platform/services/api/internal/connectionguard"
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/jackc/pgx/v5"
@@ -27,6 +28,13 @@ const instanceColumns = `id::text,user_id::text,automation_mandate_id::text,mand
 func scanInstance(r pgx.Row) (i Instance, e error) {
 	e = r.Scan(&i.ID, &i.UserID, &i.AutomationMandateID, &i.MandateVersion, &i.FinancialAccountID, &i.CapitalBucketID, &i.StrategyIdentifier, &i.DefinitionVersion, &i.ExecutionMode, &i.CurrentState, &i.StateVersion, &i.Status, &i.StartedAt, &i.UpdatedAt, &i.PausedAt, &i.CompletedAt, &i.LastEvaluatedAt)
 	return
+}
+
+func sameOptionalString(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func initializeError(err error) error {
@@ -56,6 +64,29 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 		return Instance{}, e
 	}
 	defer tx.Rollback(c)
+	if e = connectionguard.LockActive(c, tx, u, m.FinancialAccountID, m.AIProviderConnectionID); e != nil {
+		if errors.Is(e, connectionguard.ErrUnavailable) {
+			return Instance{}, ErrMandateStale
+		}
+		return Instance{}, e
+	}
+	var currentStatus, currentFinancialAccountID, currentCapitalBucketID, currentAutomationType, currentExecutionMode string
+	var currentVersion int
+	var currentAIConnectionID, currentStrategyIdentifier *string
+	currentErr := tx.QueryRow(c, `SELECT status,current_version,financial_account_id::text,capital_bucket_id::text,automation_type,execution_mode,ai_provider_connection_id::text,strategy_identifier
+		FROM automation_mandates WHERE id=$1 AND user_id=$2 FOR UPDATE`, m.ID, u).Scan(
+		&currentStatus, &currentVersion, &currentFinancialAccountID, &currentCapitalBucketID,
+		&currentAutomationType, &currentExecutionMode, &currentAIConnectionID, &currentStrategyIdentifier,
+	)
+	if currentErr != nil {
+		if errors.Is(currentErr, pgx.ErrNoRows) {
+			return Instance{}, ErrMandateStale
+		}
+		return Instance{}, currentErr
+	}
+	if currentStatus != "READY" || currentVersion != m.CurrentVersion || currentFinancialAccountID != m.FinancialAccountID || currentCapitalBucketID != m.CapitalBucketID || currentAutomationType != m.AutomationType || currentExecutionMode != m.ExecutionMode || !sameOptionalString(currentAIConnectionID, m.AIProviderConnectionID) || !sameOptionalString(currentStrategyIdentifier, m.StrategyIdentifier) {
+		return Instance{}, ErrMandateStale
+	}
 	var bucket automation.CapitalBucket
 	if e = tx.QueryRow(c, `SELECT id::text,user_id::text,financial_account_id::text,name,allocation_type,allocation_value::text,currency,is_reserve,protected_amount::text,allocation_limit::text,status,created_at,updated_at FROM capital_buckets WHERE id=$1 AND user_id=$2 AND financial_account_id=$3 FOR UPDATE`, m.CapitalBucketID, u, m.FinancialAccountID).Scan(
 		&bucket.ID, &bucket.UserID, &bucket.FinancialAccountID, &bucket.Name, &bucket.AllocationType, &bucket.AllocationValue,

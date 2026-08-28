@@ -20,6 +20,12 @@ type memoryStore struct {
 	inUse           bool
 	dependencyCalls int
 	inUseCalls      int
+	lockCalls       int
+	lockDepth       int
+	dependencyLock  bool
+	inUseLock       bool
+	statusLock      bool
+	deleteLock      bool
 	blobs           *blobs
 }
 
@@ -49,6 +55,9 @@ func (ms *memoryStore) Rename(_ context.Context, user, id, n string) (Connection
 	return c, e
 }
 func (ms *memoryStore) SetStatus(_ context.Context, user, id, status string) (Connection, error) {
+	if status == "disabled" && ms.lockDepth > 0 {
+		ms.statusLock = true
+	}
 	c, e := ms.Get(context.Background(), user, id)
 	c.Status = status
 	c.Enabled = status != "disabled"
@@ -101,6 +110,9 @@ func (ms *memoryStore) SetPreference(_ context.Context, user, id, model string) 
 	return pref, nil
 }
 func (ms *memoryStore) Delete(_ context.Context, user, id string) error {
+	if ms.lockDepth > 0 {
+		ms.deleteLock = true
+	}
 	if _, ok := ms.items[id]; !ok {
 		return ErrNotFound
 	}
@@ -109,11 +121,23 @@ func (ms *memoryStore) Delete(_ context.Context, user, id string) error {
 }
 func (ms *memoryStore) HasDependencies(context.Context, string, string) (bool, error) {
 	ms.dependencyCalls++
+	if ms.lockDepth > 0 {
+		ms.dependencyLock = true
+	}
 	return ms.dependencies, nil
 }
 func (ms *memoryStore) ConnectionInUse(context.Context, string, string) (bool, error) {
 	ms.inUseCalls++
+	if ms.lockDepth > 0 {
+		ms.inUseLock = true
+	}
 	return ms.inUse, nil
+}
+func (ms *memoryStore) WithLock(_ context.Context, _ string, fn func() error) error {
+	ms.lockCalls++
+	ms.lockDepth++
+	defer func() { ms.lockDepth-- }()
+	return fn()
 }
 
 type blobs struct {
@@ -383,6 +407,9 @@ func TestCredentialLifecycleIsEncryptedAndSafe(t *testing.T) {
 	if _, ok := ms.items[c.ID]; ok {
 		t.Fatal("delete retained connection")
 	}
+	if ms.lockCalls != 2 || !ms.inUseLock || !ms.statusLock || !ms.dependencyLock || !ms.deleteLock {
+		t.Fatalf("destructive lifecycle checks and writes were not serialized: locks=%d in_use=%t status=%t dependency=%t delete=%t", ms.lockCalls, ms.inUseLock, ms.statusLock, ms.dependencyLock, ms.deleteLock)
+	}
 }
 
 func TestActiveCredentialRotationKeepsCurrentKeyUntilCandidateVerificationSucceeds(t *testing.T) {
@@ -430,6 +457,9 @@ func TestActiveCredentialRotationKeepsCurrentKeyUntilCandidateVerificationSuccee
 	}
 	if ms.inUseCalls != 1 {
 		t.Fatalf("expected disable to check runtime use once, got %d calls", ms.inUseCalls)
+	}
+	if ms.lockCalls != 1 || !ms.inUseLock {
+		t.Fatalf("runtime dependency check did not run under the lifecycle lock: locks=%d locked=%t", ms.lockCalls, ms.inUseLock)
 	}
 }
 
@@ -500,6 +530,9 @@ func TestDeleteFailsClosedForDurableDependencies(t *testing.T) {
 	}
 	if ms.dependencyCalls != 1 {
 		t.Fatalf("expected one durable dependency check, got %d", ms.dependencyCalls)
+	}
+	if ms.lockCalls != 1 || !ms.dependencyLock {
+		t.Fatalf("durable dependency check did not run under the lifecycle lock: locks=%d locked=%t", ms.lockCalls, ms.dependencyLock)
 	}
 }
 func TestOwnershipUsesNotFound(t *testing.T) {

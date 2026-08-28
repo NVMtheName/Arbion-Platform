@@ -19,6 +19,11 @@ type connectionStoreFake struct {
 	account         financial.FinancialAccount
 	providerAccount string
 	connectionInUse bool
+	lockCalls       int
+	lockDepth       int
+	inUseLock       bool
+	statusLock      bool
+	retireLock      bool
 }
 
 func (store *connectionStoreFake) ListConnections(context.Context, string) ([]Connection, error) {
@@ -39,6 +44,9 @@ func (store *connectionStoreFake) GetConnection(context.Context, string, string)
 	return store.connection, nil
 }
 func (store *connectionStoreFake) SetStatus(_ context.Context, _, _ string, status string, expires *time.Time) (Connection, error) {
+	if status == "disabled" && store.lockDepth > 0 {
+		store.statusLock = true
+	}
 	store.connection.Status = status
 	if expires != nil {
 		store.connection.TokenExpiresAt = expires
@@ -48,6 +56,9 @@ func (store *connectionStoreFake) SetStatus(_ context.Context, _, _ string, stat
 	return store.connection, nil
 }
 func (store *connectionStoreFake) ConnectionInUse(context.Context, string, string) (bool, error) {
+	if store.lockDepth > 0 {
+		store.inUseLock = true
+	}
 	return store.connectionInUse, nil
 }
 func (store *connectionStoreFake) SyncAccounts(_ context.Context, _ string, connectionID string, accounts []financial.FinancialAccount) error {
@@ -69,10 +80,18 @@ func (store *connectionStoreFake) GetAccount(context.Context, string, string) (f
 	return store.account, nil
 }
 func (store *connectionStoreFake) Retire(context.Context, string, string) error {
+	if store.lockDepth > 0 {
+		store.retireLock = true
+	}
 	store.connection.Status = "revoked"
 	return nil
 }
-func (*connectionStoreFake) WithLock(_ context.Context, _ string, fn func() error) error { return fn() }
+func (store *connectionStoreFake) WithLock(_ context.Context, _ string, fn func() error) error {
+	store.lockCalls++
+	store.lockDepth++
+	defer func() { store.lockDepth-- }()
+	return fn()
+}
 
 type vaultFake struct{ values map[string][]byte }
 
@@ -758,6 +777,29 @@ func TestDisconnectAndDisableFailClosedWhileAutomationUsesConnection(t *testing.
 	}
 	if provider.disconnected != 0 || vault.values["connection-1"] == nil || store.connection.Status != "active" {
 		t.Fatalf("blocked mutation changed provider, credential, or status: disconnected=%d credential=%v status=%q", provider.disconnected, vault.values["connection-1"] != nil, store.connection.Status)
+	}
+	if store.lockCalls != 2 || !store.inUseLock {
+		t.Fatalf("dependency checks were not serialized with both lifecycle commands: locks=%d in_use_locked=%t", store.lockCalls, store.inUseLock)
+	}
+}
+
+func TestDisconnectSerializesCredentialRetirementWithDependencyCheck(t *testing.T) {
+	store := &connectionStoreFake{
+		connection: Connection{ID: "connection-1", Provider: "coinbase", Status: "active"},
+		account:    financial.FinancialAccount{ID: "account-1", ProviderConnectionID: "connection-1", Provider: "coinbase", ProviderAccountID: "portfolio:portfolio-1", Status: "active"},
+	}
+	provider := &coinbaseProviderFake{}
+	vault := &vaultFake{values: map[string][]byte{"connection-1": []byte(`{"api_key_name":"organizations/org/apiKeys/key","api_private_key":"private-key","portfolio_id":"portfolio-1"}`)}}
+	service := NewService(store, vault, nil, nil, nil, NamedProvider{ID: "coinbase", Provider: provider})
+
+	if err := service.Disconnect(context.Background(), founder(), "connection-1"); err != nil {
+		t.Fatal(err)
+	}
+	if provider.disconnected != 1 || vault.values["connection-1"] != nil || store.connection.Status != "revoked" {
+		t.Fatalf("disconnect did not retire provider, credential, and connection: disconnected=%d credential=%t status=%q", provider.disconnected, vault.values["connection-1"] != nil, store.connection.Status)
+	}
+	if store.lockCalls != 3 || !store.inUseLock || !store.retireLock {
+		t.Fatalf("disconnect lifecycle was not serialized: locks=%d in_use=%t retired=%t", store.lockCalls, store.inUseLock, store.retireLock)
 	}
 }
 
