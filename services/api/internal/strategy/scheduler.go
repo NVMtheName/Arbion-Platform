@@ -139,6 +139,9 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 	if err := s.store.CompleteSchedule(ctx, *run, completion); err != nil {
 		return true, err
 	}
+	if completion.Status == "SUCCEEDED" && run.NotifyEvaluation && run.OwnerEmail != "" && run.OwnerEmailVerified && s.notifier != nil && run.ExecutionMode == Shadow && run.CurrentState == AIMonitoring {
+		completion.EvidenceGateStatus = s.shadowEvidenceGateStatus(ctx, *run)
+	}
 	if event := scheduleNotification(*run, completion); event != nil && s.notifier != nil {
 		if err := s.notifier.Send(ctx, *event); err != nil {
 			s.logger.Error("non-live schedule notification delivery failed", "strategy_instance_id", run.StrategyInstanceID, "notification_kind", event.Kind)
@@ -155,6 +158,23 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+func (s *Scheduler) shadowEvidenceGateStatus(ctx context.Context, run ScheduledRun) string {
+	reader, ok := s.store.(ShadowScorecardReader)
+	if !ok {
+		return ""
+	}
+	scorecard, err := reader.ShadowScorecard(ctx, run.UserID, run.StrategyInstanceID)
+	if err != nil {
+		return ""
+	}
+	switch scorecard.EvidenceGate.Status {
+	case ShadowEvidenceCollecting, ShadowEvidenceReviewable:
+		return scorecard.EvidenceGate.Status
+	default:
+		return ""
+	}
+}
+
 func scheduleNotification(run ScheduledRun, completion ScheduleCompletion) *automationnotification.Event {
 	if run.OwnerEmail == "" || !run.OwnerEmailVerified {
 		return nil
@@ -167,6 +187,7 @@ func scheduleNotification(run ScheduledRun, completion ScheduleCompletion) *auto
 		ExecutionMode:      string(run.ExecutionMode),
 		ScheduledFor:       run.ScheduledFor,
 		SafeErrorCode:      completion.ErrorCode,
+		EvidenceGateStatus: completion.EvidenceGateStatus,
 	}
 	switch {
 	case completion.Status == "SUCCEEDED" && completion.ReconciliationReviewRequired && run.NotifyReconciliationReview && completion.ReconciliationID != "" && (run.LastReconciliationNotificationID == nil || *run.LastReconciliationNotificationID != completion.ReconciliationID):

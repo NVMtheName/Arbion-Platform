@@ -443,6 +443,7 @@ type ScheduledRun struct {
 type ScheduleCompletion struct {
 	Status                       string
 	ErrorCode                    string
+	EvidenceGateStatus           string
 	CompletedAt                  time.Time
 	NextRunAt                    time.Time
 	ReconciliationID             string

@@ -33,6 +33,7 @@ type Event struct {
 	ExecutionMode      string
 	Kind               Kind
 	SafeErrorCode      string
+	EvidenceGateStatus string
 	ScheduledFor       time.Time
 }
 
@@ -56,9 +57,28 @@ func (s *EmailSender) Send(ctx context.Context, event Event) error {
 	var subject, summary, heading, link string
 	switch event.Kind {
 	case EvaluationCompleted:
-		subject = fmt.Sprintf("Arbion %s scheduled evaluation completed", event.ExecutionMode)
-		summary = "A guarded non-live scheduled evaluation completed. Review its durable decision and risk evidence in Arbion."
-		heading = "Scheduled evaluation complete"
+		switch event.EvidenceGateStatus {
+		case "":
+			subject = fmt.Sprintf("Arbion %s scheduled evaluation completed", event.ExecutionMode)
+			summary = "A guarded non-live scheduled evaluation completed. Review its durable decision and risk evidence in Arbion."
+			heading = "Scheduled evaluation complete"
+		case "COLLECTING_EVIDENCE":
+			if event.ExecutionMode != "SHADOW" {
+				return errors.New("automation notification evidence status requires Shadow mode")
+			}
+			subject = "Arbion Shadow evaluation completed"
+			summary = "A guarded AI Shadow evaluation completed. Arbion is still collecting the required immutable outcome evidence."
+			heading = "Shadow evidence is still collecting"
+		case "EVIDENCE_REVIEWABLE":
+			if event.ExecutionMode != "SHADOW" {
+				return errors.New("automation notification evidence status requires Shadow mode")
+			}
+			subject = "Arbion Shadow evidence is ready for review"
+			summary = "A guarded AI Shadow evaluation completed, and the durable evidence gate is now reviewable. Review the evidence and every remaining control in Arbion."
+			heading = "Shadow evidence is ready for review"
+		default:
+			return errors.New("automation notification evidence status is unsupported")
+		}
 	case LifecycleRequired:
 		subject = "Arbion PAPER simulation needs lifecycle review"
 		summary = "A simulated option is open and the PAPER strategy is waiting for you to record its lifecycle outcome."
