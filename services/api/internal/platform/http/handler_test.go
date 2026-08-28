@@ -280,6 +280,86 @@ func TestSecurityActivityRouteIsAuthenticatedBoundedAndMetadataFree(t *testing.T
 	}
 }
 
+func TestSessionInventoryRoutesPreserveCurrentSessionAndExposeNoTrackingMetadata(t *testing.T) {
+	mini := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})
+	sessions := auth.NewRedisStore(redisClient)
+	users := &authUsers{}
+	service := auth.NewService(users, sessions, sessions, auditSink{}, time.Hour)
+	cfg := config.Config{Database: config.Database{ReadinessTimeout: time.Second}, Auth: config.Auth{SessionCookie: "session", SessionTTL: time.Hour, AllowedOrigins: []string{"http://localhost:3000"}}}
+	handler := NewApplicationHandler(checker{}, cfg, service)
+
+	register := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader(`{"email":"person@example.com","password":"correct horse battery staple","display_name":"Person"}`))
+	register.Header.Set("Origin", "http://localhost:3000")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, register)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("registration failed: %d %s", recorder.Code, recorder.Body.String())
+	}
+	currentCookie := recorder.Result().Cookies()[0]
+
+	login := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"email":"person@example.com","password":"correct horse battery staple"}`))
+	login.Header.Set("Origin", "http://localhost:3000")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, login)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("second login failed: %d %s", recorder.Code, recorder.Body.String())
+	}
+	otherCookie := recorder.Result().Cookies()[0]
+
+	request := httptest.NewRequest(http.MethodGet, "/api/auth/sessions", nil)
+	request.AddCookie(currentCookie)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("session inventory route failed: %d %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, expected := range []string{`"active_count":2`, `"other_count":1`, `"network_metadata_exposed":false`, `"device_metadata_exposed":false`, `"credentials_exposed":false`, `"provider_data_exposed":false`, `"broker_action_requested":false`, `"live_execution_available":false`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("session inventory response omitted %s: %s", expected, body)
+		}
+	}
+	for _, prohibited := range []string{currentCookie.Value, otherCookie.Value, "user_id", "last_activity_at", "user_agent", "ip_address", "device_id"} {
+		if strings.Contains(body, prohibited) {
+			t.Fatalf("session inventory exposed %q: %s", prohibited, body)
+		}
+	}
+
+	missingOrigin := httptest.NewRequest(http.MethodPost, "/api/auth/logout-others", nil)
+	missingOrigin.AddCookie(currentCookie)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, missingOrigin)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("other-session revocation without a trusted origin returned %d", recorder.Code)
+	}
+	if _, err := sessions.Get(context.Background(), otherCookie.Value); err != nil {
+		t.Fatal("rejected other-session revocation removed a session")
+	}
+
+	revoke := httptest.NewRequest(http.MethodPost, "/api/auth/logout-others", nil)
+	revoke.Header.Set("Origin", "http://localhost:3000")
+	revoke.AddCookie(currentCookie)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, revoke)
+	if recorder.Code != http.StatusOK || recorder.Header().Get("Cache-Control") != "no-store" || !strings.Contains(recorder.Body.String(), `"revoked_session_count":1`) || !strings.Contains(recorder.Body.String(), `"current_session_preserved":true`) {
+		t.Fatalf("other-session revocation failed: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if _, err := sessions.Get(context.Background(), currentCookie.Value); err != nil {
+		t.Fatal("other-session revocation removed the current session")
+	}
+	if _, err := sessions.Get(context.Background(), otherCookie.Value); !errors.Is(err, auth.ErrUnauthenticated) {
+		t.Fatal("other-session revocation retained another session")
+	}
+
+	anonymous := httptest.NewRequest(http.MethodGet, "/api/auth/sessions", nil)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, anonymous)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatal("anonymous session inventory request was accepted")
+	}
+}
+
 func TestMFALoginCreatesNoSessionUntilSecondFactorSucceeds(t *testing.T) {
 	mini := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: mini.Addr()})

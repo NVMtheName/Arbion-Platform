@@ -40,6 +40,13 @@ const presentations: Record<string, Presentation> = {
     detail: "One authenticated session was revoked.",
     tone: "access",
   },
+  "auth.logout_others": {
+    category: "Access",
+    title: "Other sessions signed out",
+    detail:
+      "Every other browser session was revoked; this session stayed active.",
+    tone: "access",
+  },
   "auth.logout_all": {
     category: "Access",
     title: "All sessions signed out",

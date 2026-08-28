@@ -36,6 +36,33 @@ end
 return 1
 `)
 
+var revokeOtherSessionsScript = redis.NewScript(`
+if redis.call("EXISTS", KEYS[2]) == 0 then
+  return -1
+end
+local members = redis.call("SMEMBERS", KEYS[1])
+local revoked = 0
+for _, key in ipairs(members) do
+  if key ~= KEYS[2] then
+    local raw = redis.call("GET", key)
+    local owner_prefix = '{"user_id":"' .. ARGV[1] .. '"'
+    if string.sub(key, 1, string.len(ARGV[2])) == ARGV[2]
+      and raw
+      and string.sub(raw, 1, string.len(owner_prefix)) == owner_prefix then
+      revoked = revoked + redis.call("DEL", key)
+    end
+    redis.call("SREM", KEYS[1], key)
+  end
+end
+redis.call("SADD", KEYS[1], KEYS[2])
+local current_ttl = redis.call("PTTL", KEYS[2])
+local set_ttl = redis.call("PTTL", KEYS[1])
+if current_ttl > 0 and (set_ttl < 0 or set_ttl < current_ttl) then
+  redis.call("PEXPIRE", KEYS[1], current_ttl)
+end
+return revoked
+`)
+
 func NewRedisStore(client *redis.Client) *RedisStore {
 	return &RedisStore{client: client, prefix: "arbion:", now: time.Now}
 }
@@ -78,7 +105,16 @@ func (s *RedisStore) Delete(ctx context.Context, token string) error {
 	if token == "" {
 		return nil
 	}
-	return s.client.Del(ctx, s.prefix+"session:"+tokenKey(token)).Err()
+	key := s.prefix + "session:" + tokenKey(token)
+	sess, err := s.Get(ctx, token)
+	if err != nil {
+		return s.client.Del(ctx, key).Err()
+	}
+	pipe := s.client.TxPipeline()
+	pipe.Del(ctx, key)
+	pipe.SRem(ctx, s.prefix+"user_sessions:"+sess.UserID, key)
+	_, err = pipe.Exec(ctx)
+	return err
 }
 func (s *RedisStore) RevokeUser(ctx context.Context, userID string) error {
 	sessionSet := s.prefix + "user_sessions:" + userID
@@ -92,6 +128,114 @@ func (s *RedisStore) RevokeUser(ctx context.Context, userID string) error {
 		keys = append(keys, members...)
 	}
 	return s.client.Del(ctx, keys...).Err()
+}
+
+func (s *RedisStore) SessionInventory(ctx context.Context, userID, currentToken string, limit int) (SessionInventory, error) {
+	if userID == "" || currentToken == "" {
+		return SessionInventory{}, ErrUnauthenticated
+	}
+	if limit < 1 || limit > 100 {
+		return SessionInventory{}, ErrSessionInventoryUnavailable
+	}
+	current, err := s.Get(ctx, currentToken)
+	if err != nil || current.UserID != userID || current.CreatedAt.IsZero() || current.ExpiresAt.IsZero() {
+		return SessionInventory{}, ErrUnauthenticated
+	}
+
+	setKey := s.prefix + "user_sessions:" + userID
+	currentKey := s.prefix + "session:" + tokenKey(currentToken)
+	members := make([]string, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	var cursor uint64
+	for {
+		var batch []string
+		batch, cursor, err = s.client.SScan(ctx, setKey, cursor, "", 64).Result()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			return SessionInventory{}, ErrSessionInventoryUnavailable
+		}
+		for _, member := range batch {
+			if _, exists := seen[member]; exists {
+				continue
+			}
+			seen[member] = struct{}{}
+			members = append(members, member)
+			if len(members) > limit*5 {
+				return SessionInventory{}, ErrSessionInventoryUnavailable
+			}
+		}
+		if cursor == 0 {
+			break
+		}
+	}
+	if _, exists := seen[currentKey]; !exists {
+		if err = s.client.SAdd(ctx, setKey, currentKey).Err(); err != nil {
+			return SessionInventory{}, ErrSessionInventoryUnavailable
+		}
+		if ttl, ttlErr := s.client.PTTL(ctx, setKey).Result(); ttlErr == nil && ttl < 0 {
+			remaining := current.ExpiresAt.Sub(s.now().UTC())
+			if remaining > 0 {
+				_ = s.client.PExpire(ctx, setKey, remaining).Err()
+			}
+		}
+		members = append(members, currentKey)
+	}
+
+	values, err := s.client.MGet(ctx, members...).Result()
+	if err != nil {
+		return SessionInventory{}, ErrSessionInventoryUnavailable
+	}
+	now := s.now().UTC()
+	active := 0
+	currentFound := false
+	stale := make([]any, 0)
+	for index, value := range values {
+		raw, ok := value.(string)
+		if !ok {
+			stale = append(stale, members[index])
+			continue
+		}
+		var session Session
+		if json.Unmarshal([]byte(raw), &session) != nil || session.UserID != userID || session.CreatedAt.IsZero() || session.ExpiresAt.IsZero() || !now.Before(session.ExpiresAt) {
+			stale = append(stale, members[index])
+			continue
+		}
+		active++
+		currentFound = currentFound || members[index] == currentKey
+	}
+	if len(stale) > 0 {
+		_ = s.client.SRem(ctx, setKey, stale...).Err()
+	}
+	if !currentFound {
+		return SessionInventory{}, ErrUnauthenticated
+	}
+	if active > limit {
+		return SessionInventory{}, ErrSessionInventoryUnavailable
+	}
+	return SessionInventory{
+		ActiveCount: active,
+		OtherCount:  active - 1,
+		Current:     SessionWindow{CreatedAt: current.CreatedAt, ExpiresAt: current.ExpiresAt},
+	}, nil
+}
+
+func (s *RedisStore) RevokeUserExcept(ctx context.Context, userID, currentToken string) (int, error) {
+	if userID == "" || currentToken == "" {
+		return 0, ErrUnauthenticated
+	}
+	current, err := s.Get(ctx, currentToken)
+	if err != nil || current.UserID != userID {
+		return 0, ErrUnauthenticated
+	}
+	setKey := s.prefix + "user_sessions:" + userID
+	currentKey := s.prefix + "session:" + tokenKey(currentToken)
+	revoked, err := revokeOtherSessionsScript.Run(ctx, s.client, []string{setKey, currentKey}, userID, s.prefix+"session:").Int()
+	if err != nil {
+		return 0, err
+	}
+	if revoked < 0 {
+		return 0, ErrUnauthenticated
+	}
+	return revoked, nil
 }
 
 func (s *RedisStore) CreateMFAChallenge(ctx context.Context, userID string, ttl time.Duration) (string, error) {

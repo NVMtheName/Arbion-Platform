@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -58,6 +59,76 @@ func TestRedisSessionsExpiryAndRevocation(t *testing.T) {
 	}
 	if _, err = s.GetMFAChallenge(context.Background(), challenge); !errors.Is(err, ErrInvalidMFAChallenge) {
 		t.Fatal("session revocation retained an MFA login challenge")
+	}
+}
+
+func TestSessionInventoryIsBoundedMetadataFreeAndRevokesOnlyOtherSessions(t *testing.T) {
+	m := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: m.Addr()})
+	sessions := NewRedisStore(client)
+	now := time.Date(2026, 8, 28, 2, 30, 0, 0, time.UTC)
+	sessions.now = func() time.Time { return now }
+	currentToken, current, err := sessions.Create(context.Background(), "owner", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Minute)
+	otherToken, _, err := sessions.Create(context.Background(), "owner", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignToken, _, err := sessions.Create(context.Background(), "foreign", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = client.SAdd(context.Background(), sessions.prefix+"user_sessions:owner", sessions.prefix+"session:stale-reference").Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	audit := &fakeAudit{}
+	service := NewService(nil, sessions, sessions, audit, time.Hour)
+	inventory, err := service.SessionInventory(context.Background(), "owner", currentToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inventory.ActiveCount != 2 || inventory.OtherCount != 1 || !inventory.Current.CreatedAt.Equal(current.CreatedAt) || !inventory.Current.ExpiresAt.Equal(current.ExpiresAt) {
+		t.Fatalf("unexpected session inventory: %#v", inventory)
+	}
+	encoded, err := json.Marshal(inventory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prohibited := range []string{currentToken, tokenKey(currentToken), "user_id", "last_activity_at", "address", "user_agent", "device"} {
+		if strings.Contains(string(encoded), prohibited) {
+			t.Fatalf("session inventory exposed prohibited data %q: %s", prohibited, encoded)
+		}
+	}
+	if client.SIsMember(context.Background(), sessions.prefix+"user_sessions:owner", sessions.prefix+"session:stale-reference").Val() {
+		t.Fatal("session inventory retained a stale index reference")
+	}
+	if err = client.SAdd(context.Background(), sessions.prefix+"user_sessions:owner", sessions.prefix+"session:"+tokenKey(foreignToken)).Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	revoked, err := service.LogoutOtherSessions(context.Background(), "owner", currentToken)
+	if err != nil || revoked != 1 {
+		t.Fatalf("other-session revocation returned count=%d error=%v", revoked, err)
+	}
+	if _, err = sessions.Get(context.Background(), currentToken); err != nil {
+		t.Fatal("other-session revocation removed the current session")
+	}
+	if _, err = sessions.Get(context.Background(), otherToken); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatal("other-session revocation retained an owner session")
+	}
+	if _, err = sessions.Get(context.Background(), foreignToken); err != nil {
+		t.Fatal("other-session revocation crossed the owner boundary")
+	}
+	if audit.actions[len(audit.actions)-1] != "auth.logout_others" {
+		t.Fatalf("other-session revocation was not audited: %#v", audit.actions)
+	}
+	updated, err := service.SessionInventory(context.Background(), "owner", currentToken)
+	if err != nil || updated.ActiveCount != 1 || updated.OtherCount != 0 {
+		t.Fatalf("session inventory did not converge after revocation: %#v %v", updated, err)
 	}
 }
 func TestRedisRateLimit(t *testing.T) {
