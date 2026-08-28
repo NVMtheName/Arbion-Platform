@@ -71,8 +71,9 @@ resource "aws_iam_openid_connect_provider" "github" {
 }
 locals {
 
+  github_oidc_repository = "repo:${split("/", var.github_repository)[0]}@${var.github_owner_id}/${split("/", var.github_repository)[1]}@${var.github_repository_id}"
   oidc_subjects = {
-    plan = "repo:${var.github_repository}:pull_request", apply = "repo:${var.github_repository}:environment:production", deploy = "repo:${var.github_repository}:environment:production"
+    plan = "${local.github_oidc_repository}:pull_request", apply = "${local.github_oidc_repository}:environment:production", deploy = "${local.github_oidc_repository}:environment:production"
   }
 }
 data "aws_iam_policy_document" "github" {
