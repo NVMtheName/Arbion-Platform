@@ -82,6 +82,25 @@ describe("AI shadow scorecard", () => {
                 would_have_submitted_decisions: 1,
                 one_hour_outcome_marks: 1,
                 twenty_four_hour_outcome_marks: 0,
+                horizons: [
+                  {
+                    horizon: "ONE_HOUR",
+                    sample_size: 1,
+                    favorable_marks: 0,
+                    unfavorable_marks: 1,
+                    flat_marks: 0,
+                    favorable_rate_percent: "0.0000000000",
+                    average_directional_change_percent: "-1.0349650350",
+                    average_directional_change_usd: "-0.0400000000",
+                  },
+                  {
+                    horizon: "TWENTY_FOUR_HOURS",
+                    sample_size: 0,
+                    favorable_marks: 0,
+                    unfavorable_marks: 0,
+                    flat_marks: 0,
+                  },
+                ],
               },
             ],
           },
@@ -164,6 +183,10 @@ describe("AI shadow scorecard", () => {
       screen.getByRole("table", { name: "Proposal behavior by asset" }),
     ).toBeInTheDocument();
     expect(screen.getByText("BTC")).toBeInTheDocument();
+    expect(screen.getByText("1 mark")).toBeInTheDocument();
+    expect(screen.getByText(/-1.034965035% avg/)).toBeInTheDocument();
+    expect(screen.getByText(/0% favorable/)).toBeInTheDocument();
+    expect(screen.getByText("Awaiting mark")).toBeInTheDocument();
     expect(
       screen.getByText(/Broker execution remains unavailable/i),
     ).toBeInTheDocument();

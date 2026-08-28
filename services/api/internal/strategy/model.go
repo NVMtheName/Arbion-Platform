@@ -336,12 +336,26 @@ type ShadowRouteBehavior struct {
 // ShadowSymbolBehavior describes proposal disposition and mark coverage by
 // symbol. Abstentions intentionally have no symbol and are excluded.
 type ShadowSymbolBehavior struct {
-	Symbol                      string `json:"symbol"`
-	ProposedDecisions           int    `json:"proposed_decisions"`
-	RiskHeldDecisions           int    `json:"risk_held_decisions"`
-	WouldHaveSubmittedDecisions int    `json:"would_have_submitted_decisions"`
-	OneHourOutcomeMarks         int    `json:"one_hour_outcome_marks"`
-	TwentyFourHourOutcomeMarks  int    `json:"twenty_four_hour_outcome_marks"`
+	Symbol                      string                        `json:"symbol"`
+	ProposedDecisions           int                           `json:"proposed_decisions"`
+	RiskHeldDecisions           int                           `json:"risk_held_decisions"`
+	WouldHaveSubmittedDecisions int                           `json:"would_have_submitted_decisions"`
+	OneHourOutcomeMarks         int                           `json:"one_hour_outcome_marks"`
+	TwentyFourHourOutcomeMarks  int                           `json:"twenty_four_hour_outcome_marks"`
+	Horizons                    []ShadowSymbolHorizonBehavior `json:"horizons"`
+}
+
+// ShadowSymbolHorizonBehavior keeps asset evidence separated by horizon. Its
+// marked values are hypothetical and cannot represent portfolio performance.
+type ShadowSymbolHorizonBehavior struct {
+	Horizon                         ShadowOutcomeHorizon `json:"horizon"`
+	SampleSize                      int                  `json:"sample_size"`
+	FavorableMarks                  int                  `json:"favorable_marks"`
+	UnfavorableMarks                int                  `json:"unfavorable_marks"`
+	FlatMarks                       int                  `json:"flat_marks"`
+	FavorableRatePercent            *string              `json:"favorable_rate_percent,omitempty"`
+	AverageDirectionalChangePercent *string              `json:"average_directional_change_percent,omitempty"`
+	AverageDirectionalChangeUSD     *string              `json:"average_directional_change_usd,omitempty"`
 }
 
 // ShadowEvidenceGate determines only whether enough non-live evidence exists

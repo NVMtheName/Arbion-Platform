@@ -101,6 +101,13 @@ const base = {
         favorable_marks: 12,
         unfavorable_marks: 8,
         flat_marks: 1,
+        favorable_rate_percent: "57.1428571429",
+        average_directional_change_percent: "0.2500000000",
+        median_directional_change_percent: "0.2000000000",
+        best_directional_change_percent: "2.0000000000",
+        worst_directional_change_percent: "-1.5000000000",
+        average_directional_change_usd: "0.0250000000",
+        cumulative_directional_change_usd: "0.5250000000",
         interpretation: "OBSERVATIONAL",
         minimum_sample_for_observational_label: 20,
       },
@@ -131,6 +138,28 @@ const base = {
           proposed_decisions: 12,
           one_hour_outcome_marks: 21,
           twenty_four_hour_outcome_marks: 4,
+          horizons: [
+            {
+              horizon: "ONE_HOUR",
+              sample_size: 21,
+              favorable_marks: 12,
+              unfavorable_marks: 8,
+              flat_marks: 1,
+              favorable_rate_percent: "57.1428571429",
+              average_directional_change_percent: "0.2500000000",
+              average_directional_change_usd: "0.0250000000",
+            },
+            {
+              horizon: "TWENTY_FOUR_HOURS",
+              sample_size: 4,
+              favorable_marks: 3,
+              unfavorable_marks: 1,
+              flat_marks: 0,
+              favorable_rate_percent: "75.0000000000",
+              average_directional_change_percent: "0.5000000000",
+              average_directional_change_usd: "0.0500000000",
+            },
+          ],
         },
       ],
     },
@@ -182,7 +211,7 @@ describe("autonomy evidence report", () => {
       "arbion-autonomy-evidence-c15b9d4d-2026-08-28.json",
     );
     expect(report).toMatchObject({
-      schema_version: "arbion.autonomy-evidence-report.v1",
+      schema_version: "arbion.autonomy-evidence-report.v2",
       report_status: "COMPLETE",
       generation_boundary: {
         read_only: true,
@@ -197,6 +226,11 @@ describe("autonomy evidence report", () => {
     });
     expect(json).toContain('"provenance_status": "EXPLICIT"');
     expect(json).toContain('"symbol": "BTC"');
+    expect(json).toContain(
+      '"median_directional_change_percent": "0.2000000000"',
+    );
+    expect(json).toContain('"average_directional_change_usd": "0.0250000000"');
+    expect(json).toContain('"horizon": "TWENTY_FOUR_HOURS"');
     expect(json).toContain('"run_id": "run-1"');
     expect(json).not.toContain("sk-never-export");
     expect(json).not.toContain("vault://must-not-export");
