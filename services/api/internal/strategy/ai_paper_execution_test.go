@@ -22,7 +22,7 @@ func TestSimulateAIPaperSpotFillBuyUsesAdverseSlippageAndFees(t *testing.T) {
 	if fill.Status != SimulatedFilled || !fill.SimulationOnly || fill.Reason != "paper_simulation_only_no_broker_order" {
 		t.Fatalf("unexpected fill status: %#v", fill)
 	}
-	if fill.FillPrice != "100.2500000000" || fill.GrossNotional != "200.5000000000" || fill.Fee != "1.0025000000" || fill.CashDelta != "-201.5025000000" || fill.ResultingCash != "798.4975000000" || fill.ResultingPositionQuantity != "3.0000000000" {
+	if fill.FillPrice != "100.2500000000" || fill.GrossNotional != "200.5000000000" || fill.Fee != "1.0025000000" || fill.CashDelta != "-201.5025000000" || fill.PreviousCash != "1000.0000000000" || fill.PreviousPositionQuantity != "1.0000000000" || fill.ResultingCash != "798.4975000000" || fill.ResultingPositionQuantity != "3.0000000000" {
 		t.Fatalf("unexpected exact accounting: %#v", fill)
 	}
 	if fill.MarketProvider != "coinbase" || fill.PricingBasis != "ASK" || !fill.MarketObservedAt.Equal(now.Add(-time.Second)) {

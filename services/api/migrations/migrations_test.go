@@ -508,3 +508,34 @@ func TestNonliveStrategyReservationsAreDurableAggregateAndNonExecuting(t *testin
 		}
 	}
 }
+
+func TestAIPaperSpotLedgerIsOwnerBoundImmutableAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00036_ai_paper_spot_ledger.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"ai_paper_spot_fills",
+		"simulation_only boolean NOT NULL DEFAULT true CHECK (simulation_only)",
+		"paper_portfolios_ai_paper_owner_unique",
+		"FOREIGN KEY (paper_portfolio_id,user_id,strategy_instance_id)",
+		"FOREIGN KEY (execution_record_id,user_id,strategy_instance_id)",
+		"enforce_ai_paper_spot_fill_source",
+		"x.mode='PAPER'",
+		"x.status='SIMULATED_FILLED'",
+		"i.current_state='AI_MONITORING'",
+		"j.source='AI'",
+		"ai_paper_spot_fills_immutable",
+		"reject_nonlive_history_mutation",
+		"cannot remove immutable AI paper spot fill history",
+	} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("AI PAPER spot ledger migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order_id", "client_order_id", "'LIVE'", "create_order", "submit_order"} {
+		if strings.Contains(strings.ToLower(string(body)), strings.ToLower(prohibited)) {
+			t.Errorf("AI PAPER spot ledger migration unexpectedly contains %q", prohibited)
+		}
+	}
+}

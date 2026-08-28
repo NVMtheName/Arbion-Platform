@@ -63,6 +63,8 @@ type AIPaperFill struct {
 	Fee                       string          `json:"fee,omitempty"`
 	CashDelta                 string          `json:"cash_delta,omitempty"`
 	PositionDelta             string          `json:"position_delta,omitempty"`
+	PreviousCash              string          `json:"previous_cash,omitempty"`
+	PreviousPositionQuantity  string          `json:"previous_position_quantity,omitempty"`
 	ResultingCash             string          `json:"resulting_cash,omitempty"`
 	ResultingPositionQuantity string          `json:"resulting_position_quantity,omitempty"`
 	PricingBasis              string          `json:"pricing_basis,omitempty"`
@@ -179,6 +181,8 @@ func SimulateAIPaperSpotFill(action risk.ProposedAction, evaluation risk.RiskEva
 	result.Fee = fee.FloatString(aiPaperDecimalPlaces)
 	result.CashDelta = cashDelta.FloatString(aiPaperDecimalPlaces)
 	result.PositionDelta = positionDelta.FloatString(aiPaperDecimalPlaces)
+	result.PreviousCash = cash.FloatString(aiPaperDecimalPlaces)
+	result.PreviousPositionQuantity = positionQuantity.FloatString(aiPaperDecimalPlaces)
 	result.ResultingCash = resultingCash.FloatString(aiPaperDecimalPlaces)
 	result.ResultingPositionQuantity = resultingPosition.FloatString(aiPaperDecimalPlaces)
 	result.PricingBasis = market.Basis
