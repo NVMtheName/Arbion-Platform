@@ -787,6 +787,14 @@ func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T)
 	if err != nil {
 		t.Fatalf("compatible fixed reservations did not share one account: %v", err)
 	}
+	reservationInventory, err := store.CapitalReservations(ctx, userID)
+	if err != nil || len(reservationInventory) != 2 || reservationInventory[0].Status != "ACTIVE" || reservationInventory[1].Status != "ACTIVE" {
+		t.Fatalf("owner reservation inventory was incomplete: %#v %v", reservationInventory, err)
+	}
+	otherInventory, err := store.CapitalReservations(ctx, "99999999-9999-4999-8999-999999999999")
+	if err != nil || len(otherInventory) != 0 {
+		t.Fatalf("reservation inventory was not owner scoped: %#v %v", otherInventory, err)
+	}
 	var activeCount int
 	var activeAmount, ceiling string
 	if err = pool.QueryRow(ctx, `SELECT count(*),sum(reservation_amount)::text,min(account_allocation_limit)::text FROM strategy_capital_reservations WHERE user_id=$1 AND financial_account_id=$2 AND released_at IS NULL`, userID, accountID).Scan(&activeCount, &activeAmount, &ceiling); err != nil || activeCount != 2 || activeAmount != "2500.0000000000" || ceiling != "3000.0000000000" {
@@ -810,6 +818,10 @@ func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T)
 	finishedAt := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
 	if _, err = store.Finish(ctx, userID, first.ID, 1, finishedAt); err != nil {
 		t.Fatalf("completed strategy did not release its reservation: %v", err)
+	}
+	reservationInventory, err = store.CapitalReservations(ctx, userID)
+	if err != nil || len(reservationInventory) != 1 || reservationInventory[0].StrategyInstanceID != second.ID {
+		t.Fatalf("active reservation inventory retained a released claim: %#v %v", reservationInventory, err)
 	}
 	firstReservation, err = store.CapitalReservation(ctx, userID, first.ID)
 	if err != nil || firstReservation.Status != "RELEASED" || firstReservation.ReleasedAt == nil || !firstReservation.ReleasedAt.Equal(finishedAt) || firstReservation.ReleaseReason == nil || *firstReservation.ReleaseReason != "COMPLETED" {

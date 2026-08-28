@@ -73,4 +73,44 @@ describe("CapitalBucketForm", () => {
       screen.queryByRole("button", { name: /create capital bucket/i }),
     ).not.toBeInTheDocument();
   });
+
+  it("creates compatible fixed budgets under an explicit shared ceiling", async () => {
+    const fetchMock = vi.fn(async (...args: Parameters<typeof fetch>) => {
+      void args;
+      return { ok: true };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <CapitalBucketForm
+        accounts={[
+          { id: "account-1", display_name: "Coinbase", status: "active" },
+        ]}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/bucket name/i), {
+      target: { value: "BTC sleeve" },
+    });
+    fireEvent.change(screen.getByLabelText(/allocation \(usd\)/i), {
+      target: { value: "250" },
+    });
+    fireEvent.change(screen.getByLabelText(/shared account ceiling/i), {
+      target: { value: "1000" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /create capital bucket/i }),
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      financial_account_id: "account-1",
+      name: "BTC sleeve",
+      allocation_type: "FIXED_AMOUNT",
+      allocation_value: "250",
+      allocation_limit: "1000",
+      is_reserve: false,
+    });
+  });
 });

@@ -230,6 +230,7 @@ export function CommandCenterDashboard({
           </Link>
           <Link href="/accounts">Portfolio</Link>
           <Link href="/automations">Strategies</Link>
+          <Link href="/capital">Capital</Link>
           <Link href="/markets">Markets</Link>
         </nav>
         <div className="command-account-actions">

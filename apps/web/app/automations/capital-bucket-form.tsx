@@ -7,6 +7,7 @@ export type CapitalAccountOption = {
   id: string;
   display_name: string;
   status: string;
+  currency?: string;
 };
 
 export function CapitalBucketForm({
@@ -19,7 +20,10 @@ export function CapitalBucketForm({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const activeAccounts = accounts.filter(
-    (account) => account.status === "active",
+    (account) =>
+      account.status === "active" &&
+      (account.currency === undefined ||
+        account.currency.toUpperCase() === "USD"),
   );
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -27,6 +31,7 @@ export function CapitalBucketForm({
     const form = event.currentTarget;
     const data = new FormData(form);
     const isReserve = data.get("reserve") === "on";
+    const allocationLimit = String(data.get("allocation_limit") ?? "").trim();
     setBusy(true);
     setMessage("");
     const response = await fetch("/api/capital-buckets", {
@@ -39,6 +44,7 @@ export function CapitalBucketForm({
         allocation_value: data.get("allocation"),
         currency: "USD",
         protected_amount: data.get("protected_amount"),
+        ...(allocationLimit ? { allocation_limit: allocationLimit } : {}),
         is_reserve: isReserve,
       }),
     });
@@ -128,13 +134,35 @@ export function CapitalBucketForm({
           required
         />
       </label>
+      <label>
+        {allocationType === "FIXED_AMOUNT"
+          ? "Shared account ceiling (USD, optional)"
+          : "Absolute strategy cap (USD)"}
+        <input
+          name="allocation_limit"
+          inputMode="decimal"
+          min="0.0000000001"
+          step="any"
+          required={allocationType !== "FIXED_AMOUNT"}
+          placeholder={
+            allocationType === "FIXED_AMOUNT"
+              ? "Leave blank for exclusive use"
+              : "Required for a strategy"
+          }
+        />
+        <span className="field-hint">
+          {allocationType === "FIXED_AMOUNT"
+            ? "Use the same exact ceiling on compatible budgets only when you intend multiple non-live strategies to share one account total."
+            : "Percentage budgets need an exact dollar cap before a Paper or Shadow strategy can reserve them."}
+        </span>
+      </label>
       <label className="checkbox-row">
         <input type="checkbox" name="reserve" />
         Reserve / never attach to an automation
       </label>
       <p className="security-note">
         This is an Arbion authorization limit, not permission to trade. It never
-        changes your Schwab account.
+        moves or locks funds at your financial provider.
       </p>
       <button type="submit" disabled={busy}>
         {busy ? "Creating…" : "Create Capital Bucket"}

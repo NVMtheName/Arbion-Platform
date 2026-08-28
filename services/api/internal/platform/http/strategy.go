@@ -60,6 +60,7 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	}
 	m.Handle("POST /api/automations/{id}/strategy/initialize", h.require(stdhttp.HandlerFunc(h.initializeStrategy)))
 	m.Handle("GET /api/strategy-instances", h.require(stdhttp.HandlerFunc(h.listStrategyInstances)))
+	m.Handle("GET /api/strategy-capital-reservations", h.require(stdhttp.HandlerFunc(h.listStrategyCapitalReservations)))
 	m.Handle("GET /api/strategy-instances/{id}", h.require(stdhttp.HandlerFunc(h.getStrategyInstance)))
 	m.Handle("GET /api/strategy-instances/{id}/capital-reservation", h.require(stdhttp.HandlerFunc(h.strategyCapitalReservation)))
 	m.Handle("GET /api/strategy-instances/{id}/history", h.require(stdhttp.HandlerFunc(h.strategyHistory)))
@@ -353,6 +354,22 @@ func (h *authHandler) getStrategyInstance(w stdhttp.ResponseWriter, r *stdhttp.R
 		return
 	}
 	writeJSON(w, 200, map[string]any{"strategy_instance": v, "live_execution_available": false})
+}
+func (h *authHandler) listStrategyCapitalReservations(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	v, e := h.strategies.CapitalReservations(r.Context(), principal(r))
+	if e != nil {
+		h.strategyError(w, e)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"capital_reservations":        nonNil(v),
+		"reservation_scope":           "NONLIVE_STRATEGY_ONLY",
+		"broker_funds_locked":         false,
+		"broker_action_available":     false,
+		"live_execution_available":    false,
+		"execution_authority_granted": false,
+	})
 }
 func (h *authHandler) strategyCapitalReservation(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	v, e := h.strategies.CapitalReservation(r.Context(), principal(r), r.PathValue("id"))

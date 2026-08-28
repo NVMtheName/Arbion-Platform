@@ -111,6 +111,9 @@ type StrategyRuntimeHistoryReader interface {
 type CapitalReservationReader interface {
 	CapitalReservation(context.Context, string, string) (CapitalReservation, error)
 }
+type CapitalReservationListReader interface {
+	CapitalReservations(context.Context, string) ([]CapitalReservation, error)
+}
 type DecisionJournalEntry struct {
 	ID, StrategyInstanceID, StrategyState, Source, DecisionType           string
 	StructuredRationale                                                   json.RawMessage
@@ -322,6 +325,17 @@ func (s *InstanceService) CapitalReservation(c context.Context, p authorization.
 		return CapitalReservation{}, ErrNotFound
 	}
 	return reservation, nil
+}
+
+func (s *InstanceService) CapitalReservations(c context.Context, p authorization.Principal) ([]CapitalReservation, error) {
+	if !entitled(p) {
+		return nil, ErrForbidden
+	}
+	reader, ok := s.store.(CapitalReservationListReader)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return reader.CapitalReservations(c, p.UserID)
 }
 
 func (s *InstanceService) Pause(c context.Context, p authorization.Principal, id string, expectedStateVersion int) (Instance, error) {
