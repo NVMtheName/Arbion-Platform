@@ -267,6 +267,18 @@ type ShadowEvidenceReviewCommand struct {
 	MFACode              string `json:"mfa_code"`
 }
 
+// ShadowEvidenceReviewCursor identifies a stable point in the immutable,
+// reverse-chronological owner review ledger.
+type ShadowEvidenceReviewCursor struct {
+	ReviewedAt time.Time
+	ID         string
+}
+
+type ShadowEvidenceReviewPage struct {
+	Reviews    []ShadowEvidenceReview
+	NextCursor *ShadowEvidenceReviewCursor
+}
+
 // ShadowBehaviorScore summarizes immutable AI decision behavior for one
 // owner-scoped SHADOW strategy instance. Counts describe what Arbion recorded;
 // they are not trading performance or model accuracy measures.

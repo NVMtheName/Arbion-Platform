@@ -615,6 +615,27 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || foreignReview != nil {
 		t.Fatalf("Shadow evidence review crossed its owner boundary: %#v %v", foreignReview, err)
 	}
+	newerReview := review
+	newerReview.ID = ""
+	newerReview.EvidenceFingerprint = strings.Repeat("ef", 32)
+	newerReview.ReviewedAt = reviewedAt.Add(time.Hour)
+	newerReview.CreatedAt = time.Time{}
+	newerReview, err = store.CreateShadowEvidenceReview(ctx, userID, newerReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstReviewPage, err := store.ShadowEvidenceReviews(ctx, userID, aiInstance.ID, 1, nil)
+	if err != nil || len(firstReviewPage) != 1 || firstReviewPage[0].ID != newerReview.ID {
+		t.Fatalf("newest Shadow review page was unstable: %#v %v", firstReviewPage, err)
+	}
+	secondReviewPage, err := store.ShadowEvidenceReviews(ctx, userID, aiInstance.ID, 1, &ShadowEvidenceReviewCursor{ReviewedAt: firstReviewPage[0].ReviewedAt, ID: firstReviewPage[0].ID})
+	if err != nil || len(secondReviewPage) != 1 || secondReviewPage[0].ID != review.ID {
+		t.Fatalf("older Shadow review page was unstable: %#v %v", secondReviewPage, err)
+	}
+	foreignReviewPage, err := store.ShadowEvidenceReviews(ctx, "99999999-9999-4999-8999-999999999999", aiInstance.ID, 10, nil)
+	if err != nil || len(foreignReviewPage) != 0 {
+		t.Fatalf("Shadow review ledger crossed its owner boundary: %#v %v", foreignReviewPage, err)
+	}
 	invalidReview := review
 	invalidReview.ID = ""
 	invalidReview.MandateID = secondMandateID
@@ -629,7 +650,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		t.Fatal("immutable Shadow evidence review was deleted")
 	}
 	assertCount(t, pool, `SELECT count(*) FROM shadow_execution_outcomes`, 1)
-	assertCount(t, pool, `SELECT count(*) FROM shadow_evidence_reviews`, 1)
+	assertCount(t, pool, `SELECT count(*) FROM shadow_evidence_reviews`, 2)
 }
 
 func proposedOption(instance Instance, eventID, actionID string) risk.ProposedAction {

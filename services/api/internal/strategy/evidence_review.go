@@ -86,6 +86,39 @@ func (s *InstanceService) ShadowScorecard(ctx context.Context, principal authori
 	return scorecard, err
 }
 
+// ShadowEvidenceReviews returns bounded, immutable owner review history. It
+// does not refresh evidence, contact a provider, or mutate strategy state.
+func (s *InstanceService) ShadowEvidenceReviews(ctx context.Context, principal authorization.Principal, instanceID string, limit int, cursor *ShadowEvidenceReviewCursor) (ShadowEvidenceReviewPage, error) {
+	if !entitled(principal) {
+		return ShadowEvidenceReviewPage{}, ErrForbidden
+	}
+	if instanceID == "" || limit < 1 || limit > 50 || (cursor != nil && (cursor.ReviewedAt.IsZero() || cursor.ID == "")) {
+		return ShadowEvidenceReviewPage{}, ErrInvalid
+	}
+	instance, err := s.store.Get(ctx, principal.UserID, instanceID)
+	if err != nil {
+		return ShadowEvidenceReviewPage{}, ErrNotFound
+	}
+	if instance.StrategyIdentifier != "ai_shadow" || instance.ExecutionMode != Shadow {
+		return ShadowEvidenceReviewPage{}, ErrInvalid
+	}
+	reader, ok := s.store.(ShadowEvidenceReviewReader)
+	if !ok {
+		return ShadowEvidenceReviewPage{}, ErrNotFound
+	}
+	reviews, err := reader.ShadowEvidenceReviews(ctx, principal.UserID, instanceID, limit+1, cursor)
+	if err != nil {
+		return ShadowEvidenceReviewPage{}, err
+	}
+	page := ShadowEvidenceReviewPage{Reviews: reviews}
+	if len(reviews) > limit {
+		page.Reviews = reviews[:limit]
+		last := page.Reviews[len(page.Reviews)-1]
+		page.NextCursor = &ShadowEvidenceReviewCursor{ReviewedAt: last.ReviewedAt, ID: last.ID}
+	}
+	return page, nil
+}
+
 func shadowEvidenceReviewable(instance Instance, gate ShadowEvidenceGate) bool {
 	return instance.StrategyIdentifier == "ai_shadow" &&
 		instance.ExecutionMode == Shadow &&

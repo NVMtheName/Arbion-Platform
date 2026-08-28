@@ -32,6 +32,10 @@ type journalPersistenceFake struct {
 	scorecardCalls     int
 	latestReview       *ShadowEvidenceReview
 	latestReviewError  error
+	evidenceReviews    []ShadowEvidenceReview
+	reviewHistoryError error
+	reviewLimit        int
+	reviewAfter        *ShadowEvidenceReviewCursor
 	createdReview      ShadowEvidenceReview
 	createReviewError  error
 	createReviewCalls  int
@@ -129,6 +133,19 @@ func (f *journalPersistenceFake) CreateShadowEvidenceReview(_ context.Context, u
 		review.CreatedAt = review.ReviewedAt
 	}
 	return review, nil
+}
+func (f *journalPersistenceFake) ShadowEvidenceReviews(_ context.Context, userID, instanceID string, limit int, after *ShadowEvidenceReviewCursor) ([]ShadowEvidenceReview, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	f.reviewLimit = limit
+	f.reviewAfter = after
+	if f.reviewHistoryError != nil {
+		return nil, f.reviewHistoryError
+	}
+	if len(f.evidenceReviews) < limit {
+		limit = len(f.evidenceReviews)
+	}
+	return f.evidenceReviews[:limit], nil
 }
 func (f *journalPersistenceFake) PaperPortfolio(_ context.Context, userID, instanceID string) (PaperPortfolio, error) {
 	f.requestedUser = userID
@@ -376,6 +393,44 @@ func TestScheduleRunsRequireAutomationEntitlementAndValidBounds(t *testing.T) {
 	}
 	if _, err := service.ScheduleRuns(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", 0, nil); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("invalid schedule-run limit was accepted: %v", err)
+	}
+}
+
+func TestShadowEvidenceReviewsAreOwnerScopedAndBuildStableNextCursor(t *testing.T) {
+	now := time.Date(2026, 8, 28, 5, 0, 0, 0, time.UTC)
+	store := &journalPersistenceFake{
+		instance: Instance{ID: "instance-1", UserID: "owner", StrategyIdentifier: "ai_shadow", ExecutionMode: Shadow},
+		evidenceReviews: []ShadowEvidenceReview{
+			{ID: "11111111-1111-4111-8111-111111111111", ReviewedAt: now},
+			{ID: "22222222-2222-4222-8222-222222222222", ReviewedAt: now.Add(-time.Hour)},
+			{ID: "33333333-3333-4333-8333-333333333333", ReviewedAt: now.Add(-2 * time.Hour)},
+		},
+	}
+	service := NewInstanceService(store, nil)
+	page, err := service.ShadowEvidenceReviews(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", 2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.requestedUser != "owner" || store.requestedID != "instance-1" || store.reviewLimit != 3 {
+		t.Fatalf("review-ledger owner boundary changed: %#v", store)
+	}
+	if len(page.Reviews) != 2 || page.NextCursor == nil || page.NextCursor.ID != page.Reviews[1].ID || !page.NextCursor.ReviewedAt.Equal(page.Reviews[1].ReviewedAt) {
+		t.Fatalf("unexpected review-ledger page: %#v", page)
+	}
+}
+
+func TestShadowEvidenceReviewsRequireEntitlementAndAIShadowInstance(t *testing.T) {
+	store := &journalPersistenceFake{instance: Instance{ID: "instance-1", StrategyIdentifier: "ai_shadow", ExecutionMode: Shadow}}
+	service := NewInstanceService(store, nil)
+	if _, err := service.ShadowEvidenceReviews(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, "instance-1", 8, nil); !errors.Is(err, ErrForbidden) || store.requestedID != "" {
+		t.Fatalf("unentitled review-ledger request reached persistence: id=%q err=%v", store.requestedID, err)
+	}
+	if _, err := service.ShadowEvidenceReviews(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", 0, nil); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid review-ledger limit was accepted: %v", err)
+	}
+	store.instance.StrategyIdentifier = "wheel"
+	if _, err := service.ShadowEvidenceReviews(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", 8, nil); !errors.Is(err, ErrInvalid) || store.reviewLimit != 0 {
+		t.Fatalf("non-AI Shadow history was exposed: limit=%d err=%v", store.reviewLimit, err)
 	}
 }
 

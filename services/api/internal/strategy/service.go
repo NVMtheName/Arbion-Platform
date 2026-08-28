@@ -58,6 +58,9 @@ type ShadowEvidenceReviewStore interface {
 	CreateShadowEvidenceReview(context.Context, string, ShadowEvidenceReview) (ShadowEvidenceReview, error)
 	LatestShadowEvidenceReview(context.Context, string, string) (*ShadowEvidenceReview, error)
 }
+type ShadowEvidenceReviewReader interface {
+	ShadowEvidenceReviews(context.Context, string, string, int, *ShadowEvidenceReviewCursor) ([]ShadowEvidenceReview, error)
+}
 type ShadowEvidenceReviewStepUp interface {
 	VerifyShadowEvidenceReviewStepUp(context.Context, string, string) (string, time.Time, error)
 }

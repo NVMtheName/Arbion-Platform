@@ -20,6 +20,23 @@ const reviewableScorecard = {
   current_evidence_reviewed: false,
   evidence_gate: { status: "EVIDENCE_REVIEWABLE" },
 };
+const review = {
+  id: "review-1",
+  mandate_version: 4,
+  evidence_fingerprint: fingerprint,
+  gate_status: "EVIDENCE_REVIEWABLE" as const,
+  one_hour_sample_size: 24,
+  twenty_four_hour_sample_size: 20,
+  evidence_window_hours: 171,
+  schedule_healthy: true,
+  last_schedule_status: "SUCCEEDED" as const,
+  consecutive_schedule_failures: 0,
+  execution_boundary: "SHADOW_ONLY" as const,
+  live_execution_available: false as const,
+  review_scope: "NON_LIVE_EVIDENCE_ONLY" as const,
+  mfa_method: "totp" as const,
+  reviewed_at: "2026-08-28T04:00:00Z",
+};
 
 describe("ShadowEvidenceReviewControls", () => {
   afterEach(() => {
@@ -134,5 +151,90 @@ describe("ShadowEvidenceReviewControls", () => {
       screen.getByText(/evidence changed after the prior review/i),
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/authenticator code/i)).toBeInTheDocument();
+  });
+
+  it("renders current and preserved review evidence without implying authority", () => {
+    render(
+      <ShadowEvidenceReviewControls
+        strategyInstanceId="instance-1"
+        scorecard={{
+          ...reviewableScorecard,
+          current_evidence_reviewed: true,
+          latest_evidence_review: review,
+        }}
+        initialReviews={[
+          review,
+          {
+            ...review,
+            id: "review-older",
+            evidence_fingerprint: "b".repeat(64),
+            reviewed_at: "2026-08-27T04:00:00Z",
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText(/current evidence fingerprint/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/earlier evidence fingerprint/i),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/grants no authority/i)).toHaveLength(2);
+    expect(screen.getAllByText("24")).toHaveLength(2);
+    expect(screen.getAllByText("SHADOW_ONLY")).toHaveLength(2);
+  });
+
+  it("loads earlier immutable review pages without duplicating records", async () => {
+    const older = {
+      ...review,
+      id: "review-older",
+      evidence_fingerprint: "b".repeat(64),
+      reviewed_at: "2026-08-27T04:00:00Z",
+    };
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        evidence_reviews: [review, older],
+        next_cursor: "",
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <ShadowEvidenceReviewControls
+        strategyInstanceId="instance-1"
+        scorecard={reviewableScorecard}
+        initialReviews={[review]}
+        initialCursor="older-cursor"
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /load earlier reviews/i }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/strategy-instances/instance-1/shadow-evidence-reviews?limit=8&cursor=older-cursor",
+      { cache: "no-store" },
+    );
+    expect(screen.getByText("b".repeat(64))).toBeInTheDocument();
+    expect(screen.getAllByText(fingerprint)).toHaveLength(1);
+  });
+
+  it("does not infer an empty ledger when history is unavailable", () => {
+    render(
+      <ShadowEvidenceReviewControls
+        strategyInstanceId="instance-1"
+        scorecard={reviewableScorecard}
+        historyAvailable={false}
+      />,
+    );
+
+    expect(
+      screen.getByText(/history is temporarily unavailable/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/no MFA-backed reviews recorded/i),
+    ).not.toBeInTheDocument();
   });
 });

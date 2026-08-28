@@ -98,6 +98,26 @@ func TestScheduleRunCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
 	}
 }
 
+func TestShadowEvidenceReviewCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
+	want := &strategy.ShadowEvidenceReviewCursor{
+		ReviewedAt: time.Date(2026, 8, 28, 5, 12, 30, 123, time.UTC),
+		ID:         "11111111-1111-4111-8111-111111111111",
+	}
+	encoded := encodeShadowEvidenceReviewCursor(want)
+	got, err := decodeShadowEvidenceReviewCursor(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != want.ID || !got.ReviewedAt.Equal(want.ReviewedAt) {
+		t.Fatalf("Shadow review cursor changed during round trip: %#v", got)
+	}
+	for _, input := range []string{"not-base64", "e30", encodeShadowEvidenceReviewCursor(&strategy.ShadowEvidenceReviewCursor{ReviewedAt: time.Now(), ID: "not-a-uuid"})} {
+		if _, err = decodeShadowEvidenceReviewCursor(input); err == nil {
+			t.Fatalf("malformed Shadow review cursor was accepted: %q", input)
+		}
+	}
+}
+
 func TestShadowEvidenceReviewCommandRequiresTrustedOriginAndStrictJSON(t *testing.T) {
 	handler := &authHandler{cfg: config.Auth{AllowedOrigins: []string{"https://www.arbion.ai"}}}
 	withoutOrigin := httptest.NewRequest(stdhttp.MethodPost, "/api/strategy-instances/instance-1/shadow-evidence-reviews", strings.NewReader(`{"evidence_fingerprint":"`+strings.Repeat("a", 64)+`","confirm_non_live_review":true,"mfa_code":"123456"}`))
