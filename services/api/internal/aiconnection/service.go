@@ -66,6 +66,7 @@ type Store interface {
 	Delete(context.Context, string, string) error
 	HasDependencies(context.Context, string, string) (bool, error)
 	ConnectionInUse(context.Context, string, string) (bool, error)
+	WithLock(context.Context, string, func() error) error
 }
 type Auditor interface {
 	Record(context.Context, *string, string, map[string]any) error
@@ -533,19 +534,31 @@ func (s *Service) SetEnabled(ctx context.Context, p authorization.Principal, id 
 	next := "disabled"
 	action := "ai_connection.disabled"
 	if !enabled {
-		inUse, checkErr := s.store.ConnectionInUse(ctx, p.UserID, id)
-		if checkErr != nil {
-			return Connection{}, checkErr
-		}
-		if inUse {
-			return Connection{}, ErrConflict
+		err = s.store.WithLock(ctx, id, func() error {
+			current, lockErr := s.store.Get(ctx, p.UserID, id)
+			if lockErr != nil {
+				return lockErr
+			}
+			previous = current.Status
+			inUse, checkErr := s.store.ConnectionInUse(ctx, p.UserID, id)
+			if checkErr != nil {
+				return checkErr
+			}
+			if inUse {
+				return ErrConflict
+			}
+			c, lockErr = s.store.SetStatus(ctx, p.UserID, id, next)
+			return lockErr
+		})
+		if err != nil {
+			return Connection{}, err
 		}
 	}
 	if enabled {
 		next = "pending"
 		action = "ai_connection.enabled"
+		c, err = s.store.SetStatus(ctx, p.UserID, id, next)
 	}
-	c, err = s.store.SetStatus(ctx, p.UserID, id, next)
 	if err == nil {
 		s.record(ctx, p.UserID, action, c, map[string]any{"previous_status": previous, "new_status": next})
 	}
@@ -556,18 +569,26 @@ func (s *Service) Delete(ctx context.Context, p authorization.Principal, id stri
 	if err != nil {
 		return err
 	}
-	dependent, err := s.store.HasDependencies(ctx, p.UserID, id)
+	err = s.store.WithLock(ctx, id, func() error {
+		current, lockErr := s.store.Get(ctx, p.UserID, id)
+		if lockErr != nil {
+			return lockErr
+		}
+		c = current
+		dependent, dependencyErr := s.store.HasDependencies(ctx, p.UserID, id)
+		if dependencyErr != nil {
+			return dependencyErr
+		}
+		if dependent {
+			return ErrConflict
+		}
+		loc := credential.Locator{ConnectionID: id, UserID: p.UserID, Class: credential.AI}
+		if lockErr = s.vault.Delete(ctx, loc); lockErr != nil {
+			return lockErr
+		}
+		return s.store.Delete(ctx, p.UserID, id)
+	})
 	if err != nil {
-		return err
-	}
-	if dependent {
-		return ErrConflict
-	}
-	loc := credential.Locator{ConnectionID: id, UserID: p.UserID, Class: credential.AI}
-	if err = s.vault.Delete(ctx, loc); err != nil {
-		return err
-	}
-	if err = s.store.Delete(ctx, p.UserID, id); err != nil {
 		return err
 	}
 	s.record(ctx, p.UserID, "ai_connection.deleted", c, nil)

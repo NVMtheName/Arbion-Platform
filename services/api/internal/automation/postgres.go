@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/arbion/platform/services/api/internal/connectionguard"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -124,6 +125,12 @@ func (s *PostgresStore) CreateMandate(c context.Context, u string, x MandateComm
 		return Mandate{}, e
 	}
 	defer tx.Rollback(c)
+	if e = connectionguard.LockActive(c, tx, u, x.FinancialAccountID, x.AIProviderConnectionID); e != nil {
+		if errors.Is(e, connectionguard.ErrUnavailable) {
+			return Mandate{}, ErrConflict
+		}
+		return Mandate{}, e
+	}
 	a := args(u, x, unverified)
 	m, e := scanMandate(tx.QueryRow(c, `INSERT INTO automation_mandates(user_id,financial_account_id,automation_type,strategy_identifier,ai_provider_connection_id,ai_model_id,capital_bucket_id,autonomy_level,execution_mode,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified,paper_options_simulation_attested,effective_from,effective_until,current_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,COALESCE($19,now()),$20,1) RETURNING `+mandateCols, a...))
 	if e != nil {
@@ -158,21 +165,39 @@ func (s *PostgresStore) GetMandate(c context.Context, u, id string) (Mandate, er
 func (s *PostgresStore) UpdateMandate(c context.Context, u, id string, expected int, x MandateCommand, unverified bool, source string) (Mandate, error) {
 	a := args(u, x, unverified)
 	q := `UPDATE automation_mandates SET financial_account_id=$3,automation_type=$4,strategy_identifier=$5,ai_provider_connection_id=$6,ai_model_id=$7,capital_bucket_id=$8,autonomy_level=$9,execution_mode=$10,strategy_parameters=$11,risk_parameters=$12,allowed_universe=$13,prohibited_universe=$14,margin_allowed=$15,options_allowed=$16,schedule_conditions=$17,capability_unverified=$18,paper_options_simulation_attested=$19,effective_from=COALESCE($20,effective_from),effective_until=$21,status='DRAFT',current_version=current_version+1,updated_at=now() WHERE id=$1 AND user_id=$2 AND current_version=$22 RETURNING ` + mandateCols
-	return s.versionedUpdate(c, u, id, expected, source, q, append([]any{id, u}, append(a[1:], expected)...)...)
+	return s.versionedUpdate(c, u, id, expected, source, x.FinancialAccountID, x.AIProviderConnectionID, true, q, append([]any{id, u}, append(a[1:], expected)...)...)
 }
 func (s *PostgresStore) Transition(c context.Context, u, id string, expected int, status, source string) (Mandate, error) {
 	if _, ok := map[string]bool{"READY": true, "PAUSED": true, "DISABLED": true, "ARCHIVED": true}[status]; !ok {
 		return Mandate{}, ErrInvalid
 	}
 	q := `UPDATE automation_mandates SET status=$4,current_version=current_version+1,updated_at=now() WHERE id=$1 AND user_id=$2 AND current_version=$3 AND status<>'ARCHIVED' RETURNING ` + mandateCols
-	return s.versionedUpdate(c, u, id, expected, source, q, id, u, expected, status)
+	return s.versionedUpdate(c, u, id, expected, source, "", nil, status == "READY" || status == "PAUSED", q, id, u, expected, status)
 }
-func (s *PostgresStore) versionedUpdate(c context.Context, u, id string, expected int, source, q string, a ...any) (Mandate, error) {
+func (s *PostgresStore) versionedUpdate(c context.Context, u, id string, expected int, source, financialAccountID string, aiConnectionID *string, lockConnections bool, q string, a ...any) (Mandate, error) {
 	tx, e := s.db.Begin(c)
 	if e != nil {
 		return Mandate{}, e
 	}
 	defer tx.Rollback(c)
+	if lockConnections {
+		if financialAccountID == "" {
+			var discoveredAIConnectionID *string
+			if e = tx.QueryRow(c, `SELECT financial_account_id::text,ai_provider_connection_id::text FROM automation_mandates WHERE id=$1 AND user_id=$2`, id, u).Scan(&financialAccountID, &discoveredAIConnectionID); e != nil {
+				if errors.Is(e, pgx.ErrNoRows) {
+					return Mandate{}, ErrConflict
+				}
+				return Mandate{}, e
+			}
+			aiConnectionID = discoveredAIConnectionID
+		}
+		if e = connectionguard.LockActive(c, tx, u, financialAccountID, aiConnectionID); e != nil {
+			if errors.Is(e, connectionguard.ErrUnavailable) {
+				return Mandate{}, ErrConflict
+			}
+			return Mandate{}, e
+		}
+	}
 	m, e := scanMandate(tx.QueryRow(c, q, a...))
 	if errors.Is(e, pgx.ErrNoRows) {
 		return m, ErrConflict

@@ -12,6 +12,7 @@ type DB interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 	QueryRow(context.Context, string, ...any) pgx.Row
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Begin(context.Context) (pgx.Tx, error)
 }
 type PostgresStore struct {
 	db       DB
@@ -19,6 +20,21 @@ type PostgresStore struct {
 }
 
 func NewPostgresStore(db DB, r Registry) *PostgresStore { return &PostgresStore{db, r} }
+
+func (s *PostgresStore) WithLock(ctx context.Context, id string, fn func() error) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, id); err != nil {
+		return err
+	}
+	if err = fn(); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
 
 const columns = `id::text,provider_name,display_name,status,(status<>'disabled'),COALESCE(credential_metadata->>'hint',''),created_at,updated_at,last_verified_at,credential_generation`
 

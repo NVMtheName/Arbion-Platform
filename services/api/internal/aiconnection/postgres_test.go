@@ -35,6 +35,10 @@ func (db *captureDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, e
 	return pgconn.CommandTag{}, errors.New("unexpected Exec call")
 }
 
+func (db *captureDB) Begin(context.Context) (pgx.Tx, error) {
+	return nil, errors.New("unexpected Begin call")
+}
+
 func TestCreateCastsCredentialHintForJSONConstruction(t *testing.T) {
 	db := &captureDB{}
 	_, err := NewPostgresStore(db, DefaultRegistry()).Create(

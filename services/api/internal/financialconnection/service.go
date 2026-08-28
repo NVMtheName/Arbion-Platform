@@ -343,35 +343,41 @@ func (s *Service) SetEnabled(ctx context.Context, p authorization.Principal, id 
 	if !allowed(p) {
 		return Connection{}, ErrForbidden
 	}
-	status := "disabled"
-	action := "financial.connection_disabled"
 	if !enabled {
-		inUse, err := s.store.ConnectionInUse(ctx, p.UserID, id)
-		if err != nil {
-			return Connection{}, err
+		var connection Connection
+		err := s.store.WithLock(ctx, id, func() error {
+			if _, lockErr := s.store.GetConnection(ctx, p.UserID, id); lockErr != nil {
+				return lockErr
+			}
+			inUse, lockErr := s.store.ConnectionInUse(ctx, p.UserID, id)
+			if lockErr != nil {
+				return lockErr
+			}
+			if inUse {
+				return ErrConnectionInUse
+			}
+			connection, lockErr = s.store.SetStatus(ctx, p.UserID, id, "disabled", nil)
+			return lockErr
+		})
+		if err == nil {
+			s.record(ctx, p.UserID, "financial.connection_disabled", map[string]any{"connection_id": id})
 		}
-		if inUse {
-			return Connection{}, ErrConnectionInUse
-		}
+		return connection, err
 	}
-	if enabled {
-		status = "active"
-		action = "financial.connection_enabled"
-		connection, cr, e := s.credentials(ctx, p.UserID, id, true)
-		if e != nil {
-			return Connection{}, e
-		}
-		provider, providerErr := s.provider(connection.Provider)
-		if providerErr != nil {
-			return Connection{}, providerErr
-		}
-		if e = provider.VerifyConnection(ctx, &cr); e != nil {
-			return Connection{}, e
-		}
+	connection, cr, e := s.credentials(ctx, p.UserID, id, true)
+	if e != nil {
+		return Connection{}, e
 	}
-	c, e := s.store.SetStatus(ctx, p.UserID, id, status, nil)
+	provider, providerErr := s.provider(connection.Provider)
+	if providerErr != nil {
+		return Connection{}, providerErr
+	}
+	if e = provider.VerifyConnection(ctx, &cr); e != nil {
+		return Connection{}, e
+	}
+	c, e := s.store.SetStatus(ctx, p.UserID, id, "active", nil)
 	if e == nil {
-		s.record(ctx, p.UserID, action, map[string]any{"connection_id": id})
+		s.record(ctx, p.UserID, "financial.connection_enabled", map[string]any{"connection_id": id})
 	}
 	return c, e
 }
@@ -379,12 +385,20 @@ func (s *Service) Disconnect(ctx context.Context, p authorization.Principal, id 
 	if !allowed(p) {
 		return ErrForbidden
 	}
-	inUse, e := s.store.ConnectionInUse(ctx, p.UserID, id)
-	if e != nil {
+	if e := s.store.WithLock(ctx, id, func() error {
+		if _, lockErr := s.store.GetConnection(ctx, p.UserID, id); lockErr != nil {
+			return lockErr
+		}
+		inUse, lockErr := s.store.ConnectionInUse(ctx, p.UserID, id)
+		if lockErr != nil {
+			return lockErr
+		}
+		if inUse {
+			return ErrConnectionInUse
+		}
+		return nil
+	}); e != nil {
 		return e
-	}
-	if inUse {
-		return ErrConnectionInUse
 	}
 	connection, cr, e := s.credentials(ctx, p.UserID, id, true)
 	if e != nil {
@@ -394,11 +408,28 @@ func (s *Service) Disconnect(ctx context.Context, p authorization.Principal, id 
 	if providerErr != nil {
 		return providerErr
 	}
-	_ = provider.Disconnect(ctx, &cr)
-	if e = s.vault.Delete(ctx, credential.Locator{ConnectionID: id, UserID: p.UserID, Class: credential.Financial}); e != nil {
-		return e
-	}
-	if e = s.store.Retire(ctx, p.UserID, id); e == nil {
+	e = s.store.WithLock(ctx, id, func() error {
+		current, lockErr := s.store.GetConnection(ctx, p.UserID, id)
+		if lockErr != nil {
+			return lockErr
+		}
+		if current.Provider != connection.Provider {
+			return ErrNotFound
+		}
+		inUse, lockErr := s.store.ConnectionInUse(ctx, p.UserID, id)
+		if lockErr != nil {
+			return lockErr
+		}
+		if inUse {
+			return ErrConnectionInUse
+		}
+		_ = provider.Disconnect(ctx, &cr)
+		if lockErr = s.vault.Delete(ctx, credential.Locator{ConnectionID: id, UserID: p.UserID, Class: credential.Financial}); lockErr != nil {
+			return lockErr
+		}
+		return s.store.Retire(ctx, p.UserID, id)
+	})
+	if e == nil {
 		s.record(ctx, p.UserID, "financial.connection_disconnected", map[string]any{"connection_id": id})
 	}
 	return e
