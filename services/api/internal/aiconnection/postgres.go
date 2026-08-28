@@ -20,11 +20,11 @@ type PostgresStore struct {
 
 func NewPostgresStore(db DB, r Registry) *PostgresStore { return &PostgresStore{db, r} }
 
-const columns = `id::text,provider_name,display_name,status,(status<>'disabled'),COALESCE(credential_metadata->>'hint',''),created_at,updated_at,last_verified_at`
+const columns = `id::text,provider_name,display_name,status,(status<>'disabled'),COALESCE(credential_metadata->>'hint',''),created_at,updated_at,last_verified_at,credential_generation`
 
 func (s *PostgresStore) scan(row pgx.Row) (Connection, error) {
 	var c Connection
-	err := row.Scan(&c.ID, &c.Provider, &c.DisplayName, &c.Status, &c.Enabled, &c.CredentialHint, &c.CreatedAt, &c.UpdatedAt, &c.LastVerifiedAt)
+	err := row.Scan(&c.ID, &c.Provider, &c.DisplayName, &c.Status, &c.Enabled, &c.CredentialHint, &c.CreatedAt, &c.UpdatedAt, &c.LastVerifiedAt, &c.CredentialGeneration)
 	if p, ok := s.registry.Get(c.Provider); ok {
 		c.ProviderLabel = p.Label
 	}
@@ -61,11 +61,11 @@ func (s *PostgresStore) Rename(ctx context.Context, user, id, name string) (Conn
 func (s *PostgresStore) SetStatus(ctx context.Context, user, id, status string) (Connection, error) {
 	return s.scan(s.db.QueryRow(ctx, `UPDATE provider_connections SET status=$3,updated_at=now() WHERE id=$1 AND user_id=$2 AND provider_category='ai' RETURNING `+columns, id, user, status))
 }
-func (s *PostgresStore) SetCredentialPending(ctx context.Context, user, id, hint string) (Connection, error) {
-	return s.scan(s.db.QueryRow(ctx, `UPDATE provider_connections SET status='pending',credential_metadata=jsonb_build_object('hint',$3),updated_at=now(),last_verified_at=NULL WHERE id=$1 AND user_id=$2 AND provider_category='ai' RETURNING `+columns, id, user, hint))
+func (s *PostgresStore) SetVerification(ctx context.Context, user, id, status string, verified bool, generation int64) (Connection, error) {
+	return s.scan(s.db.QueryRow(ctx, `UPDATE provider_connections SET status=$3,last_verified_at=CASE WHEN $4 THEN now() ELSE last_verified_at END,updated_at=now() WHERE id=$1 AND user_id=$2 AND provider_category='ai' AND credential_generation=$5 RETURNING `+columns, id, user, status, verified, generation))
 }
-func (s *PostgresStore) SetVerification(ctx context.Context, user, id, status string, verified bool) (Connection, error) {
-	return s.scan(s.db.QueryRow(ctx, `UPDATE provider_connections SET status=$3,last_verified_at=CASE WHEN $4 THEN now() ELSE last_verified_at END,updated_at=now() WHERE id=$1 AND user_id=$2 AND provider_category='ai' RETURNING `+columns, id, user, status, verified))
+func (s *PostgresStore) CommitStagedCredential(ctx context.Context, user, id, token, hint, expectedStatus, nextStatus string, generation int64, verified bool) (Connection, error) {
+	return s.scan(s.db.QueryRow(ctx, `UPDATE provider_connections SET encrypted_credential_payload=pending_encrypted_credential_payload,pending_encrypted_credential_payload=NULL,pending_credential_token=NULL,credential_storage='encrypted_database',credential_reference=NULL,credential_metadata=jsonb_build_object('hint',$4::text),status=$6,last_verified_at=CASE WHEN $8 THEN now() ELSE NULL END,credential_generation=credential_generation+1,updated_at=now() WHERE id=$1 AND user_id=$2 AND provider_category='ai' AND pending_credential_token=$3 AND status=$5 AND credential_generation=$7 RETURNING `+columns, id, user, token, hint, expectedStatus, nextStatus, generation, verified))
 }
 func (s *PostgresStore) GetPreference(ctx context.Context, user string) (*Preference, error) {
 	var p Preference

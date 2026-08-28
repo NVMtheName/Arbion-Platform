@@ -47,3 +47,25 @@ func (s *PostgresStore) Delete(ctx context.Context, l Locator) error {
 	}
 	return nil
 }
+
+func (s *PostgresStore) PutStaged(ctx context.Context, l Locator, payload []byte, token string) error {
+	tag, err := s.db.Exec(ctx, `UPDATE provider_connections SET pending_encrypted_credential_payload=$1,pending_credential_token=$2 WHERE id=$3 AND user_id=$4 AND provider_category=$5 AND encrypted_credential_payload IS NOT NULL`, payload, token, l.ConnectionID, l.UserID, l.Class)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *PostgresStore) DeleteStaged(ctx context.Context, l Locator, token string) error {
+	tag, err := s.db.Exec(ctx, `UPDATE provider_connections SET pending_encrypted_credential_payload=NULL,pending_credential_token=NULL WHERE id=$1 AND user_id=$2 AND provider_category=$3 AND pending_credential_token=$4`, l.ConnectionID, l.UserID, l.Class, token)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrNotFound
+	}
+	return nil
+}

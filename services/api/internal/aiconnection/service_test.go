@@ -20,6 +20,7 @@ type memoryStore struct {
 	inUse           bool
 	dependencyCalls int
 	inUseCalls      int
+	blobs           *blobs
 }
 
 func (ms *memoryStore) List(_ context.Context, user string) ([]Connection, error) {
@@ -30,7 +31,7 @@ func (ms *memoryStore) List(_ context.Context, user string) ([]Connection, error
 	return out, nil
 }
 func (ms *memoryStore) Create(_ context.Context, user, p, n, h string) (Connection, error) {
-	c := Connection{ID: "connection-1", Provider: p, DisplayName: n, Status: "pending", Enabled: true, CredentialHint: h, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	c := Connection{ID: "connection-1", Provider: p, DisplayName: n, Status: "pending", Enabled: true, CredentialHint: h, CreatedAt: time.Now(), UpdatedAt: time.Now(), CredentialGeneration: 1}
 	ms.items[c.ID] = c
 	return c, nil
 }
@@ -54,13 +55,11 @@ func (ms *memoryStore) SetStatus(_ context.Context, user, id, status string) (Co
 	ms.items[id] = c
 	return c, e
 }
-func (ms *memoryStore) SetCredentialPending(_ context.Context, user, id, hint string) (Connection, error) {
-	c, e := ms.SetStatus(context.Background(), user, id, "pending")
-	c.CredentialHint = hint
-	ms.items[id] = c
-	return c, e
-}
-func (ms *memoryStore) SetVerification(_ context.Context, user, id, status string, verified bool) (Connection, error) {
+func (ms *memoryStore) SetVerification(_ context.Context, user, id, status string, verified bool, generation int64) (Connection, error) {
+	current, e := ms.Get(context.Background(), user, id)
+	if e != nil || current.CredentialGeneration != generation {
+		return Connection{}, ErrNotFound
+	}
 	c, e := ms.SetStatus(context.Background(), user, id, status)
 	if verified {
 		now := time.Now()
@@ -68,6 +67,30 @@ func (ms *memoryStore) SetVerification(_ context.Context, user, id, status strin
 		ms.items[id] = c
 	}
 	return c, e
+}
+func (ms *memoryStore) CommitStagedCredential(_ context.Context, user, id, token, hint, expectedStatus, nextStatus string, generation int64, verified bool) (Connection, error) {
+	c, err := ms.Get(context.Background(), user, id)
+	if err != nil || c.Status != expectedStatus || c.CredentialGeneration != generation || ms.blobs == nil {
+		return Connection{}, ErrNotFound
+	}
+	pending, ok := ms.blobs.pending[id]
+	if !ok || pending.token != token {
+		return Connection{}, ErrNotFound
+	}
+	ms.blobs.data[id] = append([]byte(nil), pending.payload...)
+	delete(ms.blobs.pending, id)
+	c.Status = nextStatus
+	c.Enabled = nextStatus != "disabled"
+	c.CredentialHint = hint
+	c.CredentialGeneration++
+	if verified {
+		now := time.Now()
+		c.LastVerifiedAt = &now
+	} else {
+		c.LastVerifiedAt = nil
+	}
+	ms.items[id] = c
+	return c, nil
 }
 func (ms *memoryStore) GetPreference(context.Context, string) (*Preference, error) {
 	return ms.preference, nil
@@ -93,7 +116,15 @@ func (ms *memoryStore) ConnectionInUse(context.Context, string, string) (bool, e
 	return ms.inUse, nil
 }
 
-type blobs struct{ data map[string][]byte }
+type blobs struct {
+	data    map[string][]byte
+	pending map[string]stagedBlob
+}
+
+type stagedBlob struct {
+	payload []byte
+	token   string
+}
 
 func (b *blobs) Put(_ context.Context, l credential.Locator, p []byte, create bool) error {
 	if create {
@@ -116,6 +147,22 @@ func (b *blobs) Delete(_ context.Context, l credential.Locator) error {
 		return credential.ErrNotFound
 	}
 	delete(b.data, l.ConnectionID)
+	delete(b.pending, l.ConnectionID)
+	return nil
+}
+func (b *blobs) PutStaged(_ context.Context, l credential.Locator, payload []byte, token string) error {
+	if _, ok := b.data[l.ConnectionID]; !ok {
+		return credential.ErrNotFound
+	}
+	b.pending[l.ConnectionID] = stagedBlob{payload: append([]byte(nil), payload...), token: token}
+	return nil
+}
+func (b *blobs) DeleteStaged(_ context.Context, l credential.Locator, token string) error {
+	pending, ok := b.pending[l.ConnectionID]
+	if !ok || pending.token != token {
+		return credential.ErrNotFound
+	}
+	delete(b.pending, l.ConnectionID)
 	return nil
 }
 
@@ -124,8 +171,8 @@ type audit struct{}
 func (audit) Record(context.Context, *string, string, map[string]any) error { return nil }
 func setup(t *testing.T) (*Service, *memoryStore, *blobs) {
 	t.Helper()
-	ms := &memoryStore{items: map[string]Connection{}}
-	bs := &blobs{data: map[string][]byte{}}
+	bs := &blobs{data: map[string][]byte{}, pending: map[string]stagedBlob{}}
+	ms := &memoryStore{items: map[string]Connection{}, blobs: bs}
 	v, e := credential.NewEncryptedVault(make([]byte, 32), bs)
 	if e != nil {
 		t.Fatal(e)
@@ -140,6 +187,7 @@ type fakeNeural struct {
 	seenSecret     *[]byte
 	seenSafetyID   *string
 	seenProfile    *string
+	onVerify       func()
 }
 
 type proposalNeural struct {
@@ -184,7 +232,15 @@ func (fake proposalNeural) ProposeTrade(_ context.Context, _ string, credential 
 	return fake.proposal, fake.err
 }
 
-func (f fakeNeural) Verify(context.Context, string, []byte) error { return f.err }
+func (f fakeNeural) Verify(_ context.Context, _ string, credential []byte) error {
+	if f.seenSecret != nil {
+		*f.seenSecret = append((*f.seenSecret)[:0], credential...)
+	}
+	if f.onVerify != nil {
+		f.onVerify()
+	}
+	return f.err
+}
 func (f fakeNeural) Models(context.Context, string, []byte) ([]neural.Model, error) {
 	return []neural.Model{{ID: "model-1", Provider: "openai"}}, f.err
 }
@@ -329,7 +385,7 @@ func TestCredentialLifecycleIsEncryptedAndSafe(t *testing.T) {
 	}
 }
 
-func TestCredentialReplacementAndDisableFailClosedWhileAutomationUsesConnection(t *testing.T) {
+func TestActiveCredentialRotationKeepsCurrentKeyUntilCandidateVerificationSucceeds(t *testing.T) {
 	s, ms, bs := setup(t)
 	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
 	c, err := s.Create(context.Background(), p, "openai", "Mine", []byte("original-secret-AB12"))
@@ -337,23 +393,91 @@ func TestCredentialReplacementAndDisableFailClosedWhileAutomationUsesConnection(
 		t.Fatal(err)
 	}
 	before := append([]byte(nil), bs.data[c.ID]...)
-	ms.items[c.ID] = Connection{ID: c.ID, Provider: "openai", Status: "active", Enabled: true, CredentialHint: "••••••••AB12"}
+	ms.items[c.ID] = Connection{ID: c.ID, Provider: "openai", Status: "active", Enabled: true, CredentialHint: "••••••••AB12", CredentialGeneration: 1}
 	ms.inUse = true
+	currentDuringVerification := ""
+	var candidateDuringVerification []byte
+	s.neural = fakeNeural{seenSecret: &candidateDuringVerification, onVerify: func() {
+		current, retrieveErr := s.vault.Retrieve(context.Background(), credential.Locator{ConnectionID: c.ID, UserID: p.UserID, Class: credential.AI})
+		if retrieveErr != nil {
+			t.Fatal(retrieveErr)
+		}
+		defer clear(current)
+		currentDuringVerification = string(current)
+	}}
 
-	if _, err = s.Replace(context.Background(), p, c.ID, []byte("replacement-ZZ99")); !errors.Is(err, ErrConflict) {
-		t.Fatalf("in-use credential replacement was not blocked: %v", err)
+	rotated, err := s.Replace(context.Background(), p, c.ID, []byte("replacement-ZZ99"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if string(bs.data[c.ID]) != string(before) || ms.items[c.ID].Status != "active" || ms.items[c.ID].CredentialHint != "••••••••AB12" {
-		t.Fatal("blocked replacement changed the credential or connection state")
+	if currentDuringVerification != "original-secret-AB12" {
+		t.Fatalf("candidate replaced the runtime credential before verification: %q", currentDuringVerification)
+	}
+	if string(candidateDuringVerification) != "replacement-ZZ99" {
+		t.Fatalf("provider verified the wrong credential: %q", candidateDuringVerification)
+	}
+	if string(bs.data[c.ID]) == string(before) || rotated.Status != "active" || rotated.CredentialHint != "••••••••ZZ99" || rotated.CredentialGeneration != 2 || rotated.LastVerifiedAt == nil {
+		t.Fatalf("verified candidate was not atomically activated: %#v", rotated)
+	}
+	if len(bs.pending) != 0 || ms.inUseCalls != 0 {
+		t.Fatalf("rotation retained staged material or required downtime: pending=%d in_use_checks=%d", len(bs.pending), ms.inUseCalls)
 	}
 	if _, err = s.SetEnabled(context.Background(), p, c.ID, false); !errors.Is(err, ErrConflict) {
 		t.Fatalf("in-use disable was not blocked: %v", err)
 	}
-	if string(bs.data[c.ID]) != string(before) || ms.items[c.ID].Status != "active" || !ms.items[c.ID].Enabled {
+	if ms.items[c.ID].Status != "active" || !ms.items[c.ID].Enabled {
 		t.Fatal("blocked disable changed the credential or connection state")
 	}
-	if ms.inUseCalls != 2 {
-		t.Fatalf("expected both disruptive mutations to check runtime use, got %d calls", ms.inUseCalls)
+	if ms.inUseCalls != 1 {
+		t.Fatalf("expected disable to check runtime use once, got %d calls", ms.inUseCalls)
+	}
+}
+
+func TestFailedActiveCredentialCandidatePreservesVerifiedConnection(t *testing.T) {
+	s, ms, bs := setup(t)
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	c, err := s.Create(context.Background(), p, "openai", "Mine", []byte("original-secret-AB12"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := append([]byte(nil), bs.data[c.ID]...)
+	verifiedAt := time.Now().Add(-time.Hour)
+	ms.items[c.ID] = Connection{ID: c.ID, Provider: "openai", Status: "active", Enabled: true, CredentialHint: "••••••••AB12", CredentialGeneration: 1, LastVerifiedAt: &verifiedAt}
+	s.neural = fakeNeural{err: &neural.ProviderError{Code: neural.AuthenticationFailed}}
+
+	if _, err = s.Replace(context.Background(), p, c.ID, []byte("rejected-key-ZZ99")); neural.Code(err) != neural.AuthenticationFailed {
+		t.Fatalf("failed candidate was not normalized: %v", err)
+	}
+	retained := ms.items[c.ID]
+	if string(bs.data[c.ID]) != string(before) || retained.Status != "active" || retained.CredentialHint != "••••••••AB12" || retained.CredentialGeneration != 1 || retained.LastVerifiedAt == nil || !retained.LastVerifiedAt.Equal(verifiedAt) {
+		t.Fatalf("failed candidate changed the verified connection: %#v", retained)
+	}
+	if len(bs.pending) != 0 {
+		t.Fatal("failed candidate retained encrypted staging material")
+	}
+}
+
+func TestStaleVerificationCannotOverwriteNewerCredentialGeneration(t *testing.T) {
+	s, ms, _ := setup(t)
+	p := authorization.Principal{UserID: "u", Entitlement: authorization.EntitlementFounder}
+	c, err := s.Create(context.Background(), p, "openai", "Mine", []byte("original-secret-AB12"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.neural = fakeNeural{onVerify: func() {
+		newer := ms.items[c.ID]
+		newer.Status = "active"
+		newer.CredentialHint = "••••••••NEW2"
+		newer.CredentialGeneration = 2
+		ms.items[c.ID] = newer
+	}}
+
+	if _, err = s.Verify(context.Background(), p, c.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale verification did not fail with a state conflict: %v", err)
+	}
+	retained := ms.items[c.ID]
+	if retained.Status != "active" || retained.CredentialHint != "••••••••NEW2" || retained.CredentialGeneration != 2 {
+		t.Fatalf("stale verification overwrote newer credential state: %#v", retained)
 	}
 }
 

@@ -49,7 +49,7 @@ describe("ConnectionsManager", () => {
     ).toBeInTheDocument();
   });
 
-  it("explains fail-closed credential replacement before accepting a new key", () => {
+  it("explains staged credential rotation before accepting a new key", () => {
     render(
       <ConnectionsManager
         entitled
@@ -78,12 +78,10 @@ describe("ConnectionsManager", () => {
 
     fireEvent.click(screen.getByText("Manage connection"));
     fireEvent.click(screen.getByRole("button", { name: "Replace key" }));
-    expect(
-      screen.getByText(/current key stays active and unchanged/i),
-    ).toBeVisible();
+    expect(screen.getByText(/current key stays active/i)).toBeVisible();
     expect(
       screen.getByRole("button", {
-        name: "Store replacement for verification",
+        name: "Verify and rotate key",
       }),
     ).toBeInTheDocument();
   });

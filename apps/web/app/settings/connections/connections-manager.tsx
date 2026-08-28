@@ -253,10 +253,9 @@ export function ConnectionsManager({
                         {replacing === c.id && (
                           <form onSubmit={(e) => replace(e, c.id)}>
                             <p className="connection-card-state">
-                              Finish dependent autonomous strategies and move
-                              their mandates out of Ready or Paused first. If
-                              replacement is blocked, the current key stays
-                              active and unchanged.
+                              {c.status === "active"
+                                ? "Arbion encrypts and verifies the candidate while your current key stays active. Only a successful candidate replaces it."
+                                : "The replacement will be stored as pending and must be verified before Arbion can use it."}
                             </p>
                             <label>
                               New API key
@@ -268,7 +267,11 @@ export function ConnectionsManager({
                                 autoComplete="off"
                               />
                             </label>
-                            <button>Store replacement for verification</button>
+                            <button>
+                              {c.status === "active"
+                                ? "Verify and rotate key"
+                                : "Store replacement for verification"}
+                            </button>
                           </form>
                         )}
                       </div>

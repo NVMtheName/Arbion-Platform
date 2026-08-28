@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -35,10 +36,20 @@ type Vault interface {
 	Replace(context.Context, Locator, []byte) error
 	Delete(context.Context, Locator) error
 }
+type StagedVault interface {
+	Vault
+	Stage(context.Context, Locator, []byte) (string, error)
+	DiscardStaged(context.Context, Locator, string) error
+}
 type BlobStore interface {
 	Put(context.Context, Locator, []byte, bool) error
 	Get(context.Context, Locator) ([]byte, error)
 	Delete(context.Context, Locator) error
+}
+type StagedBlobStore interface {
+	BlobStore
+	PutStaged(context.Context, Locator, []byte, string) error
+	DeleteStaged(context.Context, Locator, string) error
 }
 type EncryptedVault struct {
 	aead  cipher.AEAD
@@ -76,6 +87,32 @@ func (v *EncryptedVault) Replace(ctx context.Context, l Locator, p []byte) error
 		return e
 	}
 	return v.store.Put(ctx, l, c, false)
+}
+func (v *EncryptedVault) Stage(ctx context.Context, l Locator, p []byte) (string, error) {
+	store, ok := v.store.(StagedBlobStore)
+	if !ok {
+		return "", errors.New("credential staging is unavailable")
+	}
+	tokenBytes := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, tokenBytes); err != nil {
+		return "", fmt.Errorf("generate credential staging token: %w", err)
+	}
+	token := hex.EncodeToString(tokenBytes)
+	ciphertext, err := v.seal(l, p)
+	if err != nil {
+		return "", err
+	}
+	if err = store.PutStaged(ctx, l, ciphertext, token); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+func (v *EncryptedVault) DiscardStaged(ctx context.Context, l Locator, token string) error {
+	store, ok := v.store.(StagedBlobStore)
+	if !ok {
+		return errors.New("credential staging is unavailable")
+	}
+	return store.DeleteStaged(ctx, l, token)
 }
 func (v *EncryptedVault) Retrieve(ctx context.Context, l Locator) ([]byte, error) {
 	c, e := v.store.Get(ctx, l)
