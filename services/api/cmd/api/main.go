@@ -25,6 +25,7 @@ import (
 	marketsec "github.com/arbion/platform/services/api/internal/marketintelligence/sec"
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/orderintent"
+	"github.com/arbion/platform/services/api/internal/ownerattention"
 	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/platform/database"
 	platformhttp "github.com/arbion/platform/services/api/internal/platform/http"
@@ -94,6 +95,7 @@ func main() {
 	strategies := strategy.NewInstanceService(strategyStore, automations, users)
 	breakers := risk.NewBreakerService(risk.NewPostgresBreakerStore(pool), users, authService)
 	platformOperations := platformops.NewService(platformops.NewPostgresStore(pool), users)
+	ownerAttention := ownerattention.NewService(ownerattention.NewPostgresStore(pool))
 	markets, err := newMarketIntelligenceService(cfg.MarketData, marketintelligence.NewPostgresHealthStore(pool), marketintelligence.NewPostgresWatchlistStore(pool))
 	if err != nil {
 		slog.Error("market intelligence unavailable", "error", err)
@@ -119,9 +121,11 @@ func main() {
 		slog.Info("non-live strategy scheduler enabled")
 	}
 
+	applicationHandler := platformhttp.NewFullApplicationHandlerWithEvaluationMarketsOrderIntentsAndPlatformOperations(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies, evaluations, breakers, markets, orderIntents, platformOperations)
+	applicationHandler = platformhttp.WithOwnerAttention(applicationHandler, cfg, authService, ownerAttention)
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           platformhttp.NewFullApplicationHandlerWithEvaluationMarketsOrderIntentsAndPlatformOperations(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies, evaluations, breakers, markets, orderIntents, platformOperations),
+		Handler:           applicationHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      45 * time.Second,

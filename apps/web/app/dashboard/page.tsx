@@ -7,6 +7,7 @@ import {
   type DashboardAIEngineSummary,
   type DashboardMoney,
 } from "./command-center-dashboard";
+import type { OwnerAttentionOverview } from "./owner-attention-center";
 
 type User = {
   email: string;
@@ -270,6 +271,7 @@ export default async function Dashboard() {
     preferenceResponse,
     automationsResponse,
     instancesResponse,
+    attentionResponse,
   ] = await Promise.all([
     fetch(`${api}/api/connections/ai`, { headers, cache: "no-store" }),
     fetch(`${api}/api/accounts`, { headers, cache: "no-store" }),
@@ -282,6 +284,10 @@ export default async function Dashboard() {
       headers,
       cache: "no-store",
     }),
+    fetch(`${api}/api/owner/attention`, {
+      headers,
+      cache: "no-store",
+    }).catch(() => null),
   ]);
 
   const connections = connectionsResponse.ok
@@ -319,6 +325,13 @@ export default async function Dashboard() {
         }
       ).strategy_instances ?? [])
     : [];
+  const attention = attentionResponse?.ok
+    ? (
+        (await attentionResponse.json()) as {
+          attention: OwnerAttentionOverview;
+        }
+      ).attention
+    : undefined;
   const activeAccounts = accounts.filter(
     (account) => account.status === "active",
   );
@@ -333,6 +346,8 @@ export default async function Dashboard() {
     <CommandCenterDashboard
       accounts={accountSummaries}
       aiEngines={engines}
+      attention={attention}
+      attentionAvailable={attentionResponse?.ok === true}
       connectionCount={
         connections.filter((connection) => connection.status === "active")
           .length
