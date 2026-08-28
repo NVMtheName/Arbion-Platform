@@ -2,9 +2,15 @@ import Link from "next/link";
 
 export type StrategyFleetItem = {
   id: string;
+  financialAccountID?: string;
   title: string;
   accountName: string;
   provider: string;
+  accountStatus?: string;
+  financialConnectionAvailable?: boolean;
+  financialConnectionContextAvailable?: boolean;
+  financialConnectionStatus?: string;
+  financialAuthorizationExpiresAt?: string;
   automationType: string;
   mandateStatus: string;
   autonomyLevel: string;
@@ -44,6 +50,16 @@ export type StrategyFleetItem = {
   latestDecisionLatencyMS?: number;
   latestDecisionInputUsage?: number;
   latestDecisionOutputUsage?: number;
+  reconciliationAvailable?: boolean;
+  reconciliationComparisonStatus?: string;
+  reconciliationBalancesStatus?: string;
+  reconciliationPositionsStatus?: string;
+  reconciliationAutonomySignal?: string;
+  reconciliationAutonomyEnforcementActive?: boolean;
+  reconciliationBlocksNewActions?: boolean;
+  reconciliationBlockingChangeCount?: number;
+  reconciliationObservedAt?: string;
+  reconciliationFresh?: boolean;
   accountContextAvailable?: boolean;
   instanceContextAvailable?: boolean;
 };
@@ -102,6 +118,16 @@ function readableTime(value?: string) {
   }).format(date);
 }
 
+export function reconciliationFreshWithinTwentyFourHours(
+  value: string | undefined,
+  now: Date,
+) {
+  if (!value || Number.isNaN(now.valueOf())) return false;
+  const observedAt = new Date(value);
+  if (Number.isNaN(observedAt.valueOf()) || observedAt > now) return false;
+  return now.valueOf() - observedAt.valueOf() <= 24 * 60 * 60 * 1000;
+}
+
 function isAI(item: StrategyFleetItem) {
   return item.automationType === "AI_AUTONOMOUS";
 }
@@ -120,12 +146,41 @@ function historicalInstance(item: StrategyFleetItem) {
   );
 }
 
+function requiresOperationalData(item: StrategyFleetItem) {
+  return isAI(item) && item.instanceStatus === "ACTIVE";
+}
+
+function financialConnectionHealthy(item: StrategyFleetItem) {
+  if (!requiresOperationalData(item)) return true;
+  return (
+    item.financialConnectionAvailable === true &&
+    item.accountStatus === "active" &&
+    item.financialConnectionStatus === "active"
+  );
+}
+
+function reconciliationHealthy(item: StrategyFleetItem) {
+  if (!requiresOperationalData(item)) return true;
+  return (
+    item.reconciliationAvailable === true &&
+    item.reconciliationComparisonStatus === "MATCHED" &&
+    item.reconciliationBalancesStatus === "READY" &&
+    item.reconciliationPositionsStatus === "READY" &&
+    item.reconciliationAutonomySignal === "CLEAR" &&
+    item.reconciliationAutonomyEnforcementActive === true &&
+    item.reconciliationBlocksNewActions === false &&
+    item.reconciliationFresh === true
+  );
+}
+
 function needsReview(item: StrategyFleetItem) {
   return (
     item.instanceStatus === "ERROR" ||
     item.currentState === "ERROR" ||
     item.accountContextAvailable === false ||
     item.instanceContextAvailable === false ||
+    !financialConnectionHealthy(item) ||
+    !reconciliationHealthy(item) ||
     item.scheduleAvailable === false ||
     item.evidenceAvailable === false ||
     item.decisionAvailable === false ||
@@ -153,6 +208,25 @@ function healthLabel(item: StrategyFleetItem) {
     return "Engine state unavailable";
   if (item.accountContextAvailable === false)
     return "Account context unavailable";
+  if (item.financialConnectionContextAvailable === false)
+    return "Connection context unavailable";
+  if (requiresOperationalData(item) && !financialConnectionHealthy(item)) {
+    if (item.financialConnectionAvailable === false)
+      return "Connection status unavailable";
+    return "Financial connection needs review";
+  }
+  if (requiresOperationalData(item) && !reconciliationHealthy(item)) {
+    if (item.reconciliationAvailable === false)
+      return "Portfolio evidence unavailable";
+    if (item.reconciliationFresh === false)
+      return "Portfolio evidence is stale";
+    if (
+      item.reconciliationBlocksNewActions ||
+      item.reconciliationComparisonStatus === "DRIFT_DETECTED"
+    )
+      return "Portfolio drift blocks proposals";
+    return "Portfolio evidence needs review";
+  }
   if (item.scheduleAvailable === false) return "Schedule status unavailable";
   if (item.evidenceAvailable === false) return "Evidence status unavailable";
   if (item.decisionAvailable === false) return "Decision status unavailable";
@@ -180,6 +254,7 @@ export function selectStrategyFleetNextAction(
 
   if (
     item.accountContextAvailable === false ||
+    item.financialConnectionContextAvailable === false ||
     item.instanceContextAvailable === false
   ) {
     return {
@@ -194,10 +269,56 @@ export function selectStrategyFleetNextAction(
       actionLabel: "Refresh automations",
     };
   }
+  if (requiresOperationalData(item) && !financialConnectionHealthy(item)) {
+    return {
+      ...identity,
+      key: `financial-connection:${item.id}`,
+      priority: 1,
+      tone: "ATTENTION",
+      eyebrow: "FINANCIAL CONNECTION NEEDS REVIEW",
+      title: `Restore ${providerLabel(item.provider)} account access`,
+      detail:
+        item.financialConnectionAvailable === false
+          ? "Arbion could not verify the current account and connection record. The engine will not treat this broker context as usable."
+          : "The attached account or financial connection is not active. New AI proposals remain fail-closed until access is restored.",
+      href: "/connections#financial-accounts",
+      actionLabel: "Review connection",
+    };
+  }
+  if (requiresOperationalData(item) && !reconciliationHealthy(item)) {
+    const stale = item.reconciliationFresh === false;
+    const drift =
+      item.reconciliationBlocksNewActions ||
+      item.reconciliationComparisonStatus === "DRIFT_DETECTED";
+    return {
+      ...identity,
+      key: `portfolio-evidence:${item.id}`,
+      priority: 2,
+      tone: "ATTENTION",
+      eyebrow: "PORTFOLIO EVIDENCE NEEDS REVIEW",
+      title: drift
+        ? `Review ${item.accountName} portfolio drift`
+        : stale
+          ? `Refresh ${item.accountName} portfolio evidence`
+          : `Review ${item.accountName} portfolio evidence`,
+      detail:
+        item.reconciliationAvailable === false
+          ? "The latest immutable reconciliation could not be loaded. Arbion will not infer balances, positions, or proposal readiness."
+          : drift
+            ? `${item.reconciliationBlockingChangeCount ?? 0} blocking ${item.reconciliationBlockingChangeCount === 1 ? "change" : "changes"} recorded. Deterministic controls hold new proposals until the exact broker evidence is reviewed.`
+            : stale
+              ? "The latest immutable broker snapshot is older than the 24-hour autonomy threshold. New proposals remain fail-closed until current evidence is recorded."
+              : "Balance, position, match, or autonomy-control evidence is incomplete. New proposals remain fail-closed.",
+      href: item.financialAccountID
+        ? `/accounts/${item.financialAccountID}#reconciliation-title`
+        : "/accounts",
+      actionLabel: "Review portfolio evidence",
+    };
+  }
   if (item.instanceStatus === "ERROR" || item.currentState === "ERROR") {
     return {
       ...identity,
-      priority: 1,
+      priority: 3,
       tone: "ATTENTION",
       eyebrow: "ENGINE REVIEW REQUIRED",
       title: `Review ${item.title} runtime evidence`,
@@ -214,7 +335,7 @@ export function selectStrategyFleetNextAction(
   ) {
     return {
       ...identity,
-      priority: 2,
+      priority: 4,
       tone: "ATTENTION",
       eyebrow: "SCHEDULE NEEDS REVIEW",
       title: `Review ${item.title} schedule health`,
@@ -229,7 +350,7 @@ export function selectStrategyFleetNextAction(
   if (item.evidenceAvailable === false) {
     return {
       ...identity,
-      priority: 3,
+      priority: 5,
       tone: "ATTENTION",
       eyebrow: "EVIDENCE STATUS UNAVAILABLE",
       title: `Refresh ${item.title} evidence`,
@@ -242,7 +363,7 @@ export function selectStrategyFleetNextAction(
   if (item.decisionAvailable === false) {
     return {
       ...identity,
-      priority: 4,
+      priority: 6,
       tone: "ATTENTION",
       eyebrow: "DECISION STATUS UNAVAILABLE",
       title: `Refresh ${item.title} decision pulse`,
@@ -258,7 +379,7 @@ export function selectStrategyFleetNextAction(
   ) {
     return {
       ...identity,
-      priority: 5,
+      priority: 7,
       tone: "READY",
       eyebrow: "SHADOW EVIDENCE REVIEWABLE",
       title: `Review ${item.title} evidence`,
@@ -464,6 +585,87 @@ function latestTelemetryLabel(item: StrategyFleetItem) {
     return "Telemetry unavailable";
   const integer = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
   return `${integer.format(item.latestDecisionLatencyMS ?? 0)} ms · ${integer.format(item.latestDecisionInputUsage ?? 0)} in / ${integer.format(item.latestDecisionOutputUsage ?? 0)} out`;
+}
+
+function exactState(value?: string) {
+  return value ? readable(value) : "Unavailable";
+}
+
+function StrategyFleetDataHealth({ item }: { item: StrategyFleetItem }) {
+  if (!requiresOperationalData(item)) return null;
+  const connectionHealthy = financialConnectionHealthy(item);
+  const portfolioHealthy = reconciliationHealthy(item);
+  const healthy = connectionHealthy && portfolioHealthy;
+  const coverage = [
+    `Balances ${exactState(item.reconciliationBalancesStatus).toLowerCase()}`,
+    `Positions ${exactState(item.reconciliationPositionsStatus).toLowerCase()}`,
+  ].join(" · ");
+  const freshness = !item.reconciliationObservedAt
+    ? "Timestamp unavailable"
+    : `${item.reconciliationFresh ? "Fresh ≤24h" : "Stale or invalid"} · ${readableTime(item.reconciliationObservedAt)}`;
+
+  return (
+    <section
+      className={`strategy-fleet-data-health${healthy ? " is-verified" : " needs-review"}`}
+      aria-label={`${item.title} account data health`}
+    >
+      <header>
+        <span>ACCOUNT DATA CONTROL</span>
+        <strong>{healthy ? "Verified" : "Review required"}</strong>
+      </header>
+      <dl>
+        <div>
+          <dt>Connection</dt>
+          <dd>
+            {item.financialConnectionAvailable === false
+              ? "Unavailable"
+              : `${exactState(item.accountStatus)} account · ${exactState(item.financialConnectionStatus)} connection`}
+          </dd>
+        </div>
+        <div>
+          <dt>Portfolio match</dt>
+          <dd>{exactState(item.reconciliationComparisonStatus)}</dd>
+        </div>
+        <div>
+          <dt>Coverage</dt>
+          <dd>{coverage}</dd>
+        </div>
+        <div>
+          <dt>Autonomy signal</dt>
+          <dd>{exactState(item.reconciliationAutonomySignal)}</dd>
+        </div>
+        <div>
+          <dt>Evidence freshness</dt>
+          <dd>{freshness}</dd>
+        </div>
+        {item.financialAuthorizationExpiresAt && (
+          <div>
+            <dt>Authorization expiry</dt>
+            <dd>{readableTime(item.financialAuthorizationExpiresAt)}</dd>
+          </div>
+        )}
+      </dl>
+      <p>
+        <span>
+          {portfolioHealthy
+            ? "Deterministic proposal gate has current account evidence"
+            : item.reconciliationBlocksNewActions
+              ? "New AI proposals are held by portfolio evidence"
+              : "New AI proposals remain fail-closed"}
+        </span>
+        {item.financialAccountID && (
+          <Link
+            href={`/accounts/${item.financialAccountID}#reconciliation-title`}
+          >
+            Account evidence →
+          </Link>
+        )}
+      </p>
+      <small>
+        Stored immutable evidence · no provider read or order action
+      </small>
+    </section>
+  );
 }
 
 function StrategyFleetDecision({ item }: { item: StrategyFleetItem }) {
@@ -890,6 +1092,7 @@ export function StrategyFleet({
                 </div>
               </dl>
 
+              <StrategyFleetDataHealth item={item} />
               <StrategyFleetDecision item={item} />
               <StrategyFleetEvidence item={item} />
 

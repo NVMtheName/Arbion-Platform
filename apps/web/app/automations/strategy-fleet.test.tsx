@@ -1,13 +1,22 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { StrategyFleet, type StrategyFleetItem } from "./strategy-fleet";
+import {
+  reconciliationFreshWithinTwentyFourHours,
+  StrategyFleet,
+  type StrategyFleetItem,
+} from "./strategy-fleet";
 
 const coinbaseEngine: StrategyFleetItem = {
   id: "ai-mandate",
+  financialAccountID: "coinbase-account",
   title: "AI Shadow Engine",
   accountName: "Coinbase Portfolio ••••a5d0",
   provider: "coinbase",
+  accountStatus: "active",
+  financialConnectionAvailable: true,
+  financialConnectionContextAvailable: true,
+  financialConnectionStatus: "active",
   automationType: "AI_AUTONOMOUS",
   mandateStatus: "READY",
   autonomyLevel: "FULL_AUTONOMOUS",
@@ -46,10 +55,37 @@ const coinbaseEngine: StrategyFleetItem = {
   latestDecisionLatencyMS: 1842,
   latestDecisionInputUsage: 12540,
   latestDecisionOutputUsage: 422,
+  reconciliationAvailable: true,
+  reconciliationComparisonStatus: "MATCHED",
+  reconciliationBalancesStatus: "READY",
+  reconciliationPositionsStatus: "READY",
+  reconciliationAutonomySignal: "CLEAR",
+  reconciliationAutonomyEnforcementActive: true,
+  reconciliationBlocksNewActions: false,
+  reconciliationBlockingChangeCount: 0,
+  reconciliationObservedAt: "2026-08-26T16:10:00Z",
+  reconciliationFresh: true,
 };
 
 describe("StrategyFleet", () => {
   afterEach(cleanup);
+
+  it("uses the exact 24-hour reconciliation freshness boundary", () => {
+    const now = new Date("2026-08-28T16:00:00Z");
+
+    expect(
+      reconciliationFreshWithinTwentyFourHours("2026-08-27T16:00:00Z", now),
+    ).toBe(true);
+    expect(
+      reconciliationFreshWithinTwentyFourHours("2026-08-27T15:59:59.999Z", now),
+    ).toBe(false);
+    expect(
+      reconciliationFreshWithinTwentyFourHours("2026-08-28T16:00:00.001Z", now),
+    ).toBe(false);
+    expect(reconciliationFreshWithinTwentyFourHours("invalid", now)).toBe(
+      false,
+    );
+  });
 
   it("shows an owner-facing fleet summary with account and engine context", () => {
     render(
@@ -81,6 +117,20 @@ describe("StrategyFleet", () => {
     expect(screen.getByText("gpt-5.6-sol")).toBeInTheDocument();
     expect(screen.getByText("BTC · ETH · XRP +1")).toBeInTheDocument();
     expect(screen.getByText("Healthy schedule")).toBeInTheDocument();
+    const dataHealth = screen.getByRole("region", {
+      name: "AI Shadow Engine account data health",
+    });
+    expect(dataHealth).toHaveTextContent("Verified");
+    expect(dataHealth).toHaveTextContent("Active account · Active connection");
+    expect(dataHealth).toHaveTextContent("Balances ready · Positions ready");
+    expect(dataHealth).toHaveTextContent("Fresh ≤24h");
+    expect(dataHealth).toHaveTextContent("no provider read or order action");
+    expect(
+      within(dataHealth).getByRole("link", { name: /Account evidence/i }),
+    ).toHaveAttribute(
+      "href",
+      "/accounts/coinbase-account#reconciliation-title",
+    );
     expect(screen.getByText("Covered Call")).toBeInTheDocument();
     expect(screen.getByText("Deterministic rules")).toBeInTheDocument();
     expect(screen.getByText("Draft configuration")).toBeInTheDocument();
@@ -139,6 +189,116 @@ describe("StrategyFleet", () => {
     expect(
       within(queue).getByRole("link", { name: /Review schedule/i }),
     ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
+  });
+
+  it("surfaces exact blocking portfolio drift ahead of later lifecycle work", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            reconciliationComparisonStatus: "DRIFT_DETECTED",
+            reconciliationAutonomySignal: "BLOCKED",
+            reconciliationBlocksNewActions: true,
+            reconciliationBlockingChangeCount: 2,
+          },
+        ]}
+      />,
+    );
+
+    const dataHealth = screen.getByRole("region", {
+      name: "AI Shadow Engine account data health",
+    });
+    expect(dataHealth).toHaveTextContent("Review required");
+    expect(dataHealth).toHaveTextContent("Drift Detected");
+    expect(dataHealth).toHaveTextContent(
+      "New AI proposals are held by portfolio evidence",
+    );
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    expect(queue).toHaveTextContent("2 blocking changes recorded");
+    expect(
+      within(queue).getByRole("link", {
+        name: /Review portfolio evidence/i,
+      }),
+    ).toHaveAttribute(
+      "href",
+      "/accounts/coinbase-account#reconciliation-title",
+    );
+    expect(
+      screen.getByText("Portfolio drift blocks proposals"),
+    ).toBeInTheDocument();
+  });
+
+  it("fails closed when connection state or reconciliation freshness is not current", () => {
+    const { rerender } = render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            financialConnectionAvailable: false,
+            financialConnectionStatus: undefined,
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText("Connection status unavailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Review connection/i }),
+    ).toHaveAttribute("href", "/connections#financial-accounts");
+
+    rerender(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            reconciliationFresh: false,
+            reconciliationObservedAt: "2026-08-24T16:10:00Z",
+          },
+        ]}
+      />,
+    );
+
+    const dataHealth = screen.getByRole("region", {
+      name: "AI Shadow Engine account data health",
+    });
+    expect(dataHealth).toHaveTextContent("Stale or invalid");
+    expect(screen.getByText("Portfolio evidence is stale")).toBeInTheDocument();
+    expect(
+      screen.getByText(/older than the 24-hour autonomy threshold/i),
+    ).toBeInTheDocument();
+
+    rerender(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            reconciliationAvailable: false,
+            reconciliationComparisonStatus: undefined,
+            reconciliationBalancesStatus: undefined,
+            reconciliationPositionsStatus: undefined,
+            reconciliationAutonomySignal: undefined,
+            reconciliationAutonomyEnforcementActive: undefined,
+            reconciliationBlocksNewActions: undefined,
+            reconciliationObservedAt: undefined,
+            reconciliationFresh: false,
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText("Portfolio evidence unavailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /will not infer balances, positions, or proposal readiness/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("shows a clear owner queue for a healthy scheduled fleet", () => {
