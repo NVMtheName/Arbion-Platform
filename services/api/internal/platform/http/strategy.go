@@ -54,6 +54,11 @@ type shadowEvidenceReviewCursorPayload struct {
 	ID         string    `json:"id"`
 }
 
+type aiPaperSpotFillCursorPayload struct {
+	SimulatedAt time.Time `json:"simulated_at"`
+	ID          string    `json:"id"`
+}
+
 func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	if h.strategies == nil {
 		return
@@ -71,6 +76,7 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/strategy-instances/{id}/shadow-evidence-reviews", h.require(stdhttp.HandlerFunc(h.strategyShadowEvidenceReviews)))
 	m.Handle("POST /api/strategy-instances/{id}/shadow-evidence-reviews", h.require(stdhttp.HandlerFunc(h.recordShadowEvidenceReview)))
 	m.Handle("GET /api/strategy-instances/{id}/paper-portfolio", h.require(stdhttp.HandlerFunc(h.strategyPaperPortfolio)))
+	m.Handle("GET /api/strategy-instances/{id}/ai-paper-fills", h.require(stdhttp.HandlerFunc(h.strategyAIPaperFills)))
 	m.Handle("GET /api/strategy-instances/{id}/schedule", h.require(stdhttp.HandlerFunc(h.strategySchedule)))
 	m.Handle("GET /api/strategy-instances/{id}/schedule-runs", h.require(stdhttp.HandlerFunc(h.strategyScheduleRuns)))
 	m.Handle("POST /api/strategy-instances/{id}/pause", h.require(stdhttp.HandlerFunc(h.pauseStrategyInstance)))
@@ -107,6 +113,32 @@ func decodeJournalCursor(encoded string) (*strategy.JournalCursor, error) {
 		return nil, strategy.ErrInvalid
 	}
 	return &strategy.JournalCursor{CreatedAt: decoded.CreatedAt, ID: decoded.ID}, nil
+}
+
+func encodeAIPaperSpotFillCursor(cursor *strategy.AIPaperSpotFillCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	payload, _ := json.Marshal(aiPaperSpotFillCursorPayload{SimulatedAt: cursor.SimulatedAt, ID: cursor.ID})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeAIPaperSpotFillCursor(encoded string) (*strategy.AIPaperSpotFillCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	if len(encoded) > 512 {
+		return nil, strategy.ErrInvalid
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, strategy.ErrInvalid
+	}
+	var decoded aiPaperSpotFillCursorPayload
+	if err = json.Unmarshal(payload, &decoded); err != nil || decoded.SimulatedAt.IsZero() || !journalUUID.MatchString(decoded.ID) {
+		return nil, strategy.ErrInvalid
+	}
+	return &strategy.AIPaperSpotFillCursor{SimulatedAt: decoded.SimulatedAt, ID: decoded.ID}, nil
 }
 
 func encodeScheduleRunCursor(cursor *strategy.ScheduleRunCursor) string {
@@ -586,6 +618,42 @@ func (h *authHandler) strategyPaperPortfolio(w stdhttp.ResponseWriter, r *stdhtt
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{"paper_portfolio": v, "live_execution_available": false})
+}
+
+func (h *authHandler) strategyAIPaperFills(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	limit := 25
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 100 {
+			writeError(w, 400, "INVALID_PAGINATION", "Limit must be between 1 and 100.")
+			return
+		}
+		limit = parsed
+	}
+	cursor, err := decodeAIPaperSpotFillCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeError(w, 400, "INVALID_PAGINATION", "The AI Paper fill cursor is invalid.")
+		return
+	}
+	page, err := h.strategies.AIPaperSpotFills(r.Context(), principal(r), r.PathValue("id"), limit, cursor)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"fills":                       page.Fills,
+		"next_cursor":                 encodeAIPaperSpotFillCursor(page.NextCursor),
+		"history_semantics":           "IMMUTABLE_OWNER_AI_PAPER_SIMULATED_FILL_HISTORY",
+		"pricing_includes_slippage":   true,
+		"fees_included":               true,
+		"provider_market_provenance":  true,
+		"simulation_only":             true,
+		"broker_order_record":         false,
+		"broker_action_available":     false,
+		"live_execution_available":    false,
+		"execution_authority_granted": false,
+	})
 }
 
 func (h *authHandler) strategySchedule(w stdhttp.ResponseWriter, r *stdhttp.Request) {

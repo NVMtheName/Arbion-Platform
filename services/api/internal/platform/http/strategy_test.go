@@ -30,6 +30,24 @@ func TestDecisionJournalCursorRoundTrips(t *testing.T) {
 	}
 }
 
+func TestAIPaperSpotFillCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
+	want := &strategy.AIPaperSpotFillCursor{
+		SimulatedAt: time.Date(2026, 8, 28, 19, 12, 30, 123, time.UTC),
+		ID:          "33333333-3333-4333-8333-333333333333",
+	}
+	encoded := encodeAIPaperSpotFillCursor(want)
+	got, err := decodeAIPaperSpotFillCursor(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != want.ID || !got.SimulatedAt.Equal(want.SimulatedAt) {
+		t.Fatalf("AI Paper fill cursor changed during round trip: %#v", got)
+	}
+	if _, err = decodeAIPaperSpotFillCursor("not-base64"); !errors.Is(err, strategy.ErrInvalid) {
+		t.Fatalf("malformed AI Paper fill cursor was accepted: %v", err)
+	}
+}
+
 func TestStrategyErrorReturnsSafeEvaluationDiagnostics(t *testing.T) {
 	tests := []struct {
 		err    error

@@ -17,6 +17,7 @@ import {
 import { StrategyLifecycleControls } from "../strategy-lifecycle-controls";
 import { StrategyInstanceControls } from "../strategy-instance-controls";
 import {
+  type AIPaperSpotFill,
   PaperPortfolioSummary,
   type PaperPortfolio,
 } from "../paper-portfolio-summary";
@@ -239,6 +240,7 @@ export default async function MandateReview({
     scheduleResponse,
     scheduleRunsResponse,
     portfolioResponse,
+    paperFillsResponse,
     capitalReservationResponse,
   ] = instanceID
     ? await Promise.all(
@@ -251,6 +253,7 @@ export default async function MandateReview({
           "schedule",
           "schedule-runs?limit=12",
           "paper-portfolio",
+          "ai-paper-fills?limit=25",
           "capital-reservation",
         ].map(async (suffix) => {
           const response = await fetch(
@@ -262,10 +265,13 @@ export default async function MandateReview({
             : {};
         }),
       )
-    : [{}, {}, {}, {}, {}, {}, {}, {}, {}];
+    : [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}];
   const paperPortfolio = portfolioResponse.paper_portfolio as
     | PaperPortfolio
     | undefined;
+  const paperFills = Array.isArray(paperFillsResponse.fills)
+    ? (paperFillsResponse.fills as AIPaperSpotFill[])
+    : [];
   const capitalReservation = capitalReservationResponse.capital_reservation as
     | Record<string, unknown>
     | undefined;
@@ -815,6 +821,7 @@ export default async function MandateReview({
         <PaperPortfolioSummary
           portfolio={paperPortfolio}
           executionMode={read("execution_mode", "ExecutionMode")}
+          fills={paperFills}
         />
       )}
       {read("execution_mode", "ExecutionMode") === "SHADOW" && (
