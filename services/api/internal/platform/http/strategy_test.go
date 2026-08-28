@@ -98,6 +98,31 @@ func TestScheduleRunCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
 	}
 }
 
+func TestStrategyDecisionCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
+	want := &strategy.StrategyDecisionCursor{
+		CreatedAt: time.Date(2026, 8, 28, 6, 12, 30, 123, time.UTC),
+		ID:        "11111111-1111-4111-8111-111111111111",
+	}
+	encoded := encodeStrategyDecisionCursor(want)
+	got, err := decodeStrategyDecisionCursor(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != want.ID || !got.CreatedAt.Equal(want.CreatedAt) {
+		t.Fatalf("strategy-decision cursor changed during round trip: %#v", got)
+	}
+	for _, input := range []string{
+		"not-base64",
+		"e30",
+		strings.Repeat("a", 513),
+		encodeStrategyDecisionCursor(&strategy.StrategyDecisionCursor{CreatedAt: time.Now(), ID: "not-a-uuid"}),
+	} {
+		if _, err = decodeStrategyDecisionCursor(input); err == nil {
+			t.Fatalf("malformed strategy-decision cursor was accepted: %q", input)
+		}
+	}
+}
+
 func TestShadowEvidenceReviewCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
 	want := &strategy.ShadowEvidenceReviewCursor{
 		ReviewedAt: time.Date(2026, 8, 28, 5, 12, 30, 123, time.UTC),

@@ -253,7 +253,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || len(foreignPage) != 0 {
 		t.Fatalf("decision journal crossed its owner boundary: %#v %v", foreignPage, err)
 	}
-	decisions, err := store.Decisions(ctx, userID, instance.ID)
+	decisions, err := store.StrategyDecisionEntries(ctx, userID, instance.ID, 10, nil)
 	if err != nil || len(decisions) != 2 || decisions[0].CreatedAt.IsZero() {
 		t.Fatalf("per-instance journal timestamps are missing: %#v %v", decisions, err)
 	}
@@ -497,6 +497,26 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	foreignMarks, err := store.ShadowOutcomes(ctx, "99999999-9999-4999-8999-999999999999", aiInstance.ID)
 	if err != nil || len(foreignMarks) != 0 {
 		t.Fatalf("AI shadow outcomes crossed their owner boundary: %#v %v", foreignMarks, err)
+	}
+	newestAIDecisions, err := store.StrategyDecisionEntries(ctx, userID, aiInstance.ID, 1, nil)
+	if err != nil || len(newestAIDecisions) != 1 || newestAIDecisions[0].DecisionType != "ABSTAIN" || newestAIDecisions[0].ExecutionRecordID != nil {
+		t.Fatalf("newest bounded AI decision page was incorrect: %#v %v", newestAIDecisions, err)
+	}
+	olderAIDecisions, err := store.StrategyDecisionEntries(ctx, userID, aiInstance.ID, 1, &StrategyDecisionCursor{CreatedAt: newestAIDecisions[0].CreatedAt, ID: newestAIDecisions[0].ID})
+	if err != nil || len(olderAIDecisions) != 1 || olderAIDecisions[0].DecisionType != "ALLOW_WOULD_HAVE_SUBMITTED" || olderAIDecisions[0].ExecutionRecordID == nil {
+		t.Fatalf("older bounded AI decision page was unstable: %#v %v", olderAIDecisions, err)
+	}
+	matchedMarks, err := store.ShadowOutcomesForExecutions(ctx, userID, aiInstance.ID, []string{*olderAIDecisions[0].ExecutionRecordID})
+	if err != nil || len(matchedMarks) != 1 || matchedMarks[0].ID != marks[0].ID {
+		t.Fatalf("decision-page outcome evidence was not matched exactly: %#v %v", matchedMarks, err)
+	}
+	foreignDecisionPage, err := store.StrategyDecisionEntries(ctx, "99999999-9999-4999-8999-999999999999", aiInstance.ID, 10, nil)
+	if err != nil || len(foreignDecisionPage) != 0 {
+		t.Fatalf("bounded AI decision history crossed its owner boundary: %#v %v", foreignDecisionPage, err)
+	}
+	foreignMatchedMarks, err := store.ShadowOutcomesForExecutions(ctx, "99999999-9999-4999-8999-999999999999", aiInstance.ID, []string{*olderAIDecisions[0].ExecutionRecordID})
+	if err != nil || len(foreignMatchedMarks) != 0 {
+		t.Fatalf("matched outcome evidence crossed its owner boundary: %#v %v", foreignMatchedMarks, err)
 	}
 	scorecard, err := store.ShadowScorecard(ctx, userID, aiInstance.ID)
 	if err != nil || scorecard.TotalMarks != 1 || len(scorecard.Horizons) != 2 {

@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -75,8 +76,28 @@ func (s *PostgresStore) RecordShadowOutcome(ctx context.Context, instance Instan
 	return err
 }
 
+const shadowOutcomeColumns = `o.id::text,o.execution_record_id::text,o.horizon,o.symbol,o.side,o.quantity::text,o.entry_price::text,o.observed_price::text,o.directional_change_usd::text,o.directional_change_percent::text,o.pricing_basis,o.market_feed,o.market_quality,o.market_observed_at,o.evaluated_at,o.elapsed_seconds`
+
+func scanShadowOutcome(row pgx.Row) (outcome ShadowOutcome, err error) {
+	err = row.Scan(&outcome.ID, &outcome.ExecutionRecordID, &outcome.Horizon, &outcome.Symbol, &outcome.Side, &outcome.Quantity, &outcome.EntryPrice, &outcome.ObservedPrice, &outcome.DirectionalChangeUSD, &outcome.DirectionalChangePercent, &outcome.PricingBasis, &outcome.MarketFeed, &outcome.MarketQuality, &outcome.MarketObservedAt, &outcome.EvaluatedAt, &outcome.ElapsedSeconds)
+	return outcome, err
+}
+
+func collectShadowOutcomes(rows pgx.Rows) ([]ShadowOutcome, error) {
+	defer rows.Close()
+	outcomes := []ShadowOutcome{}
+	for rows.Next() {
+		outcome, err := scanShadowOutcome(rows)
+		if err != nil {
+			return nil, err
+		}
+		outcomes = append(outcomes, outcome)
+	}
+	return outcomes, rows.Err()
+}
+
 func (s *PostgresStore) ShadowOutcomes(ctx context.Context, userID, instanceID string) ([]ShadowOutcome, error) {
-	rows, err := s.db.Query(ctx, `SELECT o.id::text,o.execution_record_id::text,o.horizon,o.symbol,o.side,o.quantity::text,o.entry_price::text,o.observed_price::text,o.directional_change_usd::text,o.directional_change_percent::text,o.pricing_basis,o.market_feed,o.market_quality,o.market_observed_at,o.evaluated_at,o.elapsed_seconds
+	rows, err := s.db.Query(ctx, `SELECT `+shadowOutcomeColumns+`
 		FROM shadow_execution_outcomes o
 		JOIN strategy_instances i ON i.id=o.strategy_instance_id AND i.user_id=o.user_id
 		WHERE o.strategy_instance_id=$1 AND o.user_id=$2 AND i.strategy_identifier='ai_shadow' AND i.execution_mode='SHADOW'
@@ -85,16 +106,24 @@ func (s *PostgresStore) ShadowOutcomes(ctx context.Context, userID, instanceID s
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	outcomes := []ShadowOutcome{}
-	for rows.Next() {
-		var outcome ShadowOutcome
-		if err = rows.Scan(&outcome.ID, &outcome.ExecutionRecordID, &outcome.Horizon, &outcome.Symbol, &outcome.Side, &outcome.Quantity, &outcome.EntryPrice, &outcome.ObservedPrice, &outcome.DirectionalChangeUSD, &outcome.DirectionalChangePercent, &outcome.PricingBasis, &outcome.MarketFeed, &outcome.MarketQuality, &outcome.MarketObservedAt, &outcome.EvaluatedAt, &outcome.ElapsedSeconds); err != nil {
-			return nil, err
-		}
-		outcomes = append(outcomes, outcome)
+	return collectShadowOutcomes(rows)
+}
+
+func (s *PostgresStore) ShadowOutcomesForExecutions(ctx context.Context, userID, instanceID string, executionIDs []string) ([]ShadowOutcome, error) {
+	if len(executionIDs) == 0 {
+		return []ShadowOutcome{}, nil
 	}
-	return outcomes, rows.Err()
+	rows, err := s.db.Query(ctx, `SELECT `+shadowOutcomeColumns+`
+		FROM shadow_execution_outcomes o
+		JOIN strategy_instances i ON i.id=o.strategy_instance_id AND i.user_id=o.user_id
+		WHERE o.strategy_instance_id=$1 AND o.user_id=$2
+		  AND i.strategy_identifier='ai_shadow' AND i.execution_mode='SHADOW'
+		  AND o.execution_record_id=ANY(string_to_array($3, ',')::uuid[])
+		ORDER BY o.evaluated_at DESC,o.id DESC`, instanceID, userID, strings.Join(executionIDs, ","))
+	if err != nil {
+		return nil, err
+	}
+	return collectShadowOutcomes(rows)
 }
 
 func (s *PostgresStore) ShadowScorecard(ctx context.Context, userID, instanceID string) (ShadowScorecard, error) {

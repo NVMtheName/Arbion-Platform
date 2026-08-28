@@ -17,6 +17,7 @@ import (
 
 const (
 	defaultJournalPageSize              = 25
+	defaultStrategyDecisionPageSize     = 24
 	defaultShadowEvidenceReviewPageSize = 8
 )
 
@@ -30,6 +31,11 @@ type journalCursorPayload struct {
 type scheduleRunCursorPayload struct {
 	ScheduledFor time.Time `json:"scheduled_for"`
 	ID           string    `json:"id"`
+}
+
+type strategyDecisionCursorPayload struct {
+	CreatedAt time.Time `json:"created_at"`
+	ID        string    `json:"id"`
 }
 
 type shadowEvidenceReviewCursorPayload struct {
@@ -114,6 +120,32 @@ func decodeScheduleRunCursor(encoded string) (*strategy.ScheduleRunCursor, error
 		return nil, strategy.ErrInvalid
 	}
 	return &strategy.ScheduleRunCursor{ScheduledFor: decoded.ScheduledFor, ID: decoded.ID}, nil
+}
+
+func encodeStrategyDecisionCursor(cursor *strategy.StrategyDecisionCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	payload, _ := json.Marshal(strategyDecisionCursorPayload{CreatedAt: cursor.CreatedAt, ID: cursor.ID})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeStrategyDecisionCursor(encoded string) (*strategy.StrategyDecisionCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	if len(encoded) > 512 {
+		return nil, strategy.ErrInvalid
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, strategy.ErrInvalid
+	}
+	var decoded strategyDecisionCursorPayload
+	if err = json.Unmarshal(payload, &decoded); err != nil || decoded.CreatedAt.IsZero() || !journalUUID.MatchString(decoded.ID) {
+		return nil, strategy.ErrInvalid
+	}
+	return &strategy.StrategyDecisionCursor{CreatedAt: decoded.CreatedAt, ID: decoded.ID}, nil
 }
 
 func encodeShadowEvidenceReviewCursor(cursor *strategy.ShadowEvidenceReviewCursor) string {
@@ -265,12 +297,39 @@ func (h *authHandler) strategyHistory(w stdhttp.ResponseWriter, r *stdhttp.Reque
 	writeJSON(w, 200, map[string]any{"transitions": v})
 }
 func (h *authHandler) strategyDecisions(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-	v, e := h.strategies.Decisions(r.Context(), principal(r), r.PathValue("id"))
-	if e != nil {
-		h.strategyError(w, e)
+	limit := defaultStrategyDecisionPageSize
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 50 {
+			writeError(w, 400, "INVALID_PAGINATION", "Limit must be between 1 and 50.")
+			return
+		}
+		limit = parsed
+	}
+	cursor, err := decodeStrategyDecisionCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeError(w, 400, "INVALID_PAGINATION", "The strategy decision cursor is invalid.")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"decisions": v})
+	page, err := h.strategies.DecisionPage(r.Context(), principal(r), r.PathValue("id"), limit, cursor)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"decisions":                   page.Decisions,
+		"outcomes":                    page.Outcomes,
+		"next_cursor":                 encodeStrategyDecisionCursor(page.NextCursor),
+		"decision_history_semantics":  "IMMUTABLE_OWNER_STRATEGY_DECISION_HISTORY",
+		"outcome_semantics":           "MATCHED_HYPOTHETICAL_DIRECTIONAL_MARKS",
+		"fees_and_slippage_included":  false,
+		"model_rerun":                 false,
+		"financial_provider_called":   false,
+		"broker_action_available":     false,
+		"live_execution_available":    false,
+		"execution_authority_granted": false,
+	})
 }
 func (h *authHandler) strategyExecutions(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	v, e := h.strategies.Executions(r.Context(), principal(r), r.PathValue("id"))
