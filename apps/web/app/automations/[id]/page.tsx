@@ -35,6 +35,7 @@ import { MandateIdentitySummary } from "../mandate-identity-summary";
 import { AutonomyGuardrailSummary } from "../autonomy-guardrail-summary";
 import { CapitalBucketAllocationControls } from "../capital-bucket-allocation-controls";
 import { AutonomyReadinessControlPlane } from "../autonomy-readiness-control-plane";
+import { AutonomyEvidenceReport } from "../autonomy-evidence-report";
 import { DecisionReplayLab } from "../decision-replay-lab";
 import { StrategySimulationWorkbench } from "../strategy-simulation-workbench";
 import {
@@ -269,6 +270,7 @@ export default async function MandateReview({
   const evidenceGate = (scorecard?.evidence_gate ?? scorecard?.EvidenceGate) as
     | Record<string, unknown>
     | undefined;
+  const observedAt = new Date().toISOString();
   return (
     <main className="connections-page automation-page">
       <AppPageHeader backHref="/automations" backLabel="Automations" />
@@ -317,7 +319,35 @@ export default async function MandateReview({
           reconciliation={reconciliation}
           automationBreaker={breaker as unknown as Record<string, unknown>}
           schedulerEnabled={Boolean(scheduleResponse.scheduler_enabled)}
-          observedAt={new Date().toISOString()}
+          observedAt={observedAt}
+        />
+      )}
+      {automationType === "AI_AUTONOMOUS" && (
+        <AutonomyEvidenceReport
+          generatedAt={observedAt}
+          mandateId={id}
+          currentVersion={currentVersion}
+          mandateStatus={read("status", "Status")}
+          automationType={automationType}
+          autonomyLevel={read("autonomy_level", "AutonomyLevel")}
+          executionMode={read("execution_mode", "ExecutionMode")}
+          financialAccountId={financialAccountID}
+          financialProvider={financialProvider}
+          financialAccount={financialAccount}
+          financialConnection={financialConnection}
+          aiConnection={aiConnection}
+          modelId={read("ai_model_id", "AIModelID")}
+          capitalBucketId={capitalBucketID}
+          capitalBucket={capitalBucket}
+          instance={instance}
+          schedule={scheduleResponse.schedule as Record<string, unknown>}
+          scheduleRuns={scheduleRunsResponse.runs}
+          schedulerEnabled={Boolean(scheduleResponse.scheduler_enabled)}
+          scorecard={scorecard}
+          evidenceGate={evidenceGate}
+          reconciliation={reconciliation}
+          automationBreaker={breaker as unknown as Record<string, unknown>}
+          breakerObserved={breakerResponse.ok}
         />
       )}
       <AutomationCircuitBreakerControls automationId={id} breaker={breaker} />
