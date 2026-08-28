@@ -15,7 +15,10 @@ import (
 	"github.com/arbion/platform/services/api/internal/strategy"
 )
 
-const defaultJournalPageSize = 25
+const (
+	defaultJournalPageSize              = 25
+	defaultShadowEvidenceReviewPageSize = 8
+)
 
 var journalUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
 
@@ -27,6 +30,11 @@ type journalCursorPayload struct {
 type scheduleRunCursorPayload struct {
 	ScheduledFor time.Time `json:"scheduled_for"`
 	ID           string    `json:"id"`
+}
+
+type shadowEvidenceReviewCursorPayload struct {
+	ReviewedAt time.Time `json:"reviewed_at"`
+	ID         string    `json:"id"`
 }
 
 func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
@@ -41,6 +49,7 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/strategy-instances/{id}/executions", h.require(stdhttp.HandlerFunc(h.strategyExecutions)))
 	m.Handle("GET /api/strategy-instances/{id}/shadow-outcomes", h.require(stdhttp.HandlerFunc(h.strategyShadowOutcomes)))
 	m.Handle("GET /api/strategy-instances/{id}/shadow-scorecard", h.require(stdhttp.HandlerFunc(h.strategyShadowScorecard)))
+	m.Handle("GET /api/strategy-instances/{id}/shadow-evidence-reviews", h.require(stdhttp.HandlerFunc(h.strategyShadowEvidenceReviews)))
 	m.Handle("POST /api/strategy-instances/{id}/shadow-evidence-reviews", h.require(stdhttp.HandlerFunc(h.recordShadowEvidenceReview)))
 	m.Handle("GET /api/strategy-instances/{id}/paper-portfolio", h.require(stdhttp.HandlerFunc(h.strategyPaperPortfolio)))
 	m.Handle("GET /api/strategy-instances/{id}/schedule", h.require(stdhttp.HandlerFunc(h.strategySchedule)))
@@ -105,6 +114,32 @@ func decodeScheduleRunCursor(encoded string) (*strategy.ScheduleRunCursor, error
 		return nil, strategy.ErrInvalid
 	}
 	return &strategy.ScheduleRunCursor{ScheduledFor: decoded.ScheduledFor, ID: decoded.ID}, nil
+}
+
+func encodeShadowEvidenceReviewCursor(cursor *strategy.ShadowEvidenceReviewCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	payload, _ := json.Marshal(shadowEvidenceReviewCursorPayload{ReviewedAt: cursor.ReviewedAt, ID: cursor.ID})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeShadowEvidenceReviewCursor(encoded string) (*strategy.ShadowEvidenceReviewCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	if len(encoded) > 512 {
+		return nil, strategy.ErrInvalid
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, strategy.ErrInvalid
+	}
+	var decoded shadowEvidenceReviewCursorPayload
+	if err = json.Unmarshal(payload, &decoded); err != nil || decoded.ReviewedAt.IsZero() || !journalUUID.MatchString(decoded.ID) {
+		return nil, strategy.ErrInvalid
+	}
+	return &strategy.ShadowEvidenceReviewCursor{ReviewedAt: decoded.ReviewedAt, ID: decoded.ID}, nil
 }
 
 func (h *authHandler) decisionJournal(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -297,6 +332,39 @@ func (h *authHandler) recordShadowEvidenceReview(w stdhttp.ResponseWriter, r *st
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 201, map[string]any{
 		"evidence_review":                  review,
+		"review_scope":                     strategy.ShadowEvidenceReviewScope,
+		"evidence_review_grants_authority": false,
+		"broker_action_available":          false,
+		"live_promotion_available":         false,
+		"live_execution_available":         false,
+	})
+}
+
+func (h *authHandler) strategyShadowEvidenceReviews(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	limit := defaultShadowEvidenceReviewPageSize
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 50 {
+			writeError(w, 400, "INVALID_PAGINATION", "Limit must be between 1 and 50.")
+			return
+		}
+		limit = parsed
+	}
+	cursor, err := decodeShadowEvidenceReviewCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeError(w, 400, "INVALID_PAGINATION", "The Shadow evidence review cursor is invalid.")
+		return
+	}
+	page, err := h.strategies.ShadowEvidenceReviews(r.Context(), principal(r), r.PathValue("id"), limit, cursor)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"evidence_reviews":                 page.Reviews,
+		"next_cursor":                      encodeShadowEvidenceReviewCursor(page.NextCursor),
+		"history_semantics":                "IMMUTABLE_NONLIVE_OWNER_REVIEW_EVIDENCE",
 		"review_scope":                     strategy.ShadowEvidenceReviewScope,
 		"evidence_review_grants_authority": false,
 		"broker_action_available":          false,

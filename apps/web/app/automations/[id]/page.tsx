@@ -36,7 +36,10 @@ import { AutonomyGuardrailSummary } from "../autonomy-guardrail-summary";
 import { CapitalBucketAllocationControls } from "../capital-bucket-allocation-controls";
 import { AutonomyReadinessControlPlane } from "../autonomy-readiness-control-plane";
 import { AutonomyEvidenceReport } from "../autonomy-evidence-report";
-import { ShadowEvidenceReviewControls } from "../shadow-evidence-review-controls";
+import {
+  ShadowEvidenceReviewControls,
+  type ShadowEvidenceReviewRecord,
+} from "../shadow-evidence-review-controls";
 import { DecisionReplayLab } from "../decision-replay-lab";
 import { StrategySimulationWorkbench } from "../strategy-simulation-workbench";
 import {
@@ -185,6 +188,7 @@ export default async function MandateReview({
     executions,
     outcomes,
     scorecardResponse,
+    shadowEvidenceReviewsResponse,
     scheduleResponse,
     scheduleRunsResponse,
     portfolioResponse,
@@ -196,6 +200,7 @@ export default async function MandateReview({
           "executions",
           "shadow-outcomes",
           "shadow-scorecard",
+          "shadow-evidence-reviews?limit=8",
           "schedule",
           "schedule-runs?limit=12",
           "paper-portfolio",
@@ -209,7 +214,7 @@ export default async function MandateReview({
             : {};
         }),
       )
-    : [{}, {}, {}, {}, {}, {}, {}, {}];
+    : [{}, {}, {}, {}, {}, {}, {}, {}, {}];
   const paperPortfolio = portfolioResponse.paper_portfolio as
     | PaperPortfolio
     | undefined;
@@ -355,6 +360,18 @@ export default async function MandateReview({
         <ShadowEvidenceReviewControls
           strategyInstanceId={instanceID}
           scorecard={scorecard}
+          initialReviews={
+            Array.isArray(shadowEvidenceReviewsResponse.evidence_reviews)
+              ? (shadowEvidenceReviewsResponse.evidence_reviews as ShadowEvidenceReviewRecord[])
+              : []
+          }
+          initialCursor={String(
+            shadowEvidenceReviewsResponse.next_cursor ?? "",
+          )}
+          historyAvailable={
+            shadowEvidenceReviewsResponse.history_semantics ===
+            "IMMUTABLE_NONLIVE_OWNER_REVIEW_EVIDENCE"
+          }
         />
       )}
       <AutomationCircuitBreakerControls automationId={id} breaker={breaker} />

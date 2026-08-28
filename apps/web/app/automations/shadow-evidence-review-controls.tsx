@@ -5,9 +5,30 @@ import { useRouter } from "next/navigation";
 
 type Entity = Record<string, unknown>;
 
+export type ShadowEvidenceReviewRecord = {
+  id: string;
+  mandate_version: number;
+  evidence_fingerprint: string;
+  gate_status: "EVIDENCE_REVIEWABLE";
+  one_hour_sample_size: number;
+  twenty_four_hour_sample_size: number;
+  evidence_window_hours: number;
+  schedule_healthy: boolean;
+  last_schedule_status: "SUCCEEDED";
+  consecutive_schedule_failures: number;
+  execution_boundary: "SHADOW_ONLY";
+  live_execution_available: false;
+  review_scope: "NON_LIVE_EVIDENCE_ONLY";
+  mfa_method: "totp";
+  reviewed_at: string;
+};
+
 type Props = {
   strategyInstanceId: string;
   scorecard?: Entity;
+  initialReviews?: ShadowEvidenceReviewRecord[];
+  initialCursor?: string;
+  historyAvailable?: boolean;
 };
 
 function value(entity: Entity | undefined, primary: string, legacy: string) {
@@ -17,6 +38,9 @@ function value(entity: Entity | undefined, primary: string, legacy: string) {
 export function ShadowEvidenceReviewControls({
   strategyInstanceId,
   scorecard,
+  initialReviews = [],
+  initialCursor = "",
+  historyAvailable = true,
 }: Props) {
   const router = useRouter();
   const gate = value(scorecard, "evidence_gate", "EvidenceGate") as
@@ -46,6 +70,41 @@ export function ShadowEvidenceReviewControls({
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [reviews, setReviews] = useState(initialReviews);
+  const [historyCursor, setHistoryCursor] = useState(initialCursor);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyMessage, setHistoryMessage] = useState("");
+
+  async function loadEarlierReviews() {
+    if (!historyCursor || historyBusy) return;
+    setHistoryBusy(true);
+    setHistoryMessage("");
+    try {
+      const response = await fetch(
+        `/api/strategy-instances/${encodeURIComponent(strategyInstanceId)}/shadow-evidence-reviews?limit=8&cursor=${encodeURIComponent(historyCursor)}`,
+        { cache: "no-store" },
+      );
+      const body = (await response.json().catch(() => null)) as {
+        evidence_reviews?: ShadowEvidenceReviewRecord[];
+        next_cursor?: string;
+      } | null;
+      if (!response.ok || !body || !Array.isArray(body.evidence_reviews)) {
+        setHistoryMessage("Earlier review evidence could not be loaded.");
+        return;
+      }
+      setReviews((current) => [
+        ...current,
+        ...body.evidence_reviews!.filter(
+          (candidate) => !current.some((review) => review.id === candidate.id),
+        ),
+      ]);
+      setHistoryCursor(body.next_cursor ?? "");
+    } catch {
+      setHistoryMessage("Earlier review evidence could not be loaded.");
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -181,6 +240,108 @@ export function ShadowEvidenceReviewControls({
         unavailable.
       </footer>
       {message && <p role="status">{message}</p>}
+
+      <div className="shadow-evidence-review-ledger">
+        <header>
+          <div>
+            <p className="eyebrow">OWNER REVIEW LEDGER</p>
+            <h3>Every acknowledgment, preserved.</h3>
+          </div>
+          <span>{reviews.length} loaded</span>
+        </header>
+        {!historyAvailable ? (
+          <div
+            className="shadow-evidence-review-state is-collecting"
+            role="status"
+          >
+            <strong>Review history is temporarily unavailable</strong>
+            <p>
+              Arbion will not infer an empty ledger. Refresh after the durable
+              history service recovers.
+            </p>
+          </div>
+        ) : reviews.length === 0 ? (
+          <div className="shadow-evidence-review-ledger-empty">
+            <strong>No MFA-backed reviews recorded yet.</strong>
+            <p>
+              The ledger begins only after the evidence gate becomes reviewable
+              and you explicitly acknowledge one exact fingerprint.
+            </p>
+          </div>
+        ) : (
+          <ol className="shadow-evidence-review-ledger-list">
+            {reviews.map((review) => {
+              const isCurrent =
+                currentReviewed && review.evidence_fingerprint === fingerprint;
+              return (
+                <li
+                  className={isCurrent ? "is-current" : "is-prior"}
+                  key={review.id}
+                >
+                  <header>
+                    <div>
+                      <time dateTime={review.reviewed_at}>
+                        {new Date(review.reviewed_at).toUTCString()}
+                      </time>
+                      <strong>
+                        {isCurrent
+                          ? "Current evidence fingerprint"
+                          : "Earlier evidence fingerprint"}
+                      </strong>
+                    </div>
+                    <span>{isCurrent ? "CURRENT" : "PRESERVED"}</span>
+                  </header>
+                  <code title={review.evidence_fingerprint}>
+                    {review.evidence_fingerprint}
+                  </code>
+                  <dl>
+                    <div>
+                      <dt>Mandate</dt>
+                      <dd>Version {review.mandate_version}</dd>
+                    </div>
+                    <div>
+                      <dt>1-hour marks</dt>
+                      <dd>{review.one_hour_sample_size}</dd>
+                    </div>
+                    <div>
+                      <dt>24-hour marks</dt>
+                      <dd>{review.twenty_four_hour_sample_size}</dd>
+                    </div>
+                    <div>
+                      <dt>Evidence window</dt>
+                      <dd>{review.evidence_window_hours} hours</dd>
+                    </div>
+                    <div>
+                      <dt>Schedule</dt>
+                      <dd>
+                        {review.last_schedule_status} ·{" "}
+                        {review.consecutive_schedule_failures} failures
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Boundary</dt>
+                      <dd>{review.execution_boundary}</dd>
+                    </div>
+                  </dl>
+                  <p>
+                    MFA-backed · {review.review_scope} · grants no authority
+                  </p>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        {historyCursor && historyAvailable && (
+          <button
+            type="button"
+            onClick={loadEarlierReviews}
+            disabled={historyBusy}
+          >
+            {historyBusy ? "Loading…" : "Load earlier reviews"}
+          </button>
+        )}
+        {historyMessage && <p role="status">{historyMessage}</p>}
+      </div>
     </section>
   );
 }

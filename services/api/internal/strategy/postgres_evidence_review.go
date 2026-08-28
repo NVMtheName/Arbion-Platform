@@ -88,3 +88,35 @@ func (s *PostgresStore) LatestShadowEvidenceReview(ctx context.Context, userID, 
 	}
 	return &review, nil
 }
+
+func (s *PostgresStore) ShadowEvidenceReviews(ctx context.Context, userID, instanceID string, limit int, cursor *ShadowEvidenceReviewCursor) ([]ShadowEvidenceReview, error) {
+	query := `SELECT ` + shadowEvidenceReviewColumns + `
+		FROM shadow_evidence_reviews
+		WHERE user_id=$1 AND strategy_instance_id=$2
+		ORDER BY reviewed_at DESC,id DESC
+		LIMIT $3`
+	args := []any{userID, instanceID, limit}
+	if cursor != nil {
+		query = `SELECT ` + shadowEvidenceReviewColumns + `
+			FROM shadow_evidence_reviews
+			WHERE user_id=$1 AND strategy_instance_id=$2
+			  AND (reviewed_at,id) < ($3,$4::uuid)
+			ORDER BY reviewed_at DESC,id DESC
+			LIMIT $5`
+		args = []any{userID, instanceID, cursor.ReviewedAt, cursor.ID, limit}
+	}
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	reviews := []ShadowEvidenceReview{}
+	for rows.Next() {
+		review, scanErr := scanShadowEvidenceReview(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		reviews = append(reviews, review)
+	}
+	return reviews, rows.Err()
+}
