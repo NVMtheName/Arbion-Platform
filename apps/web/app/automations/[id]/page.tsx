@@ -33,6 +33,10 @@ import { AIShadowScorecard } from "../ai-shadow-scorecard";
 import { MandateIdentitySummary } from "../mandate-identity-summary";
 import { AutonomyGuardrailSummary } from "../autonomy-guardrail-summary";
 import { CapitalBucketAllocationControls } from "../capital-bucket-allocation-controls";
+import {
+  assessStrategyInitialization,
+  StrategyInitializationReadiness,
+} from "../strategy-initialization-readiness";
 import { AutonomyReadinessControlPlane } from "../autonomy-readiness-control-plane";
 import { AutonomyEvidenceReport } from "../autonomy-evidence-report";
 import {
@@ -111,6 +115,7 @@ export default async function MandateReview({
     financialConnectionsResponse,
     aiConnectionsResponse,
     versionsResponse,
+    capitalReservationsResponse,
   ] = await Promise.all([
     fetch(`${api}/api/strategy-instances`, {
       headers: { cookie: jar.toString() },
@@ -137,6 +142,10 @@ export default async function MandateReview({
       cache: "no-store",
     }),
     fetch(`${api}/api/automations/${id}/versions`, {
+      headers: { cookie: jar.toString() },
+      cache: "no-store",
+    }),
+    fetch(`${api}/api/strategy-capital-reservations`, {
       headers: { cookie: jar.toString() },
       cache: "no-store",
     }),
@@ -189,6 +198,13 @@ export default async function MandateReview({
           versions?: Record<string, unknown>[];
         }
       ).versions ?? [])
+    : [];
+  const activeCapitalReservations = capitalReservationsResponse.ok
+    ? ((
+        (await capitalReservationsResponse.json()) as {
+          capital_reservations?: Record<string, unknown>[];
+        }
+      ).capital_reservations ?? [])
     : [];
   const currentVersion = Number(m.current_version ?? m.CurrentVersion ?? 0);
   const mandateInstances = instances.filter(
@@ -308,6 +324,35 @@ export default async function MandateReview({
     | Record<string, unknown>
     | undefined;
   const observedAt = new Date().toISOString();
+  const initializationAssessment = assessStrategyInitialization({
+    automationType,
+    mandateStatus: read("status", "Status"),
+    currentVersion,
+    autonomyLevel: read("autonomy_level", "AutonomyLevel"),
+    executionMode: read("execution_mode", "ExecutionMode"),
+    strategyIdentifier: read("strategy_identifier", "StrategyIdentifier"),
+    modelID: read("ai_model_id", "AIModelID"),
+    financialProvider,
+    financialAccount,
+    financialConnection,
+    aiConnection,
+    capitalBucket,
+    instance,
+    activeReservations: activeCapitalReservations,
+    scheduleConditions: (m.schedule_conditions ??
+      m.ScheduleConditions ??
+      {}) as Record<string, unknown>,
+    reconciliation,
+    observedAt,
+    inventoryAvailable:
+      instancesResponse.ok &&
+      accountsResponse.ok &&
+      bucketsResponse.ok &&
+      financialConnectionsResponse.ok &&
+      capitalReservationsResponse.ok &&
+      (automationType !== "AI_AUTONOMOUS" || aiConnectionsResponse.ok),
+    reconciliationAvailable: Boolean(reconciliationResponse?.ok),
+  });
   return (
     <main className="connections-page automation-page">
       <AppPageHeader backHref="/automations" backLabel="Automations" />
@@ -442,6 +487,7 @@ export default async function MandateReview({
           hasActiveInstance={hasActiveInstance}
         />
       )}
+      <StrategyInitializationReadiness assessment={initializationAssessment} />
       <MandateControls
         automationId={id}
         currentVersion={currentVersion}
@@ -450,6 +496,8 @@ export default async function MandateReview({
         executionMode={read("execution_mode", "ExecutionMode")}
         strategyIdentifier={read("strategy_identifier", "StrategyIdentifier")}
         instanceExists={Boolean(instance)}
+        initializationBlocked={!initializationAssessment.eligible}
+        paperStartingCashLimit={initializationAssessment.paperStartingCashLimit}
       />
       {automationType === "STRATEGY" && (
         <StrategyAutonomyControls

@@ -145,4 +145,26 @@ describe("MandateControls", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText(/cannot place or prepare/i)).toBeInTheDocument();
   });
+
+  it("holds initialization when the current readiness snapshot is blocked", () => {
+    render(
+      <MandateControls
+        {...base}
+        status="READY"
+        initializationBlocked
+        paperStartingCashLimit="250.0000000000"
+      />,
+    );
+
+    expect(screen.getByLabelText(/starting simulated cash/i)).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /initialize paper strategy/i }),
+    ).toBeDisabled();
+    expect(screen.getByText(/current exact maximum/i)).toHaveTextContent(
+      "250.0000000000 USD",
+    );
+    expect(
+      screen.getByText(/resolve the blocked strategy readiness/i),
+    ).toBeInTheDocument();
+  });
 });

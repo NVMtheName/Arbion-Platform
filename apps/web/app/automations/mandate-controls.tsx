@@ -11,6 +11,8 @@ type MandateControlsProps = {
   executionMode: string;
   strategyIdentifier: string;
   instanceExists: boolean;
+  initializationBlocked?: boolean;
+  paperStartingCashLimit?: string;
 };
 
 const initializableStrategies = new Set([
@@ -145,23 +147,33 @@ export function MandateControls(props: MandateControlsProps) {
               Starting simulated cash (USD)
               <input
                 name="starting_cash"
+                type="number"
                 inputMode="decimal"
                 min="0.0000000001"
+                max={props.paperStartingCashLimit}
                 step="any"
+                disabled={busy || props.initializationBlocked}
                 required
               />
               <span className="field-hint">
-                Must fit within this mandate&apos;s capital bucket after
-                protected amounts and absolute limits.
+                {props.paperStartingCashLimit
+                  ? `Current exact maximum: ${props.paperStartingCashLimit} USD after protected capital and account reservations.`
+                  : "Must fit within this mandate's capital bucket after protected amounts and absolute limits."}
               </span>
             </label>
           )}
-          <button type="submit" disabled={busy}>
+          <button type="submit" disabled={busy || props.initializationBlocked}>
             Initialize {props.executionMode}{" "}
             {props.automationType === "AI_AUTONOMOUS"
               ? "AI Engine"
               : "Strategy"}
           </button>
+          {props.initializationBlocked && (
+            <p className="field-hint">
+              Resolve the blocked Strategy Readiness checks above before
+              initializing.
+            </p>
+          )}
         </form>
       )}
       {props.instanceExists && (
