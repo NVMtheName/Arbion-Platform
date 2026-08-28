@@ -97,7 +97,7 @@ describe("MandateControls", () => {
     expect(navigation.refresh).not.toHaveBeenCalled();
   });
 
-  it("explains conservative account-level capital isolation", async () => {
+  it("explains aggregate account-level capital isolation", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: false,
       json: async () => ({ error: { code: "ACCOUNT_CAPITAL_IN_USE" } }),
@@ -113,7 +113,27 @@ describe("MandateControls", () => {
     );
 
     expect(
-      await screen.findByText(/already has an active or paused simulation/i),
+      await screen.findByText(/overlaps an active or paused reservation/i),
+    ).toBeInTheDocument();
+    expect(navigation.refresh).not.toHaveBeenCalled();
+  });
+
+  it("explains when a bucket cannot establish an exact reservation", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      json: async () => ({
+        error: { code: "CAPITAL_RESERVATION_UNAVAILABLE" },
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<MandateControls {...base} status="READY" executionMode="SHADOW" />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /initialize shadow strategy/i }),
+    );
+
+    expect(
+      await screen.findByText(/cannot produce an exact non-live reservation/i),
     ).toBeInTheDocument();
     expect(navigation.refresh).not.toHaveBeenCalled();
   });

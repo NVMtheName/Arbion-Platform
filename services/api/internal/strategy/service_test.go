@@ -76,6 +76,8 @@ type journalPersistenceFake struct {
 	finishedAt         time.Time
 	finishResult       Instance
 	finishError        error
+	reservation        CapitalReservation
+	reservationError   error
 }
 
 func (f *journalPersistenceFake) Initialize(_ context.Context, userID string, mandate automation.Mandate, cash string, state State) (Instance, error) {
@@ -110,6 +112,11 @@ func (f *journalPersistenceFake) Get(_ context.Context, userID, instanceID strin
 	f.requestedUser = userID
 	f.requestedID = instanceID
 	return f.instance, f.getError
+}
+func (f *journalPersistenceFake) CapitalReservation(_ context.Context, userID, instanceID string) (CapitalReservation, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	return f.reservation, f.reservationError
 }
 func (f *journalPersistenceFake) StrategyTransitionEntries(_ context.Context, userID, instanceID string, limit int, after *StrategyTransitionCursor) ([]StrategyTransitionEvidence, error) {
 	f.requestedUser = userID
@@ -280,7 +287,7 @@ func TestPaperInitializationIsBoundToProtectedBucketCapacity(t *testing.T) {
 	wheel := "wheel"
 	mandates := &instanceMandatesFake{
 		mandate: automation.Mandate{ID: "mandate", UserID: "owner", FinancialAccountID: "account", CapitalBucketID: "bucket", AutomationType: "STRATEGY", StrategyIdentifier: &wheel, Status: "READY", ExecutionMode: "PAPER"},
-		bucket:  automation.CapitalBucket{ID: "bucket", UserID: "owner", FinancialAccountID: "account", AllocationType: "FIXED_AMOUNT", AllocationValue: "100", ProtectedAmount: "20", Status: "ACTIVE"},
+		bucket:  automation.CapitalBucket{ID: "bucket", UserID: "owner", FinancialAccountID: "account", AllocationType: "FIXED_AMOUNT", AllocationValue: "100", Currency: "USD", ProtectedAmount: "20", Status: "ACTIVE"},
 	}
 	store := &journalPersistenceFake{}
 	service := NewInstanceService(store, mandates)
@@ -311,10 +318,15 @@ func TestShadowInitializationBindsBucketWithoutCreatingPaperCash(t *testing.T) {
 	wheel := "wheel"
 	mandates := &instanceMandatesFake{
 		mandate: automation.Mandate{ID: "mandate", UserID: "owner", FinancialAccountID: "account", CapitalBucketID: "bucket", AutomationType: "STRATEGY", StrategyIdentifier: &wheel, Status: "READY", ExecutionMode: "SHADOW"},
-		bucket:  automation.CapitalBucket{ID: "bucket", UserID: "owner", FinancialAccountID: "account", AllocationType: "PERCENT_OF_AVAILABLE_CASH", AllocationValue: "25", ProtectedAmount: "0", Status: "ACTIVE"},
+		bucket:  automation.CapitalBucket{ID: "bucket", UserID: "owner", FinancialAccountID: "account", AllocationType: "PERCENT_OF_AVAILABLE_CASH", AllocationValue: "25", Currency: "USD", ProtectedAmount: "0", Status: "ACTIVE"},
 	}
 	store := &journalPersistenceFake{}
 	service := NewInstanceService(store, mandates)
+	if _, err := service.Initialize(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "mandate", "untrusted"); !errors.Is(err, ErrCapitalReservation) {
+		t.Fatalf("unbounded percentage shadow bucket established a dollar reservation: %v", err)
+	}
+	limit := "500"
+	mandates.bucket.AllocationLimit = &limit
 	instance, err := service.Initialize(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "mandate", "untrusted")
 	if err != nil || store.initializedCash != "" || instance.CapitalBucketID != "bucket" {
 		t.Fatalf("shadow bucket binding changed: instance=%#v cash=%q err=%v", instance, store.initializedCash, err)
@@ -325,12 +337,34 @@ func TestAIShadowInitializationCreatesMonitoringStateWithoutPaperCash(t *testing
 	connection, model := "ai", "gpt-5.6-sol"
 	mandates := &instanceMandatesFake{
 		mandate: automation.Mandate{ID: "ai-mandate", UserID: "owner", FinancialAccountID: "account", CapitalBucketID: "bucket", AutomationType: "AI_AUTONOMOUS", AIProviderConnectionID: &connection, AIModelID: &model, Status: "READY", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`)},
-		bucket:  automation.CapitalBucket{ID: "bucket", UserID: "owner", FinancialAccountID: "account", AllocationType: "FIXED_AMOUNT", AllocationValue: "10", ProtectedAmount: "0", Status: "ACTIVE"},
+		bucket:  automation.CapitalBucket{ID: "bucket", UserID: "owner", FinancialAccountID: "account", AllocationType: "FIXED_AMOUNT", AllocationValue: "10", Currency: "USD", ProtectedAmount: "0", Status: "ACTIVE"},
 	}
 	store := &journalPersistenceFake{}
 	instance, err := NewInstanceService(store, mandates).Initialize(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "ai-mandate", "999")
 	if err != nil || instance.CurrentState != AIMonitoring || store.initializedCash != "" {
 		t.Fatalf("AI shadow initialization was not isolated: instance=%#v cash=%q err=%v", instance, store.initializedCash, err)
+	}
+}
+
+func TestCapitalReservationIsOwnerScopedAndDurable(t *testing.T) {
+	amount := "1000.0000000000"
+	store := &journalPersistenceFake{
+		instance: Instance{ID: "instance", UserID: "owner"},
+		reservation: CapitalReservation{
+			ID: "reservation", StrategyInstanceID: "instance", FinancialAccountID: "account",
+			CapitalBucketID: "bucket", ExecutionMode: Shadow, ReservationAmount: &amount,
+			Currency: "USD", ReservationBasis: "BUCKET_FIXED_CAPACITY", Status: "ACTIVE",
+		},
+	}
+	service := NewInstanceService(store, nil)
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+	reservation, err := service.CapitalReservation(context.Background(), principal, "instance")
+	if err != nil || reservation.ID != "reservation" || reservation.ReservationAmount == nil || *reservation.ReservationAmount != amount || store.requestedUser != "owner" {
+		t.Fatalf("owner reservation was not preserved: reservation=%#v store=%#v err=%v", reservation, store, err)
+	}
+	store.instance.UserID = "different-owner"
+	if _, err = service.CapitalReservation(context.Background(), principal, "instance"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-owner reservation lookup did not fail closed: %v", err)
 	}
 }
 

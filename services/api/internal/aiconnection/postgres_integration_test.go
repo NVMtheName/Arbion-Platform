@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/arbion/platform/services/api/internal/credential"
 	"github.com/arbion/platform/services/api/migrations"
@@ -133,17 +134,38 @@ func TestPostgresAIConnectionDependenciesTrackPreferencesMandatesAndPinnedRuntim
 	assertAIConnectionDependency(t, store, userID, aiConnectionA, true, false)
 	assertAIConnectionDependency(t, store, userID, aiConnectionB, true, false)
 
-	if _, err = pool.Exec(ctx, `INSERT INTO strategy_instances(
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO strategy_instances(
 		id,user_id,automation_mandate_id,mandate_version,financial_account_id,capital_bucket_id,
 		strategy_identifier,execution_mode,current_state,status
 	) VALUES($1,$2,$3,1,$4,$5,'ai_shadow','SHADOW','AI_MONITORING','ACTIVE')`, instanceID, userID, mandateID, financialAccountID, capitalBucketID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO strategy_capital_reservations(user_id,financial_account_id,capital_bucket_id,strategy_instance_id,execution_mode,reservation_amount,currency,reservation_basis,reserved_at) SELECT $1,$2,$3,$4,'SHADOW',1000,'USD','BUCKET_FIXED_CAPACITY',started_at FROM strategy_instances WHERE id=$4`, userID, financialAccountID, capitalBucketID, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
 	assertAIConnectionDependency(t, store, userID, aiConnectionA, true, true)
 	assertAIConnectionDependency(t, store, userID, aiConnectionB, true, false)
 	assertAIConnectionDependency(t, store, foreignUserID, aiConnectionA, false, false)
 
-	if _, err = pool.Exec(ctx, `UPDATE strategy_instances SET status='COMPLETED',completed_at=now() WHERE id=$1`, instanceID); err != nil {
+	completedAt := time.Now().UTC().Add(time.Second).Truncate(time.Microsecond)
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE strategy_instances SET status='COMPLETED',completed_at=$2 WHERE id=$1`, instanceID, completedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE strategy_capital_reservations SET released_at=$2,release_reason='COMPLETED' WHERE strategy_instance_id=$1`, instanceID, completedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
 	assertAIConnectionDependency(t, store, userID, aiConnectionA, true, false)

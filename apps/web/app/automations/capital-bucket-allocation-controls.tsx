@@ -24,12 +24,22 @@ function allocationLabel(type: string) {
   return "Fixed capital allocation (USD)";
 }
 
+function conciseDecimal(value: string) {
+  if (!/^\d+(\.\d+)?$/.test(value)) return value;
+  const [whole, fraction = ""] = value.split(".");
+  const trimmed = fraction.replace(/0+$/, "");
+  return trimmed ? `${whole}.${trimmed}` : whole;
+}
+
 export function CapitalBucketAllocationControls(props: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const editable =
-    Boolean(props.bucketId) && props.status === "ACTIVE" && !props.isReserve;
+    Boolean(props.bucketId) &&
+    props.status === "ACTIVE" &&
+    !props.isReserve &&
+    !props.hasActiveInstance;
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -93,6 +103,11 @@ export function CapitalBucketAllocationControls(props: Props) {
             defaultValue={props.allocationValue}
             required
           />
+          <span className="field-hint">
+            {props.allocationLimit
+              ? `Shared account ceiling: ${props.currency} ${conciseDecimal(props.allocationLimit)}. Compatible non-live strategies may share this ceiling without overlapping their reservations.`
+              : "No shared account ceiling is configured, so an active non-live strategy uses this account exclusively."}
+          </span>
         </label>
         <button type="submit" disabled={busy || !editable}>
           {busy ? "Updating guardrail…" : "Update Capital Guardrail"}
@@ -100,9 +115,9 @@ export function CapitalBucketAllocationControls(props: Props) {
       </form>
       {props.hasActiveInstance && (
         <p className="security-note">
-          The active non-live instance will use the revised limit on its next
-          guarded evaluation. Its mandate, mode, schedule, and history do not
-          change.
+          This capital policy is locked while its non-live instance is active or
+          paused. Finish the instance before revising the allocation; its
+          mandate, schedule, reservation, and history remain unchanged.
         </p>
       )}
       {message && <p role="status">{message}</p>}

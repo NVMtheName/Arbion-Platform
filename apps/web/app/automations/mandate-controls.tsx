@@ -75,9 +75,13 @@ export function MandateControls(props: MandateControlsProps) {
         setMessage(
           "Starting simulated cash must fit within the selected capital bucket after protected amounts and absolute limits.",
         );
+      } else if (body?.error?.code === "CAPITAL_RESERVATION_UNAVAILABLE") {
+        setMessage(
+          "This capital bucket cannot produce an exact non-live reservation. Add an absolute cap to a percentage-based Shadow bucket, then try again.",
+        );
       } else if (body?.error?.code === "ACCOUNT_CAPITAL_IN_USE") {
         setMessage(
-          "This financial account already has an active or paused simulation. Finish that strategy before starting another; paused strategies keep their capital claim.",
+          "This budget overlaps an active or paused reservation. Use separate fixed-amount buckets with the same account ceiling, or finish the existing strategy; paused strategies retain their reservation.",
         );
       } else {
         setMessage("The non-live strategy could not be initialized.");

@@ -37,7 +37,9 @@ describe("CapitalBucketAllocationControls", () => {
   it("updates only the existing capital policy without changing execution", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
-    render(<CapitalBucketAllocationControls {...base} />);
+    render(
+      <CapitalBucketAllocationControls {...base} hasActiveInstance={false} />,
+    );
 
     fireEvent.change(screen.getByLabelText(/fixed capital allocation/i), {
       target: { value: "1000" },
@@ -65,6 +67,17 @@ describe("CapitalBucketAllocationControls", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/not deposited cash/i)).toBeInTheDocument();
     expect(navigation.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("freezes the policy while a non-live instance holds its reservation", () => {
+    render(<CapitalBucketAllocationControls {...base} />);
+
+    expect(
+      screen.getByRole("button", { name: /update capital guardrail/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/locked while its non-live instance/i),
+    ).toBeInTheDocument();
   });
 
   it("does not allow editing a reserve bucket", () => {

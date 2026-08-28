@@ -70,7 +70,17 @@ func TestPostgresAttentionIsOwnerScopedCurrentAndCredentialFree(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'SYSTEM',to_jsonb(m) || '{"execution_capable":false}'::jsonb,'{}'::jsonb FROM automation_mandates m WHERE id=$1`, mandateID); err != nil {
 		t.Fatal(err)
 	}
-	if err = pool.QueryRow(ctx, `INSERT INTO strategy_instances(user_id,automation_mandate_id,mandate_version,financial_account_id,capital_bucket_id,strategy_identifier,execution_mode,current_state,status) VALUES($1,$2,1,$3,$4,'wheel','SHADOW','MONITORING','ACTIVE') RETURNING id::text`, ownerID, mandateID, accountID, bucketID).Scan(&instanceID); err != nil {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, `INSERT INTO strategy_instances(user_id,automation_mandate_id,mandate_version,financial_account_id,capital_bucket_id,strategy_identifier,execution_mode,current_state,status) VALUES($1,$2,1,$3,$4,'wheel','SHADOW','MONITORING','ACTIVE') RETURNING id::text`, ownerID, mandateID, accountID, bucketID).Scan(&instanceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO strategy_capital_reservations(user_id,financial_account_id,capital_bucket_id,strategy_instance_id,execution_mode,reservation_amount,currency,reservation_basis,reserved_at) SELECT $1,$2,$3,$4,'SHADOW',1,'USD','BUCKET_FIXED_CAPACITY',started_at FROM strategy_instances WHERE id=$4`, ownerID, accountID, bucketID, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO nonlive_strategy_schedules(strategy_instance_id,user_id,mandate_id,mandate_version,interval_minutes,session,next_run_at,last_completed_at,last_status,last_error_code,consecutive_failures) VALUES($1,$2,$3,1,60,'US_EQUITIES_REGULAR',now()+interval '1 hour',now(),'FAILED','SAFE_TEST_FAILURE',2)`, instanceID, ownerID, mandateID); err != nil {

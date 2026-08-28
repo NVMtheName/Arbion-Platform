@@ -21,6 +21,7 @@ type fakeStore struct {
 	updatedCommand   MandateCommand
 	updatedExpected  int
 	updatedSource    string
+	updatedBucket    CreateBucketCommand
 }
 
 type fakeAuditor struct {
@@ -55,7 +56,8 @@ func (f *fakeStore) ListBuckets(context.Context, string) ([]CapitalBucket, error
 func (f *fakeStore) GetBucket(context.Context, string, string) (CapitalBucket, error) {
 	return f.bucket, nil
 }
-func (f *fakeStore) UpdateBucket(context.Context, string, string, CreateBucketCommand) (CapitalBucket, error) {
+func (f *fakeStore) UpdateBucket(_ context.Context, _ string, _ string, command CreateBucketCommand) (CapitalBucket, error) {
+	f.updatedBucket = command
 	return f.bucket, nil
 }
 func (f *fakeStore) DeleteBucket(context.Context, string, string) error { return nil }
@@ -122,6 +124,27 @@ func TestBucketExactDecimalPercentageReserveAndOverlap(t *testing.T) {
 	b, e := s.CreateBucket(context.Background(), founder, CreateBucketCommand{FinancialAccountID: "a", Name: "Reserve", AllocationType: "FIXED_AMOUNT", AllocationValue: "0.0000000001", Currency: "USD", ProtectedAmount: "0", IsReserve: true})
 	if e != nil || b.AllocationValue != "0.0000000001" {
 		t.Fatal("exact decimal was not preserved")
+	}
+}
+
+func TestBucketUpdateRevalidatesExactAggregateCeiling(t *testing.T) {
+	f := baseStore()
+	f.bucket = CapitalBucket{ID: "b", FinancialAccountID: "a", AllocationType: "FIXED_AMOUNT", AllocationValue: "10", Currency: "USD", ProtectedAmount: "0", Status: "ACTIVE"}
+	f.fixed = big.NewRat(25, 1)
+	s := NewService(f, nil)
+	limit := "30"
+	command := CreateBucketCommand{FinancialAccountID: "a", Name: "Updated", AllocationType: "FIXED_AMOUNT", AllocationValue: "20", Currency: "USD", ProtectedAmount: "0", AllocationLimit: &limit}
+	if _, err := s.UpdateBucket(context.Background(), founder, "b", command); err != ErrConflict || f.updatedBucket.Name != "" {
+		t.Fatalf("overlapping bucket update reached persistence: command=%#v err=%v", f.updatedBucket, err)
+	}
+	command.AllocationValue = "15"
+	if _, err := s.UpdateBucket(context.Background(), founder, "b", command); err != nil || f.updatedBucket.AllocationValue != "15" {
+		t.Fatalf("bounded bucket update was rejected: command=%#v err=%v", f.updatedBucket, err)
+	}
+	invalidLimit := "0"
+	command.AllocationLimit = &invalidLimit
+	if _, err := s.UpdateBucket(context.Background(), founder, "b", command); err != ErrInvalid {
+		t.Fatalf("invalid updated limit was accepted: %v", err)
 	}
 }
 func TestMandateTypesCapabilitiesAutonomyAndNoExecution(t *testing.T) {

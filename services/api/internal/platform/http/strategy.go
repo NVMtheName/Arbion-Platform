@@ -61,6 +61,7 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("POST /api/automations/{id}/strategy/initialize", h.require(stdhttp.HandlerFunc(h.initializeStrategy)))
 	m.Handle("GET /api/strategy-instances", h.require(stdhttp.HandlerFunc(h.listStrategyInstances)))
 	m.Handle("GET /api/strategy-instances/{id}", h.require(stdhttp.HandlerFunc(h.getStrategyInstance)))
+	m.Handle("GET /api/strategy-instances/{id}/capital-reservation", h.require(stdhttp.HandlerFunc(h.strategyCapitalReservation)))
 	m.Handle("GET /api/strategy-instances/{id}/history", h.require(stdhttp.HandlerFunc(h.strategyHistory)))
 	m.Handle("GET /api/strategy-instances/{id}/decisions", h.require(stdhttp.HandlerFunc(h.strategyDecisions)))
 	m.Handle("GET /api/strategy-instances/{id}/executions", h.require(stdhttp.HandlerFunc(h.strategyExecutions)))
@@ -292,8 +293,10 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 422, "INVALID_STRATEGY", "The saved non-live automation request is invalid or unsupported.")
 	case errors.Is(e, strategy.ErrCapitalLimit):
 		writeError(w, 422, "PAPER_CAPITAL_LIMIT", "Starting simulated cash exceeds the selected capital bucket's protected capacity.")
+	case errors.Is(e, strategy.ErrCapitalReservation):
+		writeError(w, 422, "CAPITAL_RESERVATION_UNAVAILABLE", "The selected capital bucket cannot establish an exact non-live capital reservation. Percentage-based Shadow buckets require an absolute cap.")
 	case errors.Is(e, strategy.ErrAccountInUse):
-		writeError(w, 409, "ACCOUNT_CAPITAL_IN_USE", "This financial account already has an active or paused non-live strategy.")
+		writeError(w, 409, "ACCOUNT_CAPITAL_IN_USE", "The requested capital would overlap an active or paused non-live reservation. Use distinct fixed-amount buckets with the same explicit account ceiling, or finish the existing strategy.")
 	case errors.Is(e, strategy.ErrOpenExposure):
 		writeError(w, 409, "PAPER_POSITION_OPEN", "Resolve every open simulated position before finishing this PAPER strategy.")
 	case errors.Is(e, strategy.ErrMandateStale):
@@ -350,6 +353,22 @@ func (h *authHandler) getStrategyInstance(w stdhttp.ResponseWriter, r *stdhttp.R
 		return
 	}
 	writeJSON(w, 200, map[string]any{"strategy_instance": v, "live_execution_available": false})
+}
+func (h *authHandler) strategyCapitalReservation(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	v, e := h.strategies.CapitalReservation(r.Context(), principal(r), r.PathValue("id"))
+	if e != nil {
+		h.strategyError(w, e)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"capital_reservation":         v,
+		"reservation_scope":           "NONLIVE_STRATEGY_ONLY",
+		"broker_funds_locked":         false,
+		"broker_action_available":     false,
+		"live_execution_available":    false,
+		"execution_authority_granted": false,
+	})
 }
 func (h *authHandler) strategyHistory(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	limit := defaultStrategyRuntimePageSize
