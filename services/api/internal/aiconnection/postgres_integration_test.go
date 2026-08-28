@@ -1,11 +1,14 @@
 package aiconnection
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"testing"
 
+	"github.com/arbion/platform/services/api/internal/credential"
 	"github.com/arbion/platform/services/api/migrations"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -63,6 +66,31 @@ func TestPostgresAIConnectionDependenciesTrackPreferencesMandatesAndPinnedRuntim
 	}
 	store := NewPostgresStore(pool, DefaultRegistry())
 	assertAIConnectionDependency(t, store, userID, aiConnectionA, false, false)
+	if _, err = pool.Exec(ctx, `UPDATE provider_connections SET encrypted_credential_payload=$2 WHERE id=$1`, aiConnectionA, []byte("current-ciphertext")); err != nil {
+		t.Fatal(err)
+	}
+	credentialStore := credential.NewPostgresStore(pool)
+	locator := credential.Locator{ConnectionID: aiConnectionA, UserID: userID, Class: credential.AI}
+	candidateCiphertext := bytes.Repeat([]byte{0x5a}, 32)
+	stagingToken := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if err = credentialStore.PutStaged(ctx, locator, candidateCiphertext, stagingToken); err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := store.CommitStagedCredential(ctx, userID, aiConnectionA, stagingToken, "••••••••test", "active", "active", 1, true)
+	if err != nil || rotated.Status != "active" || rotated.CredentialGeneration != 2 || rotated.LastVerifiedAt == nil || rotated.CredentialHint != "••••••••test" {
+		t.Fatalf("staged credential did not activate atomically: %#v %v", rotated, err)
+	}
+	var currentCiphertext, pendingCiphertext []byte
+	var pendingToken *string
+	if err = pool.QueryRow(ctx, `SELECT encrypted_credential_payload,pending_encrypted_credential_payload,pending_credential_token FROM provider_connections WHERE id=$1`, aiConnectionA).Scan(&currentCiphertext, &pendingCiphertext, &pendingToken); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(currentCiphertext, candidateCiphertext) || pendingCiphertext != nil || pendingToken != nil {
+		t.Fatal("atomic activation did not promote and clear the exact staged candidate")
+	}
+	if _, err = store.CommitStagedCredential(ctx, userID, aiConnectionA, stagingToken, "••••••••stale", "active", "active", 1, true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stale generation or staging token activated a credential: %v", err)
+	}
 
 	if _, err = pool.Exec(ctx, `INSERT INTO neural_engine_preferences(user_id,provider_connection_id,model_id) VALUES($1,$2,'gpt-5.6-sol')`, userID, aiConnectionA); err != nil {
 		t.Fatal(err)

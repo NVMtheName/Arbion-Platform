@@ -34,16 +34,17 @@ const (
 )
 
 type Connection struct {
-	ID             string     `json:"id"`
-	Provider       string     `json:"provider"`
-	ProviderLabel  string     `json:"provider_label"`
-	DisplayName    string     `json:"display_name"`
-	Status         string     `json:"status"`
-	Enabled        bool       `json:"enabled"`
-	CredentialHint string     `json:"credential_hint"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	LastVerifiedAt *time.Time `json:"last_verified_at,omitempty"`
+	ID                   string     `json:"id"`
+	Provider             string     `json:"provider"`
+	ProviderLabel        string     `json:"provider_label"`
+	DisplayName          string     `json:"display_name"`
+	Status               string     `json:"status"`
+	Enabled              bool       `json:"enabled"`
+	CredentialHint       string     `json:"credential_hint"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+	LastVerifiedAt       *time.Time `json:"last_verified_at,omitempty"`
+	CredentialGeneration int64      `json:"-"`
 }
 
 type Store interface {
@@ -52,8 +53,8 @@ type Store interface {
 	Get(context.Context, string, string) (Connection, error)
 	Rename(context.Context, string, string, string) (Connection, error)
 	SetStatus(context.Context, string, string, string) (Connection, error)
-	SetCredentialPending(context.Context, string, string, string) (Connection, error)
-	SetVerification(context.Context, string, string, string, bool) (Connection, error)
+	SetVerification(context.Context, string, string, string, bool, int64) (Connection, error)
+	CommitStagedCredential(context.Context, string, string, string, string, string, string, int64, bool) (Connection, error)
 	GetPreference(context.Context, string) (*Preference, error)
 	SetPreference(context.Context, string, string, string) (Preference, error)
 	Delete(context.Context, string, string) error
@@ -110,7 +111,9 @@ func (s *Service) Verify(ctx context.Context, p authorization.Principal, id stri
 	}
 	err = s.neural.Verify(ctx, c.Provider, secret)
 	if err != nil {
-		c, _ = s.store.SetVerification(ctx, p.UserID, id, "error", false)
+		if updated, updateErr := s.store.SetVerification(ctx, p.UserID, id, "error", false, c.CredentialGeneration); updateErr == nil {
+			c = updated
+		}
 		code := neural.Code(err)
 		action := "ai_connection.verification_failed"
 		if code == neural.ProviderUnavailable || code == neural.Timeout {
@@ -119,7 +122,10 @@ func (s *Service) Verify(ctx context.Context, p authorization.Principal, id stri
 		s.record(ctx, p.UserID, action, c, map[string]any{"outcome": code})
 		return c, &neural.ProviderError{Code: code}
 	}
-	c, err = s.store.SetVerification(ctx, p.UserID, id, "active", true)
+	c, err = s.store.SetVerification(ctx, p.UserID, id, "active", true, c.CredentialGeneration)
+	if errors.Is(err, ErrNotFound) {
+		return Connection{}, ErrConflict
+	}
 	if err == nil {
 		s.record(ctx, p.UserID, "ai_connection.verification_succeeded", c, map[string]any{"outcome": "verified"})
 	}
@@ -445,22 +451,56 @@ func (s *Service) Replace(ctx context.Context, p authorization.Principal, id str
 	if !validSecret(secret) {
 		return Connection{}, ErrInvalid
 	}
-	inUse, err := s.store.ConnectionInUse(ctx, p.UserID, id)
+	if c.Status != "active" {
+		inUse, checkErr := s.store.ConnectionInUse(ctx, p.UserID, id)
+		if checkErr != nil {
+			return Connection{}, checkErr
+		}
+		if inUse {
+			return Connection{}, ErrConflict
+		}
+	}
+	stagedVault, ok := s.vault.(credential.StagedVault)
+	if !ok {
+		return Connection{}, ErrProvider
+	}
+	loc := credential.Locator{ConnectionID: id, UserID: p.UserID, Class: credential.AI}
+	token, err := stagedVault.Stage(ctx, loc, secret)
 	if err != nil {
 		return Connection{}, err
 	}
-	if inUse {
-		return Connection{}, ErrConflict
-	}
-	if err = s.vault.Replace(ctx, credential.Locator{ConnectionID: id, UserID: p.UserID, Class: credential.AI}, secret); err != nil {
-		return Connection{}, err
-	}
+	committed := false
+	defer func() {
+		if !committed {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			_ = stagedVault.DiscardStaged(cleanupCtx, loc, token)
+		}
+	}()
 	previous := c.Status
-	c, err = s.store.SetCredentialPending(ctx, p.UserID, id, maskedHint(secret))
+	next := "pending"
+	verified := false
+	if c.Status == "active" {
+		if s.neural == nil {
+			return Connection{}, ErrProvider
+		}
+		if err = s.neural.Verify(ctx, c.Provider, secret); err != nil {
+			code := neural.Code(err)
+			s.record(ctx, p.UserID, "ai_connection.verification_failed", c, map[string]any{"outcome": code, "replacement_candidate": true, "current_preserved": true})
+			return Connection{}, &neural.ProviderError{Code: code}
+		}
+		next = "active"
+		verified = true
+	}
+	c, err = s.store.CommitStagedCredential(ctx, p.UserID, id, token, maskedHint(secret), previous, next, c.CredentialGeneration, verified)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return Connection{}, ErrConflict
+		}
 		return Connection{}, err
 	}
-	s.record(ctx, p.UserID, "ai_connection.credential_replaced", c, map[string]any{"previous_status": previous, "new_status": "pending"})
+	committed = true
+	s.record(ctx, p.UserID, "ai_connection.credential_replaced", c, map[string]any{"previous_status": previous, "new_status": next, "verified_before_activation": verified})
 	return c, nil
 }
 func (s *Service) Rename(ctx context.Context, p authorization.Principal, id, name string) (Connection, error) {

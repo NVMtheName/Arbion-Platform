@@ -355,6 +355,30 @@ func TestFinancialAuthorizationDeadlineTracksWeeklySchwabReauthorization(t *test
 	}
 }
 
+func TestStagedAICredentialRotationIsEncryptedAndConcurrencyBound(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00034_staged_ai_credential_rotation.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"credential_generation",
+		"pending_encrypted_credential_payload",
+		"pending_credential_token",
+		"provider_pending_credential_pair_check",
+		"octet_length(pending_encrypted_credential_payload) >= 28",
+		"^[0-9a-f]{64}$",
+	} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("staged AI credential rotation migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"pending_plaintext", "pending_api_key", "pending_secret"} {
+		if strings.Contains(strings.ToLower(string(body)), prohibited) {
+			t.Errorf("staged AI credential rotation migration contains prohibited plaintext field %q", prohibited)
+		}
+	}
+}
+
 func TestMarketWatchlistIsOwnerScopedBoundedAndNonExecutable(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00018_market_watchlist.sql")
 	if err != nil {

@@ -97,3 +97,17 @@ func TestRuntimeUseIncludesCurrentMandatesAndPinnedImmutableVersions(t *testing.
 		t.Fatalf("unexpected runtime arguments: %#v", db.args)
 	}
 }
+
+func TestVerificationUpdateIsCredentialGenerationBound(t *testing.T) {
+	db := &captureDB{}
+	_, err := NewPostgresStore(db, DefaultRegistry()).SetVerification(context.Background(), "user-1", "connection-1", "active", true, 7)
+	if err == nil {
+		t.Fatal("expected the capture row to stop the scan")
+	}
+	if !strings.Contains(db.query, "credential_generation=$5") {
+		t.Fatalf("verification update is not generation-bound: %s", db.query)
+	}
+	if len(db.args) != 5 || db.args[4] != int64(7) {
+		t.Fatalf("unexpected verification arguments: %#v", db.args)
+	}
+}

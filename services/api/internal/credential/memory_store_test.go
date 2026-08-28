@@ -6,11 +6,19 @@ import (
 )
 
 type memoryStore struct {
-	mu   sync.Mutex
-	data map[Locator][]byte
+	mu      sync.Mutex
+	data    map[Locator][]byte
+	pending map[Locator]pendingCredential
 }
 
-func newMemoryStore() *memoryStore { return &memoryStore{data: map[Locator][]byte{}} }
+type pendingCredential struct {
+	payload []byte
+	token   string
+}
+
+func newMemoryStore() *memoryStore {
+	return &memoryStore{data: map[Locator][]byte{}, pending: map[Locator]pendingCredential{}}
+}
 func (s *memoryStore) Put(_ context.Context, l Locator, b []byte, create bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -40,6 +48,27 @@ func (s *memoryStore) Delete(_ context.Context, l Locator) error {
 		return ErrNotFound
 	}
 	delete(s.data, l)
+	return nil
+}
+
+func (s *memoryStore) PutStaged(_ context.Context, l Locator, payload []byte, token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.data[l]; !ok {
+		return ErrNotFound
+	}
+	s.pending[l] = pendingCredential{payload: append([]byte(nil), payload...), token: token}
+	return nil
+}
+
+func (s *memoryStore) DeleteStaged(_ context.Context, l Locator, token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending, ok := s.pending[l]
+	if !ok || pending.token != token {
+		return ErrNotFound
+	}
+	delete(s.pending, l)
 	return nil
 }
 

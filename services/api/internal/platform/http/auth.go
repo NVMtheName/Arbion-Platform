@@ -684,7 +684,7 @@ func (h *authHandler) aiError(w stdhttp.ResponseWriter, e error) {
 	case errors.Is(e, aiconnection.ErrInvalid):
 		writeError(w, 400, "invalid_request", "Request details are invalid.")
 	case errors.Is(e, aiconnection.ErrConflict):
-		writeError(w, 409, "connection_in_use", "Finish dependent autonomous strategies and move their mandates out of Ready or Paused before replacing, disabling, or removing this connection.")
+		writeError(w, 409, "connection_in_use", "Connection state changed, or protected automation still depends on it. Refresh and retry; finish dependent strategies before disabling or removing the connection.")
 	case errors.Is(e, aiconnection.ErrDisabled):
 		writeError(w, 409, "connection_disabled", "Enable the connection before verifying it.")
 	case errors.Is(e, aiconnection.ErrInactive):
