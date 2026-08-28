@@ -33,6 +33,18 @@ variable "github_repository" {
   type    = string
   default = "NVMtheName/Arbion-Platform"
 }
+variable "github_owner_id" {
+
+  type        = string
+  description = "Immutable GitHub owner ID used in the repository OIDC subject claim"
+  default     = "155460335"
+}
+variable "github_repository_id" {
+
+  type        = string
+  description = "Immutable GitHub repository ID used in the OIDC subject claim"
+  default     = "1332347278"
+}
 data "aws_caller_identity" "current" {
 
 }
