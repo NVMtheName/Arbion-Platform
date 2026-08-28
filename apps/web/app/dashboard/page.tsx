@@ -81,6 +81,17 @@ function recordStrings(
     : [];
 }
 
+function recordObject(
+  record: Record<string, unknown> | undefined,
+  key: string,
+  legacy: string,
+) {
+  const value = record?.[key] ?? record?.[legacy];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 async function fetchDashboardJSON<T>(
   url: string,
   headers: { cookie: string },
@@ -151,6 +162,11 @@ async function aiEngineSummaries(
       const schedule = scheduleResult.payload?.schedule;
       const lastDecision = decisionsResult.payload?.decisions?.find(
         (decision) => recordString(decision, "source", "Source") === "AI",
+      );
+      const decisionRationale = recordObject(
+        lastDecision,
+        "structured_rationale",
+        "StructuredRationale",
       );
       const scorecard = scorecardResult.payload?.scorecard;
       const rawEvidenceGate =
@@ -228,6 +244,36 @@ async function aiEngineSummaries(
         ),
         lastDecisionSymbol: recordString(lastDecision, "symbol", "Symbol"),
         lastDecisionAt: recordString(lastDecision, "created_at", "CreatedAt"),
+        latestDecisionAIProvider: recordString(
+          decisionRationale,
+          "ai_provider",
+          "AIProvider",
+        ),
+        latestDecisionAIModelID: recordString(
+          decisionRationale,
+          "model_id",
+          "ModelID",
+        ),
+        latestDecisionAIProfile: recordString(
+          decisionRationale,
+          "profile",
+          "Profile",
+        ),
+        latestDecisionLatencyMS: recordNumber(
+          decisionRationale,
+          "latency_ms",
+          "LatencyMS",
+        ),
+        latestDecisionInputUsage: recordNumber(
+          decisionRationale,
+          "input_usage",
+          "InputUsage",
+        ),
+        latestDecisionOutputUsage: recordNumber(
+          decisionRationale,
+          "output_usage",
+          "OutputUsage",
+        ),
       };
     }),
   );

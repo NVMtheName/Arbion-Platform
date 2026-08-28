@@ -62,6 +62,12 @@ describe("Portfolio-first command center", () => {
             lastDecision: "ALLOW_WOULD_HAVE_SUBMITTED",
             lastDecisionSymbol: "XRP",
             lastDecisionAt: "2026-08-26T15:17:14Z",
+            latestDecisionAIProvider: "openai",
+            latestDecisionAIModelID: "gpt-5.6-sol",
+            latestDecisionAIProfile: "deep",
+            latestDecisionLatencyMS: 1842,
+            latestDecisionInputUsage: 12540,
+            latestDecisionOutputUsage: 422,
             evidenceAvailable: true,
             evidenceStatus: "COLLECTING_EVIDENCE",
             evidenceBlockers: [
@@ -98,6 +104,8 @@ describe("Portfolio-first command center", () => {
     });
     expect(cockpit).toHaveTextContent("gpt-5.6-sol");
     expect(cockpit).toHaveTextContent("Would have submitted · XRP");
+    expect(cockpit).toHaveTextContent("OpenAI · gpt-5.6-sol · deep");
+    expect(cockpit).toHaveTextContent("1,842 ms · 12,540 in / 422 out");
     expect(cockpit).toHaveTextContent("Healthy schedule");
     expect(cockpit).toHaveTextContent("Shadow only");
     expect(cockpit).toHaveTextContent("Collecting evidence");
@@ -183,5 +191,7 @@ describe("Portfolio-first command center", () => {
     expect(cockpit).toHaveTextContent("Decision journal unavailable");
     expect(cockpit).not.toHaveTextContent("Healthy schedule");
     expect(cockpit).toHaveTextContent("Evidence unavailable");
+    expect(cockpit).toHaveTextContent("Unattributed legacy route");
+    expect(cockpit).toHaveTextContent("Telemetry unavailable");
   });
 });

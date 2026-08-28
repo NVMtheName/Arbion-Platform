@@ -52,6 +52,12 @@ export type DashboardAIEngineSummary = {
   lastDecision?: string;
   lastDecisionSymbol?: string;
   lastDecisionAt?: string;
+  latestDecisionAIProvider?: string;
+  latestDecisionAIModelID?: string;
+  latestDecisionAIProfile?: string;
+  latestDecisionLatencyMS?: number;
+  latestDecisionInputUsage?: number;
+  latestDecisionOutputUsage?: number;
   evidenceAvailable?: boolean;
   evidenceStatus?: string;
   evidenceBlockers?: string[];
@@ -209,6 +215,39 @@ function evidenceBlockerLabel(value: string) {
     SCHEDULE_UNHEALTHY: "Resolve the current scheduler failure",
   };
   return labels[value] ?? value.replaceAll("_", " ");
+}
+
+function aiProviderLabel(value: string) {
+  if (value === "openai") return "OpenAI";
+  if (value === "anthropic") return "Claude";
+  if (value === "gemini") return "Gemini";
+  return value;
+}
+
+function latestRouteLabel(engine: DashboardAIEngineSummary) {
+  if (
+    !engine.latestDecisionAIProvider ||
+    !engine.latestDecisionAIModelID ||
+    !engine.latestDecisionAIProfile
+  )
+    return "Unattributed legacy route";
+  return `${aiProviderLabel(engine.latestDecisionAIProvider)} · ${engine.latestDecisionAIModelID} · ${engine.latestDecisionAIProfile}`;
+}
+
+function latestTelemetryLabel(engine: DashboardAIEngineSummary) {
+  const values = [
+    engine.latestDecisionLatencyMS,
+    engine.latestDecisionInputUsage,
+    engine.latestDecisionOutputUsage,
+  ];
+  if (
+    values.some(
+      (value) => value === undefined || !Number.isFinite(value) || value < 0,
+    )
+  )
+    return "Telemetry unavailable";
+  const integer = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+  return `${integer.format(engine.latestDecisionLatencyMS ?? 0)} ms · ${integer.format(engine.latestDecisionInputUsage ?? 0)} in / ${integer.format(engine.latestDecisionOutputUsage ?? 0)} out`;
 }
 
 function evidenceSummary(engine: DashboardAIEngineSummary) {
@@ -440,6 +479,14 @@ export function CommandCenterDashboard({
                     <div>
                       <dt>Latest decision</dt>
                       <dd>{decisionLabel(engine)}</dd>
+                    </div>
+                    <div>
+                      <dt>AI route</dt>
+                      <dd>{latestRouteLabel(engine)}</dd>
+                    </div>
+                    <div>
+                      <dt>Route telemetry</dt>
+                      <dd>{latestTelemetryLabel(engine)}</dd>
                     </div>
                     <div>
                       <dt>Last cycle</dt>
