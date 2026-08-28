@@ -29,6 +29,15 @@ export type StrategyFleetItem = {
   evidenceScheduleHealthy?: boolean;
   evidenceBlockers?: string[];
   currentEvidenceReviewed?: boolean;
+  decisionAvailable?: boolean;
+  latestDecisionType?: string;
+  latestDecisionAt?: string;
+  latestDecisionSymbol?: string;
+  latestDecisionSide?: string;
+  latestDecisionQuantity?: string;
+  latestDecisionRiskDecision?: string;
+  latestDecisionRiskReasons?: string[];
+  latestDecisionExecutionStatus?: string;
   accountContextAvailable?: boolean;
   instanceContextAvailable?: boolean;
 };
@@ -113,6 +122,7 @@ function needsReview(item: StrategyFleetItem) {
     item.instanceContextAvailable === false ||
     item.scheduleAvailable === false ||
     item.evidenceAvailable === false ||
+    item.decisionAvailable === false ||
     item.scheduleStatus === "FAILED" ||
     item.consecutiveFailures > 0
   );
@@ -138,6 +148,8 @@ function healthLabel(item: StrategyFleetItem) {
   if (item.accountContextAvailable === false)
     return "Account context unavailable";
   if (item.scheduleAvailable === false) return "Schedule status unavailable";
+  if (item.evidenceAvailable === false) return "Evidence status unavailable";
+  if (item.decisionAvailable === false) return "Decision status unavailable";
   if (item.scheduleStatus === "FAILED" || item.consecutiveFailures > 0)
     return "Schedule needs review";
   if (item.instanceStatus === "ERROR" || item.currentState === "ERROR")
@@ -221,13 +233,26 @@ export function selectStrategyFleetNextAction(
       actionLabel: "Refresh evidence",
     };
   }
+  if (item.decisionAvailable === false) {
+    return {
+      ...identity,
+      priority: 4,
+      tone: "ATTENTION",
+      eyebrow: "DECISION STATUS UNAVAILABLE",
+      title: `Refresh ${item.title} decision pulse`,
+      detail:
+        "Arbion could not refresh the bounded immutable journal window and will not infer a recent AI action.",
+      href: destination,
+      actionLabel: "Refresh decision pulse",
+    };
+  }
   if (
     item.evidenceStatus === "EVIDENCE_REVIEWABLE" &&
     !item.currentEvidenceReviewed
   ) {
     return {
       ...identity,
-      priority: 4,
+      priority: 5,
       tone: "READY",
       eyebrow: "SHADOW EVIDENCE REVIEWABLE",
       title: `Review ${item.title} evidence`,
@@ -363,6 +388,115 @@ function boundedProgress(
   return { value: Math.min(value, maximum), maximum };
 }
 
+function latestDecisionLabel(value: string) {
+  if (value === "ABSTAIN") return "Abstained";
+  if (value === "DENY_RISK_DENIED") return "Held by controls";
+  if (value === "ALLOW_WOULD_HAVE_SUBMITTED") return "Would have submitted";
+  return readable(value);
+}
+
+function latestActionLabel(item: StrategyFleetItem) {
+  const symbol =
+    item.latestDecisionSymbol && item.latestDecisionSymbol !== "NONE"
+      ? item.latestDecisionSymbol
+      : undefined;
+  if (!symbol) return "No action proposed";
+  return [
+    item.latestDecisionSide && readable(item.latestDecisionSide),
+    item.latestDecisionQuantity,
+    symbol,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function latestRiskLabel(item: StrategyFleetItem) {
+  if (item.latestDecisionRiskDecision === "ALLOW")
+    return "Allowed by deterministic controls";
+  if (item.latestDecisionRiskDecision === "DENY") {
+    const [first, ...remaining] = item.latestDecisionRiskReasons ?? [];
+    if (!first) return "Denied by deterministic controls";
+    return `${readable(first)}${remaining.length ? ` +${remaining.length}` : ""}`;
+  }
+  return "Risk gate not reached";
+}
+
+function latestExecutionLabel(value?: string) {
+  if (value === "WOULD_HAVE_SUBMITTED") return "Shadow record only";
+  if (!value) return "No execution record";
+  return `${readable(value)} · non-live`;
+}
+
+function StrategyFleetDecision({ item }: { item: StrategyFleetItem }) {
+  if (!isAI(item)) return null;
+  if (!item.instanceStatus) {
+    return (
+      <section
+        className="strategy-fleet-decision is-pending"
+        aria-label={`${item.title} latest AI decision`}
+      >
+        <strong>Decision pulse begins after initialization.</strong>
+        <p>No model activity is inferred before an instance exists.</p>
+      </section>
+    );
+  }
+  if (item.decisionAvailable === false) {
+    return (
+      <section
+        className="strategy-fleet-decision is-unavailable"
+        aria-label={`${item.title} latest AI decision`}
+      >
+        <strong>Latest decision unavailable</strong>
+        <p>No recent AI action is inferred from a failed journal refresh.</p>
+      </section>
+    );
+  }
+  if (!item.latestDecisionType) {
+    return (
+      <section
+        className="strategy-fleet-decision is-pending"
+        aria-label={`${item.title} latest AI decision`}
+      >
+        <strong>Awaiting a completed AI decision</strong>
+        <p>No AI entry appears in the latest 10 immutable journal records.</p>
+      </section>
+    );
+  }
+
+  const riskTone = ["ALLOW", "DENY"].includes(
+    item.latestDecisionRiskDecision ?? "",
+  )
+    ? item.latestDecisionRiskDecision?.toLowerCase()
+    : "neutral";
+  return (
+    <section
+      className={`strategy-fleet-decision is-${riskTone}`}
+      aria-label={`${item.title} latest AI decision`}
+    >
+      <header>
+        <span>LATEST AI DECISION</span>
+        <strong>{latestDecisionLabel(item.latestDecisionType)}</strong>
+      </header>
+      <dl>
+        <div>
+          <dt>Action</dt>
+          <dd>{latestActionLabel(item)}</dd>
+        </div>
+        <div>
+          <dt>Risk gate</dt>
+          <dd>{latestRiskLabel(item)}</dd>
+        </div>
+      </dl>
+      <p>
+        <time dateTime={item.latestDecisionAt}>
+          {readableTime(item.latestDecisionAt)}
+        </time>
+        <span>{latestExecutionLabel(item.latestDecisionExecutionStatus)}</span>
+      </p>
+    </section>
+  );
+}
+
 function StrategyFleetEvidence({ item }: { item: StrategyFleetItem }) {
   if (!isAI(item)) return null;
   if (!item.instanceStatus) {
@@ -465,7 +599,7 @@ function StrategyFleetEvidence({ item }: { item: StrategyFleetItem }) {
         </label>
       </div>
       <p>
-        Scheduler {item.evidenceScheduleHealthy ? "healthy" : "not verified"}
+        Gate schedule {item.evidenceScheduleHealthy ? "verified" : "pending"}
         {item.evidenceBlockers?.length
           ? ` · ${item.evidenceBlockers.length} remaining ${item.evidenceBlockers.length === 1 ? "condition" : "conditions"}`
           : " · exact gate complete"}
@@ -706,6 +840,7 @@ export function StrategyFleet({
                 </div>
               </dl>
 
+              <StrategyFleetDecision item={item} />
               <StrategyFleetEvidence item={item} />
 
               <footer>

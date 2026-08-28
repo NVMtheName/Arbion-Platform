@@ -8,6 +8,15 @@ import { StrategyFleet, type StrategyFleetItem } from "./strategy-fleet";
 
 type RecordValue = Record<string, unknown>;
 
+type DecisionWindow = {
+  decisions?: RecordValue[] | null;
+  decision_history_semantics?: string;
+  model_rerun?: boolean;
+  financial_provider_called?: boolean;
+  broker_action_available?: boolean;
+  live_execution_available?: boolean;
+};
+
 function text(record: RecordValue | undefined, key: string, legacy: string) {
   const value = record?.[key] ?? record?.[legacy];
   return typeof value === "string" ? value : undefined;
@@ -39,6 +48,12 @@ function stringList(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function record(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as RecordValue)
+    : undefined;
 }
 
 function strategyTitle(mandate: RecordValue) {
@@ -113,7 +128,7 @@ async function fleetItem(
     Boolean(instanceID) && ["ACTIVE", "PAUSED"].includes(instanceStatus ?? "");
   const expectsEvidence =
     Boolean(instanceID) && automationType === "AI_AUTONOMOUS";
-  const [scheduleResult, scorecardResult] = await Promise.all([
+  const [scheduleResult, scorecardResult, decisionResult] = await Promise.all([
     expectsSchedule
       ? fetchOptional<{ schedule?: RecordValue }>(
           `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/schedule`,
@@ -126,6 +141,12 @@ async function fleetItem(
           headers,
         )
       : Promise.resolve({ available: true as const, payload: undefined }),
+    expectsEvidence
+      ? fetchOptional<DecisionWindow>(
+          `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/decisions?limit=10`,
+          headers,
+        )
+      : Promise.resolve({ available: true as const, payload: undefined }),
   ]);
   const schedule = scheduleResult.payload?.schedule;
   const scorecard = scorecardResult.payload?.scorecard;
@@ -134,6 +155,22 @@ async function fleetItem(
     | undefined;
   const evidenceAvailable =
     expectsEvidence && scorecardResult.available && Boolean(evidenceGate);
+  const decisionAvailable =
+    expectsEvidence &&
+    decisionResult.available &&
+    decisionResult.payload?.decision_history_semantics ===
+      "IMMUTABLE_OWNER_STRATEGY_DECISION_HISTORY" &&
+    decisionResult.payload.model_rerun === false &&
+    decisionResult.payload.financial_provider_called === false &&
+    decisionResult.payload.broker_action_available === false &&
+    decisionResult.payload.live_execution_available === false;
+  const latestAIDecision = asList(decisionResult.payload?.decisions).find(
+    (decision) => text(decision, "source", "Source") === "AI",
+  );
+  const decisionRationale = record(
+    latestAIDecision?.structured_rationale ??
+      latestAIDecision?.StructuredRationale,
+  );
 
   return {
     id,
@@ -197,6 +234,29 @@ async function fleetItem(
       scorecard,
       "current_evidence_reviewed",
       "CurrentEvidenceReviewed",
+    ),
+    decisionAvailable: expectsEvidence ? decisionAvailable : undefined,
+    latestDecisionType: text(latestAIDecision, "decision_type", "DecisionType"),
+    latestDecisionAt: text(latestAIDecision, "created_at", "CreatedAt"),
+    latestDecisionSymbol:
+      text(latestAIDecision, "symbol", "Symbol") ??
+      text(decisionRationale, "symbol", "Symbol"),
+    latestDecisionSide:
+      text(latestAIDecision, "side", "Side") ??
+      text(decisionRationale, "side", "Side"),
+    latestDecisionQuantity: text(latestAIDecision, "quantity", "Quantity"),
+    latestDecisionRiskDecision: text(
+      latestAIDecision,
+      "risk_decision",
+      "RiskDecision",
+    ),
+    latestDecisionRiskReasons: stringList(
+      latestAIDecision?.risk_reason_codes ?? latestAIDecision?.RiskReasonCodes,
+    ),
+    latestDecisionExecutionStatus: text(
+      latestAIDecision,
+      "execution_status",
+      "ExecutionStatus",
     ),
     accountContextAvailable: accountContextAvailable && Boolean(account),
     instanceContextAvailable,
