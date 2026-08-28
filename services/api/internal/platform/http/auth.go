@@ -112,6 +112,8 @@ func NewApplicationHandler(database ReadinessChecker, timeout config.Config, ser
 	mux.HandleFunc("POST /api/auth/mfa/login", h.completeMFALogin)
 	mux.Handle("POST /api/auth/logout", h.require(stdhttp.HandlerFunc(h.logout)))
 	mux.Handle("POST /api/auth/logout-all", h.require(stdhttp.HandlerFunc(h.logoutAll)))
+	mux.Handle("GET /api/auth/sessions", h.require(stdhttp.HandlerFunc(h.sessionInventory)))
+	mux.Handle("POST /api/auth/logout-others", h.require(stdhttp.HandlerFunc(h.logoutOthers)))
 	mux.Handle("PUT /api/auth/password", h.require(stdhttp.HandlerFunc(h.changePassword)))
 	mux.Handle("GET /api/auth/mfa", h.require(stdhttp.HandlerFunc(h.mfaStatus)))
 	mux.Handle("GET /api/auth/security-activity", h.require(stdhttp.HandlerFunc(h.securityActivity)))
@@ -153,6 +155,8 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	mux.HandleFunc("POST /api/auth/mfa/login", h.completeMFALogin)
 	mux.Handle("POST /api/auth/logout", h.require(stdhttp.HandlerFunc(h.logout)))
 	mux.Handle("POST /api/auth/logout-all", h.require(stdhttp.HandlerFunc(h.logoutAll)))
+	mux.Handle("GET /api/auth/sessions", h.require(stdhttp.HandlerFunc(h.sessionInventory)))
+	mux.Handle("POST /api/auth/logout-others", h.require(stdhttp.HandlerFunc(h.logoutOthers)))
 	mux.Handle("PUT /api/auth/password", h.require(stdhttp.HandlerFunc(h.changePassword)))
 	mux.Handle("GET /api/auth/mfa", h.require(stdhttp.HandlerFunc(h.mfaStatus)))
 	mux.Handle("GET /api/auth/security-activity", h.require(stdhttp.HandlerFunc(h.securityActivity)))
@@ -930,6 +934,8 @@ func (h *authHandler) completeMFALogin(w stdhttp.ResponseWriter, r *stdhttp.Requ
 }
 func (h *authHandler) authError(w stdhttp.ResponseWriter, e error) {
 	switch {
+	case errors.Is(e, auth.ErrUnauthenticated):
+		writeError(w, 401, "unauthenticated", "Authentication required.")
 	case errors.Is(e, auth.ErrConflict), errors.Is(e, auth.ErrRegistrationUnavailable):
 		writeError(w, 409, "registration_unavailable", "Unable to create account with those details.")
 	case errors.Is(e, auth.ErrInvalidCredentials):
@@ -962,6 +968,8 @@ func (h *authHandler) authError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 400, "invalid_pagination", "The security activity page is invalid.")
 	case errors.Is(e, auth.ErrSecurityActivityUnavailable):
 		writeError(w, 503, "security_activity_unavailable", "Security activity is temporarily unavailable.")
+	case errors.Is(e, auth.ErrSessionInventoryUnavailable):
+		writeError(w, 503, "session_inventory_unavailable", "Active sessions are temporarily unavailable.")
 	default:
 		writeError(w, 500, "internal_error", "The request could not be completed.")
 	}
@@ -1216,6 +1224,49 @@ func (h *authHandler) logoutAll(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 	h.clearCookie(w)
 	w.WriteHeader(204)
+}
+
+func (h *authHandler) sessionInventory(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	cookie, _ := r.Cookie(h.cfg.SessionCookie)
+	user, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	inventory, err := h.service.SessionInventory(r.Context(), user.ID, cookie.Value)
+	if err != nil {
+		h.authError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"session_inventory":        inventory,
+		"network_metadata_exposed": false,
+		"device_metadata_exposed":  false,
+		"credentials_exposed":      false,
+		"provider_data_exposed":    false,
+		"broker_action_requested":  false,
+		"live_execution_available": false,
+	})
+}
+
+func (h *authHandler) logoutOthers(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.originAllowed(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	cookie, _ := r.Cookie(h.cfg.SessionCookie)
+	user, _ := r.Context().Value(identityKey{}).(auth.SafeUser)
+	revoked, err := h.service.LogoutOtherSessions(r.Context(), user.ID, cookie.Value)
+	if err != nil {
+		h.authError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"revoked_session_count":        revoked,
+		"current_session_preserved":    true,
+		"provider_connections_changed": false,
+		"automation_state_changed":     false,
+		"broker_action_requested":      false,
+		"live_execution_available":     false,
+	})
 }
 
 func (h *authHandler) changePassword(w stdhttp.ResponseWriter, r *stdhttp.Request) {

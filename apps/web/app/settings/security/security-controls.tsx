@@ -6,6 +6,28 @@ import { useRouter } from "next/navigation";
 type ErrorBody = { error?: { message?: string } };
 type MFAStatus = { enabled: boolean; recovery_codes_remaining: number };
 type Enrollment = { secret: string; otpauth_uri: string; expires_at: string };
+export type SessionInventory = {
+  active_count: number;
+  other_count: number;
+  current: { created_at: string; expires_at: string };
+};
+
+const sessionTime = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZoneName: "short",
+});
+
+function formatSessionTime(value: string) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.valueOf())
+    ? "Unavailable"
+    : sessionTime.format(parsed);
+}
 
 async function message(response: Response) {
   const body = (await response.json().catch(() => null)) as ErrorBody | null;
@@ -14,15 +36,20 @@ async function message(response: Response) {
 
 export function SecurityControls({
   initialMFAStatus = { enabled: false, recovery_codes_remaining: 0 },
+  initialSessionInventory = null,
+  sessionInventoryAvailable = true,
 }: {
   initialMFAStatus?: MFAStatus;
+  initialSessionInventory?: SessionInventory | null;
+  sessionInventoryAvailable?: boolean;
 }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [busy, setBusy] = useState<
     | "password"
-    | "sessions"
+    | "other-sessions"
+    | "all-sessions"
     | "mfa-enroll"
     | "mfa-confirm"
     | "mfa-regenerate"
@@ -30,6 +57,9 @@ export function SecurityControls({
     | ""
   >("");
   const [mfa, setMFA] = useState(initialMFAStatus);
+  const [sessionInventory, setSessionInventory] = useState(
+    initialSessionInventory,
+  );
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [recoveryRequiresLogin, setRecoveryRequiresLogin] = useState(false);
@@ -76,10 +106,33 @@ export function SecurityControls({
 
   async function logoutEverywhere() {
     clearMessages();
-    setBusy("sessions");
+    setBusy("all-sessions");
     const response = await fetch("/api/auth/logout-all", { method: "POST" });
     if (response.ok) {
       returnToLogin();
+      return;
+    }
+    setError(await message(response));
+    setBusy("");
+  }
+
+  async function logoutOtherSessions() {
+    if (!sessionInventory || sessionInventory.other_count < 1) return;
+    clearMessages();
+    setBusy("other-sessions");
+    const response = await fetch("/api/auth/logout-others", {
+      method: "POST",
+    });
+    if (response.ok) {
+      setSessionInventory({
+        ...sessionInventory,
+        active_count: 1,
+        other_count: 0,
+      });
+      setSuccess(
+        "Every other Arbion browser session was signed out. This session remains active.",
+      );
+      setBusy("");
       return;
     }
     setError(await message(response));
@@ -398,18 +451,77 @@ export function SecurityControls({
 
       <section className="security-card" aria-labelledby="sessions-title">
         <p className="eyebrow">SESSIONS</p>
-        <h2 id="sessions-title">Sign out everywhere</h2>
+        <h2 id="sessions-title">Active browser sessions</h2>
         <p>
-          Immediately revoke every Arbion browser session for your account. This
-          does not disconnect Schwab or disable automations.
+          Review your browser access without exposing IP addresses, device
+          fingerprints, provider data, or account holdings.
         </p>
-        <button
-          className="danger"
-          disabled={busy !== ""}
-          onClick={logoutEverywhere}
-        >
-          {busy === "sessions" ? "Signing out…" : "Sign Out All Sessions"}
-        </button>
+        {sessionInventoryAvailable && sessionInventory ? (
+          <>
+            <div
+              className="session-inventory-summary"
+              aria-label="Session summary"
+            >
+              <div>
+                <strong>{sessionInventory.active_count}</strong>
+                <span>Active</span>
+              </div>
+              <div>
+                <strong>{sessionInventory.other_count}</strong>
+                <span>Other sessions</span>
+              </div>
+            </div>
+            <dl className="session-current-window">
+              <div>
+                <dt>Current session began</dt>
+                <dd>
+                  <time dateTime={sessionInventory.current.created_at}>
+                    {formatSessionTime(sessionInventory.current.created_at)}
+                  </time>
+                </dd>
+              </div>
+              <div>
+                <dt>Current session expires</dt>
+                <dd>
+                  <time dateTime={sessionInventory.current.expires_at}>
+                    {formatSessionTime(sessionInventory.current.expires_at)}
+                  </time>
+                </dd>
+              </div>
+            </dl>
+          </>
+        ) : (
+          <div className="session-inventory-unavailable" role="status">
+            Active sessions could not be verified. Arbion will not infer a clear
+            state, but you can still sign out every session below.
+          </div>
+        )}
+        <div className="session-actions">
+          <button
+            disabled={
+              busy !== "" ||
+              !sessionInventoryAvailable ||
+              !sessionInventory ||
+              sessionInventory.other_count < 1
+            }
+            onClick={logoutOtherSessions}
+          >
+            {busy === "other-sessions"
+              ? "Signing out others…"
+              : "Sign Out Other Sessions"}
+          </button>
+          <button
+            className="danger"
+            disabled={busy !== ""}
+            onClick={logoutEverywhere}
+          >
+            {busy === "all-sessions" ? "Signing out…" : "Sign Out All Sessions"}
+          </button>
+        </div>
+        <p className="session-boundary-note">
+          Session revocation does not disconnect Schwab or Coinbase, change
+          automation state, or request a broker action.
+        </p>
       </section>
 
       {success && (

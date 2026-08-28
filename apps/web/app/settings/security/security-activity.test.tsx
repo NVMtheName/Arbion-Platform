@@ -44,6 +44,11 @@ describe("SecurityActivity", () => {
             id: "44444444-4444-4444-8444-444444444444",
             action: "global_circuit_breaker.engaged",
           },
+          {
+            ...login,
+            id: "55555555-5555-4555-8555-555555555555",
+            action: "auth.logout_others",
+          },
         ]}
       />,
     );
@@ -56,6 +61,7 @@ describe("SecurityActivity", () => {
     expect(
       screen.getByText("Global emergency stop engaged"),
     ).toBeInTheDocument();
+    expect(screen.getByText("Other sessions signed out")).toBeInTheDocument();
     expect(screen.getByText(/excludes email addresses/i)).toBeInTheDocument();
     expect(screen.queryByText(/credential value/i)).not.toBeInTheDocument();
   });
@@ -63,7 +69,7 @@ describe("SecurityActivity", () => {
   it("loads an older page without duplicating existing events", async () => {
     const earlier: SecurityActivityRecord = {
       ...login,
-      id: "55555555-5555-4555-8555-555555555555",
+      id: "66666666-6666-4666-8666-666666666666",
       action: "auth.mfa_enabled",
     };
     const fetchMock = vi.fn().mockResolvedValue({

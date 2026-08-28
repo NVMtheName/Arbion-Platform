@@ -25,6 +25,7 @@ var ErrInvalidMFAChallenge = errors.New("multi-factor authentication challenge i
 var ErrMFAEnrollmentExpired = errors.New("multi-factor authentication enrollment is invalid or expired")
 var ErrSecurityActivityInvalid = errors.New("security activity pagination is invalid")
 var ErrSecurityActivityUnavailable = errors.New("security activity is unavailable")
+var ErrSessionInventoryUnavailable = errors.New("session inventory is unavailable")
 
 type User struct {
 	ID              string
@@ -118,11 +119,28 @@ type Session struct {
 	LastActivityAt time.Time `json:"last_activity_at"`
 	ExpiresAt      time.Time `json:"expires_at"`
 }
+
+// SessionInventory is a deliberately metadata-free view of a user's current
+// browser authorization state. It never contains tokens, token hashes,
+// addresses, user agents, device fingerprints, or provider data.
+type SessionInventory struct {
+	ActiveCount int           `json:"active_count"`
+	OtherCount  int           `json:"other_count"`
+	Current     SessionWindow `json:"current"`
+}
+
+type SessionWindow struct {
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 type SessionStore interface {
 	Create(context.Context, string, time.Duration) (string, Session, error)
 	Get(context.Context, string) (Session, error)
 	Delete(context.Context, string) error
 	RevokeUser(context.Context, string) error
+	SessionInventory(context.Context, string, string, int) (SessionInventory, error)
+	RevokeUserExcept(context.Context, string, string) (int, error)
 }
 type RateLimiter interface {
 	Allow(context.Context, string, int, time.Duration) (bool, error)

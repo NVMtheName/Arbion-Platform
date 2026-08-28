@@ -173,13 +173,13 @@ func TestPostgresSecurityActivityIsOwnerScopedFilteredAndAppendOnly(t *testing.T
 		return id
 	}
 	newestID := insert(owner.ID, "auth.login", now)
-	secondID := insert(owner.ID, "auth.mfa_enabled", now.Add(-time.Minute))
+	secondID := insert(owner.ID, "auth.logout_others", now.Add(-time.Minute))
 	thirdID := insert(owner.ID, "financial.connection_disabled", now.Add(-2*time.Minute))
 	insert(owner.ID, "neural_shadow_decision.completed", now.Add(time.Minute))
 	insert(foreign.ID, "auth.login", now.Add(2*time.Minute))
 
 	firstPage, err := store.SecurityActivities(ctx, owner.ID, 2, nil)
-	if err != nil || len(firstPage) != 2 || firstPage[0].ID != newestID || firstPage[1].ID != secondID {
+	if err != nil || len(firstPage) != 2 || firstPage[0].ID != newestID || firstPage[1].ID != secondID || firstPage[1].Action != "auth.logout_others" {
 		t.Fatalf("owner security activity projection was not bounded and filtered: %#v %v", firstPage, err)
 	}
 	secondPage, err := store.SecurityActivities(ctx, owner.ID, 2, &SecurityActivityCursor{OccurredAt: firstPage[1].OccurredAt, ID: firstPage[1].ID})

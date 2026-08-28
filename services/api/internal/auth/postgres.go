@@ -198,6 +198,7 @@ var securityActivityActions = []string{
 	"auth.login",
 	"auth.login_mfa_required",
 	"auth.logout",
+	"auth.logout_others",
 	"auth.logout_all",
 	"auth.password_change_failed",
 	"auth.password_changed",

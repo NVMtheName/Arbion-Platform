@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -85,6 +86,65 @@ describe("SecurityControls", () => {
       method: "POST",
     });
     expect(navigation.replace).toHaveBeenCalledWith("/login");
+  });
+
+  it("shows a metadata-free session inventory and revokes only other sessions", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <SecurityControls
+        initialSessionInventory={{
+          active_count: 3,
+          other_count: 2,
+          current: {
+            created_at: "2026-08-28T02:30:00Z",
+            expires_at: "2026-08-28T03:30:00Z",
+          },
+        }}
+      />,
+    );
+
+    const summary = screen.getByLabelText("Session summary");
+    expect(within(summary).getByText("3")).toBeInTheDocument();
+    expect(within(summary).getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("Aug 28, 2026, 2:30 AM UTC")).toBeInTheDocument();
+    expect(screen.queryByText(/IP address:/i)).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Sign Out Other Sessions" }),
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/logout-others", {
+      method: "POST",
+    });
+    expect(
+      await screen.findByText(/this session remains active/i),
+    ).toBeInTheDocument();
+    expect(within(summary).getByText("1")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Sign Out Other Sessions" }),
+    ).toBeDisabled();
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when active sessions cannot be verified", () => {
+    render(
+      <SecurityControls
+        initialSessionInventory={null}
+        sessionInventoryAvailable={false}
+      />,
+    );
+
+    expect(
+      screen.getByText(/active sessions could not be verified/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Sign Out Other Sessions" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Sign Out All Sessions" }),
+    ).toBeEnabled();
   });
 
   it("enables authenticator MFA and shows recovery codes exactly once", async () => {

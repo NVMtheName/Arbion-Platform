@@ -45,6 +45,8 @@ type EmailPolicy struct {
 	PasswordResetTTL     time.Duration
 }
 
+const sessionInventoryLimit = 100
+
 func NewService(users UserStore, sessions SessionStore, limiter RateLimiter, audit Auditor, ttl time.Duration, policies ...RegistrationPolicy) *Service {
 	s := &Service{users: users, sessions: sessions, limiter: limiter, audit: audit, hasher: NewPasswordHasher(), ttl: ttl, now: time.Now, registrationAllowlist: map[string]struct{}{}}
 	if len(policies) > 0 {
@@ -78,6 +80,20 @@ func (s *Service) SecurityActivity(ctx context.Context, userID string, limit int
 		page.NextCursor = &SecurityActivityCursor{OccurredAt: last.OccurredAt, ID: last.ID}
 	}
 	return page, nil
+}
+
+func (s *Service) SessionInventory(ctx context.Context, userID, currentToken string) (SessionInventory, error) {
+	if userID == "" || currentToken == "" {
+		return SessionInventory{}, ErrUnauthenticated
+	}
+	inventory, err := s.sessions.SessionInventory(ctx, userID, currentToken, sessionInventoryLimit)
+	if err != nil {
+		return SessionInventory{}, err
+	}
+	if inventory.ActiveCount < 1 || inventory.ActiveCount > sessionInventoryLimit || inventory.OtherCount != inventory.ActiveCount-1 || inventory.Current.CreatedAt.IsZero() || inventory.Current.ExpiresAt.IsZero() || !inventory.Current.ExpiresAt.After(inventory.Current.CreatedAt) {
+		return SessionInventory{}, ErrSessionInventoryUnavailable
+	}
+	return inventory, nil
 }
 
 func (s *Service) ConfigureEmail(tokens EmailTokenStore, sender mailer.Sender, policy EmailPolicy) {
@@ -369,6 +385,22 @@ func (s *Service) LogoutEverywhere(ctx context.Context, userID string) error {
 	}
 	_ = s.audit.Record(ctx, &userID, "auth.logout_all", map[string]any{"outcome": "success"})
 	return nil
+}
+
+func (s *Service) LogoutOtherSessions(ctx context.Context, userID, currentToken string) (int, error) {
+	if userID == "" || currentToken == "" {
+		return 0, ErrUnauthenticated
+	}
+	revoked, err := s.sessions.RevokeUserExcept(ctx, userID, currentToken)
+	if err != nil {
+		return 0, err
+	}
+	_ = s.audit.Record(ctx, &userID, "auth.logout_others", map[string]any{
+		"outcome":                  "success",
+		"revoked_session_count":    revoked,
+		"current_session_retained": true,
+	})
+	return revoked, nil
 }
 
 func (s *Service) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
