@@ -25,6 +25,19 @@ export type StrategyFleetItem = {
   capitalReservationCurrency?: string;
   capitalReservationBasis?: string;
   capitalReservationAccountLimit?: string;
+  runtimeVersionContextAvailable?: boolean;
+  runtimeBindingValid?: boolean;
+  runtimeScheduleBindingValid?: boolean;
+  runtimeMandateVersion?: number;
+  currentMandateVersion?: number;
+  runtimeSnapshotStatus?: string;
+  newerDraftAvailable?: boolean;
+  runtimeMaxProposalNotional?: string;
+  runtimeMaxTradesPerDay?: number;
+  runtimeLegacyDailyActionLimitMissing?: boolean;
+  runtimeScheduleEnabled?: boolean;
+  runtimeScheduleIntervalMinutes?: number;
+  runtimeScheduleSession?: string;
   automationType: string;
   mandateStatus: string;
   autonomyLevel: string;
@@ -173,6 +186,25 @@ function requiresCapitalData(item: StrategyFleetItem) {
   );
 }
 
+function requiresRuntimeContract(item: StrategyFleetItem) {
+  return (
+    isAI(item) &&
+    Boolean(
+      item.instanceStatus &&
+        ["ACTIVE", "PAUSED", "ERROR"].includes(item.instanceStatus),
+    )
+  );
+}
+
+function runtimeContractHealthy(item: StrategyFleetItem) {
+  if (!requiresRuntimeContract(item)) return true;
+  return (
+    item.runtimeVersionContextAvailable === true &&
+    item.runtimeBindingValid === true &&
+    item.runtimeScheduleBindingValid === true
+  );
+}
+
 function capitalBindingHealthy(item: StrategyFleetItem) {
   if (!requiresCapitalData(item)) return true;
   return (
@@ -209,6 +241,7 @@ function needsReview(item: StrategyFleetItem) {
     item.currentState === "ERROR" ||
     item.accountContextAvailable === false ||
     item.instanceContextAvailable === false ||
+    !runtimeContractHealthy(item) ||
     !capitalBindingHealthy(item) ||
     !financialConnectionHealthy(item) ||
     !reconciliationHealthy(item) ||
@@ -239,6 +272,10 @@ function healthLabel(item: StrategyFleetItem) {
     return "Engine state unavailable";
   if (item.accountContextAvailable === false)
     return "Account context unavailable";
+  if (item.runtimeVersionContextAvailable === false)
+    return "Runtime contract unavailable";
+  if (requiresRuntimeContract(item) && !runtimeContractHealthy(item))
+    return "Runtime contract needs review";
   if (item.capitalContextAvailable === false)
     return "Capital context unavailable";
   if (requiresCapitalData(item) && !capitalBindingHealthy(item))
@@ -291,6 +328,7 @@ export function selectStrategyFleetNextAction(
     item.accountContextAvailable === false ||
     item.financialConnectionContextAvailable === false ||
     item.capitalContextAvailable === false ||
+    item.runtimeVersionContextAvailable === false ||
     item.instanceContextAvailable === false
   ) {
     return {
@@ -305,11 +343,25 @@ export function selectStrategyFleetNextAction(
       actionLabel: "Refresh automations",
     };
   }
+  if (requiresRuntimeContract(item) && !runtimeContractHealthy(item)) {
+    return {
+      ...identity,
+      key: `runtime-contract:${item.id}`,
+      priority: 1,
+      tone: "ATTENTION",
+      eyebrow: "PINNED RUNTIME NEEDS REVIEW",
+      title: `Review ${item.title} runtime contract`,
+      detail:
+        "Arbion could not verify the exact immutable mandate version and matching non-live schedule row pinned to this engine. Configuration facts remain hidden, and no runtime setting or broker action was changed.",
+      href: `${destination}#configuration-controls`,
+      actionLabel: "Review runtime contract",
+    };
+  }
   if (requiresCapitalData(item) && !capitalBindingHealthy(item)) {
     return {
       ...identity,
       key: `capital-binding:${item.id}`,
-      priority: 1,
+      priority: 2,
       tone: "ATTENTION",
       eyebrow: "CAPITAL BINDING NEEDS REVIEW",
       title: `Review ${item.title} capital authority`,
@@ -323,7 +375,7 @@ export function selectStrategyFleetNextAction(
     return {
       ...identity,
       key: `financial-connection:${item.id}`,
-      priority: 2,
+      priority: 3,
       tone: "ATTENTION",
       eyebrow: "FINANCIAL CONNECTION NEEDS REVIEW",
       title: `Restore ${providerLabel(item.provider)} account access`,
@@ -343,7 +395,7 @@ export function selectStrategyFleetNextAction(
     return {
       ...identity,
       key: `portfolio-evidence:${item.id}`,
-      priority: 3,
+      priority: 4,
       tone: "ATTENTION",
       eyebrow: "PORTFOLIO EVIDENCE NEEDS REVIEW",
       title: drift
@@ -368,7 +420,7 @@ export function selectStrategyFleetNextAction(
   if (item.instanceStatus === "ERROR" || item.currentState === "ERROR") {
     return {
       ...identity,
-      priority: 4,
+      priority: 5,
       tone: "ATTENTION",
       eyebrow: "ENGINE REVIEW REQUIRED",
       title: `Review ${item.title} runtime evidence`,
@@ -385,7 +437,7 @@ export function selectStrategyFleetNextAction(
   ) {
     return {
       ...identity,
-      priority: 5,
+      priority: 6,
       tone: "ATTENTION",
       eyebrow: "SCHEDULE NEEDS REVIEW",
       title: `Review ${item.title} schedule health`,
@@ -400,7 +452,7 @@ export function selectStrategyFleetNextAction(
   if (item.evidenceAvailable === false) {
     return {
       ...identity,
-      priority: 6,
+      priority: 7,
       tone: "ATTENTION",
       eyebrow: "EVIDENCE STATUS UNAVAILABLE",
       title: `Refresh ${item.title} evidence`,
@@ -413,7 +465,7 @@ export function selectStrategyFleetNextAction(
   if (item.decisionAvailable === false) {
     return {
       ...identity,
-      priority: 7,
+      priority: 8,
       tone: "ATTENTION",
       eyebrow: "DECISION STATUS UNAVAILABLE",
       title: `Refresh ${item.title} decision pulse`,
@@ -429,7 +481,7 @@ export function selectStrategyFleetNextAction(
   ) {
     return {
       ...identity,
-      priority: 8,
+      priority: 9,
       tone: "READY",
       eyebrow: "SHADOW EVIDENCE REVIEWABLE",
       title: `Review ${item.title} evidence`,
@@ -539,8 +591,16 @@ function healthClass(item: StrategyFleetItem) {
 }
 
 function modelLabel(item: StrategyFleetItem) {
+  if (requiresRuntimeContract(item) && !runtimeContractHealthy(item))
+    return "Pinned model unavailable";
   if (isAI(item)) return item.modelID ?? "Model not recorded";
   return "Deterministic rules";
+}
+
+function fleetCoverageLabel(item: StrategyFleetItem) {
+  if (requiresRuntimeContract(item) && !runtimeContractHealthy(item))
+    return "Pinned universe unavailable";
+  return coverageLabel(item.symbols);
 }
 
 function coverageLabel(symbols: string[]) {
@@ -672,6 +732,106 @@ function capitalBasisLabel(value?: string) {
   if (value === "BUCKET_ABSOLUTE_LIMIT") return "Percentage budget cap";
   if (value === "UNRESOLVED_LEGACY") return "Legacy exclusive policy";
   return "Unavailable";
+}
+
+function runtimeScheduleLabel(item: StrategyFleetItem) {
+  if (item.runtimeScheduleEnabled === false) return "Owner-invoked only";
+  if (
+    item.runtimeScheduleEnabled !== true ||
+    !item.runtimeScheduleIntervalMinutes ||
+    !item.runtimeScheduleSession
+  )
+    return "Unavailable";
+  return `${item.runtimeScheduleIntervalMinutes} min · ${readable(item.runtimeScheduleSession)}`;
+}
+
+function StrategyFleetRuntimeContract({ item }: { item: StrategyFleetItem }) {
+  if (!requiresRuntimeContract(item)) return null;
+  if (!runtimeContractHealthy(item)) {
+    return (
+      <section
+        className="strategy-fleet-runtime needs-review"
+        aria-label={`${item.title} immutable runtime contract`}
+      >
+        <header>
+          <span>IMMUTABLE RUNTIME</span>
+          <strong>Review required</strong>
+        </header>
+        <p>
+          Model, universe, guardrail, and schedule facts are hidden until the
+          exact pinned mandate version and schedule binding can be verified.
+        </p>
+        <Link href={`/automations/${item.id}#configuration-controls`}>
+          Review runtime contract →
+        </Link>
+        <small>
+          Existing database pin remains authoritative · no configuration or
+          broker action changed
+        </small>
+      </section>
+    );
+  }
+
+  const newerConfigurationAvailable = Boolean(
+    item.currentMandateVersion &&
+      item.runtimeMandateVersion &&
+      item.currentMandateVersion > item.runtimeMandateVersion,
+  );
+  const currentConfiguration = newerConfigurationAvailable
+    ? `v${item.currentMandateVersion} · ${exactState(item.mandateStatus)} separate`
+    : `v${item.currentMandateVersion} · Matches runtime`;
+  return (
+    <section
+      className="strategy-fleet-runtime is-verified"
+      aria-label={`${item.title} immutable runtime contract`}
+    >
+      <header>
+        <span>IMMUTABLE RUNTIME</span>
+        <strong>PINNED v{item.runtimeMandateVersion}</strong>
+      </header>
+      <dl>
+        <div>
+          <dt>Snapshot</dt>
+          <dd>{exactState(item.runtimeSnapshotStatus)} · immutable</dd>
+        </div>
+        <div>
+          <dt>Model</dt>
+          <dd>{item.modelID}</dd>
+        </div>
+        <div>
+          <dt>Universe</dt>
+          <dd>{coverageLabel(item.symbols)}</dd>
+        </div>
+        <div>
+          <dt>Proposal ceiling</dt>
+          <dd>{capitalMoney("USD", item.runtimeMaxProposalNotional)}</dd>
+        </div>
+        <div>
+          <dt>Daily ceiling</dt>
+          <dd>
+            {item.runtimeLegacyDailyActionLimitMissing
+              ? "Not recorded · legacy"
+              : `${item.runtimeMaxTradesPerDay} action${item.runtimeMaxTradesPerDay === 1 ? "" : "s"} / UTC day`}
+          </dd>
+        </div>
+        <div>
+          <dt>Schedule contract</dt>
+          <dd>{runtimeScheduleLabel(item)}</dd>
+        </div>
+      </dl>
+      <p>
+        <span>{currentConfiguration}</span>
+        <Link href={`/automations/${item.id}#configuration-controls`}>
+          Exact configuration →
+        </Link>
+      </p>
+      <small>
+        {item.runtimeLegacyDailyActionLimitMissing
+          ? "Legacy daily ceiling is absent and not inferred · version and schedule identities match"
+          : "Version and schedule identities match · no model run or provider action"}
+      </small>
+    </section>
+  );
 }
 
 function StrategyFleetCapitalAuthority({ item }: { item: StrategyFleetItem }) {
@@ -1243,7 +1403,7 @@ export function StrategyFleet({
                 </div>
                 <div>
                   <dt>Coverage</dt>
-                  <dd>{coverageLabel(item.symbols)}</dd>
+                  <dd>{fleetCoverageLabel(item)}</dd>
                 </div>
                 <div>
                   <dt>Mode</dt>
@@ -1267,6 +1427,7 @@ export function StrategyFleet({
                 </div>
               </dl>
 
+              <StrategyFleetRuntimeContract item={item} />
               <StrategyFleetCapitalAuthority item={item} />
               <StrategyFleetDataHealth item={item} />
               <StrategyFleetDecision item={item} />
