@@ -4,7 +4,11 @@ import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../app-page-header";
 import { asList } from "./response";
-import { StrategyFleet, type StrategyFleetItem } from "./strategy-fleet";
+import {
+  reconciliationFreshWithinTwentyFourHours,
+  StrategyFleet,
+  type StrategyFleetItem,
+} from "./strategy-fleet";
 
 type RecordValue = Record<string, unknown>;
 
@@ -14,6 +18,12 @@ type DecisionWindow = {
   model_rerun?: boolean;
   financial_provider_called?: boolean;
   broker_action_available?: boolean;
+  live_execution_available?: boolean;
+};
+
+type ReconciliationEnvelope = {
+  reconciliation?: RecordValue;
+  autonomy_enforcement_active?: boolean;
   live_execution_available?: boolean;
 };
 
@@ -107,10 +117,13 @@ function currentInstance(mandate: RecordValue, instances: RecordValue[]) {
 async function fleetItem(
   mandate: RecordValue,
   accounts: RecordValue[],
+  financialConnections: RecordValue[],
   instances: RecordValue[],
   base: string,
   headers: { cookie: string },
+  observedAt: Date,
   accountContextAvailable: boolean,
+  financialConnectionContextAvailable: boolean,
   instanceContextAvailable: boolean,
 ): Promise<StrategyFleetItem> {
   const id = text(mandate, "id", "ID") ?? "";
@@ -118,6 +131,14 @@ async function fleetItem(
     text(mandate, "financial_account_id", "FinancialAccountID") ?? "";
   const account = accounts.find(
     (candidate) => text(candidate, "id", "ID") === accountID,
+  );
+  const financialConnectionID = text(
+    account,
+    "provider_connection_id",
+    "ProviderConnectionID",
+  );
+  const financialConnection = financialConnections.find(
+    (candidate) => text(candidate, "id", "ID") === financialConnectionID,
   );
   const instance = currentInstance(mandate, instances);
   const instanceID = text(instance, "id", "ID");
@@ -128,7 +149,14 @@ async function fleetItem(
     Boolean(instanceID) && ["ACTIVE", "PAUSED"].includes(instanceStatus ?? "");
   const expectsEvidence =
     Boolean(instanceID) && automationType === "AI_AUTONOMOUS";
-  const [scheduleResult, scorecardResult, decisionResult] = await Promise.all([
+  const expectsOperationalData =
+    instanceStatus === "ACTIVE" && automationType === "AI_AUTONOMOUS";
+  const [
+    scheduleResult,
+    scorecardResult,
+    decisionResult,
+    reconciliationResult,
+  ] = await Promise.all([
     expectsSchedule
       ? fetchOptional<{ schedule?: RecordValue }>(
           `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/schedule`,
@@ -144,6 +172,12 @@ async function fleetItem(
     expectsEvidence
       ? fetchOptional<DecisionWindow>(
           `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/decisions?limit=10`,
+          headers,
+        )
+      : Promise.resolve({ available: true as const, payload: undefined }),
+    expectsOperationalData && accountID
+      ? fetchOptional<ReconciliationEnvelope>(
+          `${base}/api/accounts/${encodeURIComponent(accountID)}/reconciliations/latest`,
           headers,
         )
       : Promise.resolve({ available: true as const, payload: undefined }),
@@ -171,13 +205,38 @@ async function fleetItem(
     latestAIDecision?.structured_rationale ??
       latestAIDecision?.StructuredRationale,
   );
+  const reconciliation = reconciliationResult.payload?.reconciliation;
+  const reconciliationObservedAt = text(
+    reconciliation,
+    "observed_at",
+    "ObservedAt",
+  );
+  const reconciliationAvailable =
+    expectsOperationalData &&
+    reconciliationResult.available &&
+    reconciliationResult.payload?.live_execution_available === false &&
+    Boolean(reconciliation);
 
   return {
     id,
+    financialAccountID: accountID,
     title: strategyTitle(mandate),
     accountName:
       text(account, "display_name", "DisplayName") ?? "Connected account",
     provider: text(account, "provider", "Provider") ?? "connected_account",
+    accountStatus: text(account, "status", "Status"),
+    financialConnectionAvailable: expectsOperationalData
+      ? financialConnectionContextAvailable && Boolean(financialConnection)
+      : undefined,
+    financialConnectionContextAvailable: expectsOperationalData
+      ? financialConnectionContextAvailable
+      : undefined,
+    financialConnectionStatus: text(financialConnection, "status", "Status"),
+    financialAuthorizationExpiresAt: text(
+      financialConnection,
+      "authorization_expires_at",
+      "AuthorizationExpiresAt",
+    ),
     automationType,
     mandateStatus: text(mandate, "status", "Status") ?? "UNKNOWN",
     autonomyLevel:
@@ -280,6 +339,52 @@ async function fleetItem(
       "output_usage",
       "OutputUsage",
     ),
+    reconciliationAvailable: expectsOperationalData
+      ? reconciliationAvailable
+      : undefined,
+    reconciliationComparisonStatus: text(
+      reconciliation,
+      "comparison_status",
+      "ComparisonStatus",
+    ),
+    reconciliationBalancesStatus: text(
+      reconciliation,
+      "balances_status",
+      "BalancesStatus",
+    ),
+    reconciliationPositionsStatus: text(
+      reconciliation,
+      "positions_status",
+      "PositionsStatus",
+    ),
+    reconciliationAutonomySignal: text(
+      reconciliation,
+      "autonomy_signal",
+      "AutonomySignal",
+    ),
+    reconciliationAutonomyEnforcementActive: flag(
+      reconciliation,
+      "autonomy_enforcement_active",
+      "AutonomyEnforcementActive",
+    ),
+    reconciliationBlocksNewActions: flag(
+      reconciliation,
+      "blocks_new_actions",
+      "BlocksNewActions",
+    ),
+    reconciliationBlockingChangeCount: number(
+      reconciliation,
+      "blocking_change_count",
+      "BlockingChangeCount",
+    ),
+    reconciliationObservedAt,
+    reconciliationFresh: expectsOperationalData
+      ? reconciliationAvailable &&
+        reconciliationFreshWithinTwentyFourHours(
+          reconciliationObservedAt,
+          observedAt,
+        )
+      : undefined,
     accountContextAvailable: accountContextAvailable && Boolean(account),
     instanceContextAvailable,
   };
@@ -289,13 +394,22 @@ export default async function Automations() {
   const jar = await cookies();
   const headers = { cookie: jar.toString() };
   const base = process.env.API_BASE_URL ?? "http://localhost:8080";
-  const [mandatesResult, accountsResult, instancesResult] = await Promise.all([
+  const [
+    mandatesResult,
+    accountsResult,
+    financialConnectionsResult,
+    instancesResult,
+  ] = await Promise.all([
     fetchOptional<{ automations?: RecordValue[] | null }>(
       `${base}/api/automations`,
       headers,
     ),
     fetchOptional<{ accounts?: RecordValue[] | null }>(
       `${base}/api/accounts`,
+      headers,
+    ),
+    fetchOptional<{ connections?: RecordValue[] | null }>(
+      `${base}/api/connections/financial`,
       headers,
     ),
     fetchOptional<{ strategy_instances?: RecordValue[] | null }>(
@@ -306,23 +420,31 @@ export default async function Automations() {
   if (
     mandatesResult.status === 401 ||
     accountsResult.status === 401 ||
+    financialConnectionsResult.status === 401 ||
     instancesResult.status === 401
   )
     redirect("/login");
 
   const mandates = asList(mandatesResult.payload?.automations);
   const accounts = asList(accountsResult.payload?.accounts);
+  const financialConnections = asList(
+    financialConnectionsResult.payload?.connections,
+  );
   const instances = asList(instancesResult.payload?.strategy_instances);
+  const observedAt = new Date();
   const items = mandatesResult.available
     ? await Promise.all(
         mandates.map((mandate) =>
           fleetItem(
             mandate,
             accounts,
+            financialConnections,
             instances,
             base,
             headers,
+            observedAt,
             accountsResult.available,
+            financialConnectionsResult.available,
             instancesResult.available,
           ),
         ),
@@ -334,6 +456,9 @@ export default async function Automations() {
       : "",
     !instancesResult.available
       ? "Current engine state could not be refreshed."
+      : "",
+    !financialConnectionsResult.available
+      ? "Financial connection state could not be refreshed."
       : "",
   ].filter(Boolean);
 
