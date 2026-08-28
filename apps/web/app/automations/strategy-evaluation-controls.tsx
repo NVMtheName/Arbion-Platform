@@ -160,7 +160,11 @@ export function StrategyEvaluationControls(props: Props) {
 
   const parameters = props.strategyParameters;
   return (
-    <section className="mandate-controls" aria-label="Manual evaluation">
+    <section
+      id="manual-evaluation"
+      className="mandate-controls"
+      aria-label="Manual evaluation"
+    >
       <p className="eyebrow">READ-ONLY MARKET EVALUATION</p>
       <h2>Configure and evaluate manually</h2>
       <p>

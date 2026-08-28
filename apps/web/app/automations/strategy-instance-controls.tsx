@@ -83,7 +83,11 @@ export function StrategyInstanceControls(props: Props) {
   }
 
   return (
-    <section className="mandate-controls" aria-label="Simulation lifecycle">
+    <section
+      id="strategy-instance-controls"
+      className="mandate-controls"
+      aria-label="Simulation lifecycle"
+    >
       <p className="eyebrow">NON-LIVE CAPITAL CLAIM</p>
       <h2>
         {props.status === "ACTIVE"
