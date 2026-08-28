@@ -379,14 +379,6 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || aiInstance.StrategyIdentifier != "ai_shadow" || aiInstance.ExecutionMode != Shadow {
 		t.Fatalf("AI shadow instance was not initialized safely: %#v %v", aiInstance, err)
 	}
-	aiClaimAt := time.Now().UTC().Add(62 * time.Minute)
-	aiScheduled, err := store.ClaimDueSchedule(ctx, aiClaimAt, scheduleLeaseDuration)
-	if err != nil || aiScheduled == nil || aiScheduled.StrategyInstanceID != aiInstance.ID || !aiScheduled.NotifyReconciliationReview || aiScheduled.LastReconciliationNotificationID != nil {
-		t.Fatalf("AI drift-review preference did not cross the durable claim boundary: %#v %v", aiScheduled, err)
-	}
-	if err = store.CompleteSchedule(ctx, *aiScheduled, ScheduleCompletion{CompletedAt: aiClaimAt, NextRunAt: aiClaimAt.Add(time.Hour), Status: "SUCCEEDED"}); err != nil {
-		t.Fatal(err)
-	}
 	aiEvaluationTime := time.Date(2026, 8, 25, 18, 0, 0, 0, time.UTC)
 	if _, err = pool.Exec(ctx, `INSERT INTO portfolio_reconciliations(user_id,financial_account_id,provider_name,comparison_status,balances_status,positions_status,performance_status,realized_performance_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,observed_position_count,performance_position_count,change_count,changes,evidence_hash,observed_at) VALUES($1,$2,'schwab','MATCHED','READY','READY','UNAVAILABLE','UNAVAILABLE','CLEAR',true,false,0,0,0,'[]',decode(repeat('ab',32),'hex'),$3)`, userID, aiAccountID, aiEvaluationTime.Add(-time.Minute)); err != nil {
 		t.Fatal(err)
@@ -520,6 +512,14 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	due, err = store.DueShadowOutcomes(ctx, aiInstance, aiEvaluationTime.Add(25*time.Hour))
 	if err != nil || len(due) != 1 || due[0].Horizon != ShadowOutcomeTwentyFourHours {
 		t.Fatalf("24-hour AI shadow mark was not independently due: %#v %v", due, err)
+	}
+	aiClaimAt := time.Now().UTC().Add(62 * time.Minute)
+	aiScheduled, err := store.ClaimDueSchedule(ctx, aiClaimAt, scheduleLeaseDuration)
+	if err != nil || aiScheduled == nil || aiScheduled.StrategyInstanceID != aiInstance.ID || !aiScheduled.NotifyReconciliationReview || aiScheduled.LastReconciliationNotificationID != nil {
+		t.Fatalf("AI drift-review preference did not cross the durable claim boundary: %#v %v", aiScheduled, err)
+	}
+	if err = store.CompleteSchedule(ctx, *aiScheduled, ScheduleCompletion{CompletedAt: aiClaimAt, NextRunAt: aiClaimAt.Add(time.Hour), Status: "SUCCEEDED"}); err != nil {
+		t.Fatal(err)
 	}
 	var driftID string
 	if err = pool.QueryRow(ctx, `INSERT INTO portfolio_reconciliations(user_id,financial_account_id,provider_name,comparison_status,balances_status,positions_status,performance_status,realized_performance_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,observed_position_count,performance_position_count,change_count,blocking_change_count,changes,evidence_hash,observed_at) VALUES($1,$2,'schwab','DRIFT_DETECTED','READY','READY','UNAVAILABLE','UNAVAILABLE','REVIEW_RECOMMENDED',true,true,0,0,1,1,'[{"symbol":"SPY","instrument_type":"EQUITY","direction":"long","change_type":"POSITION_APPEARED","control_impact":"TRADABLE_INVENTORY","current_quantity":"1"}]',decode(repeat('cd',32),'hex'),$3) RETURNING id::text`, userID, aiAccountID, markTime).Scan(&driftID); err != nil {
