@@ -3,6 +3,7 @@ package aiconnection
 import (
 	"context"
 	"errors"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -91,6 +92,50 @@ func (s *PostgresStore) Delete(ctx context.Context, user, id string) error {
 }
 func (s *PostgresStore) HasDependencies(ctx context.Context, user, id string) (bool, error) {
 	var found bool
-	e := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM automation_configs a JOIN provider_connections p ON p.id=a.ai_provider_connection_id WHERE p.id=$1 AND p.user_id=$2 AND p.provider_category='ai')`, id, user).Scan(&found)
+	e := s.db.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1
+		FROM provider_connections p
+		WHERE p.id=$1 AND p.user_id=$2 AND p.provider_category='ai' AND (
+			EXISTS(
+				SELECT 1 FROM neural_engine_preferences n
+				WHERE n.user_id=p.user_id AND n.provider_connection_id=p.id
+			)
+			OR EXISTS(
+				SELECT 1 FROM automation_mandates m
+				WHERE m.user_id=p.user_id AND m.ai_provider_connection_id=p.id
+			)
+			OR EXISTS(
+				SELECT 1
+				FROM automation_mandate_versions v
+				JOIN automation_mandates m ON m.id=v.mandate_id
+				WHERE m.user_id=p.user_id AND v.snapshot->>'ai_provider_connection_id'=p.id::text
+			)
+		)
+	)`, id, user).Scan(&found)
+	return found, e
+}
+
+func (s *PostgresStore) ConnectionInUse(ctx context.Context, user, id string) (bool, error) {
+	var found bool
+	e := s.db.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1
+		FROM provider_connections p
+		WHERE p.id=$1 AND p.user_id=$2 AND p.provider_category='ai' AND (
+			EXISTS(
+				SELECT 1 FROM automation_mandates m
+				WHERE m.user_id=p.user_id AND m.ai_provider_connection_id=p.id
+				AND m.status IN ('READY','PAUSED')
+			)
+			OR EXISTS(
+				SELECT 1
+				FROM strategy_instances i
+				JOIN automation_mandates m ON m.id=i.automation_mandate_id AND m.user_id=i.user_id
+				JOIN automation_mandate_versions v
+					ON v.mandate_id=i.automation_mandate_id AND v.version_number=i.mandate_version
+				WHERE i.user_id=p.user_id AND i.status IN ('ACTIVE','PAUSED')
+				AND v.snapshot->>'ai_provider_connection_id'=p.id::text
+			)
+		)
+	)`, id, user).Scan(&found)
 	return found, e
 }

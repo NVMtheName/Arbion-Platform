@@ -58,6 +58,7 @@ type Store interface {
 	SetPreference(context.Context, string, string, string) (Preference, error)
 	Delete(context.Context, string, string) error
 	HasDependencies(context.Context, string, string) (bool, error)
+	ConnectionInUse(context.Context, string, string) (bool, error)
 }
 type Auditor interface {
 	Record(context.Context, *string, string, map[string]any) error
@@ -444,6 +445,13 @@ func (s *Service) Replace(ctx context.Context, p authorization.Principal, id str
 	if !validSecret(secret) {
 		return Connection{}, ErrInvalid
 	}
+	inUse, err := s.store.ConnectionInUse(ctx, p.UserID, id)
+	if err != nil {
+		return Connection{}, err
+	}
+	if inUse {
+		return Connection{}, ErrConflict
+	}
 	if err = s.vault.Replace(ctx, credential.Locator{ConnectionID: id, UserID: p.UserID, Class: credential.AI}, secret); err != nil {
 		return Connection{}, err
 	}
@@ -478,6 +486,15 @@ func (s *Service) SetEnabled(ctx context.Context, p authorization.Principal, id 
 	previous := c.Status
 	next := "disabled"
 	action := "ai_connection.disabled"
+	if !enabled {
+		inUse, checkErr := s.store.ConnectionInUse(ctx, p.UserID, id)
+		if checkErr != nil {
+			return Connection{}, checkErr
+		}
+		if inUse {
+			return Connection{}, ErrConflict
+		}
+	}
 	if enabled {
 		next = "pending"
 		action = "ai_connection.enabled"

@@ -42,7 +42,49 @@ describe("ConnectionsManager", () => {
       "password",
     );
     expect(
+      screen.getByRole("button", { name: "Save API key" }),
+    ).toBeInTheDocument();
+    expect(
       screen.getByRole("heading", { name: "Choose your default model" }),
+    ).toBeInTheDocument();
+  });
+
+  it("explains fail-closed credential replacement before accepting a new key", () => {
+    render(
+      <ConnectionsManager
+        entitled
+        initialConnections={[
+          {
+            id: "connection-1",
+            provider: "openai",
+            provider_label: "OpenAI",
+            display_name: "My OpenAI",
+            status: "active",
+            enabled: true,
+            credential_hint: "••••1234",
+          },
+        ]}
+        initialPreference={null}
+        providers={[
+          {
+            id: "openai",
+            label: "OpenAI",
+            credential_types: ["api_key"],
+            capabilities: ["text"],
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Manage connection"));
+    fireEvent.click(screen.getByRole("button", { name: "Replace key" }));
+    expect(
+      screen.getByText(/current key stays active and unchanged/i),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: "Store replacement for verification",
+      }),
     ).toBeInTheDocument();
   });
 
