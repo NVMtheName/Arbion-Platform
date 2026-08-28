@@ -236,7 +236,8 @@ const presentations: Record<string, Presentation> = {
   "automation_mandate.paper_options_simulation_attestation_changed": {
     category: "Autonomy",
     title: "Options simulation attestation changed",
-    detail: "A new immutable mandate version changed the PAPER-only attestation.",
+    detail:
+      "A new immutable mandate version changed the PAPER-only attestation.",
     tone: "authority",
   },
   "strategy_instance.paused": {
