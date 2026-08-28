@@ -9994,6 +9994,58 @@ h1 {
   font-size: 0.75rem;
   font-weight: 700;
 }
+.ai-engine-evidence {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding: 13px 12px 12px;
+  border: 1px solid rgba(25, 201, 214, 0.14);
+  border-radius: 9px;
+  background: rgba(25, 201, 214, 0.035);
+}
+.ai-engine-evidence-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ai-engine-evidence-heading span {
+  color: #71887d;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ai-engine-evidence-heading strong {
+  color: #78e3ba;
+  font-size: 0.68rem;
+  font-weight: 760;
+}
+.ai-engine-evidence progress {
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(139, 181, 163, 0.13);
+  accent-color: var(--brand-mint);
+}
+.ai-engine-evidence progress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: rgba(139, 181, 163, 0.13);
+}
+.ai-engine-evidence progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brand-cyan), var(--brand-mint));
+}
+.ai-engine-evidence progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brand-cyan), var(--brand-mint));
+}
+.ai-engine-evidence small {
+  color: #7e9489;
+  font-size: 0.64rem;
+  line-height: 1.45;
+}
 .ai-engine-grid footer {
   display: flex;
   align-items: center;
