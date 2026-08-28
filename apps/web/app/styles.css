@@ -3915,6 +3915,69 @@ button:disabled {
   font-size: 0.68rem;
   letter-spacing: 0.06em;
 }
+.ai-shadow-decision-history-controls,
+.ai-shadow-decision-history-unavailable {
+  margin: -10px 0 26px;
+  padding: 16px 18px;
+  border: 1px solid rgba(91, 219, 190, 0.22);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 100% 0%, rgb(38 145 117 / 12%), transparent 42%),
+    rgb(5 18 16 / 88%);
+}
+.ai-shadow-decision-history-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.ai-shadow-decision-history-controls strong,
+.ai-shadow-decision-history-unavailable h2 {
+  color: #eafff7;
+}
+.ai-shadow-decision-history-controls p,
+.ai-shadow-decision-history-unavailable p:last-child {
+  max-width: 760px;
+  margin: 5px 0 0;
+  color: #8fb2a1;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+.ai-shadow-decision-history-controls button,
+.ai-shadow-decision-history-controls > span {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border: 1px solid rgba(91, 219, 190, 0.3);
+  border-radius: 9px;
+  color: #bde8d4;
+  background: rgba(32, 105, 88, 0.18);
+  font: inherit;
+  font-size: 0.72rem;
+}
+.ai-shadow-decision-history-controls button {
+  cursor: pointer;
+}
+.ai-shadow-decision-history-controls button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+.ai-shadow-decision-history-controls > span {
+  border-color: rgba(143, 178, 161, 0.18);
+  color: #8fb2a1;
+  background: rgba(8, 29, 24, 0.4);
+}
+.ai-shadow-decision-history-unavailable {
+  margin-top: 26px;
+}
+.ai-shadow-decision-history-unavailable .eyebrow,
+.ai-shadow-decision-history-unavailable h2 {
+  margin-top: 0;
+}
+.ai-shadow-decision-history-message {
+  margin: -14px 0 26px;
+  color: #e7b4a8;
+  font-size: 0.76rem;
+}
 .journal-outcomes h5 {
   margin: 0 0 10px;
   color: #d8ccff;
@@ -6933,6 +6996,15 @@ button:disabled {
   }
   .decision-replay-lab {
     padding: 20px;
+  }
+  .ai-shadow-decision-history-controls {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .ai-shadow-decision-history-controls button,
+  .ai-shadow-decision-history-controls > span {
+    width: 100%;
+    text-align: center;
   }
   .strategy-simulation-workbench {
     padding: 20px;

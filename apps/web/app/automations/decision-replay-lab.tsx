@@ -197,9 +197,9 @@ export function DecisionReplayLab({
   decisions: RawRecord[];
   outcomes?: RawRecord[];
 }) {
-  const entries = decisions
-    .filter((entry) => read(entry, "source", "Source") === "AI")
-    .slice(0, 24);
+  const entries = decisions.filter(
+    (entry) => read(entry, "source", "Source") === "AI",
+  );
   const [filter, setFilter] = useState<ReplayFilter>("ALL");
   const [selectedID, setSelectedID] = useState<string | undefined>(
     entries[0] ? String(read(entries[0], "id", "ID") ?? "") : undefined,

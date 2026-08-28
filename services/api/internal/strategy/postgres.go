@@ -258,34 +258,60 @@ func (s *PostgresStore) History(c context.Context, u, id string) ([]Transition, 
 	}
 	return out, rows.Err()
 }
-func (s *PostgresStore) Decisions(c context.Context, u, id string) ([]DecisionJournalEntry, error) {
-	rows, e := s.db.Query(c, `SELECT d.id::text,d.strategy_instance_id::text,d.strategy_state,d.source,d.decision_type,d.structured_rationale,d.proposed_action_id,d.risk_evaluation_id::text,d.execution_record_id::text,d.resulting_state,d.created_at,r.decision,r.approval_required,r.reason_codes,r.checks,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.price::text,x.notional::text
+
+const strategyDecisionColumns = `d.id::text,d.strategy_instance_id::text,d.strategy_state,d.source,d.decision_type,d.structured_rationale,d.proposed_action_id,d.risk_evaluation_id::text,d.execution_record_id::text,d.resulting_state,d.created_at,r.decision,r.approval_required,r.reason_codes,r.checks,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.price::text,x.notional::text`
+
+func scanStrategyDecision(row pgx.Row) (entry DecisionJournalEntry, err error) {
+	err = row.Scan(
+		&entry.ID, &entry.StrategyInstanceID, &entry.StrategyState, &entry.Source, &entry.DecisionType,
+		&entry.StructuredRationale, &entry.ProposedActionID, &entry.RiskEvaluationID,
+		&entry.ExecutionRecordID, &entry.ResultingState, &entry.CreatedAt, &entry.RiskDecision,
+		&entry.ApprovalRequired, &entry.RiskReasonCodes, &entry.RiskChecks,
+		&entry.ExecutionStatus, &entry.Symbol, &entry.Instrument, &entry.Side, &entry.Quantity,
+		&entry.Price, &entry.Notional,
+	)
+	return entry, err
+}
+
+func collectStrategyDecisions(rows pgx.Rows) ([]DecisionJournalEntry, error) {
+	defer rows.Close()
+	entries := []DecisionJournalEntry{}
+	for rows.Next() {
+		entry, err := scanStrategyDecision(rows)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
+func (s *PostgresStore) StrategyDecisionEntries(c context.Context, userID, instanceID string, limit int, after *StrategyDecisionCursor) ([]DecisionJournalEntry, error) {
+	query := `SELECT ` + strategyDecisionColumns + `
 		FROM decision_journal_entries d
 		JOIN strategy_instances i ON i.id=d.strategy_instance_id AND i.user_id=d.user_id
 		LEFT JOIN risk_evaluations r ON r.id=d.risk_evaluation_id AND r.user_id=d.user_id
 		LEFT JOIN nonlive_execution_records x ON x.id=d.execution_record_id AND x.user_id=d.user_id
 		WHERE i.id=$1 AND i.user_id=$2
-		ORDER BY d.created_at DESC,d.id DESC`, id, u)
-	if e != nil {
-		return nil, e
+		ORDER BY d.created_at DESC,d.id DESC
+		LIMIT $3`
+	args := []any{instanceID, userID, limit}
+	if after != nil {
+		query = `SELECT ` + strategyDecisionColumns + `
+			FROM decision_journal_entries d
+			JOIN strategy_instances i ON i.id=d.strategy_instance_id AND i.user_id=d.user_id
+			LEFT JOIN risk_evaluations r ON r.id=d.risk_evaluation_id AND r.user_id=d.user_id
+			LEFT JOIN nonlive_execution_records x ON x.id=d.execution_record_id AND x.user_id=d.user_id
+			WHERE i.id=$1 AND i.user_id=$2 AND (d.created_at,d.id) < ($3,$4::uuid)
+			ORDER BY d.created_at DESC,d.id DESC
+			LIMIT $5`
+		args = []any{instanceID, userID, after.CreatedAt, after.ID, limit}
 	}
-	defer rows.Close()
-	out := []DecisionJournalEntry{}
-	for rows.Next() {
-		var x DecisionJournalEntry
-		if e = rows.Scan(
-			&x.ID, &x.StrategyInstanceID, &x.StrategyState, &x.Source, &x.DecisionType,
-			&x.StructuredRationale, &x.ProposedActionID, &x.RiskEvaluationID,
-			&x.ExecutionRecordID, &x.ResultingState, &x.CreatedAt, &x.RiskDecision,
-			&x.ApprovalRequired, &x.RiskReasonCodes, &x.RiskChecks,
-			&x.ExecutionStatus, &x.Symbol, &x.Instrument, &x.Side, &x.Quantity,
-			&x.Price, &x.Notional,
-		); e != nil {
-			return nil, e
-		}
-		out = append(out, x)
+	rows, err := s.db.Query(c, query, args...)
+	if err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	return collectStrategyDecisions(rows)
 }
 
 const journalColumns = `d.id::text,d.created_at,d.strategy_instance_id::text,d.financial_account_id::text,a.display_name,d.mandate_id::text,d.mandate_version,i.strategy_identifier,i.execution_mode,d.strategy_state,d.resulting_state,d.source,d.decision_type,d.structured_rationale,r.decision,r.approval_required,r.reason_codes,r.checks,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.price::text,x.notional::text`

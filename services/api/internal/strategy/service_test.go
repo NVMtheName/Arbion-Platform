@@ -36,6 +36,13 @@ type journalPersistenceFake struct {
 	reviewHistoryError error
 	reviewLimit        int
 	reviewAfter        *ShadowEvidenceReviewCursor
+	pageDecisions      []DecisionJournalEntry
+	pageOutcomes       []ShadowOutcome
+	pageError          error
+	pageOutcomeError   error
+	pageLimit          int
+	pageAfter          *StrategyDecisionCursor
+	pageExecutionIDs   []string
 	createdReview      ShadowEvidenceReview
 	createReviewError  error
 	createReviewCalls  int
@@ -99,8 +106,24 @@ func (f *journalPersistenceFake) Get(_ context.Context, userID, instanceID strin
 func (*journalPersistenceFake) History(context.Context, string, string) ([]Transition, error) {
 	return nil, nil
 }
-func (*journalPersistenceFake) Decisions(context.Context, string, string) ([]DecisionJournalEntry, error) {
-	return nil, nil
+func (f *journalPersistenceFake) StrategyDecisionEntries(_ context.Context, userID, instanceID string, limit int, after *StrategyDecisionCursor) ([]DecisionJournalEntry, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	f.pageLimit = limit
+	f.pageAfter = after
+	if f.pageError != nil {
+		return nil, f.pageError
+	}
+	if len(f.pageDecisions) < limit {
+		limit = len(f.pageDecisions)
+	}
+	return f.pageDecisions[:limit], nil
+}
+func (f *journalPersistenceFake) ShadowOutcomesForExecutions(_ context.Context, userID, instanceID string, executionIDs []string) ([]ShadowOutcome, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	f.pageExecutionIDs = append([]string(nil), executionIDs...)
+	return f.pageOutcomes, f.pageOutcomeError
 }
 func (*journalPersistenceFake) Executions(context.Context, string, string) ([]ExecutionRecord, error) {
 	return nil, nil
@@ -359,6 +382,72 @@ func TestJournalRequiresAutomationEntitlement(t *testing.T) {
 	_, err := service.Journal(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, 25, nil)
 	if !errors.Is(err, ErrForbidden) || store.requestedUser != "" {
 		t.Fatalf("unentitled journal request was not rejected: %v", err)
+	}
+}
+
+func TestStrategyDecisionPageIsOwnerScopedAndReturnsOnlyMatchedEvidence(t *testing.T) {
+	now := time.Date(2026, 8, 28, 6, 0, 0, 0, time.UTC)
+	firstExecution := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	secondExecution := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	after := &StrategyDecisionCursor{CreatedAt: now.Add(time.Minute), ID: "99999999-9999-4999-8999-999999999999"}
+	store := &journalPersistenceFake{
+		instance: Instance{ID: "instance-1", UserID: "owner"},
+		pageDecisions: []DecisionJournalEntry{
+			{ID: "11111111-1111-4111-8111-111111111111", StrategyInstanceID: "instance-1", ExecutionRecordID: &firstExecution, CreatedAt: now},
+			{ID: "22222222-2222-4222-8222-222222222222", StrategyInstanceID: "instance-1", ExecutionRecordID: &secondExecution, CreatedAt: now.Add(-time.Hour)},
+			{ID: "33333333-3333-4333-8333-333333333333", StrategyInstanceID: "instance-1", CreatedAt: now.Add(-2 * time.Hour)},
+		},
+		pageOutcomes: []ShadowOutcome{
+			{ID: "44444444-4444-4444-8444-444444444444", ExecutionRecordID: firstExecution},
+			{ID: "55555555-5555-4555-8555-555555555555", ExecutionRecordID: secondExecution},
+		},
+	}
+	service := NewInstanceService(store, nil)
+	page, err := service.DecisionPage(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", 2, after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.requestedUser != "owner" || store.requestedID != "instance-1" || store.pageLimit != 3 || store.pageAfter != after {
+		t.Fatalf("decision-page owner boundary or lookahead changed: %#v", store)
+	}
+	if len(page.Decisions) != 2 || len(page.Outcomes) != 2 || page.NextCursor == nil || page.NextCursor.ID != page.Decisions[1].ID || !page.NextCursor.CreatedAt.Equal(page.Decisions[1].CreatedAt) {
+		t.Fatalf("unexpected decision page: %#v", page)
+	}
+	if len(store.pageExecutionIDs) != 2 || store.pageExecutionIDs[0] != firstExecution || store.pageExecutionIDs[1] != secondExecution {
+		t.Fatalf("outcomes were not restricted to the selected decision page: %#v", store.pageExecutionIDs)
+	}
+}
+
+func TestStrategyDecisionPageFailsClosedBeforeOrAcrossItsOwnerBoundary(t *testing.T) {
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+	store := &journalPersistenceFake{instance: Instance{ID: "instance-1", UserID: "owner"}}
+	service := NewInstanceService(store, nil)
+	if _, err := service.DecisionPage(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, "instance-1", 24, nil); !errors.Is(err, ErrForbidden) || store.requestedID != "" {
+		t.Fatalf("unentitled decision history reached persistence: id=%q err=%v", store.requestedID, err)
+	}
+	if _, err := service.DecisionPage(context.Background(), principal, "instance-1", 0, nil); !errors.Is(err, ErrInvalid) || store.requestedID != "" {
+		t.Fatalf("invalid decision limit reached persistence: id=%q err=%v", store.requestedID, err)
+	}
+	if _, err := service.DecisionPage(context.Background(), principal, "instance-1", 24, &StrategyDecisionCursor{}); !errors.Is(err, ErrInvalid) || store.requestedID != "" {
+		t.Fatalf("invalid decision cursor reached persistence: id=%q err=%v", store.requestedID, err)
+	}
+	store.instance.ID = "different-instance"
+	if _, err := service.DecisionPage(context.Background(), principal, "instance-1", 24, nil); !errors.Is(err, ErrNotFound) || store.pageLimit != 0 {
+		t.Fatalf("foreign decision history crossed its owner boundary: limit=%d err=%v", store.pageLimit, err)
+	}
+}
+
+func TestStrategyDecisionPageRejectsOutcomeOutsideSelectedExecutions(t *testing.T) {
+	now := time.Date(2026, 8, 28, 6, 0, 0, 0, time.UTC)
+	executionID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	store := &journalPersistenceFake{
+		instance:      Instance{ID: "instance-1", UserID: "owner"},
+		pageDecisions: []DecisionJournalEntry{{ID: "11111111-1111-4111-8111-111111111111", StrategyInstanceID: "instance-1", ExecutionRecordID: &executionID, CreatedAt: now}},
+		pageOutcomes:  []ShadowOutcome{{ID: "22222222-2222-4222-8222-222222222222", ExecutionRecordID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}},
+	}
+	_, err := NewInstanceService(store, nil).DecisionPage(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", 24, nil)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unmatched outcome evidence was accepted: %v", err)
 	}
 }
 

@@ -29,7 +29,6 @@ import {
   type AIShadowParameters,
 } from "../ai-shadow-evaluation-controls";
 import { AIShadowParameterControls } from "../ai-shadow-parameter-controls";
-import { AIDecisionJournal } from "../ai-decision-journal";
 import { AIShadowScorecard } from "../ai-shadow-scorecard";
 import { MandateIdentitySummary } from "../mandate-identity-summary";
 import { AutonomyGuardrailSummary } from "../autonomy-guardrail-summary";
@@ -40,7 +39,7 @@ import {
   ShadowEvidenceReviewControls,
   type ShadowEvidenceReviewRecord,
 } from "../shadow-evidence-review-controls";
-import { DecisionReplayLab } from "../decision-replay-lab";
+import { AIShadowDecisionWorkspace } from "../ai-shadow-decision-workspace";
 import { StrategySimulationWorkbench } from "../strategy-simulation-workbench";
 import {
   ScheduleRunHistory,
@@ -186,7 +185,6 @@ export default async function MandateReview({
     history,
     decisions,
     executions,
-    outcomes,
     scorecardResponse,
     shadowEvidenceReviewsResponse,
     scheduleResponse,
@@ -196,9 +194,8 @@ export default async function MandateReview({
     ? await Promise.all(
         [
           "history",
-          "decisions",
+          "decisions?limit=24",
           "executions",
-          "shadow-outcomes",
           "shadow-scorecard",
           "shadow-evidence-reviews?limit=8",
           "schedule",
@@ -214,7 +211,7 @@ export default async function MandateReview({
             : {};
         }),
       )
-    : [{}, {}, {}, {}, {}, {}, {}, {}, {}];
+    : [{}, {}, {}, {}, {}, {}, {}, {}];
   const paperPortfolio = portfolioResponse.paper_portfolio as
     | PaperPortfolio
     | undefined;
@@ -624,28 +621,22 @@ export default async function MandateReview({
                     : []
                 }
               />
-              <DecisionReplayLab
-                decisions={
+              <AIShadowDecisionWorkspace
+                strategyInstanceId={instanceID}
+                initialDecisions={
                   Array.isArray(decisions.decisions)
                     ? (decisions.decisions as Record<string, unknown>[])
                     : []
                 }
-                outcomes={
-                  Array.isArray(outcomes.outcomes)
-                    ? (outcomes.outcomes as Record<string, unknown>[])
+                initialOutcomes={
+                  Array.isArray(decisions.outcomes)
+                    ? (decisions.outcomes as Record<string, unknown>[])
                     : []
                 }
-              />
-              <AIDecisionJournal
-                decisions={
-                  Array.isArray(decisions.decisions)
-                    ? (decisions.decisions as Record<string, unknown>[])
-                    : []
-                }
-                outcomes={
-                  Array.isArray(outcomes.outcomes)
-                    ? (outcomes.outcomes as Record<string, unknown>[])
-                    : []
+                initialCursor={String(decisions.next_cursor ?? "")}
+                historyAvailable={
+                  decisions.decision_history_semantics ===
+                  "IMMUTABLE_OWNER_STRATEGY_DECISION_HISTORY"
                 }
               />
             </>
@@ -692,7 +683,7 @@ export default async function MandateReview({
           <h2>Durable non-live activity</h2>
           <p>
             {count(history.transitions)} state transition(s) ·{" "}
-            {count(decisions.decisions)} decision(s) ·{" "}
+            {count(decisions.decisions)} loaded decision(s) ·{" "}
             {count(executions.executions)} execution record(s)
           </p>
           <p>

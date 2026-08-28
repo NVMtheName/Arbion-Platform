@@ -33,7 +33,6 @@ type Persistence interface {
 	List(context.Context, string) ([]Instance, error)
 	Get(context.Context, string, string) (Instance, error)
 	History(context.Context, string, string) ([]Transition, error)
-	Decisions(context.Context, string, string) ([]DecisionJournalEntry, error)
 	Executions(context.Context, string, string) ([]ExecutionRecord, error)
 	PaperPortfolio(context.Context, string, string) (PaperPortfolio, error)
 	Journal(context.Context, string, int, *JournalCursor) ([]JournalActivity, error)
@@ -76,6 +75,19 @@ type DecisionJournalEntry struct {
 	RiskReasonCodes, RiskChecks                                           json.RawMessage
 	ExecutionStatus, Symbol, Instrument, Side, Quantity, Price, Notional  *string
 	CreatedAt                                                             time.Time
+}
+type StrategyDecisionCursor struct {
+	CreatedAt time.Time
+	ID        string
+}
+type StrategyDecisionPage struct {
+	Decisions  []DecisionJournalEntry
+	Outcomes   []ShadowOutcome
+	NextCursor *StrategyDecisionCursor
+}
+type StrategyDecisionPageReader interface {
+	StrategyDecisionEntries(context.Context, string, string, int, *StrategyDecisionCursor) ([]DecisionJournalEntry, error)
+	ShadowOutcomesForExecutions(context.Context, string, string, []string) ([]ShadowOutcome, error)
 }
 type InstanceService struct {
 	store                Persistence
@@ -264,11 +276,60 @@ func (s *InstanceService) History(c context.Context, p authorization.Principal, 
 	}
 	return s.store.History(c, p.UserID, id)
 }
-func (s *InstanceService) Decisions(c context.Context, p authorization.Principal, id string) ([]DecisionJournalEntry, error) {
+func (s *InstanceService) DecisionPage(c context.Context, p authorization.Principal, id string, limit int, after *StrategyDecisionCursor) (StrategyDecisionPage, error) {
 	if !entitled(p) {
-		return nil, ErrForbidden
+		return StrategyDecisionPage{}, ErrForbidden
 	}
-	return s.store.Decisions(c, p.UserID, id)
+	if id == "" || limit < 1 || limit > 50 || (after != nil && (after.CreatedAt.IsZero() || after.ID == "")) {
+		return StrategyDecisionPage{}, ErrInvalid
+	}
+	instance, err := s.store.Get(c, p.UserID, id)
+	if err != nil || instance.ID != id {
+		return StrategyDecisionPage{}, ErrNotFound
+	}
+	reader, ok := s.store.(StrategyDecisionPageReader)
+	if !ok {
+		return StrategyDecisionPage{}, ErrNotFound
+	}
+	decisions, err := reader.StrategyDecisionEntries(c, p.UserID, id, limit+1, after)
+	if err != nil {
+		return StrategyDecisionPage{}, err
+	}
+	if len(decisions) > limit+1 {
+		return StrategyDecisionPage{}, ErrInvalid
+	}
+	page := StrategyDecisionPage{Decisions: decisions, Outcomes: []ShadowOutcome{}}
+	if len(decisions) > limit {
+		page.Decisions = decisions[:limit]
+		last := page.Decisions[len(page.Decisions)-1]
+		page.NextCursor = &StrategyDecisionCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	executionIDs := make([]string, 0, len(page.Decisions))
+	allowedExecutions := make(map[string]struct{}, len(page.Decisions))
+	for _, decision := range page.Decisions {
+		if decision.ID == "" || decision.StrategyInstanceID != id || decision.CreatedAt.IsZero() {
+			return StrategyDecisionPage{}, ErrInvalid
+		}
+		if decision.ExecutionRecordID != nil && *decision.ExecutionRecordID != "" {
+			if _, exists := allowedExecutions[*decision.ExecutionRecordID]; !exists {
+				allowedExecutions[*decision.ExecutionRecordID] = struct{}{}
+				executionIDs = append(executionIDs, *decision.ExecutionRecordID)
+			}
+		}
+	}
+	if len(executionIDs) == 0 {
+		return page, nil
+	}
+	page.Outcomes, err = reader.ShadowOutcomesForExecutions(c, p.UserID, id, executionIDs)
+	if err != nil {
+		return StrategyDecisionPage{}, err
+	}
+	for _, outcome := range page.Outcomes {
+		if _, allowed := allowedExecutions[outcome.ExecutionRecordID]; !allowed {
+			return StrategyDecisionPage{}, ErrInvalid
+		}
+	}
+	return page, nil
 }
 func (s *InstanceService) Executions(c context.Context, p authorization.Principal, id string) ([]ExecutionRecord, error) {
 	if !entitled(p) {
