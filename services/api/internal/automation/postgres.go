@@ -8,6 +8,7 @@ import (
 	"math/big"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -72,7 +73,12 @@ func (s *PostgresStore) GetBucket(c context.Context, u, id string) (CapitalBucke
 	return scanBucket(s.db.QueryRow(c, `SELECT `+bucketCols+` FROM capital_buckets WHERE id=$1 AND user_id=$2`, id, u))
 }
 func (s *PostgresStore) UpdateBucket(c context.Context, u, id string, x CreateBucketCommand) (CapitalBucket, error) {
-	return scanBucket(s.db.QueryRow(c, `UPDATE capital_buckets SET name=$3,allocation_type=$4,allocation_value=$5,currency=$6,is_reserve=$7,protected_amount=$8,allocation_limit=$9,updated_at=now() WHERE id=$1 AND user_id=$2 AND status='ACTIVE' RETURNING `+bucketCols, id, u, x.Name, x.AllocationType, x.AllocationValue, x.Currency, x.IsReserve, x.ProtectedAmount, x.AllocationLimit))
+	bucket, err := scanBucket(s.db.QueryRow(c, `UPDATE capital_buckets SET name=$3,allocation_type=$4,allocation_value=$5,currency=$6,is_reserve=$7,protected_amount=$8,allocation_limit=$9,updated_at=now() WHERE id=$1 AND user_id=$2 AND status='ACTIVE' RETURNING `+bucketCols, id, u, x.Name, x.AllocationType, x.AllocationValue, x.Currency, x.IsReserve, x.ProtectedAmount, x.AllocationLimit))
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.ConstraintName == "reserved_capital_bucket_policy_guard" {
+		return CapitalBucket{}, ErrConflict
+	}
+	return bucket, err
 }
 func (s *PostgresStore) DeleteBucket(c context.Context, u, id string) error {
 	tag, e := s.db.Exec(c, `UPDATE capital_buckets SET status='ARCHIVED',updated_at=now() WHERE id=$1 AND user_id=$2 AND status='ACTIVE' AND NOT EXISTS(SELECT 1 FROM automation_mandates m WHERE m.capital_bucket_id=$1 AND m.status<>'ARCHIVED')`, id, u)

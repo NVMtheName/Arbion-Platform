@@ -31,11 +31,17 @@ func scanInstance(r pgx.Row) (i Instance, e error) {
 
 func initializeError(err error) error {
 	var postgresError *pgconn.PgError
-	if !errors.As(err, &postgresError) || postgresError.Code != "23505" {
+	if !errors.As(err, &postgresError) {
 		return err
 	}
-	if postgresError.ConstraintName == "strategy_one_active_account_idx" || postgresError.ConstraintName == "strategy_one_active_bucket_idx" {
+	if postgresError.ConstraintName == "strategy_one_active_account_idx" || postgresError.ConstraintName == "strategy_one_active_bucket_idx" || postgresError.ConstraintName == "strategy_one_active_reservation_bucket_idx" || postgresError.ConstraintName == "strategy_capital_reservation_account_guard" {
 		return ErrAccountInUse
+	}
+	if postgresError.ConstraintName == "strategy_capital_reservation_resolved_guard" || postgresError.ConstraintName == "strategy_capital_reservation_instance_guard" || postgresError.ConstraintName == "strategy_capital_reservation_bucket_guard" || postgresError.ConstraintName == "strategy_capital_reservation_basis_guard" {
+		return ErrCapitalReservation
+	}
+	if postgresError.Code != "23505" {
+		return err
 	}
 	return ErrConflict
 }
@@ -50,6 +56,17 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 		return Instance{}, e
 	}
 	defer tx.Rollback(c)
+	var bucket automation.CapitalBucket
+	if e = tx.QueryRow(c, `SELECT id::text,user_id::text,financial_account_id::text,name,allocation_type,allocation_value::text,currency,is_reserve,protected_amount::text,allocation_limit::text,status,created_at,updated_at FROM capital_buckets WHERE id=$1 AND user_id=$2 AND financial_account_id=$3 FOR UPDATE`, m.CapitalBucketID, u, m.FinancialAccountID).Scan(
+		&bucket.ID, &bucket.UserID, &bucket.FinancialAccountID, &bucket.Name, &bucket.AllocationType, &bucket.AllocationValue,
+		&bucket.Currency, &bucket.IsReserve, &bucket.ProtectedAmount, &bucket.AllocationLimit, &bucket.Status, &bucket.CreatedAt, &bucket.UpdatedAt,
+	); e != nil {
+		return Instance{}, e
+	}
+	claim, e := reservationClaim(bucket, ExecutionMode(m.ExecutionMode), cash)
+	if e != nil {
+		return Instance{}, e
+	}
 	identifier := "ai_shadow"
 	if m.StrategyIdentifier != nil {
 		identifier = *m.StrategyIdentifier
@@ -63,7 +80,11 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 			return i, e
 		}
 	}
-	meta, _ := json.Marshal(map[string]any{"mandate_version": m.CurrentVersion, "definition_version": 1})
+	var reservationID string
+	if e = tx.QueryRow(c, `INSERT INTO strategy_capital_reservations(user_id,financial_account_id,capital_bucket_id,strategy_instance_id,execution_mode,reservation_amount,currency,reservation_basis,account_allocation_limit,reserved_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id::text`, u, m.FinancialAccountID, m.CapitalBucketID, i.ID, m.ExecutionMode, claim.Amount, claim.Currency, claim.Basis, claim.AccountAllocationLimit, i.StartedAt).Scan(&reservationID); e != nil {
+		return i, initializeError(e)
+	}
+	meta, _ := json.Marshal(map[string]any{"mandate_version": m.CurrentVersion, "definition_version": 1, "capital_reservation_id": reservationID, "reserved_amount": claim.Amount, "reservation_currency": claim.Currency, "reservation_basis": claim.Basis})
 	_, e = tx.Exec(c, `INSERT INTO strategy_state_transitions(strategy_instance_id,previous_state,new_state,state_version,trigger,metadata) VALUES($1,$2,$2,1,'INITIALIZED',$3)`, i.ID, state, meta)
 	if e != nil {
 		return i, e
@@ -203,6 +224,15 @@ func (s *PostgresStore) Finish(c context.Context, userID, instanceID string, exp
 	if err != nil {
 		return Instance{}, err
 	}
+	result, err := tx.Exec(c, `UPDATE strategy_capital_reservations
+		SET released_at=$3,release_reason='COMPLETED'
+		WHERE strategy_instance_id=$1 AND user_id=$2 AND released_at IS NULL`, instanceID, userID, finishedAt)
+	if err != nil {
+		return Instance{}, err
+	}
+	if result.RowsAffected() != 1 {
+		return Instance{}, ErrConflict
+	}
 	metadata, _ := json.Marshal(map[string]any{"previous_status": current.Status, "new_status": "COMPLETED"})
 	if _, err = tx.Exec(c, `INSERT INTO strategy_state_transitions(strategy_instance_id,previous_state,new_state,state_version,trigger,metadata) VALUES($1,$2,$2,$3,'FINISHED',$4)`, finished.ID, current.CurrentState, finished.StateVersion, metadata); err != nil {
 		return Instance{}, err
@@ -227,6 +257,17 @@ func (s *PostgresStore) List(c context.Context, u string) ([]Instance, error) {
 }
 func (s *PostgresStore) Get(c context.Context, u, id string) (Instance, error) {
 	return scanInstance(s.db.QueryRow(c, `SELECT `+instanceColumns+` FROM strategy_instances WHERE id=$1 AND user_id=$2`, id, u))
+}
+
+func (s *PostgresStore) CapitalReservation(c context.Context, userID, instanceID string) (CapitalReservation, error) {
+	var reservation CapitalReservation
+	err := s.db.QueryRow(c, `SELECT id::text,strategy_instance_id::text,financial_account_id::text,capital_bucket_id::text,execution_mode,reservation_amount::text,currency,reservation_basis,account_allocation_limit::text,CASE WHEN released_at IS NULL THEN 'ACTIVE' ELSE 'RELEASED' END,reserved_at,released_at,release_reason
+		FROM strategy_capital_reservations WHERE strategy_instance_id=$1 AND user_id=$2`, instanceID, userID).Scan(
+		&reservation.ID, &reservation.StrategyInstanceID, &reservation.FinancialAccountID, &reservation.CapitalBucketID,
+		&reservation.ExecutionMode, &reservation.ReservationAmount, &reservation.Currency, &reservation.ReservationBasis,
+		&reservation.AccountAllocationLimit, &reservation.Status, &reservation.ReservedAt, &reservation.ReleasedAt, &reservation.ReleaseReason,
+	)
+	return reservation, err
 }
 
 func (s *PostgresStore) Schedule(c context.Context, u, id string) (ScheduleStatus, error) {

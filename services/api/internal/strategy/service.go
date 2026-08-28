@@ -17,7 +17,8 @@ var (
 	ErrNotFound                = errors.New("strategy instance not found")
 	ErrConflict                = errors.New("strategy instance conflict")
 	ErrCapitalLimit            = errors.New("paper starting cash exceeds capital bucket capacity")
-	ErrAccountInUse            = errors.New("financial account already has an active non-live strategy")
+	ErrAccountInUse            = errors.New("requested capital overlaps an active non-live reservation")
+	ErrCapitalReservation      = errors.New("capital bucket cannot establish an exact non-live reservation")
 	ErrOpenExposure            = errors.New("paper strategy still has open simulated positions")
 	ErrMandateStale            = errors.New("strategy mandate is not current and ready")
 	ErrEvidenceNotReviewable   = errors.New("shadow evidence is not reviewable")
@@ -107,6 +108,9 @@ type StrategyRuntimeHistoryReader interface {
 	StrategyTransitionEntries(context.Context, string, string, int, *StrategyTransitionCursor) ([]StrategyTransitionEvidence, error)
 	StrategyExecutionEntries(context.Context, string, string, int, *StrategyExecutionCursor) ([]StrategyExecutionEvidence, error)
 }
+type CapitalReservationReader interface {
+	CapitalReservation(context.Context, string, string) (CapitalReservation, error)
+}
 type DecisionJournalEntry struct {
 	ID, StrategyInstanceID, StrategyState, Source, DecisionType           string
 	StructuredRationale                                                   json.RawMessage
@@ -189,6 +193,44 @@ func paperCashCapacity(bucket automation.CapitalBucket) (*big.Rat, bool) {
 	return capacity, capacity.Sign() > 0
 }
 
+func reservationClaim(bucket automation.CapitalBucket, mode ExecutionMode, startingCash string) (capitalReservationClaim, error) {
+	claim := capitalReservationClaim{Currency: bucket.Currency}
+	if bucket.Status != "ACTIVE" || bucket.IsReserve || len(bucket.Currency) != 3 {
+		return claim, ErrCapitalReservation
+	}
+	if bucket.AllocationType == "FIXED_AMOUNT" && bucket.AllocationLimit != nil {
+		limit, ok := new(big.Rat).SetString(*bucket.AllocationLimit)
+		if !ok || limit.Sign() <= 0 {
+			return claim, ErrCapitalReservation
+		}
+		canonical := limit.FloatString(10)
+		claim.AccountAllocationLimit = &canonical
+	}
+	if mode == Paper {
+		amount, ok := new(big.Rat).SetString(startingCash)
+		if !ok || amount.Sign() <= 0 {
+			return claim, ErrCapitalReservation
+		}
+		claim.Amount = amount.FloatString(10)
+		claim.Basis = "PAPER_STARTING_CASH"
+		return claim, nil
+	}
+	if mode != Shadow {
+		return claim, ErrCapitalReservation
+	}
+	capacity, available := paperCashCapacity(bucket)
+	if !available {
+		return claim, ErrCapitalReservation
+	}
+	claim.Amount = capacity.FloatString(10)
+	if bucket.AllocationType == "FIXED_AMOUNT" {
+		claim.Basis = "BUCKET_FIXED_CAPACITY"
+	} else {
+		claim.Basis = "BUCKET_ABSOLUTE_LIMIT"
+	}
+	return claim, nil
+}
+
 func (s *InstanceService) Initialize(ctx context.Context, p authorization.Principal, mandateID, startingCash string) (Instance, error) {
 	if !entitled(p) {
 		return Instance{}, ErrForbidden
@@ -210,6 +252,9 @@ func (s *InstanceService) Initialize(ctx context.Context, p authorization.Princi
 		bucket, bucketErr := s.mandates.GetBucket(ctx, p, m.CapitalBucketID)
 		if bucketErr != nil || bucket.UserID != p.UserID || bucket.FinancialAccountID != m.FinancialAccountID || bucket.Status != "ACTIVE" || bucket.IsReserve {
 			return Instance{}, ErrInvalid
+		}
+		if _, claimErr := reservationClaim(bucket, Shadow, ""); claimErr != nil {
+			return Instance{}, claimErr
 		}
 		return s.store.Initialize(ctx, p.UserID, m, "", AIMonitoring)
 	}
@@ -238,6 +283,9 @@ func (s *InstanceService) Initialize(ctx context.Context, p authorization.Princi
 	} else {
 		startingCash = ""
 	}
+	if _, claimErr := reservationClaim(bucket, ExecutionMode(m.ExecutionMode), startingCash); claimErr != nil {
+		return Instance{}, claimErr
+	}
 	definition := automation.Strategies[*m.StrategyIdentifier]
 	return s.store.Initialize(ctx, p.UserID, m, startingCash, State(definition.InitialState))
 }
@@ -252,6 +300,28 @@ func (s *InstanceService) Get(c context.Context, p authorization.Principal, id s
 		return Instance{}, ErrForbidden
 	}
 	return s.store.Get(c, p.UserID, id)
+}
+
+func (s *InstanceService) CapitalReservation(c context.Context, p authorization.Principal, id string) (CapitalReservation, error) {
+	if !entitled(p) {
+		return CapitalReservation{}, ErrForbidden
+	}
+	if id == "" {
+		return CapitalReservation{}, ErrInvalid
+	}
+	instance, err := s.store.Get(c, p.UserID, id)
+	if err != nil || instance.ID != id || instance.UserID != p.UserID {
+		return CapitalReservation{}, ErrNotFound
+	}
+	reader, ok := s.store.(CapitalReservationReader)
+	if !ok {
+		return CapitalReservation{}, ErrNotFound
+	}
+	reservation, err := reader.CapitalReservation(c, p.UserID, id)
+	if err != nil {
+		return CapitalReservation{}, ErrNotFound
+	}
+	return reservation, nil
 }
 
 func (s *InstanceService) Pause(c context.Context, p authorization.Principal, id string, expectedStateVersion int) (Instance, error) {

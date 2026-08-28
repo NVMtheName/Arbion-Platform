@@ -242,7 +242,7 @@ func (s *Service) UpdateBucket(c context.Context, p authorization.Principal, id 
 	x.Name = strings.TrimSpace(x.Name)
 	x.Currency = strings.ToUpper(x.Currency)
 	v, ok := decimal(x.AllocationValue, true)
-	if x.Name == "" || len(x.Currency) != 3 || !ok {
+	if x.Name == "" || len(x.Name) > 100 || len(x.Currency) != 3 || !ok {
 		return CapitalBucket{}, ErrInvalid
 	}
 	if x.AllocationType != "FIXED_AMOUNT" && x.AllocationType != "PERCENT_OF_AVAILABLE_CASH" && x.AllocationType != "PERCENT_OF_BUYING_POWER" {
@@ -250,6 +250,28 @@ func (s *Service) UpdateBucket(c context.Context, p authorization.Principal, id 
 	}
 	if x.AllocationType != "FIXED_AMOUNT" && v.Cmp(big.NewRat(100, 1)) > 0 {
 		return CapitalBucket{}, ErrInvalid
+	}
+	if _, ok = decimal(x.ProtectedAmount, false); !ok {
+		return CapitalBucket{}, ErrInvalid
+	}
+	if x.AllocationLimit != nil {
+		limit, valid := decimal(*x.AllocationLimit, true)
+		if !valid {
+			return CapitalBucket{}, ErrInvalid
+		}
+		if x.AllocationType == "FIXED_AMOUNT" {
+			used, allocationErr := s.store.FixedAllocated(c, p.UserID, x.FinancialAccountID)
+			oldAllocation, oldValid := decimal(old.AllocationValue, true)
+			if allocationErr != nil || !oldValid {
+				return CapitalBucket{}, ErrConflict
+			}
+			if old.Status == "ACTIVE" && old.AllocationType == "FIXED_AMOUNT" {
+				used = new(big.Rat).Sub(used, oldAllocation)
+			}
+			if new(big.Rat).Add(used, v).Cmp(limit) > 0 {
+				return CapitalBucket{}, ErrConflict
+			}
+		}
 	}
 	b, e := s.store.UpdateBucket(c, p.UserID, id, x)
 	if e == nil {

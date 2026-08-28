@@ -47,6 +47,34 @@ import {
 } from "../schedule-run-history";
 import { StrategyRuntimeEvidenceLedger } from "../strategy-runtime-evidence-ledger";
 
+function conciseExactDecimal(value: unknown) {
+  const raw = String(value ?? "");
+  if (!/^\d+(\.\d+)?$/.test(raw)) return raw || "—";
+  const [whole, fraction = ""] = raw.split(".");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const trimmed = fraction.replace(/0+$/, "");
+  return trimmed ? `${grouped}.${trimmed}` : grouped;
+}
+
+function capitalAmount(currency: unknown, amount: unknown) {
+  return `${String(currency ?? "USD")} ${conciseExactDecimal(amount)}`;
+}
+
+function reservationBasisLabel(value: unknown) {
+  switch (String(value ?? "")) {
+    case "PAPER_STARTING_CASH":
+      return "Paper starting cash";
+    case "BUCKET_FIXED_CAPACITY":
+      return "Fixed bucket capacity";
+    case "BUCKET_ABSOLUTE_LIMIT":
+      return "Percentage bucket absolute cap";
+    case "UNRESOLVED_LEGACY":
+      return "Legacy policy — exclusive";
+    default:
+      return "Unavailable";
+  }
+}
+
 export default async function MandateReview({
   params,
 }: {
@@ -191,6 +219,7 @@ export default async function MandateReview({
     scheduleResponse,
     scheduleRunsResponse,
     portfolioResponse,
+    capitalReservationResponse,
   ] = instanceID
     ? await Promise.all(
         [
@@ -202,6 +231,7 @@ export default async function MandateReview({
           "schedule",
           "schedule-runs?limit=12",
           "paper-portfolio",
+          "capital-reservation",
         ].map(async (suffix) => {
           const response = await fetch(
             `${api}/api/strategy-instances/${instanceID}/${suffix}`,
@@ -212,9 +242,12 @@ export default async function MandateReview({
             : {};
         }),
       )
-    : [{}, {}, {}, {}, {}, {}, {}, {}];
+    : [{}, {}, {}, {}, {}, {}, {}, {}, {}];
   const paperPortfolio = portfolioResponse.paper_portfolio as
     | PaperPortfolio
+    | undefined;
+  const capitalReservation = capitalReservationResponse.capital_reservation as
+    | Record<string, unknown>
     | undefined;
   const openPaperOptions = (paperPortfolio?.positions ?? []).filter(
     (position) => position.is_open && position.instrument === "OPTION",
@@ -666,6 +699,41 @@ export default async function MandateReview({
           </p>
         </div>
       </section>
+      {instance && capitalReservation && (
+        <section className="review-grid" aria-label="Capital reservation">
+          <div>
+            <p className="eyebrow">NON-LIVE CAPITAL RESERVATION</p>
+            <h2>{String(capitalReservation.status ?? "UNAVAILABLE")}</h2>
+            <p>
+              <strong>Reserved policy amount</strong>
+              {capitalReservation.reservation_amount
+                ? capitalAmount(
+                    capitalReservation.currency,
+                    capitalReservation.reservation_amount,
+                  )
+                : "Unavailable for legacy percentage policy"}
+            </p>
+            <p>
+              <strong>Reservation basis</strong>
+              {reservationBasisLabel(capitalReservation.reservation_basis)}
+            </p>
+            <p>
+              <strong>Shared account ceiling</strong>
+              {capitalReservation.account_allocation_limit
+                ? capitalAmount(
+                    capitalReservation.currency,
+                    capitalReservation.account_allocation_limit,
+                  )
+                : "Exclusive account claim"}
+            </p>
+            <p>
+              This is an Arbion policy reservation, not a broker hold. It grants
+              no order or live-execution authority and remains active while the
+              strategy is paused.
+            </p>
+          </div>
+        </section>
+      )}
       {instance && (
         <PaperPortfolioSummary
           portfolio={paperPortfolio}

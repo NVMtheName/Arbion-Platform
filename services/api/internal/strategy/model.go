@@ -48,6 +48,31 @@ type Instance struct {
 	PausedAt, CompletedAt, LastEvaluatedAt                                                   *time.Time
 }
 
+// CapitalReservation is the durable, non-live capital claim attached to one
+// strategy instance. A released reservation remains queryable as evidence.
+type CapitalReservation struct {
+	ID                     string        `json:"id"`
+	StrategyInstanceID     string        `json:"strategy_instance_id"`
+	FinancialAccountID     string        `json:"financial_account_id"`
+	CapitalBucketID        string        `json:"capital_bucket_id"`
+	ExecutionMode          ExecutionMode `json:"execution_mode"`
+	ReservationAmount      *string       `json:"reservation_amount,omitempty"`
+	Currency               string        `json:"currency"`
+	ReservationBasis       string        `json:"reservation_basis"`
+	AccountAllocationLimit *string       `json:"account_allocation_limit,omitempty"`
+	Status                 string        `json:"status"`
+	ReservedAt             time.Time     `json:"reserved_at"`
+	ReleasedAt             *time.Time    `json:"released_at,omitempty"`
+	ReleaseReason          *string       `json:"release_reason,omitempty"`
+}
+
+type capitalReservationClaim struct {
+	Amount                 string
+	Currency               string
+	Basis                  string
+	AccountAllocationLimit *string
+}
+
 type Parameters = automation.StrategyParameters
 type OptionCandidate struct {
 	Underlying, OptionType, Strike, Expiration string

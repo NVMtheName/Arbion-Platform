@@ -463,3 +463,31 @@ func TestOrderIntentReservationsAreOwnerBoundImmutableAndNonExecuting(t *testing
 		}
 	}
 }
+
+func TestNonliveStrategyReservationsAreDurableAggregateAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00035_nonlive_strategy_capital_reservations.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"strategy_capital_reservations",
+		"strategy_one_active_reservation_bucket_idx",
+		"strategy_capital_reservation_account_guard",
+		"pg_advisory_xact_lock",
+		"account_allocation_limit",
+		"UNRESOLVED_LEGACY",
+		"strategy_capital_reservation_immutable",
+		"strategy_instance_capital_reservation_guard",
+		"reserved_capital_bucket_policy_guard",
+		"DEFERRABLE INITIALLY DEFERRED",
+	} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("non-live strategy reservation migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order_id", "client_order_id", "SUBMITTED", "FILLED", "create_order"} {
+		if strings.Contains(strings.ToLower(string(body)), strings.ToLower(prohibited)) {
+			t.Errorf("non-live strategy reservation migration unexpectedly contains %q", prohibited)
+		}
+	}
+}

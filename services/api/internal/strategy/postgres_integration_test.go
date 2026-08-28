@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -392,7 +393,11 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions`, 9)
 	assertCount(t, pool, `SELECT count(*) FROM decision_journal_entries`, 7)
 
-	finished, err := store.Finish(ctx, userID, instance.ID, 9, callAwayTime.Add(time.Minute))
+	finishedAt := callAwayTime.Add(time.Minute)
+	if !finishedAt.After(instance.StartedAt) {
+		finishedAt = instance.StartedAt.Add(time.Minute)
+	}
+	finished, err := store.Finish(ctx, userID, instance.ID, 9, finishedAt)
 	if err != nil || finished.Status != "COMPLETED" || finished.StateVersion != 10 || finished.CompletedAt == nil {
 		t.Fatalf("finishing did not release the account claim: %#v %v", finished, err)
 	}
@@ -400,7 +405,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || secondInstance.CapitalBucketID != secondBucketID || secondInstance.FinancialAccountID != accountID {
 		t.Fatalf("completed strategy did not release its financial account: %#v %v", secondInstance, err)
 	}
-	pauseTime := callAwayTime.Add(2 * time.Minute)
+	pauseTime := finishedAt.Add(time.Minute)
 	paused, err := store.Pause(ctx, userID, secondInstance.ID, 1, pauseTime)
 	if err != nil || paused.Status != "PAUSED" || paused.StateVersion != 2 || paused.PausedAt == nil {
 		t.Fatalf("non-live pause did not preserve the account claim: %#v %v", paused, err)
@@ -695,6 +700,169 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	}
 	assertCount(t, pool, `SELECT count(*) FROM shadow_execution_outcomes`, 1)
 	assertCount(t, pool, `SELECT count(*) FROM shadow_evidence_reviews`, 2)
+}
+
+func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T) {
+	databaseURL := os.Getenv("STRATEGY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("STRATEGY_TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	goose.SetBaseFS(migrations.Files)
+	if err = goose.SetDialect("postgres"); err != nil {
+		t.Fatal(err)
+	}
+	if err = goose.UpContext(ctx, db, "."); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	const (
+		userID       = "12121212-1212-4121-8121-121212121212"
+		connectionID = "13131313-1313-4131-8131-131313131313"
+		accountID    = "14141414-1414-4141-8141-141414141414"
+		bucketOne    = "15151515-1515-4151-8151-151515151515"
+		bucketTwo    = "16161616-1616-4161-8161-161616161616"
+		bucketThree  = "17171717-1717-4171-8171-171717171717"
+		bucketFour   = "21212121-2121-4212-8212-212121212121"
+		bucketFive   = "22222222-2121-4212-8212-212121212121"
+		mandateOne   = "18181818-1818-4181-8181-181818181818"
+		mandateTwo   = "19191919-1919-4191-8191-191919191919"
+		mandateThree = "20202020-2020-4202-8202-202020202020"
+		mandateFour  = "23232323-2323-4232-8232-232323232323"
+		mandateFive  = "24242424-2424-4242-8242-242424242424"
+	)
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO users(id,email,normalized_email,display_name,email_verified_at) VALUES($1,'reservations@example.com','reservations@example.com','Reservations',now())`, []any{userID}},
+		{`INSERT INTO user_entitlements(user_id,entitlement_key,source,billing_required) VALUES($1,'founder','bootstrap',false)`, []any{userID}},
+		{`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES($1,$2,'financial','schwab','Schwab','active')`, []any{connectionID, userID}},
+		{`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES($1,$2,$3,'schwab','aggregate-test','Aggregate Test','brokerage','USD','active','{"options":"SUPPORTED","margin":"UNKNOWN"}')`, []any{accountID, userID, connectionID}},
+	} {
+		if _, err = pool.Exec(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, bucket := range []struct {
+		id, name, amount string
+	}{{bucketOne, "First", "1000"}, {bucketTwo, "Second", "1500"}, {bucketThree, "Third", "1000"}, {bucketFour, "Concurrent first", "2000"}, {bucketFive, "Concurrent second", "2000"}} {
+		if _, err = pool.Exec(ctx, `INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,allocation_limit,status) VALUES($1,$2,$3,$4,'FIXED_AMOUNT',$5,'USD',0,3000,'ACTIVE')`, bucket.id, userID, accountID, bucket.name, bucket.amount); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, binding := range []struct{ mandateID, bucketID string }{{mandateOne, bucketOne}, {mandateTwo, bucketTwo}, {mandateThree, bucketThree}, {mandateFour, bucketFour}, {mandateFive, bucketFive}} {
+		if _, err = pool.Exec(ctx, `INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES($1,$2,$3,'STRATEGY','wheel',$4,'RESEARCH_ONLY','PAPER','READY',1,'{}','{}','{"symbols":[],"universe_ids":[]}','{"symbols":[]}',false,true,'{}',false)`, binding.mandateID, userID, accountID, binding.bucketID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = pool.Exec(ctx, `INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'UI',to_jsonb(m) || '{"execution_capable":false}'::jsonb,'{}'::jsonb FROM automation_mandates m WHERE id=$1`, binding.mandateID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	wheel := "wheel"
+	mandate := func(id, bucket string) automation.Mandate {
+		return automation.Mandate{ID: id, UserID: userID, FinancialAccountID: accountID, AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: bucket, ExecutionMode: "PAPER", Status: "READY", CurrentVersion: 1, ScheduleConditions: json.RawMessage(`{}`)}
+	}
+	store := NewPostgresStore(pool)
+	first, err := store.Initialize(ctx, userID, mandate(mandateOne, bucketOne), "1000", ReadyForPut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstReservation, err := store.CapitalReservation(ctx, userID, first.ID)
+	if err != nil || firstReservation.Status != "ACTIVE" || firstReservation.ReservationAmount == nil || *firstReservation.ReservationAmount != "1000.0000000000" || firstReservation.AccountAllocationLimit == nil || *firstReservation.AccountAllocationLimit != "3000.0000000000" {
+		t.Fatalf("active reservation projection was incomplete: %#v %v", firstReservation, err)
+	}
+	second, err := store.Initialize(ctx, userID, mandate(mandateTwo, bucketTwo), "1500", ReadyForPut)
+	if err != nil {
+		t.Fatalf("compatible fixed reservations did not share one account: %v", err)
+	}
+	var activeCount int
+	var activeAmount, ceiling string
+	if err = pool.QueryRow(ctx, `SELECT count(*),sum(reservation_amount)::text,min(account_allocation_limit)::text FROM strategy_capital_reservations WHERE user_id=$1 AND financial_account_id=$2 AND released_at IS NULL`, userID, accountID).Scan(&activeCount, &activeAmount, &ceiling); err != nil || activeCount != 2 || activeAmount != "2500.0000000000" || ceiling != "3000.0000000000" {
+		t.Fatalf("aggregate reservation snapshot changed: count=%d amount=%s ceiling=%s err=%v", activeCount, activeAmount, ceiling, err)
+	}
+	if _, err = store.Initialize(ctx, userID, mandate(mandateThree, bucketThree), "600", ReadyForPut); !errors.Is(err, ErrAccountInUse) {
+		t.Fatalf("reservation exceeding the shared account ceiling was accepted: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE capital_buckets SET allocation_value=900 WHERE id=$1`, bucketOne); err == nil {
+		t.Fatal("active reservation allowed its capital policy to change")
+	}
+	if _, err = pool.Exec(ctx, `UPDATE capital_buckets SET name='First renamed' WHERE id=$1`, bucketOne); err != nil {
+		t.Fatalf("active reservation blocked a cosmetic rename: %v", err)
+	}
+	if _, err = store.Pause(ctx, userID, second.ID, 1, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Initialize(ctx, userID, mandate(mandateThree, bucketThree), "600", ReadyForPut); !errors.Is(err, ErrAccountInUse) {
+		t.Fatalf("paused reservation stopped counting toward the account ceiling: %v", err)
+	}
+	finishedAt := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
+	if _, err = store.Finish(ctx, userID, first.ID, 1, finishedAt); err != nil {
+		t.Fatalf("completed strategy did not release its reservation: %v", err)
+	}
+	firstReservation, err = store.CapitalReservation(ctx, userID, first.ID)
+	if err != nil || firstReservation.Status != "RELEASED" || firstReservation.ReleasedAt == nil || !firstReservation.ReleasedAt.Equal(finishedAt) || firstReservation.ReleaseReason == nil || *firstReservation.ReleaseReason != "COMPLETED" {
+		t.Fatalf("released reservation projection was incomplete: %#v %v", firstReservation, err)
+	}
+	third, err := store.Initialize(ctx, userID, mandate(mandateThree, bucketThree), "600", ReadyForPut)
+	if err != nil || third.ID == "" {
+		t.Fatalf("released capital was not reusable within the shared ceiling: %#v %v", third, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE strategy_capital_reservations SET reservation_amount=1 WHERE strategy_instance_id=$1`, second.ID); err == nil {
+		t.Fatal("active reservation evidence was mutable")
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM strategy_capital_reservations WHERE strategy_instance_id=$1 AND released_at=$2 AND release_reason='COMPLETED'`, first.ID, finishedAt).Scan(&activeCount); err != nil || activeCount != 1 {
+		t.Fatalf("completion release evidence was not retained: count=%d err=%v", activeCount, err)
+	}
+	if _, err = store.Finish(ctx, userID, second.ID, 2, finishedAt.Add(time.Minute)); err != nil {
+		t.Fatalf("paused strategy reservation did not release on completion: %v", err)
+	}
+	if _, err = store.Finish(ctx, userID, third.ID, 1, finishedAt.Add(2*time.Minute)); err != nil {
+		t.Fatalf("active strategy reservation did not release on completion: %v", err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var concurrent sync.WaitGroup
+	for _, candidate := range []automation.Mandate{mandate(mandateFour, bucketFour), mandate(mandateFive, bucketFive)} {
+		concurrent.Add(1)
+		go func(candidate automation.Mandate) {
+			defer concurrent.Done()
+			<-start
+			_, initializeErr := store.Initialize(ctx, userID, candidate, "2000", ReadyForPut)
+			results <- initializeErr
+		}(candidate)
+	}
+	close(start)
+	concurrent.Wait()
+	close(results)
+	var accepted, rejected int
+	for result := range results {
+		if result == nil {
+			accepted++
+		} else if errors.Is(result, ErrAccountInUse) {
+			rejected++
+		} else {
+			t.Fatalf("concurrent reservation returned an unexpected error: %v", result)
+		}
+	}
+	if accepted != 1 || rejected != 1 {
+		t.Fatalf("concurrent account ceiling was not serialized: accepted=%d rejected=%d", accepted, rejected)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*),sum(reservation_amount)::text FROM strategy_capital_reservations WHERE user_id=$1 AND financial_account_id=$2 AND released_at IS NULL`, userID, accountID).Scan(&activeCount, &activeAmount); err != nil || activeCount != 1 || activeAmount != "2000.0000000000" {
+		t.Fatalf("concurrent reservation aggregate changed: count=%d amount=%s err=%v", activeCount, activeAmount, err)
+	}
 }
 
 func proposedOption(instance Instance, eventID, actionID string) risk.ProposedAction {

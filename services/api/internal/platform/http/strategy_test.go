@@ -46,6 +46,8 @@ func TestStrategyErrorReturnsSafeEvaluationDiagnostics(t *testing.T) {
 		{strategy.ErrEvidenceNotReviewable, stdhttp.StatusConflict, "EVIDENCE_NOT_REVIEWABLE"},
 		{strategy.ErrEvidenceSnapshotChanged, stdhttp.StatusConflict, "EVIDENCE_SNAPSHOT_CHANGED"},
 		{strategy.ErrEvidenceReviewStepUp, stdhttp.StatusForbidden, "EVIDENCE_REVIEW_MFA_REQUIRED"},
+		{strategy.ErrCapitalReservation, stdhttp.StatusUnprocessableEntity, "CAPITAL_RESERVATION_UNAVAILABLE"},
+		{strategy.ErrAccountInUse, stdhttp.StatusConflict, "ACCOUNT_CAPITAL_IN_USE"},
 		{aiconnection.ErrRateLimit, stdhttp.StatusTooManyRequests, "AI_DECISION_BUDGET_EXHAUSTED"},
 		{&neural.ProviderError{Code: neural.RateLimited}, stdhttp.StatusTooManyRequests, "AI_PROVIDER_RATE_LIMITED"},
 	}
