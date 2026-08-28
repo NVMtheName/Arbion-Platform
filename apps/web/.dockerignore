@@ -2,4 +2,7 @@
 node_modules
 coverage
 .env*
-
+._*
+**/._*
+__MACOSX
+**/__MACOSX

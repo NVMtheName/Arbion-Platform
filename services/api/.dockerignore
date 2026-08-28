@@ -1,2 +1,6 @@
 *.out
 .env*
+._*
+**/._*
+__MACOSX
+**/__MACOSX

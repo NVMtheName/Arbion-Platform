@@ -2,9 +2,26 @@ package migrations
 
 import (
 	"io/fs"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+func TestEmbeddedMigrationSetContainsOnlyCanonicalVersionedSQL(t *testing.T) {
+	entries, err := fs.ReadDir(Files, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := regexp.MustCompile(`^[0-9]{5}_[a-z0-9_]+\.sql$`)
+	if len(entries) == 0 {
+		t.Fatal("embedded migration set is empty")
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !canonical.MatchString(entry.Name()) {
+			t.Fatalf("embedded migration is not canonical: %q", entry.Name())
+		}
+	}
+}
 
 func TestInitialMigrationDefinesRequiredSchema(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00001_initial.sql")
