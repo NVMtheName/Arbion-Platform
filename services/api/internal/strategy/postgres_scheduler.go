@@ -7,6 +7,57 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+type scheduleRunScanner interface {
+	Scan(...any) error
+}
+
+func scanScheduleRun(row scheduleRunScanner) (ScheduleRun, error) {
+	var run ScheduleRun
+	err := row.Scan(
+		&run.ID, &run.StrategyInstanceID, &run.MandateID, &run.MandateVersion,
+		&run.ExecutionMode, &run.StrategyState, &run.ScheduledFor, &run.StartedAt,
+		&run.CompletedAt, &run.NextRunAt, &run.Status, &run.ErrorCode,
+		&run.AIDecision, &run.ExecutionStatus, &run.DuplicateRecovered,
+		&run.ReconciliationID, &run.ReconciliationReviewRequired,
+		&run.ConsecutiveFailures,
+	)
+	return run, err
+}
+
+func (s *PostgresStore) ScheduleRuns(ctx context.Context, userID, instanceID string, limit int, cursor *ScheduleRunCursor) ([]ScheduleRun, error) {
+	const columns = `r.id::text,r.strategy_instance_id::text,r.mandate_id::text,r.mandate_version,
+		r.execution_mode,r.strategy_state,r.scheduled_for,r.started_at,r.completed_at,r.next_run_at,
+		r.status,r.error_code,r.ai_decision,r.execution_status,r.duplicate_recovered,
+		r.reconciliation_id::text,r.reconciliation_review_required,r.consecutive_failures`
+	query := `SELECT ` + columns + ` FROM nonlive_schedule_runs r
+		JOIN strategy_instances i ON i.id=r.strategy_instance_id AND i.user_id=r.user_id
+		WHERE r.user_id=$1 AND r.strategy_instance_id=$2
+		ORDER BY r.scheduled_for DESC,r.id DESC LIMIT $3`
+	args := []any{userID, instanceID, limit}
+	if cursor != nil {
+		query = `SELECT ` + columns + ` FROM nonlive_schedule_runs r
+			JOIN strategy_instances i ON i.id=r.strategy_instance_id AND i.user_id=r.user_id
+			WHERE r.user_id=$1 AND r.strategy_instance_id=$2
+			  AND (r.scheduled_for,r.id) < ($3,$4::uuid)
+			ORDER BY r.scheduled_for DESC,r.id DESC LIMIT $5`
+		args = []any{userID, instanceID, cursor.ScheduledFor, cursor.ID, limit}
+	}
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	runs := []ScheduleRun{}
+	for rows.Next() {
+		run, scanErr := scanScheduleRun(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
 // ClaimDueSchedule takes one durable lease. The query repeats every authority
 // check so a revoked entitlement, explicit stop, corrupted immutable version,
 // or live mode fails closed before the worker receives any work. A newer DRAFT
@@ -45,7 +96,7 @@ func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, lea
 		RETURNING s.*
 	)
 	SELECT c.strategy_instance_id::text,c.user_id::text,i.financial_account_id::text,COALESCE(u.normalized_email,''),u.email_verified_at IS NOT NULL,c.mandate_id::text,c.mandate_version,
-		i.execution_mode,i.current_state,c.interval_minutes,c.session,c.next_run_at,c.lease_token::text,
+		i.execution_mode,i.current_state,c.interval_minutes,c.session,c.next_run_at,c.last_started_at,c.lease_token::text,
 		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,evaluation_completed}')::boolean,false),
 		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,lifecycle_required}')::boolean,false),
 		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,first_failure}')::boolean,false),
@@ -57,7 +108,7 @@ func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, lea
 	JOIN users u ON u.id=c.user_id`, now, int(leaseFor/time.Second)).Scan(
 		&run.StrategyInstanceID, &run.UserID, &run.FinancialAccountID, &run.OwnerEmail, &run.OwnerEmailVerified, &run.MandateID, &run.MandateVersion,
 		&run.ExecutionMode, &run.CurrentState, &run.IntervalMinutes, &run.Session,
-		&run.ScheduledFor, &run.LeaseToken, &run.NotifyEvaluation, &run.NotifyLifecycle,
+		&run.ScheduledFor, &run.StartedAt, &run.LeaseToken, &run.NotifyEvaluation, &run.NotifyLifecycle,
 		&run.NotifyFirstFailure, &run.NotifyReconciliationReview, &run.LastReconciliationNotificationID,
 		&run.PreviousErrorCode, &run.ConsecutiveFailures,
 	)
@@ -95,16 +146,36 @@ func (s *PostgresStore) RecordReconciliationNotification(ctx context.Context, ru
 }
 
 func (s *PostgresStore) CompleteSchedule(ctx context.Context, run ScheduledRun, completion ScheduleCompletion) error {
-	command, err := s.db.Exec(ctx, `UPDATE nonlive_strategy_schedules
-		SET next_run_at=$5,lease_token=NULL,lease_expires_at=NULL,last_completed_at=$4,last_status=$6,
-			last_error_code=NULLIF($7,''),consecutive_failures=CASE WHEN $6='FAILED' THEN consecutive_failures+1 ELSE 0 END,updated_at=$4
-		WHERE strategy_instance_id=$1 AND user_id=$2 AND lease_token=$3 AND next_run_at=$8`,
-		run.StrategyInstanceID, run.UserID, run.LeaseToken, completion.CompletedAt, completion.NextRunAt, completion.Status, completion.ErrorCode, run.ScheduledFor)
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if command.RowsAffected() != 1 {
+	defer tx.Rollback(ctx)
+
+	var consecutiveFailures int
+	err = tx.QueryRow(ctx, `UPDATE nonlive_strategy_schedules
+		SET next_run_at=$5,lease_token=NULL,lease_expires_at=NULL,last_completed_at=$4,last_status=$6,
+			last_error_code=NULLIF($7,''),consecutive_failures=CASE WHEN $6='FAILED' THEN consecutive_failures+1 ELSE 0 END,updated_at=$4
+		WHERE strategy_instance_id=$1 AND user_id=$2 AND lease_token=$3 AND next_run_at=$8
+		RETURNING consecutive_failures`,
+		run.StrategyInstanceID, run.UserID, run.LeaseToken, completion.CompletedAt.UTC(), completion.NextRunAt.UTC(), completion.Status, completion.ErrorCode, run.ScheduledFor.UTC()).Scan(&consecutiveFailures)
+	if err == pgx.ErrNoRows {
 		return ErrConflict
 	}
-	return nil
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO nonlive_schedule_runs(
+		user_id,strategy_instance_id,mandate_id,mandate_version,execution_mode,strategy_state,
+		scheduled_for,started_at,completed_at,next_run_at,status,error_code,ai_decision,execution_status,
+		duplicate_recovered,reconciliation_id,reconciliation_review_required,consecutive_failures
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,''),NULLIF($14,''),$15,NULLIF($16,'')::uuid,$17,$18)`,
+		run.UserID, run.StrategyInstanceID, run.MandateID, run.MandateVersion, run.ExecutionMode, run.CurrentState,
+		run.ScheduledFor.UTC(), run.StartedAt.UTC(), completion.CompletedAt.UTC(), completion.NextRunAt.UTC(), completion.Status,
+		completion.ErrorCode, completion.AIDecision, completion.ExecutionStatus, completion.DuplicateRecovered,
+		completion.ReconciliationID, completion.ReconciliationReviewRequired, consecutiveFailures)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }

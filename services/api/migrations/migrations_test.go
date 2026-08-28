@@ -222,6 +222,23 @@ func TestReconciliationNotificationMarkerIsOwnerAccountScopedAndNonExecuting(t *
 	}
 }
 
+func TestNonLiveScheduleRunHistoryIsImmutableOwnerScopedAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00031_nonlive_schedule_run_history.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"nonlive_schedule_runs", "strategy_instance_id,user_id", "mandate_id,mandate_version", "PAPER", "SHADOW", "scheduled_for", "consecutive_failures", "duplicate_recovered", "enforce_nonlive_schedule_run_source", "nonlive_schedule_runs_immutable", "cannot remove immutable non-live schedule run history"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("non-live schedule run migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order", "broker_order", "submission", "credential", "private_key", "access_token"} {
+		if strings.Contains(strings.ToLower(string(body)), prohibited) {
+			t.Errorf("non-live schedule run migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00013_paper_lifecycle_events.sql")
 	if err != nil {

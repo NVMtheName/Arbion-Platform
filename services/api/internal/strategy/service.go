@@ -51,6 +51,9 @@ type ShadowOutcomeReader interface {
 type ShadowScorecardReader interface {
 	ShadowScorecard(context.Context, string, string) (ShadowScorecard, error)
 }
+type ScheduleRunReader interface {
+	ScheduleRuns(context.Context, string, string, int, *ScheduleRunCursor) ([]ScheduleRun, error)
+}
 type DecisionJournalEntry struct {
 	ID, StrategyInstanceID, StrategyState, Source, DecisionType           string
 	StructuredRationale                                                   json.RawMessage
@@ -323,6 +326,33 @@ func (s *InstanceService) Schedule(c context.Context, p authorization.Principal,
 		return ScheduleStatus{}, ErrNotFound
 	}
 	return status, nil
+}
+
+func (s *InstanceService) ScheduleRuns(c context.Context, p authorization.Principal, id string, limit int, cursor *ScheduleRunCursor) (ScheduleRunPage, error) {
+	if !entitled(p) {
+		return ScheduleRunPage{}, ErrForbidden
+	}
+	if id == "" || limit < 1 || limit > 100 || (cursor != nil && (cursor.ScheduledFor.IsZero() || cursor.ID == "")) {
+		return ScheduleRunPage{}, ErrInvalid
+	}
+	if _, err := s.store.Get(c, p.UserID, id); err != nil {
+		return ScheduleRunPage{}, ErrNotFound
+	}
+	reader, ok := s.store.(ScheduleRunReader)
+	if !ok {
+		return ScheduleRunPage{}, ErrNotFound
+	}
+	runs, err := reader.ScheduleRuns(c, p.UserID, id, limit+1, cursor)
+	if err != nil {
+		return ScheduleRunPage{}, err
+	}
+	page := ScheduleRunPage{Runs: runs}
+	if len(runs) > limit {
+		page.Runs = runs[:limit]
+		last := page.Runs[len(page.Runs)-1]
+		page.NextCursor = &ScheduleRunCursor{ScheduledFor: last.ScheduledFor, ID: last.ID}
+	}
+	return page, nil
 }
 
 func (s *InstanceService) RecordLifecycle(c context.Context, p authorization.Principal, id string, command LifecycleCommand) (LifecycleResult, error) {

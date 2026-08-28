@@ -45,6 +45,7 @@ type scheduledEvaluatorFake struct {
 	calls     int
 	eventID   string
 	principal authorization.Principal
+	outcome   EvaluationOutcome
 	err       error
 }
 
@@ -80,7 +81,7 @@ func (f *scheduledEvaluatorFake) Evaluate(_ context.Context, principal authoriza
 	f.calls++
 	f.eventID = eventID
 	f.principal = principal
-	return EvaluationOutcome{}, f.err
+	return f.outcome, f.err
 }
 
 func scheduledRun(state State, scheduledFor time.Time) *ScheduledRun {
@@ -100,6 +101,28 @@ func TestSchedulerEvaluatesActionableStateWithStableEventID(t *testing.T) {
 	}
 	if evaluator.principal.UserID != "owner" || evaluator.principal.Entitlement != authorization.EntitlementFounder || store.completion.Status != "SUCCEEDED" || !store.completion.NextRunAt.Equal(now.Add(time.Hour)) {
 		t.Fatalf("unexpected authority or completion: %#v %#v", evaluator.principal, store.completion)
+	}
+}
+
+func TestSchedulerRecordsOnlyNonLiveEvaluationDisposition(t *testing.T) {
+	now := time.Date(2026, 8, 18, 15, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now.Add(-time.Minute))
+	run.ExecutionMode = Shadow
+	run.Session = "CONTINUOUS"
+	store := &scheduleStoreFake{run: run}
+	evaluator := &scheduledEvaluatorFake{outcome: EvaluationOutcome{
+		AIDecision: "PROPOSE",
+		Execution:  ExecutionResult{Status: WouldHaveSubmitted},
+	}}
+	scheduler := NewScheduler(store, evaluator)
+	scheduler.now = func() time.Time { return now }
+
+	claimed, err := scheduler.RunOnce(context.Background())
+	if err != nil || !claimed {
+		t.Fatalf("scheduled AI evaluation failed: claimed=%v err=%v", claimed, err)
+	}
+	if store.completion.Status != "SUCCEEDED" || store.completion.AIDecision != "PROPOSE" || store.completion.ExecutionStatus != WouldHaveSubmitted || store.completion.DuplicateRecovered {
+		t.Fatalf("non-live disposition was not preserved: %#v", store.completion)
 	}
 }
 
@@ -224,7 +247,7 @@ func TestSchedulerTreatsCommittedDuplicateAsRecoveredSuccess(t *testing.T) {
 	scheduler := NewScheduler(store, evaluator)
 	scheduler.now = func() time.Time { return now }
 	_, err := scheduler.RunOnce(context.Background())
-	if err != nil || store.completion.Status != "SUCCEEDED" || store.completion.ErrorCode != "" {
+	if err != nil || store.completion.Status != "SUCCEEDED" || store.completion.ErrorCode != "" || !store.completion.DuplicateRecovered {
 		t.Fatalf("committed retry was not recovered: %#v %v", store.completion, err)
 	}
 	evaluator.err = errors.New("sensitive provider detail")

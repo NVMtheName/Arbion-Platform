@@ -37,6 +37,11 @@ import { CapitalBucketAllocationControls } from "../capital-bucket-allocation-co
 import { AutonomyReadinessControlPlane } from "../autonomy-readiness-control-plane";
 import { DecisionReplayLab } from "../decision-replay-lab";
 import { StrategySimulationWorkbench } from "../strategy-simulation-workbench";
+import {
+  ScheduleRunHistory,
+  type ScheduleRunRecord,
+} from "../schedule-run-history";
+
 export default async function MandateReview({
   params,
 }: {
@@ -179,6 +184,7 @@ export default async function MandateReview({
     outcomes,
     scorecardResponse,
     scheduleResponse,
+    scheduleRunsResponse,
     portfolioResponse,
   ] = instanceID
     ? await Promise.all(
@@ -189,6 +195,7 @@ export default async function MandateReview({
           "shadow-outcomes",
           "shadow-scorecard",
           "schedule",
+          "schedule-runs?limit=12",
           "paper-portfolio",
         ].map(async (suffix) => {
           const response = await fetch(
@@ -200,7 +207,7 @@ export default async function MandateReview({
             : {};
         }),
       )
-    : [{}, {}, {}, {}, {}, {}, {}];
+    : [{}, {}, {}, {}, {}, {}, {}, {}];
   const paperPortfolio = portfolioResponse.paper_portfolio as
     | PaperPortfolio
     | undefined;
@@ -431,6 +438,17 @@ export default async function MandateReview({
             }
           />
           {instance && (
+            <ScheduleRunHistory
+              instanceId={instanceID}
+              initialRuns={
+                Array.isArray(scheduleRunsResponse.runs)
+                  ? (scheduleRunsResponse.runs as ScheduleRunRecord[])
+                  : []
+              }
+              initialCursor={String(scheduleRunsResponse.next_cursor ?? "")}
+            />
+          )}
+          {instance && (
             <>
               <StrategyLifecycleControls
                 instanceId={instanceID}
@@ -512,6 +530,17 @@ export default async function MandateReview({
                 | undefined
             }
           />
+          {instance && (
+            <ScheduleRunHistory
+              instanceId={instanceID}
+              initialRuns={
+                Array.isArray(scheduleRunsResponse.runs)
+                  ? (scheduleRunsResponse.runs as ScheduleRunRecord[])
+                  : []
+              }
+              initialCursor={String(scheduleRunsResponse.next_cursor ?? "")}
+            />
+          )}
           {instance && (
             <>
               <StrategyInstanceControls

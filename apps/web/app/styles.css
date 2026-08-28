@@ -1363,6 +1363,16 @@ button:disabled {
   background: rgba(62, 43, 10, 0.25);
 }
 @media (max-width: 900px) {
+  .schedule-run-history > header,
+  .schedule-run-list > li > header {
+    flex-direction: column;
+  }
+  .schedule-run-badges {
+    justify-content: flex-start;
+  }
+  .schedule-run-list dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .strategy-fleet-hero {
     align-items: start;
     grid-template-columns: 1fr;
@@ -2396,6 +2406,162 @@ button:disabled {
 .shadow-scorecard-grid dt,
 .shadow-scorecard-grid dd {
   margin: 0;
+}
+.schedule-run-history {
+  margin: 26px 0;
+  padding: 24px;
+  border: 1px solid rgba(25, 201, 214, 0.24);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 92% 0%, rgba(25, 201, 214, 0.1), transparent 34%),
+    #071411;
+}
+.schedule-run-history > header,
+.schedule-run-list > li > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.schedule-run-history > header h2,
+.schedule-run-history > header .eyebrow,
+.schedule-run-list h3 {
+  margin-top: 0;
+}
+.schedule-run-history > header > span {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid rgba(94, 224, 160, 0.38);
+  border-radius: 999px;
+  color: #a9e6c8;
+  background: rgba(25, 100, 70, 0.2);
+  font-size: 0.72rem;
+}
+.schedule-run-list {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.schedule-run-list > li {
+  padding: 18px;
+  border: 1px solid rgba(139, 181, 163, 0.18);
+  border-left: 3px solid #4d8d77;
+  border-radius: 13px;
+  background: rgba(3, 12, 10, 0.58);
+}
+.schedule-run-list > li.is-skipped {
+  border-left-color: #b79b5f;
+}
+.schedule-run-list > li.is-failed {
+  border-left-color: #b85a5a;
+}
+.schedule-run-list time,
+.schedule-run-list dt,
+.schedule-run-list > li > footer,
+.schedule-run-history > footer {
+  color: var(--brand-muted);
+  font-size: 0.76rem;
+}
+.schedule-run-list h3 {
+  margin-bottom: 4px;
+  color: #edf7f1;
+  font-size: 1rem;
+}
+.schedule-run-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.schedule-run-badges span,
+.schedule-run-badges strong {
+  padding: 5px 8px;
+  border: 1px solid rgba(139, 181, 163, 0.2);
+  border-radius: 999px;
+  color: #b9d3c7;
+  font-size: 0.68rem;
+}
+.schedule-run-list > li.is-failed .schedule-run-badges strong {
+  border-color: rgba(184, 90, 90, 0.42);
+  color: #ffcdcd;
+}
+.schedule-run-list > li.is-skipped .schedule-run-badges strong {
+  border-color: rgba(183, 155, 95, 0.42);
+  color: #f2dba8;
+}
+.schedule-run-list dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin: 16px 0;
+}
+.schedule-run-list dl div {
+  padding: 10px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.16);
+}
+.schedule-run-list dt,
+.schedule-run-list dd {
+  margin: 0;
+}
+.schedule-run-list dd {
+  margin-top: 4px;
+  color: #dfeee7;
+  font-size: 0.82rem;
+}
+.schedule-run-code,
+.schedule-run-reconciliation {
+  margin: 10px 0;
+  color: #a9c8ba;
+  font-size: 0.78rem;
+}
+.schedule-run-reconciliation {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(25, 201, 214, 0.18);
+  border-radius: 9px;
+  background: rgba(25, 201, 214, 0.06);
+}
+.schedule-run-reconciliation.needs-review {
+  border-color: rgba(183, 155, 95, 0.36);
+  color: #f2dba8;
+  background: rgba(183, 155, 95, 0.08);
+}
+.schedule-run-reconciliation small {
+  color: var(--brand-muted);
+}
+.schedule-run-empty {
+  margin: 20px 0;
+  padding: 18px;
+  border: 1px dashed rgba(139, 181, 163, 0.22);
+  border-radius: 12px;
+  color: #b9d3c7;
+}
+.schedule-run-history > button {
+  margin-top: 14px;
+  padding: 10px 13px;
+  border: 1px solid rgba(25, 201, 214, 0.3);
+  border-radius: 9px;
+  background: rgba(25, 201, 214, 0.08);
+  color: #bfeff0;
+  font: inherit;
+  cursor: pointer;
+}
+.schedule-run-history > button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.schedule-run-history > [role="status"] {
+  color: #e2bd9c;
+  font-size: 0.78rem;
+}
+.schedule-run-history > footer {
+  margin-top: 16px;
+  line-height: 1.55;
 }
 .shadow-scorecard-grid dd {
   margin-top: 4px;
@@ -9372,6 +9538,16 @@ h1 {
 }
 
 @media (max-width: 560px) {
+  .schedule-run-history {
+    padding: 18px;
+  }
+  .schedule-run-list dl {
+    grid-template-columns: 1fr;
+  }
+  .schedule-run-reconciliation {
+    align-items: flex-start;
+    flex-direction: column;
+  }
   .holdings-value-rail {
     grid-template-columns: 1fr;
   }

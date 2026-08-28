@@ -382,6 +382,40 @@ type ScheduleStatus struct {
 	ConsecutiveFailures int        `json:"consecutive_failures"`
 }
 
+// ScheduleRun is credential-free, immutable evidence of one completed
+// non-live scheduler claim. It records control-plane disposition only and
+// cannot represent broker submission or execution.
+type ScheduleRun struct {
+	ID                           string        `json:"id"`
+	StrategyInstanceID           string        `json:"strategy_instance_id"`
+	MandateID                    string        `json:"mandate_id"`
+	MandateVersion               int           `json:"mandate_version"`
+	ExecutionMode                ExecutionMode `json:"execution_mode"`
+	StrategyState                State         `json:"strategy_state"`
+	ScheduledFor                 time.Time     `json:"scheduled_for"`
+	StartedAt                    time.Time     `json:"started_at"`
+	CompletedAt                  time.Time     `json:"completed_at"`
+	NextRunAt                    time.Time     `json:"next_run_at"`
+	Status                       string        `json:"status"`
+	ErrorCode                    *string       `json:"error_code,omitempty"`
+	AIDecision                   *string       `json:"ai_decision,omitempty"`
+	ExecutionStatus              *string       `json:"execution_status,omitempty"`
+	DuplicateRecovered           bool          `json:"duplicate_recovered"`
+	ReconciliationID             *string       `json:"reconciliation_id,omitempty"`
+	ReconciliationReviewRequired bool          `json:"reconciliation_review_required"`
+	ConsecutiveFailures          int           `json:"consecutive_failures"`
+}
+
+type ScheduleRunCursor struct {
+	ScheduledFor time.Time
+	ID           string
+}
+
+type ScheduleRunPage struct {
+	Runs       []ScheduleRun
+	NextCursor *ScheduleRunCursor
+}
+
 type ScheduledRun struct {
 	StrategyInstanceID               string
 	UserID                           string
@@ -395,6 +429,7 @@ type ScheduledRun struct {
 	IntervalMinutes                  int
 	Session                          string
 	ScheduledFor                     time.Time
+	StartedAt                        time.Time
 	LeaseToken                       string
 	NotifyEvaluation                 bool
 	NotifyLifecycle                  bool
@@ -412,6 +447,9 @@ type ScheduleCompletion struct {
 	NextRunAt                    time.Time
 	ReconciliationID             string
 	ReconciliationReviewRequired bool
+	AIDecision                   string
+	ExecutionStatus              ExecutionStatus
+	DuplicateRecovered           bool
 }
 type EvaluationOutcome struct {
 	Execution              ExecutionResult   `json:"execution"`

@@ -24,6 +24,11 @@ type journalCursorPayload struct {
 	ID        string    `json:"id"`
 }
 
+type scheduleRunCursorPayload struct {
+	ScheduledFor time.Time `json:"scheduled_for"`
+	ID           string    `json:"id"`
+}
+
 func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	if h.strategies == nil {
 		return
@@ -38,6 +43,7 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/strategy-instances/{id}/shadow-scorecard", h.require(stdhttp.HandlerFunc(h.strategyShadowScorecard)))
 	m.Handle("GET /api/strategy-instances/{id}/paper-portfolio", h.require(stdhttp.HandlerFunc(h.strategyPaperPortfolio)))
 	m.Handle("GET /api/strategy-instances/{id}/schedule", h.require(stdhttp.HandlerFunc(h.strategySchedule)))
+	m.Handle("GET /api/strategy-instances/{id}/schedule-runs", h.require(stdhttp.HandlerFunc(h.strategyScheduleRuns)))
 	m.Handle("POST /api/strategy-instances/{id}/pause", h.require(stdhttp.HandlerFunc(h.pauseStrategyInstance)))
 	m.Handle("POST /api/strategy-instances/{id}/resume", h.require(stdhttp.HandlerFunc(h.resumeStrategyInstance)))
 	m.Handle("POST /api/strategy-instances/{id}/finish", h.require(stdhttp.HandlerFunc(h.finishStrategyInstance)))
@@ -72,6 +78,32 @@ func decodeJournalCursor(encoded string) (*strategy.JournalCursor, error) {
 		return nil, strategy.ErrInvalid
 	}
 	return &strategy.JournalCursor{CreatedAt: decoded.CreatedAt, ID: decoded.ID}, nil
+}
+
+func encodeScheduleRunCursor(cursor *strategy.ScheduleRunCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	payload, _ := json.Marshal(scheduleRunCursorPayload{ScheduledFor: cursor.ScheduledFor, ID: cursor.ID})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeScheduleRunCursor(encoded string) (*strategy.ScheduleRunCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	if len(encoded) > 512 {
+		return nil, strategy.ErrInvalid
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, strategy.ErrInvalid
+	}
+	var decoded scheduleRunCursorPayload
+	if err = json.Unmarshal(payload, &decoded); err != nil || decoded.ScheduledFor.IsZero() || !journalUUID.MatchString(decoded.ID) {
+		return nil, strategy.ErrInvalid
+	}
+	return &strategy.ScheduleRunCursor{ScheduledFor: decoded.ScheduledFor, ID: decoded.ID}, nil
 }
 
 func (h *authHandler) decisionJournal(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -259,6 +291,36 @@ func (h *authHandler) strategySchedule(w stdhttp.ResponseWriter, r *stdhttp.Requ
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{"schedule": v, "scheduler_enabled": h.schedulerEnabled, "email_delivery_available": h.emailDeliveryAvailable, "live_execution_available": false})
+}
+
+func (h *authHandler) strategyScheduleRuns(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	limit := 20
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 100 {
+			writeError(w, 400, "INVALID_PAGINATION", "Limit must be between 1 and 100.")
+			return
+		}
+		limit = parsed
+	}
+	cursor, err := decodeScheduleRunCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeError(w, 400, "INVALID_PAGINATION", "The schedule-run cursor is invalid.")
+		return
+	}
+	page, err := h.strategies.ScheduleRuns(r.Context(), principal(r), r.PathValue("id"), limit, cursor)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"runs":                     page.Runs,
+		"next_cursor":              encodeScheduleRunCursor(page.NextCursor),
+		"history_semantics":        "IMMUTABLE_NONLIVE_SCHEDULER_EVIDENCE",
+		"broker_action_available":  false,
+		"live_execution_available": false,
+	})
 }
 
 func (h *authHandler) pauseStrategyInstance(w stdhttp.ResponseWriter, r *stdhttp.Request) {

@@ -72,3 +72,23 @@ func TestDecisionJournalCursorRejectsMalformedInput(t *testing.T) {
 		}
 	}
 }
+
+func TestScheduleRunCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
+	want := &strategy.ScheduleRunCursor{
+		ScheduledFor: time.Date(2026, 8, 28, 1, 12, 30, 123, time.UTC),
+		ID:           "11111111-1111-4111-8111-111111111111",
+	}
+	encoded := encodeScheduleRunCursor(want)
+	got, err := decodeScheduleRunCursor(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != want.ID || !got.ScheduledFor.Equal(want.ScheduledFor) {
+		t.Fatalf("schedule-run cursor changed during round trip: %#v", got)
+	}
+	for _, input := range []string{"not-base64", "e30", encodeScheduleRunCursor(&strategy.ScheduleRunCursor{ScheduledFor: time.Now(), ID: "not-a-uuid"})} {
+		if _, err = decodeScheduleRunCursor(input); err == nil {
+			t.Fatalf("malformed schedule-run cursor was accepted: %q", input)
+		}
+	}
+}
