@@ -57,9 +57,10 @@ type AIShadowScenarioDraftCommand struct {
 }
 
 type ScheduleNotifications struct {
-	EvaluationCompleted bool `json:"evaluation_completed,omitempty"`
-	LifecycleRequired   bool `json:"lifecycle_required,omitempty"`
-	FirstFailure        bool `json:"first_failure,omitempty"`
+	EvaluationCompleted        bool `json:"evaluation_completed,omitempty"`
+	LifecycleRequired          bool `json:"lifecycle_required,omitempty"`
+	FirstFailure               bool `json:"first_failure,omitempty"`
+	ReconciliationReviewNeeded bool `json:"reconciliation_review_required,omitempty"`
 }
 
 // ScheduleConditions is intentionally narrow. A schedule only requests a

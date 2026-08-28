@@ -383,31 +383,35 @@ type ScheduleStatus struct {
 }
 
 type ScheduledRun struct {
-	StrategyInstanceID  string
-	UserID              string
-	FinancialAccountID  string
-	OwnerEmail          string
-	OwnerEmailVerified  bool
-	MandateID           string
-	MandateVersion      int
-	ExecutionMode       ExecutionMode
-	CurrentState        State
-	IntervalMinutes     int
-	Session             string
-	ScheduledFor        time.Time
-	LeaseToken          string
-	NotifyEvaluation    bool
-	NotifyLifecycle     bool
-	NotifyFirstFailure  bool
-	PreviousErrorCode   *string
-	ConsecutiveFailures int
+	StrategyInstanceID               string
+	UserID                           string
+	FinancialAccountID               string
+	OwnerEmail                       string
+	OwnerEmailVerified               bool
+	MandateID                        string
+	MandateVersion                   int
+	ExecutionMode                    ExecutionMode
+	CurrentState                     State
+	IntervalMinutes                  int
+	Session                          string
+	ScheduledFor                     time.Time
+	LeaseToken                       string
+	NotifyEvaluation                 bool
+	NotifyLifecycle                  bool
+	NotifyFirstFailure               bool
+	NotifyReconciliationReview       bool
+	LastReconciliationNotificationID *string
+	PreviousErrorCode                *string
+	ConsecutiveFailures              int
 }
 
 type ScheduleCompletion struct {
-	Status      string
-	ErrorCode   string
-	CompletedAt time.Time
-	NextRunAt   time.Time
+	Status                       string
+	ErrorCode                    string
+	CompletedAt                  time.Time
+	NextRunAt                    time.Time
+	ReconciliationID             string
+	ReconciliationReviewRequired bool
 }
 type EvaluationOutcome struct {
 	Execution              ExecutionResult   `json:"execution"`

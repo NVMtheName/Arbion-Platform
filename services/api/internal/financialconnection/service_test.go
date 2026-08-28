@@ -546,32 +546,33 @@ func TestScheduledReconciliationBootstrapsConfirmsAndRefreshesWithoutBrokerActio
 	reports := &reconciliationStoreFake{}
 	service := reconciliationService(t, provider, reports)
 
-	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now); err != nil {
+	baselineID, reviewRequired, err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reports.items) != 1 || reports.items[0].ComparisonStatus != "BASELINE" || provider.balances != 1 || provider.positions != 1 {
+	if len(reports.items) != 1 || baselineID != reports.items[0].ID || reviewRequired || reports.items[0].ComparisonStatus != "BASELINE" || provider.balances != 1 || provider.positions != 1 {
 		t.Fatalf("missing evidence did not create one read-only baseline: reports=%#v provider=%#v", reports.items, provider)
 	}
-	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now.Add(29*time.Minute)); err != nil {
-		t.Fatal(err)
+	if currentID, needsReview, ensureErr := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now.Add(29*time.Minute)); ensureErr != nil || currentID != baselineID || needsReview {
+		t.Fatalf("current baseline identity was not returned safely: id=%q review=%v err=%v", currentID, needsReview, ensureErr)
 	}
 	if len(reports.items) != 1 || provider.balances != 1 || provider.positions != 1 {
 		t.Fatalf("baseline confirmation delay was bypassed: reports=%d provider=%#v", len(reports.items), provider)
 	}
 	confirmedAt := now.Add(31 * time.Minute)
-	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", confirmedAt); err != nil {
+	if _, _, err = service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", confirmedAt); err != nil {
 		t.Fatal(err)
 	}
 	if len(reports.items) != 2 || reports.items[1].ComparisonStatus != "MATCHED" || reports.items[1].BlocksNewActions || provider.balances != 2 || provider.positions != 2 {
 		t.Fatalf("stable baseline was not confirmed safely: reports=%#v provider=%#v", reports.items, provider)
 	}
-	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", confirmedAt.Add(12*time.Hour-time.Second)); err != nil {
+	if _, _, err = service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", confirmedAt.Add(12*time.Hour-time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if len(reports.items) != 2 {
 		t.Fatalf("healthy evidence refreshed too early: %d", len(reports.items))
 	}
-	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", confirmedAt.Add(12*time.Hour)); err != nil {
+	if _, _, err = service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", confirmedAt.Add(12*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if len(reports.items) != 3 || reports.items[2].ComparisonStatus != "MATCHED" || provider.balances != 3 || provider.positions != 3 {
@@ -592,13 +593,13 @@ func TestScheduledReconciliationRetriesIncompleteButNeverClearsDrift(t *testing.
 	}}}
 	service := reconciliationService(t, provider, reports)
 
-	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now); err != nil {
+	if _, _, err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now); err != nil {
 		t.Fatal(err)
 	}
 	if len(reports.items) != 1 || provider.balances != 0 || provider.positions != 0 {
 		t.Fatalf("incomplete evidence retried before the bounded delay: reports=%d provider=%#v", len(reports.items), provider)
 	}
-	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now.Add(time.Minute)); err != nil {
+	if _, _, err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if len(reports.items) != 2 || reports.items[1].ComparisonStatus != "BASELINE" || provider.balances != 1 || provider.positions != 1 {
@@ -608,12 +609,13 @@ func TestScheduledReconciliationRetriesIncompleteButNeverClearsDrift(t *testing.
 	reports.items = append(reports.items, PortfolioReconciliation{
 		ID: "drift", FinancialAccountID: "account-1", Provider: "coinbase",
 		ComparisonStatus: "DRIFT_DETECTED", BalancesStatus: "READY", PositionsStatus: "READY",
-		AutonomyEnforcementActive: true, BlocksNewActions: true, ObservedAt: now.Add(2 * time.Minute),
+		AutonomyEnforcementActive: true, BlocksNewActions: true, BlockingChangeCount: 1, ObservedAt: now.Add(2 * time.Minute),
 	})
-	if err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now.Add(48*time.Hour)); err != nil {
+	driftID, needsReview, err := service.EnsureScheduledReconciliation(context.Background(), founder(), "account-1", now.Add(48*time.Hour))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reports.items) != 3 || provider.balances != 1 || provider.positions != 1 {
+	if driftID != "drift" || !needsReview || len(reports.items) != 3 || provider.balances != 1 || provider.positions != 1 {
 		t.Fatalf("confirmed drift was automatically cleared: reports=%#v provider=%#v", reports.items, provider)
 	}
 }

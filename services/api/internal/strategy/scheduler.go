@@ -23,6 +23,7 @@ const (
 type ScheduleStore interface {
 	ClaimDueSchedule(context.Context, time.Time, time.Duration) (*ScheduledRun, error)
 	CompleteSchedule(context.Context, ScheduledRun, ScheduleCompletion) error
+	RecordReconciliationNotification(context.Context, ScheduledRun, string, time.Time) error
 }
 
 type ScheduledEvaluator interface {
@@ -30,7 +31,7 @@ type ScheduledEvaluator interface {
 }
 
 type ScheduledReconciler interface {
-	EnsureScheduledReconciliation(context.Context, authorization.Principal, string, time.Time) error
+	EnsureScheduledReconciliation(context.Context, authorization.Principal, string, time.Time) (string, bool, error)
 }
 
 type Scheduler struct {
@@ -108,7 +109,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 		principal := authorization.Principal{UserID: run.UserID, Entitlement: authorization.EntitlementFounder}
 		eventID := fmt.Sprintf("scheduled:%d", run.ScheduledFor.UTC().Unix())
 		if run.ExecutionMode == Shadow && run.CurrentState == AIMonitoring && s.reconciler != nil {
-			err = s.reconciler.EnsureScheduledReconciliation(ctx, principal, run.FinancialAccountID, now)
+			completion.ReconciliationID, completion.ReconciliationReviewRequired, err = s.reconciler.EnsureScheduledReconciliation(ctx, principal, run.FinancialAccountID, now)
 			if err != nil {
 				completion.Status, completion.ErrorCode = "FAILED", "RECONCILIATION_REFRESH_FAILED"
 			}
@@ -129,6 +130,11 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 		if err := s.notifier.Send(ctx, *event); err != nil {
 			s.logger.Error("non-live schedule notification delivery failed", "strategy_instance_id", run.StrategyInstanceID, "notification_kind", event.Kind)
 		} else {
+			if event.Kind == automationnotification.ReconciliationReviewRequired {
+				if err := s.store.RecordReconciliationNotification(ctx, *run, completion.ReconciliationID, s.now().UTC()); err != nil {
+					s.logger.Error("non-live reconciliation notification marker failed", "strategy_instance_id", run.StrategyInstanceID, "notification_kind", event.Kind)
+				}
+			}
 			s.logger.Info("non-live schedule notification delivered", "strategy_instance_id", run.StrategyInstanceID, "notification_kind", event.Kind)
 		}
 	}
@@ -141,13 +147,17 @@ func scheduleNotification(run ScheduledRun, completion ScheduleCompletion) *auto
 		return nil
 	}
 	event := automationnotification.Event{
-		Recipient:     run.OwnerEmail,
-		MandateID:     run.MandateID,
-		ExecutionMode: string(run.ExecutionMode),
-		ScheduledFor:  run.ScheduledFor,
-		SafeErrorCode: completion.ErrorCode,
+		Recipient:          run.OwnerEmail,
+		MandateID:          run.MandateID,
+		FinancialAccountID: run.FinancialAccountID,
+		ReconciliationID:   completion.ReconciliationID,
+		ExecutionMode:      string(run.ExecutionMode),
+		ScheduledFor:       run.ScheduledFor,
+		SafeErrorCode:      completion.ErrorCode,
 	}
 	switch {
+	case completion.Status == "SUCCEEDED" && completion.ReconciliationReviewRequired && run.NotifyReconciliationReview && completion.ReconciliationID != "" && (run.LastReconciliationNotificationID == nil || *run.LastReconciliationNotificationID != completion.ReconciliationID):
+		event.Kind = automationnotification.ReconciliationReviewRequired
 	case completion.Status == "SUCCEEDED" && run.NotifyEvaluation:
 		event.Kind = automationnotification.EvaluationCompleted
 	case completion.ErrorCode == "WAITING_FOR_LIFECYCLE" && run.NotifyLifecycle && (run.PreviousErrorCode == nil || *run.PreviousErrorCode != "WAITING_FOR_LIFECYCLE"):

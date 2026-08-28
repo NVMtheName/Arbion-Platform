@@ -11,6 +11,7 @@ export type StrategyScheduleConditions = {
     evaluation_completed?: boolean;
     lifecycle_required?: boolean;
     first_failure?: boolean;
+    reconciliation_review_required?: boolean;
   };
 };
 
@@ -103,6 +104,17 @@ export function StrategyScheduleControls(props: Props) {
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const notifications: NonNullable<
+      StrategyScheduleConditions["notifications"]
+    > = {
+      evaluation_completed: form.get("notify_evaluation_completed") === "on",
+      lifecycle_required: form.get("notify_lifecycle_required") === "on",
+      first_failure: form.get("notify_first_failure") === "on",
+    };
+    if (props.automationType === "AI_AUTONOMOUS") {
+      notifications.reconciliation_review_required =
+        form.get("notify_reconciliation_review_required") === "on";
+    }
     const schedule = enabled
       ? {
           enabled: true,
@@ -112,12 +124,7 @@ export function StrategyScheduleControls(props: Props) {
             (props.financialProvider === "coinbase"
               ? "CONTINUOUS"
               : "US_EQUITIES_REGULAR"),
-          notifications: {
-            evaluation_completed:
-              form.get("notify_evaluation_completed") === "on",
-            lifecycle_required: form.get("notify_lifecycle_required") === "on",
-            first_failure: form.get("notify_first_failure") === "on",
-          },
+          notifications,
         }
       : { enabled: false };
     setBusy(true);
@@ -225,6 +232,19 @@ export function StrategyScheduleControls(props: Props) {
               Email once when a PAPER option needs lifecycle review
             </label>
           )}
+          {props.automationType === "AI_AUTONOMOUS" && (
+            <label>
+              <input
+                name="notify_reconciliation_review_required"
+                type="checkbox"
+                defaultChecked={Boolean(
+                  props.conditions.notifications
+                    ?.reconciliation_review_required,
+                )}
+              />{" "}
+              Email when a new tradable-inventory change needs review
+            </label>
+          )}
           <label>
             <input
               name="notify_first_failure"
@@ -240,7 +260,7 @@ export function StrategyScheduleControls(props: Props) {
           <p className="security-note">
             Emails go only to your verified Arbion address. They are
             informational and contain no approval, continuation, or execution
-            action.
+            action. Portfolio alerts never acknowledge a change for you.
           </p>
         ) : (
           <p className="security-note">

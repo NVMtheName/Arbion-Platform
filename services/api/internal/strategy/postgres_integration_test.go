@@ -69,7 +69,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES('` + aiConnectionID + `','` + userID + `','ai','openai','OpenAI','active')`,
 		`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES('` + aiAccountID + `','` + userID + `','` + connectionID + `','schwab','opaque-ai','Schwab AI Test','brokerage','USD','active','{"options":"UNSUPPORTED","margin":"UNSUPPORTED"}')`,
 		`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES('` + aiBucketID + `','` + userID + `','` + aiAccountID + `','AI shadow budget','FIXED_AMOUNT',10,'USD',0,'ACTIVE')`,
-		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,ai_provider_connection_id,ai_model_id,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + aiMandateID + `','` + userID + `','` + aiAccountID + `','AI_AUTONOMOUS','` + aiConnectionID + `','gpt-5.6-sol','` + aiBucketID + `','FULL_AUTONOMOUS','SHADOW','READY',1,'{"objective":"Preserve capital.","max_proposal_notional":"1"}','{}','{"symbols":["AAPL"],"universe_ids":[]}','{"symbols":[]}',false,false,'{}',false)`,
+		`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,ai_provider_connection_id,ai_model_id,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES('` + aiMandateID + `','` + userID + `','` + aiAccountID + `','AI_AUTONOMOUS','` + aiConnectionID + `','gpt-5.6-sol','` + aiBucketID + `','FULL_AUTONOMOUS','SHADOW','READY',1,'{"objective":"Preserve capital.","max_proposal_notional":"1"}','{}','{"symbols":["AAPL"],"universe_ids":[]}','{"symbols":[]}',false,false,'{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR","notifications":{"reconciliation_review_required":true}}',false)`,
 		`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'UI',to_jsonb(m) || '{"execution_capable":false}'::jsonb,'{}'::jsonb FROM automation_mandates m WHERE id='` + aiMandateID + `'`,
 	}
 	for _, statement := range statements {
@@ -373,7 +373,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 		AutomationType: "AI_AUTONOMOUS", AIProviderConnectionID: &aiConnection,
 		AIModelID: &aiModel, CapitalBucketID: aiBucketID, AutonomyLevel: "FULL_AUTONOMOUS",
 		ExecutionMode: "SHADOW", Status: "READY", CurrentVersion: 1,
-		ScheduleConditions: json.RawMessage(`{}`),
+		ScheduleConditions: json.RawMessage(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR","notifications":{"reconciliation_review_required":true}}`),
 	}
 	aiInstance, err := store.Initialize(ctx, userID, aiMandate, "0", AIMonitoring)
 	if err != nil || aiInstance.StrategyIdentifier != "ai_shadow" || aiInstance.ExecutionMode != Shadow {
@@ -512,6 +512,38 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	due, err = store.DueShadowOutcomes(ctx, aiInstance, aiEvaluationTime.Add(25*time.Hour))
 	if err != nil || len(due) != 1 || due[0].Horizon != ShadowOutcomeTwentyFourHours {
 		t.Fatalf("24-hour AI shadow mark was not independently due: %#v %v", due, err)
+	}
+	aiClaimAt := time.Now().UTC().Add(62 * time.Minute)
+	aiScheduled, err := store.ClaimDueSchedule(ctx, aiClaimAt, scheduleLeaseDuration)
+	if err != nil || aiScheduled == nil || aiScheduled.StrategyInstanceID != aiInstance.ID || !aiScheduled.NotifyReconciliationReview || aiScheduled.LastReconciliationNotificationID != nil {
+		t.Fatalf("AI drift-review preference did not cross the durable claim boundary: %#v %v", aiScheduled, err)
+	}
+	if err = store.CompleteSchedule(ctx, *aiScheduled, ScheduleCompletion{CompletedAt: aiClaimAt, NextRunAt: aiClaimAt.Add(time.Hour), Status: "SUCCEEDED"}); err != nil {
+		t.Fatal(err)
+	}
+	var driftID string
+	if err = pool.QueryRow(ctx, `INSERT INTO portfolio_reconciliations(user_id,financial_account_id,provider_name,comparison_status,balances_status,positions_status,performance_status,realized_performance_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,observed_position_count,performance_position_count,change_count,blocking_change_count,changes,evidence_hash,observed_at) VALUES($1,$2,'schwab','DRIFT_DETECTED','READY','READY','UNAVAILABLE','UNAVAILABLE','REVIEW_RECOMMENDED',true,true,0,0,1,1,'[{"symbol":"SPY","instrument_type":"EQUITY","direction":"long","change_type":"POSITION_APPEARED","control_impact":"TRADABLE_INVENTORY","current_quantity":"1"}]',decode(repeat('cd',32),'hex'),$3) RETURNING id::text`, userID, aiAccountID, markTime).Scan(&driftID); err != nil {
+		t.Fatal(err)
+	}
+	deliveredAt := aiClaimAt.Add(time.Minute).Truncate(time.Microsecond)
+	run := ScheduledRun{StrategyInstanceID: aiInstance.ID, UserID: userID, FinancialAccountID: aiAccountID}
+	if err = store.RecordReconciliationNotification(ctx, run, driftID, deliveredAt); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.RecordReconciliationNotification(ctx, run, driftID, deliveredAt.Add(time.Hour)); err != nil {
+		t.Fatalf("same immutable drift marker was not idempotent: %v", err)
+	}
+	var storedDriftID string
+	var storedDeliveredAt time.Time
+	if err = pool.QueryRow(ctx, `SELECT last_reconciliation_notification_id::text,last_reconciliation_notification_at FROM nonlive_strategy_schedules WHERE strategy_instance_id=$1`, aiInstance.ID).Scan(&storedDriftID, &storedDeliveredAt); err != nil || storedDriftID != driftID || !storedDeliveredAt.Equal(deliveredAt) {
+		t.Fatalf("drift delivery marker was not durable and stable: id=%q at=%s err=%v", storedDriftID, storedDeliveredAt, err)
+	}
+	var foreignDriftID string
+	if err = pool.QueryRow(ctx, `INSERT INTO portfolio_reconciliations(user_id,financial_account_id,provider_name,comparison_status,balances_status,positions_status,performance_status,realized_performance_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,observed_position_count,performance_position_count,change_count,blocking_change_count,changes,evidence_hash,observed_at) VALUES($1,$2,'schwab','DRIFT_DETECTED','READY','READY','UNAVAILABLE','UNAVAILABLE','REVIEW_RECOMMENDED',true,true,0,0,1,1,'[{"symbol":"AAPL","instrument_type":"EQUITY","direction":"long","change_type":"POSITION_APPEARED","control_impact":"TRADABLE_INVENTORY","current_quantity":"1"}]',decode(repeat('ef',32),'hex'),$3) RETURNING id::text`, userID, accountID, markTime).Scan(&foreignDriftID); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.RecordReconciliationNotification(ctx, run, foreignDriftID, deliveredAt.Add(2*time.Hour)); err == nil {
+		t.Fatal("cross-account drift evidence was accepted as a notification marker")
 	}
 	assertCount(t, pool, `SELECT count(*) FROM shadow_execution_outcomes`, 1)
 }

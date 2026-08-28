@@ -493,6 +493,10 @@ func TestScheduleConditionsAreStrictAndNonLiveOnly(t *testing.T) {
 	if err != nil || !valid.Enabled || valid.IntervalMinutes != 60 || !valid.Notifications.EvaluationCompleted || !valid.Notifications.LifecycleRequired || !valid.Notifications.FirstFailure {
 		t.Fatalf("valid schedule rejected: %#v %v", valid, err)
 	}
+	withReconciliationReview, err := ParseScheduleConditions([]byte(`{"enabled":true,"interval_minutes":60,"session":"CONTINUOUS","notifications":{"reconciliation_review_required":true}}`))
+	if err != nil || !withReconciliationReview.Notifications.ReconciliationReviewNeeded {
+		t.Fatalf("strict reconciliation-review preference was rejected: %#v %v", withReconciliationReview, err)
+	}
 }
 
 func TestScheduleUpdateCreatesDraftAndPreservesNonLiveBoundary(t *testing.T) {
@@ -698,8 +702,32 @@ func TestAIShadowScheduleUpdateCreatesDraftAndEnforcesProviderSession(t *testing
 	if f.updatedCommand.Risk.MaxTradesPerDay == nil || *f.updatedCommand.Risk.MaxTradesPerDay != 1 {
 		t.Fatalf("legacy Schwab AI shadow mandate did not receive the conservative daily action limit: %#v", f.updatedCommand.Risk)
 	}
+	updated, err = service.UpdateSchedule(context.Background(), founder, "m", 3, ScheduleConditions{
+		Enabled: true, IntervalMinutes: 60, Session: "US_EQUITIES_REGULAR",
+		Notifications: ScheduleNotifications{ReconciliationReviewNeeded: true},
+	})
+	if err != nil || updated.CurrentVersion != 4 {
+		t.Fatalf("AI shadow drift-review preference was not stored as a draft: %#v %v", updated, err)
+	}
+	parsed, err = ParseScheduleConditions(f.updatedCommand.ScheduleConditions)
+	if err != nil || !parsed.Notifications.ReconciliationReviewNeeded {
+		t.Fatalf("AI shadow drift-review preference was not preserved: %#v %v", parsed, err)
+	}
 
-	if _, err = service.UpdateSchedule(context.Background(), founder, "m", 3, ScheduleConditions{Enabled: true, IntervalMinutes: 60, Session: "CONTINUOUS"}); err != ErrInvalid {
+	if _, err = service.UpdateSchedule(context.Background(), founder, "m", 4, ScheduleConditions{Enabled: true, IntervalMinutes: 60, Session: "CONTINUOUS"}); err != ErrInvalid {
 		t.Fatalf("Schwab continuous session mismatch accepted: %v", err)
+	}
+}
+
+func TestDeterministicStrategyRejectsAIReconciliationNotification(t *testing.T) {
+	f := baseStore()
+	wheel := "wheel"
+	f.created = Mandate{ID: "m", UserID: founder.UserID, FinancialAccountID: "a", AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: "b", AutonomyLevel: "STRATEGY_AUTONOMOUS", ExecutionMode: "PAPER", Status: "READY", CurrentVersion: 1, StrategyParameters: []byte(`{}`), ScheduleConditions: []byte(`{}`)}
+	_, err := NewService(f, nil).UpdateSchedule(context.Background(), founder, "m", 1, ScheduleConditions{
+		Enabled: true, IntervalMinutes: 60, Session: "US_EQUITIES_REGULAR",
+		Notifications: ScheduleNotifications{ReconciliationReviewNeeded: true},
+	})
+	if err != ErrInvalid {
+		t.Fatalf("deterministic strategy accepted AI-only reconciliation alert: %v", err)
 	}
 }
