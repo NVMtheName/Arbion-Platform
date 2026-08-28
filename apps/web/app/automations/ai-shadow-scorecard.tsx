@@ -23,6 +23,14 @@ function signedPercent(value: unknown) {
   return `+${formatted}%`;
 }
 
+function signedUSD(value: unknown) {
+  const formatted = decimal(value);
+  if (formatted === "—") return formatted;
+  if (formatted.startsWith("-")) return `-$${formatted.slice(1)}`;
+  if (formatted === "0") return "$0";
+  return `+$${formatted}`;
+}
+
 function percent(value: unknown) {
   const formatted = decimal(value);
   return formatted === "—" ? formatted : `${formatted}%`;
@@ -573,6 +581,31 @@ export function AIShadowScorecard({ scorecard }: { scorecard?: RawScore }) {
               "average_directional_change_percent",
               "AverageDirectionalChangePercent",
             );
+            const medianChange = read(
+              horizon,
+              "median_directional_change_percent",
+              "MedianDirectionalChangePercent",
+            );
+            const bestChange = read(
+              horizon,
+              "best_directional_change_percent",
+              "BestDirectionalChangePercent",
+            );
+            const worstChange = read(
+              horizon,
+              "worst_directional_change_percent",
+              "WorstDirectionalChangePercent",
+            );
+            const averageUSD = read(
+              horizon,
+              "average_directional_change_usd",
+              "AverageDirectionalChangeUSD",
+            );
+            const cumulativeUSD = read(
+              horizon,
+              "cumulative_directional_change_usd",
+              "CumulativeDirectionalChangeUSD",
+            );
             const horizonValue = read(horizon, "horizon", "Horizon");
             return (
               <article key={String(horizonValue ?? index)}>
@@ -620,7 +653,34 @@ export function AIShadowScorecard({ scorecard }: { scorecard?: RawScore }) {
                       <dt>Observed favorable rate</dt>
                       <dd>{signedPercent(favorableRate).replace("+", "")}</dd>
                     </div>
+                    <div>
+                      <dt>Median mark</dt>
+                      <dd>{signedPercent(medianChange)}</dd>
+                    </div>
+                    <div>
+                      <dt>Best observed mark</dt>
+                      <dd>{signedPercent(bestChange)}</dd>
+                    </div>
+                    <div>
+                      <dt>Worst observed mark</dt>
+                      <dd>{signedPercent(worstChange)}</dd>
+                    </div>
+                    <div>
+                      <dt>Average marked value</dt>
+                      <dd>{signedUSD(averageUSD)}</dd>
+                    </div>
+                    <div>
+                      <dt>Sum of independent marks</dt>
+                      <dd>{signedUSD(cumulativeUSD)}</dd>
+                    </div>
                   </dl>
+                )}
+                {sampleSize > 0 && (
+                  <p>
+                    Dollar marks scale each stored price move by its
+                    hypothetical quantity. Their sum treats every mark
+                    independently and does not reconstruct a portfolio.
+                  </p>
                 )}
                 <p>
                   {sampleSize} of {minimum || 20} marks before Arbion changes
