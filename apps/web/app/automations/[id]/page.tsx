@@ -45,6 +45,7 @@ import {
   ScheduleRunHistory,
   type ScheduleRunRecord,
 } from "../schedule-run-history";
+import { StrategyRuntimeEvidenceLedger } from "../strategy-runtime-evidence-ledger";
 
 export default async function MandateReview({
   params,
@@ -193,9 +194,9 @@ export default async function MandateReview({
   ] = instanceID
     ? await Promise.all(
         [
-          "history",
+          "history?limit=16",
           "decisions?limit=24",
-          "executions",
+          "executions?limit=16",
           "shadow-scorecard",
           "shadow-evidence-reviews?limit=8",
           "schedule",
@@ -678,19 +679,30 @@ export default async function MandateReview({
         </p>
       )}
       {instance && (
-        <section>
-          <p className="eyebrow">STRATEGY HISTORY</p>
-          <h2>Durable non-live activity</h2>
-          <p>
-            {count(history.transitions)} state transition(s) ·{" "}
-            {count(decisions.decisions)} loaded decision(s) ·{" "}
-            {count(executions.executions)} execution record(s)
-          </p>
-          <p>
-            Evaluations are manual unless this exact mandate version has an
-            enabled guarded schedule.
-          </p>
-        </section>
+        <StrategyRuntimeEvidenceLedger
+          strategyInstanceId={instanceID}
+          initialTransitions={
+            Array.isArray(history.transitions)
+              ? (history.transitions as Record<string, unknown>[])
+              : []
+          }
+          initialExecutions={
+            Array.isArray(executions.executions)
+              ? (executions.executions as Record<string, unknown>[])
+              : []
+          }
+          initialTransitionCursor={String(history.next_cursor ?? "")}
+          initialExecutionCursor={String(executions.next_cursor ?? "")}
+          transitionHistoryAvailable={
+            history.history_semantics ===
+            "IMMUTABLE_OWNER_STRATEGY_STATE_HISTORY"
+          }
+          executionHistoryAvailable={
+            executions.history_semantics ===
+            "IMMUTABLE_OWNER_NONLIVE_EXECUTION_HISTORY"
+          }
+          loadedDecisionCount={count(decisions.decisions)}
+        />
       )}
     </main>
   );

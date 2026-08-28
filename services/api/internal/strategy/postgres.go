@@ -242,21 +242,37 @@ func (s *PostgresStore) Schedule(c context.Context, u, id string) (ScheduleStatu
 	)
 	return status, err
 }
-func (s *PostgresStore) History(c context.Context, u, id string) ([]Transition, error) {
-	rows, e := s.db.Query(c, `SELECT t.id::text,t.strategy_instance_id::text,t.previous_state,t.new_state,t.state_version,t.trigger,t.proposed_action_id,t.risk_evaluation_id::text,t.execution_record_id::text,t.metadata,t.occurred_at FROM strategy_state_transitions t JOIN strategy_instances i ON i.id=t.strategy_instance_id WHERE i.id=$1 AND i.user_id=$2 ORDER BY t.state_version`, id, u)
-	if e != nil {
-		return nil, e
+func (s *PostgresStore) StrategyTransitionEntries(c context.Context, userID, instanceID string, limit int, after *StrategyTransitionCursor) ([]StrategyTransitionEvidence, error) {
+	query := `SELECT t.id::text,t.strategy_instance_id::text,t.previous_state,t.new_state,t.state_version,t.trigger,t.occurred_at
+		FROM strategy_state_transitions t
+		JOIN strategy_instances i ON i.id=t.strategy_instance_id
+		WHERE i.id=$1 AND i.user_id=$2
+		ORDER BY t.state_version DESC,t.id DESC
+		LIMIT $3`
+	args := []any{instanceID, userID, limit}
+	if after != nil {
+		query = `SELECT t.id::text,t.strategy_instance_id::text,t.previous_state,t.new_state,t.state_version,t.trigger,t.occurred_at
+			FROM strategy_state_transitions t
+			JOIN strategy_instances i ON i.id=t.strategy_instance_id
+			WHERE i.id=$1 AND i.user_id=$2 AND (t.state_version,t.id) < ($3,$4::uuid)
+			ORDER BY t.state_version DESC,t.id DESC
+			LIMIT $5`
+		args = []any{instanceID, userID, after.StateVersion, after.ID, limit}
+	}
+	rows, err := s.db.Query(c, query, args...)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
-	out := []Transition{}
+	transitions := []StrategyTransitionEvidence{}
 	for rows.Next() {
-		var x Transition
-		if e = rows.Scan(&x.ID, &x.StrategyInstanceID, &x.PreviousState, &x.NewState, &x.StateVersion, &x.Trigger, &x.ProposedActionID, &x.RiskEvaluationID, &x.ExecutionRecordID, &x.Metadata, &x.OccurredAt); e != nil {
-			return nil, e
+		var transition StrategyTransitionEvidence
+		if err = rows.Scan(&transition.ID, &transition.StrategyInstanceID, &transition.PreviousState, &transition.NewState, &transition.StateVersion, &transition.Trigger, &transition.OccurredAt); err != nil {
+			return nil, err
 		}
-		out = append(out, x)
+		transitions = append(transitions, transition)
 	}
-	return out, rows.Err()
+	return transitions, rows.Err()
 }
 
 const strategyDecisionColumns = `d.id::text,d.strategy_instance_id::text,d.strategy_state,d.source,d.decision_type,d.structured_rationale,d.proposed_action_id,d.risk_evaluation_id::text,d.execution_record_id::text,d.resulting_state,d.created_at,r.decision,r.approval_required,r.reason_codes,r.checks,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.price::text,x.notional::text`
@@ -355,21 +371,35 @@ func (s *PostgresStore) Journal(c context.Context, userID string, limit int, cur
 	}
 	return activities, rows.Err()
 }
-func (s *PostgresStore) Executions(c context.Context, u, id string) ([]ExecutionRecord, error) {
-	rows, e := s.db.Query(c, `SELECT x.id::text,x.idempotency_key,x.user_id::text,x.strategy_instance_id::text,x.mandate_id::text,x.mandate_version,x.proposed_action_id,x.risk_evaluation_id::text,x.mode,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.price::text,x.notional::text,x.metadata,x.created_at FROM nonlive_execution_records x WHERE x.strategy_instance_id=$1 AND x.user_id=$2 ORDER BY x.created_at DESC`, id, u)
-	if e != nil {
-		return nil, e
+func (s *PostgresStore) StrategyExecutionEntries(c context.Context, userID, instanceID string, limit int, after *StrategyExecutionCursor) ([]StrategyExecutionEvidence, error) {
+	query := `SELECT x.id::text,x.strategy_instance_id::text,x.mandate_version,x.mode,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.price::text,x.notional::text,x.created_at
+		FROM nonlive_execution_records x
+		WHERE x.strategy_instance_id=$1 AND x.user_id=$2
+		ORDER BY x.created_at DESC,x.id DESC
+		LIMIT $3`
+	args := []any{instanceID, userID, limit}
+	if after != nil {
+		query = `SELECT x.id::text,x.strategy_instance_id::text,x.mandate_version,x.mode,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.price::text,x.notional::text,x.created_at
+			FROM nonlive_execution_records x
+			WHERE x.strategy_instance_id=$1 AND x.user_id=$2 AND (x.created_at,x.id) < ($3,$4::uuid)
+			ORDER BY x.created_at DESC,x.id DESC
+			LIMIT $5`
+		args = []any{instanceID, userID, after.CreatedAt, after.ID, limit}
+	}
+	rows, err := s.db.Query(c, query, args...)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
-	out := []ExecutionRecord{}
+	executions := []StrategyExecutionEvidence{}
 	for rows.Next() {
-		var x ExecutionRecord
-		if e = rows.Scan(&x.ID, &x.IdempotencyKey, &x.UserID, &x.StrategyInstanceID, &x.MandateID, &x.MandateVersion, &x.ProposedActionID, &x.RiskEvaluationID, &x.Mode, &x.Status, &x.Symbol, &x.Instrument, &x.Side, &x.Quantity, &x.Price, &x.Notional, &x.Metadata, &x.CreatedAt); e != nil {
-			return nil, e
+		var execution StrategyExecutionEvidence
+		if err = rows.Scan(&execution.ID, &execution.StrategyInstanceID, &execution.MandateVersion, &execution.Mode, &execution.Status, &execution.Symbol, &execution.Instrument, &execution.Side, &execution.Quantity, &execution.Price, &execution.Notional, &execution.CreatedAt); err != nil {
+			return nil, err
 		}
-		out = append(out, x)
+		executions = append(executions, execution)
 	}
-	return out, rows.Err()
+	return executions, rows.Err()
 }
 
 func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID string) (PaperPortfolio, error) {

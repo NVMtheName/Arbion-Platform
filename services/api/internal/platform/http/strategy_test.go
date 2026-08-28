@@ -123,6 +123,48 @@ func TestStrategyDecisionCursorRoundTripsAndRejectsMalformedInput(t *testing.T) 
 	}
 }
 
+func TestStrategyRuntimeCursorsRoundTripAndRejectMalformedInput(t *testing.T) {
+	transition := &strategy.StrategyTransitionCursor{
+		StateVersion: 7,
+		ID:           "11111111-1111-4111-8111-111111111111",
+	}
+	encodedTransition := encodeStrategyTransitionCursor(transition)
+	decodedTransition, err := decodeStrategyTransitionCursor(encodedTransition)
+	if err != nil || decodedTransition.StateVersion != transition.StateVersion || decodedTransition.ID != transition.ID {
+		t.Fatalf("strategy-transition cursor changed during round trip: %#v %v", decodedTransition, err)
+	}
+	execution := &strategy.StrategyExecutionCursor{
+		CreatedAt: time.Date(2026, 8, 28, 7, 12, 30, 123, time.UTC),
+		ID:        "22222222-2222-4222-8222-222222222222",
+	}
+	encodedExecution := encodeStrategyExecutionCursor(execution)
+	decodedExecution, err := decodeStrategyExecutionCursor(encodedExecution)
+	if err != nil || decodedExecution.ID != execution.ID || !decodedExecution.CreatedAt.Equal(execution.CreatedAt) {
+		t.Fatalf("strategy-execution cursor changed during round trip: %#v %v", decodedExecution, err)
+	}
+	for _, input := range []string{
+		"not-base64",
+		"e30",
+		strings.Repeat("a", 513),
+		encodeStrategyTransitionCursor(&strategy.StrategyTransitionCursor{StateVersion: 0, ID: transition.ID}),
+		encodeStrategyTransitionCursor(&strategy.StrategyTransitionCursor{StateVersion: 1, ID: "not-a-uuid"}),
+	} {
+		if _, err = decodeStrategyTransitionCursor(input); err == nil {
+			t.Fatalf("malformed strategy-transition cursor was accepted: %q", input)
+		}
+	}
+	for _, input := range []string{
+		"not-base64",
+		"e30",
+		strings.Repeat("a", 513),
+		encodeStrategyExecutionCursor(&strategy.StrategyExecutionCursor{CreatedAt: time.Now(), ID: "not-a-uuid"}),
+	} {
+		if _, err = decodeStrategyExecutionCursor(input); err == nil {
+			t.Fatalf("malformed strategy-execution cursor was accepted: %q", input)
+		}
+	}
+}
+
 func TestShadowEvidenceReviewCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
 	want := &strategy.ShadowEvidenceReviewCursor{
 		ReviewedAt: time.Date(2026, 8, 28, 5, 12, 30, 123, time.UTC),
