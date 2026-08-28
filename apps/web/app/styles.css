@@ -2237,6 +2237,19 @@ button:disabled {
   color: #648077;
   text-align: right;
 }
+.strategy-fleet-evidence-blockers {
+  display: grid;
+  gap: 0.2rem;
+  margin: 10px 0 0;
+  padding: 10px 0 0 1rem;
+  border-top: 1px solid rgba(139, 181, 163, 0.09);
+  color: #7e9489;
+  font-size: 0.61rem;
+  line-height: 1.45;
+}
+.strategy-fleet-evidence-blockers li::marker {
+  color: var(--brand-cyan);
+}
 .strategy-fleet-evidence.is-reviewable {
   border-color: rgba(94, 224, 160, 0.27);
   background: rgba(18, 58, 42, 0.28);

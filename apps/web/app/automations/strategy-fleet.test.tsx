@@ -533,6 +533,10 @@ describe("StrategyFleet", () => {
     expect(evidence).toHaveTextContent("4 / 20");
     expect(evidence).toHaveTextContent("48 / 168h");
     expect(evidence).toHaveTextContent("3 remaining conditions");
+    expect(evidence).toHaveTextContent("Collect more 1-hour outcome marks");
+    expect(evidence).toHaveTextContent(
+      "Observe the mandate across a longer window",
+    );
     expect(evidence).toHaveTextContent("never live authority");
     const pulse = screen.getByRole("region", {
       name: "AI Shadow Engine latest AI decision",
