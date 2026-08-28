@@ -131,6 +131,17 @@ function readable(value: string) {
     .join(" ");
 }
 
+function evidenceBlockerLabel(value: string) {
+  const labels: Record<string, string> = {
+    ONE_HOUR_SAMPLE_INCOMPLETE: "Collect more 1-hour outcome marks",
+    TWENTY_FOUR_HOUR_SAMPLE_INCOMPLETE: "Collect more 24-hour outcome marks",
+    EVIDENCE_WINDOW_INCOMPLETE: "Observe the mandate across a longer window",
+    SCHEDULE_NOT_VERIFIED: "Complete a healthy scheduled cycle",
+    SCHEDULE_UNHEALTHY: "Resolve the current scheduler failure",
+  };
+  return labels[value] ?? value.replaceAll("_", " ");
+}
+
 function readableTime(value?: string) {
   if (!value) return "—";
   const date = new Date(value);
@@ -1192,6 +1203,16 @@ function StrategyFleetEvidence({ item }: { item: StrategyFleetItem }) {
           : " · exact gate complete"}
         <span>Reviewability only · never live authority</span>
       </p>
+      {item.evidenceBlockers && item.evidenceBlockers.length > 0 && (
+        <ul
+          className="strategy-fleet-evidence-blockers"
+          aria-label="Shadow evidence blockers"
+        >
+          {item.evidenceBlockers.map((blocker) => (
+            <li key={blocker}>{evidenceBlockerLabel(blocker)}</li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
