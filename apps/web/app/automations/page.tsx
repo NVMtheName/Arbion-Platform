@@ -35,6 +35,12 @@ function symbols(mandate: RecordValue) {
     : [];
 }
 
+function stringList(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 function strategyTitle(mandate: RecordValue) {
   if (text(mandate, "automation_type", "AutomationType") === "AI_AUTONOMOUS")
     return "AI Shadow Engine";
@@ -101,15 +107,33 @@ async function fleetItem(
   const instance = currentInstance(mandate, instances);
   const instanceID = text(instance, "id", "ID");
   const instanceStatus = text(instance, "status", "Status");
+  const automationType =
+    text(mandate, "automation_type", "AutomationType") ?? "UNKNOWN";
   const expectsSchedule =
     Boolean(instanceID) && ["ACTIVE", "PAUSED"].includes(instanceStatus ?? "");
-  const scheduleResult = expectsSchedule
-    ? await fetchOptional<{ schedule?: RecordValue }>(
-        `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/schedule`,
-        headers,
-      )
-    : { available: true as const, payload: undefined };
+  const expectsEvidence =
+    Boolean(instanceID) && automationType === "AI_AUTONOMOUS";
+  const [scheduleResult, scorecardResult] = await Promise.all([
+    expectsSchedule
+      ? fetchOptional<{ schedule?: RecordValue }>(
+          `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/schedule`,
+          headers,
+        )
+      : Promise.resolve({ available: true as const, payload: undefined }),
+    expectsEvidence
+      ? fetchOptional<{ scorecard?: RecordValue }>(
+          `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/shadow-scorecard`,
+          headers,
+        )
+      : Promise.resolve({ available: true as const, payload: undefined }),
+  ]);
   const schedule = scheduleResult.payload?.schedule;
+  const scorecard = scorecardResult.payload?.scorecard;
+  const evidenceGate = (scorecard?.evidence_gate ?? scorecard?.EvidenceGate) as
+    | RecordValue
+    | undefined;
+  const evidenceAvailable =
+    expectsEvidence && scorecardResult.available && Boolean(evidenceGate);
 
   return {
     id,
@@ -117,8 +141,7 @@ async function fleetItem(
     accountName:
       text(account, "display_name", "DisplayName") ?? "Connected account",
     provider: text(account, "provider", "Provider") ?? "connected_account",
-    automationType:
-      text(mandate, "automation_type", "AutomationType") ?? "UNKNOWN",
+    automationType,
     mandateStatus: text(mandate, "status", "Status") ?? "UNKNOWN",
     autonomyLevel:
       text(mandate, "autonomy_level", "AutonomyLevel") ?? "UNKNOWN",
@@ -135,6 +158,46 @@ async function fleetItem(
     consecutiveFailures:
       number(schedule, "consecutive_failures", "ConsecutiveFailures") ?? 0,
     nextRunAt: text(schedule, "next_run_at", "NextRunAt"),
+    evidenceAvailable: expectsEvidence ? evidenceAvailable : undefined,
+    evidenceStatus: text(evidenceGate, "status", "Status"),
+    oneHourSampleSize: number(
+      evidenceGate,
+      "one_hour_sample_size",
+      "OneHourSampleSize",
+    ),
+    twentyFourHourSampleSize: number(
+      evidenceGate,
+      "twenty_four_hour_sample_size",
+      "TwentyFourHourSampleSize",
+    ),
+    minimumSamplePerHorizon: number(
+      evidenceGate,
+      "minimum_sample_per_horizon",
+      "MinimumSamplePerHorizon",
+    ),
+    evidenceWindowHours: number(
+      evidenceGate,
+      "evidence_window_hours",
+      "EvidenceWindowHours",
+    ),
+    minimumEvidenceWindowHours: number(
+      evidenceGate,
+      "minimum_evidence_window_hours",
+      "MinimumEvidenceWindowHours",
+    ),
+    evidenceScheduleHealthy: flag(
+      evidenceGate,
+      "schedule_healthy",
+      "ScheduleHealthy",
+    ),
+    evidenceBlockers: stringList(
+      evidenceGate?.blockers ?? evidenceGate?.Blockers,
+    ),
+    currentEvidenceReviewed: flag(
+      scorecard,
+      "current_evidence_reviewed",
+      "CurrentEvidenceReviewed",
+    ),
     accountContextAvailable: accountContextAvailable && Boolean(account),
     instanceContextAvailable,
   };
