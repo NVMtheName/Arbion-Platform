@@ -49,6 +49,11 @@ describe("SecurityActivity", () => {
             id: "55555555-5555-4555-8555-555555555555",
             action: "auth.logout_others",
           },
+          {
+            ...login,
+            id: "77777777-7777-4777-8777-777777777777",
+            action: "strategy_instance.shadow_evidence_reviewed",
+          },
         ]}
       />,
     );
@@ -62,6 +67,7 @@ describe("SecurityActivity", () => {
       screen.getByText("Global emergency stop engaged"),
     ).toBeInTheDocument();
     expect(screen.getByText("Other sessions signed out")).toBeInTheDocument();
+    expect(screen.getByText("Shadow evidence reviewed")).toBeInTheDocument();
     expect(screen.getByText(/excludes email addresses/i)).toBeInTheDocument();
     expect(screen.queryByText(/credential value/i)).not.toBeInTheDocument();
   });

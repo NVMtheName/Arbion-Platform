@@ -747,6 +747,86 @@ select {
     radial-gradient(circle at 8% 0%, rgba(94, 224, 160, 0.12), transparent 30%),
     linear-gradient(145deg, rgba(7, 27, 22, 0.94), rgba(4, 13, 11, 0.96));
 }
+.shadow-evidence-review {
+  margin: 28px 0;
+  padding: 26px;
+  border: 1px solid rgba(94, 224, 160, 0.24);
+  border-radius: 20px;
+  background:
+    radial-gradient(
+      circle at 94% 4%,
+      rgba(25, 201, 214, 0.12),
+      transparent 34%
+    ),
+    linear-gradient(145deg, rgba(8, 30, 23, 0.96), rgba(4, 14, 11, 0.98));
+}
+.shadow-evidence-review > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.shadow-evidence-review > header h2 {
+  margin: 4px 0 10px;
+}
+.shadow-evidence-review > header p:last-child {
+  max-width: 760px;
+  margin: 0;
+  color: var(--brand-muted);
+  line-height: 1.6;
+}
+.shadow-evidence-boundary {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid rgba(94, 224, 160, 0.28);
+  border-radius: 999px;
+  color: var(--brand-mint);
+  background: rgba(94, 224, 160, 0.07);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+}
+.shadow-evidence-review-state {
+  margin: 22px 0;
+  padding: 17px 18px;
+  border: 1px solid rgba(139, 181, 163, 0.18);
+  border-radius: 13px;
+  background: rgba(3, 13, 9, 0.56);
+}
+.shadow-evidence-review-state strong {
+  color: #effbf4;
+}
+.shadow-evidence-review-state p {
+  margin: 7px 0 0;
+  color: var(--brand-muted);
+  line-height: 1.55;
+}
+.shadow-evidence-review-state.is-reviewed {
+  border-color: rgba(94, 224, 160, 0.34);
+  box-shadow: inset 3px 0 var(--brand-mint);
+}
+.shadow-evidence-review-state.is-stale,
+.shadow-evidence-review-state.is-collecting {
+  border-color: rgba(229, 190, 92, 0.3);
+  box-shadow: inset 3px 0 #e7c66e;
+}
+.shadow-evidence-review form {
+  display: grid;
+  gap: 14px;
+  max-width: 620px;
+  margin-top: 22px;
+}
+.shadow-evidence-review form > label:first-child {
+  max-width: 230px;
+}
+.shadow-evidence-review footer {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(139, 181, 163, 0.14);
+  color: var(--brand-muted);
+  font-size: 0.78rem;
+}
 .autonomy-evidence-report > header {
   display: flex;
   align-items: flex-start;

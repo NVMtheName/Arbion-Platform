@@ -235,6 +235,7 @@ var securityActivityActions = []string{
 	"strategy_instance.paused",
 	"strategy_instance.resumed",
 	"strategy_instance.completed",
+	"strategy_instance.shadow_evidence_reviewed",
 	"automation_circuit_breaker.engaged",
 	"automation_circuit_breaker.released",
 	"account_circuit_breaker.engaged",

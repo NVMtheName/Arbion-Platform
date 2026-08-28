@@ -222,11 +222,49 @@ type ShadowHorizonScore struct {
 }
 
 type ShadowScorecard struct {
-	StrategyInstanceID string               `json:"strategy_instance_id"`
-	TotalMarks         int                  `json:"total_marks"`
-	Horizons           []ShadowHorizonScore `json:"horizons"`
-	Behavior           ShadowBehaviorScore  `json:"behavior"`
-	EvidenceGate       ShadowEvidenceGate   `json:"evidence_gate"`
+	StrategyInstanceID        string                `json:"strategy_instance_id"`
+	TotalMarks                int                   `json:"total_marks"`
+	Horizons                  []ShadowHorizonScore  `json:"horizons"`
+	Behavior                  ShadowBehaviorScore   `json:"behavior"`
+	EvidenceGate              ShadowEvidenceGate    `json:"evidence_gate"`
+	EvidenceReviewFingerprint string                `json:"evidence_review_fingerprint"`
+	LatestEvidenceReview      *ShadowEvidenceReview `json:"latest_evidence_review,omitempty"`
+	CurrentEvidenceReviewed   bool                  `json:"current_evidence_reviewed"`
+}
+
+const (
+	ShadowEvidenceReviewScope = "NON_LIVE_EVIDENCE_ONLY"
+	ShadowExecutionBoundary   = "SHADOW_ONLY"
+)
+
+// ShadowEvidenceReview is an immutable MFA-backed acknowledgment that an owner
+// inspected one exact non-live scorecard snapshot. It grants no trading,
+// promotion, approval, order, or execution authority.
+type ShadowEvidenceReview struct {
+	ID                          string    `json:"id"`
+	StrategyInstanceID          string    `json:"strategy_instance_id"`
+	MandateID                   string    `json:"mandate_id"`
+	MandateVersion              int       `json:"mandate_version"`
+	EvidenceFingerprint         string    `json:"evidence_fingerprint"`
+	GateStatus                  string    `json:"gate_status"`
+	OneHourSampleSize           int       `json:"one_hour_sample_size"`
+	TwentyFourHourSampleSize    int       `json:"twenty_four_hour_sample_size"`
+	EvidenceWindowHours         int64     `json:"evidence_window_hours"`
+	ScheduleHealthy             bool      `json:"schedule_healthy"`
+	LastScheduleStatus          string    `json:"last_schedule_status"`
+	ConsecutiveScheduleFailures int       `json:"consecutive_schedule_failures"`
+	ExecutionBoundary           string    `json:"execution_boundary"`
+	LiveExecutionAvailable      bool      `json:"live_execution_available"`
+	ReviewScope                 string    `json:"review_scope"`
+	MFAMethod                   string    `json:"mfa_method"`
+	ReviewedAt                  time.Time `json:"reviewed_at"`
+	CreatedAt                   time.Time `json:"created_at"`
+}
+
+type ShadowEvidenceReviewCommand struct {
+	EvidenceFingerprint  string `json:"evidence_fingerprint"`
+	ConfirmNonLiveReview bool   `json:"confirm_non_live_review"`
+	MFACode              string `json:"mfa_code"`
 }
 
 // ShadowBehaviorScore summarizes immutable AI decision behavior for one

@@ -251,6 +251,23 @@ func TestSecurityActivityAuditHistoryIsAppendOnlyAndCredentialFree(t *testing.T)
 	}
 }
 
+func TestShadowEvidenceReviewIsImmutableOwnerScopedAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00033_shadow_evidence_reviews.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"shadow_evidence_reviews", "strategy_instance_id,user_id", "mandate_id,mandate_version", "evidence_hash bytea", "octet_length(evidence_hash) = 32", "EVIDENCE_REVIEWABLE", "one_hour_sample_size >= 20", "twenty_four_hour_sample_size >= 20", "evidence_window_hours >= 168", "SHADOW_ONLY", "NON_LIVE_EVIDENCE_ONLY", "mfa_method = 'totp'", "enforce_shadow_evidence_review_source", "shadow_evidence_reviews_immutable", "reject_nonlive_history_mutation", "cannot remove immutable Shadow evidence review history"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("Shadow evidence review migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order", "broker_order", "submission", "credential", "private_key", "access_token", "execution_authority"} {
+		if strings.Contains(strings.ToLower(string(body)), prohibited) {
+			t.Errorf("Shadow evidence review migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00013_paper_lifecycle_events.sql")
 	if err != nil {

@@ -93,6 +93,7 @@ func main() {
 	automations := automation.NewService(automation.NewPostgresStore(pool), users)
 	strategyStore := strategy.NewPostgresStore(pool)
 	strategies := strategy.NewInstanceService(strategyStore, automations, users)
+	strategies.ConfigureEvidenceReview(authService)
 	breakers := risk.NewBreakerService(risk.NewPostgresBreakerStore(pool), users, authService)
 	platformOperations := platformops.NewService(platformops.NewPostgresStore(pool), users)
 	ownerAttention := ownerattention.NewService(ownerattention.NewPostgresStore(pool))

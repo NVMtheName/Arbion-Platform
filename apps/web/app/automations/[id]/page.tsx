@@ -36,6 +36,7 @@ import { AutonomyGuardrailSummary } from "../autonomy-guardrail-summary";
 import { CapitalBucketAllocationControls } from "../capital-bucket-allocation-controls";
 import { AutonomyReadinessControlPlane } from "../autonomy-readiness-control-plane";
 import { AutonomyEvidenceReport } from "../autonomy-evidence-report";
+import { ShadowEvidenceReviewControls } from "../shadow-evidence-review-controls";
 import { DecisionReplayLab } from "../decision-replay-lab";
 import { StrategySimulationWorkbench } from "../strategy-simulation-workbench";
 import {
@@ -348,6 +349,12 @@ export default async function MandateReview({
           reconciliation={reconciliation}
           automationBreaker={breaker as unknown as Record<string, unknown>}
           breakerObserved={breakerResponse.ok}
+        />
+      )}
+      {automationType === "AI_AUTONOMOUS" && instanceID && (
+        <ShadowEvidenceReviewControls
+          strategyInstanceId={instanceID}
+          scorecard={scorecard}
         />
       )}
       <AutomationCircuitBreakerControls automationId={id} breaker={breaker} />
