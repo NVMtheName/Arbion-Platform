@@ -70,6 +70,17 @@ function recordNumber(
     : undefined;
 }
 
+function recordStrings(
+  record: Record<string, unknown> | undefined,
+  key: string,
+  legacy: string,
+) {
+  const value = record?.[key] ?? record?.[legacy];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 async function fetchDashboardJSON<T>(
   url: string,
   headers: { cookie: string },
@@ -173,6 +184,7 @@ async function aiEngineSummaries(
         journalAvailable: decisionsResult.available,
         evidenceAvailable: scorecardResult.available && Boolean(evidenceGate),
         evidenceStatus: recordString(evidenceGate, "status", "Status"),
+        evidenceBlockers: recordStrings(evidenceGate, "blockers", "Blockers"),
         oneHourSampleSize:
           recordNumber(
             evidenceGate,

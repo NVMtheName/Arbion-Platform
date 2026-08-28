@@ -64,6 +64,11 @@ describe("Portfolio-first command center", () => {
             lastDecisionAt: "2026-08-26T15:17:14Z",
             evidenceAvailable: true,
             evidenceStatus: "COLLECTING_EVIDENCE",
+            evidenceBlockers: [
+              "ONE_HOUR_SAMPLE_INCOMPLETE",
+              "TWENTY_FOUR_HOUR_SAMPLE_INCOMPLETE",
+              "EVIDENCE_WINDOW_INCOMPLETE",
+            ],
             oneHourSampleSize: 8,
             twentyFourHourSampleSize: 4,
             minimumSamplePerHorizon: 20,
@@ -98,6 +103,10 @@ describe("Portfolio-first command center", () => {
     expect(cockpit).toHaveTextContent("Collecting evidence");
     expect(cockpit).toHaveTextContent(
       "8/20 one-hour · 4/20 24-hour · 72h/168h window",
+    );
+    expect(cockpit).toHaveTextContent("Collect more 1-hour outcome marks");
+    expect(cockpit).toHaveTextContent(
+      "Observe the mandate across a longer window",
     );
     expect(cockpit).toHaveTextContent("No broker order can be sent");
     expect(

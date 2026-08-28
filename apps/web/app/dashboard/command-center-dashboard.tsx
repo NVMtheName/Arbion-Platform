@@ -54,6 +54,7 @@ export type DashboardAIEngineSummary = {
   lastDecisionAt?: string;
   evidenceAvailable?: boolean;
   evidenceStatus?: string;
+  evidenceBlockers?: string[];
   oneHourSampleSize?: number;
   twentyFourHourSampleSize?: number;
   minimumSamplePerHorizon?: number;
@@ -199,6 +200,17 @@ function evidenceStatusLabel(status?: string) {
   return "Evidence unavailable";
 }
 
+function evidenceBlockerLabel(value: string) {
+  const labels: Record<string, string> = {
+    ONE_HOUR_SAMPLE_INCOMPLETE: "Collect more 1-hour outcome marks",
+    TWENTY_FOUR_HOUR_SAMPLE_INCOMPLETE: "Collect more 24-hour outcome marks",
+    EVIDENCE_WINDOW_INCOMPLETE: "Observe the mandate across a longer window",
+    SCHEDULE_NOT_VERIFIED: "Complete a healthy scheduled cycle",
+    SCHEDULE_UNHEALTHY: "Resolve the current scheduler failure",
+  };
+  return labels[value] ?? value.replaceAll("_", " ");
+}
+
 function evidenceSummary(engine: DashboardAIEngineSummary) {
   if (!engine.evidenceAvailable) {
     return {
@@ -206,6 +218,7 @@ function evidenceSummary(engine: DashboardAIEngineSummary) {
       detail: "Open the strategy to inspect its immutable Shadow scorecard.",
       completed: 0,
       required: 1,
+      blockers: [],
     };
   }
 
@@ -222,6 +235,7 @@ function evidenceSummary(engine: DashboardAIEngineSummary) {
     detail: `${oneHour}/${minimum} one-hour · ${twentyFourHour}/${minimum} 24-hour · ${window}h/${minimumWindow}h window`,
     completed,
     required,
+    blockers: engine.evidenceBlockers ?? [],
   };
 }
 
@@ -458,6 +472,16 @@ export function CommandCenterDashboard({
                       aria-label={`${evidence.completed} of ${evidence.required} evidence marks`}
                     />
                     <small>{evidence.detail}</small>
+                    {evidence.blockers.length > 0 && (
+                      <ul
+                        className="ai-engine-evidence-blockers"
+                        aria-label="Shadow evidence blockers"
+                      >
+                        {evidence.blockers.map((blocker) => (
+                          <li key={blocker}>{evidenceBlockerLabel(blocker)}</li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   <footer>
                     <span
