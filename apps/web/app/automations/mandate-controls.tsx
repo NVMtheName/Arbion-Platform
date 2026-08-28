@@ -106,7 +106,11 @@ export function MandateControls(props: MandateControlsProps) {
     !props.instanceExists;
 
   return (
-    <section className="mandate-controls" aria-label="Mandate controls">
+    <section
+      id="mandate-lifecycle-controls"
+      className="mandate-controls"
+      aria-label="Mandate controls"
+    >
       <p className="eyebrow">SAFE LIFECYCLE CONTROLS</p>
       <h2>Review and initialize</h2>
       <p>

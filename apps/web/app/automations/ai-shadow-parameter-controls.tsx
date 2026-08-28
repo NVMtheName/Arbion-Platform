@@ -58,7 +58,11 @@ export function AIShadowParameterControls(props: Props) {
   }
 
   return (
-    <section className="mandate-controls" aria-label="AI shadow controls">
+    <section
+      id="configuration-controls"
+      className="mandate-controls"
+      aria-label="AI shadow controls"
+    >
       <p className="eyebrow">AI SHADOW DECISION ENVELOPE</p>
       <h2>Objective and proposal ceiling</h2>
       <p>

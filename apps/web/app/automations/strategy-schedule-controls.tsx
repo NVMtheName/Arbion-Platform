@@ -156,7 +156,11 @@ export function StrategyScheduleControls(props: Props) {
   }
 
   return (
-    <section className="mandate-controls" aria-label="Non-live schedule">
+    <section
+      id="schedule-controls"
+      className="mandate-controls"
+      aria-label="Non-live schedule"
+    >
       <p className="eyebrow">GUARDED NON-LIVE SCHEDULE</p>
       <h2>Optional market-session evaluations</h2>
       <p>

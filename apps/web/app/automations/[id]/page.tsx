@@ -34,6 +34,10 @@ import { MandateIdentitySummary } from "../mandate-identity-summary";
 import { AutonomyGuardrailSummary } from "../autonomy-guardrail-summary";
 import { CapitalBucketAllocationControls } from "../capital-bucket-allocation-controls";
 import {
+  AutomationNextActionPanel,
+  selectAutomationNextAction,
+} from "../automation-next-action";
+import {
   assessStrategyInitialization,
   StrategyInitializationReadiness,
 } from "../strategy-initialization-readiness";
@@ -324,6 +328,9 @@ export default async function MandateReview({
     | Record<string, unknown>
     | undefined;
   const observedAt = new Date().toISOString();
+  const savedScheduleConditions = (m.schedule_conditions ??
+    m.ScheduleConditions ??
+    {}) as Record<string, unknown>;
   const initializationAssessment = assessStrategyInitialization({
     automationType,
     mandateStatus: read("status", "Status"),
@@ -339,9 +346,7 @@ export default async function MandateReview({
     capitalBucket,
     instance,
     activeReservations: activeCapitalReservations,
-    scheduleConditions: (m.schedule_conditions ??
-      m.ScheduleConditions ??
-      {}) as Record<string, unknown>,
+    scheduleConditions: savedScheduleConditions,
     reconciliation,
     observedAt,
     inventoryAvailable:
@@ -352,6 +357,19 @@ export default async function MandateReview({
       capitalReservationsResponse.ok &&
       (automationType !== "AI_AUTONOMOUS" || aiConnectionsResponse.ok),
     reconciliationAvailable: Boolean(reconciliationResponse?.ok),
+  });
+  const nextAction = selectAutomationNextAction({
+    automationId: id,
+    automationType,
+    autonomyLevel: read("autonomy_level", "AutonomyLevel"),
+    executionMode: read("execution_mode", "ExecutionMode"),
+    assessment: initializationAssessment,
+    instance,
+    schedule: scheduleResponse.schedule as Record<string, unknown>,
+    scheduleConfigured: Boolean(
+      savedScheduleConditions.enabled ?? savedScheduleConditions.Enabled,
+    ),
+    schedulerEnabled: Boolean(scheduleResponse.scheduler_enabled),
   });
   return (
     <main className="connections-page automation-page">
@@ -382,6 +400,7 @@ export default async function MandateReview({
         support. A separately confirmed attestation may permit PAPER-only
         simulation, but never SHADOW, LIVE, or broker execution.
       </p>
+      <AutomationNextActionPanel action={nextAction} />
       {automationType === "AI_AUTONOMOUS" && (
         <AutonomyReadinessControlPlane
           provider={financialProvider}
@@ -487,7 +506,11 @@ export default async function MandateReview({
           hasActiveInstance={hasActiveInstance}
         />
       )}
-      <StrategyInitializationReadiness assessment={initializationAssessment} />
+      <div id="strategy-readiness-check">
+        <StrategyInitializationReadiness
+          assessment={initializationAssessment}
+        />
+      </div>
       <MandateControls
         automationId={id}
         currentVersion={currentVersion}
@@ -529,23 +552,27 @@ export default async function MandateReview({
       )}
       {automationType === "STRATEGY" && (
         <>
-          <StrategyEvaluationControls
-            automationId={id}
-            currentVersion={currentVersion}
-            status={read("status", "Status")}
-            executionMode={read("execution_mode", "ExecutionMode")}
-            strategyIdentifier={read(
-              "strategy_identifier",
-              "StrategyIdentifier",
-            )}
-            instanceId={instanceID}
-            instanceStatus={String(instance?.Status ?? instance?.status ?? "")}
-            strategyParameters={
-              (m.strategy_parameters ??
-                m.StrategyParameters ??
-                {}) as StrategyParameters
-            }
-          />
+          <div id="configuration-controls">
+            <StrategyEvaluationControls
+              automationId={id}
+              currentVersion={currentVersion}
+              status={read("status", "Status")}
+              executionMode={read("execution_mode", "ExecutionMode")}
+              strategyIdentifier={read(
+                "strategy_identifier",
+                "StrategyIdentifier",
+              )}
+              instanceId={instanceID}
+              instanceStatus={String(
+                instance?.Status ?? instance?.status ?? "",
+              )}
+              strategyParameters={
+                (m.strategy_parameters ??
+                  m.StrategyParameters ??
+                  {}) as StrategyParameters
+              }
+            />
+          </div>
           <StrategyScheduleControls
             automationId={id}
             currentVersion={currentVersion}
@@ -703,24 +730,26 @@ export default async function MandateReview({
                     : []
                 }
               />
-              <AIShadowDecisionWorkspace
-                strategyInstanceId={instanceID}
-                initialDecisions={
-                  Array.isArray(decisions.decisions)
-                    ? (decisions.decisions as Record<string, unknown>[])
-                    : []
-                }
-                initialOutcomes={
-                  Array.isArray(decisions.outcomes)
-                    ? (decisions.outcomes as Record<string, unknown>[])
-                    : []
-                }
-                initialCursor={String(decisions.next_cursor ?? "")}
-                historyAvailable={
-                  decisions.decision_history_semantics ===
-                  "IMMUTABLE_OWNER_STRATEGY_DECISION_HISTORY"
-                }
-              />
+              <div id="decision-journal">
+                <AIShadowDecisionWorkspace
+                  strategyInstanceId={instanceID}
+                  initialDecisions={
+                    Array.isArray(decisions.decisions)
+                      ? (decisions.decisions as Record<string, unknown>[])
+                      : []
+                  }
+                  initialOutcomes={
+                    Array.isArray(decisions.outcomes)
+                      ? (decisions.outcomes as Record<string, unknown>[])
+                      : []
+                  }
+                  initialCursor={String(decisions.next_cursor ?? "")}
+                  historyAvailable={
+                    decisions.decision_history_semantics ===
+                    "IMMUTABLE_OWNER_STRATEGY_DECISION_HISTORY"
+                  }
+                />
+              </div>
             </>
           )}
         </>
@@ -795,30 +824,32 @@ export default async function MandateReview({
         </p>
       )}
       {instance && (
-        <StrategyRuntimeEvidenceLedger
-          strategyInstanceId={instanceID}
-          initialTransitions={
-            Array.isArray(history.transitions)
-              ? (history.transitions as Record<string, unknown>[])
-              : []
-          }
-          initialExecutions={
-            Array.isArray(executions.executions)
-              ? (executions.executions as Record<string, unknown>[])
-              : []
-          }
-          initialTransitionCursor={String(history.next_cursor ?? "")}
-          initialExecutionCursor={String(executions.next_cursor ?? "")}
-          transitionHistoryAvailable={
-            history.history_semantics ===
-            "IMMUTABLE_OWNER_STRATEGY_STATE_HISTORY"
-          }
-          executionHistoryAvailable={
-            executions.history_semantics ===
-            "IMMUTABLE_OWNER_NONLIVE_EXECUTION_HISTORY"
-          }
-          loadedDecisionCount={count(decisions.decisions)}
-        />
+        <div id="runtime-evidence">
+          <StrategyRuntimeEvidenceLedger
+            strategyInstanceId={instanceID}
+            initialTransitions={
+              Array.isArray(history.transitions)
+                ? (history.transitions as Record<string, unknown>[])
+                : []
+            }
+            initialExecutions={
+              Array.isArray(executions.executions)
+                ? (executions.executions as Record<string, unknown>[])
+                : []
+            }
+            initialTransitionCursor={String(history.next_cursor ?? "")}
+            initialExecutionCursor={String(executions.next_cursor ?? "")}
+            transitionHistoryAvailable={
+              history.history_semantics ===
+              "IMMUTABLE_OWNER_STRATEGY_STATE_HISTORY"
+            }
+            executionHistoryAvailable={
+              executions.history_semantics ===
+              "IMMUTABLE_OWNER_NONLIVE_EXECUTION_HISTORY"
+            }
+            loadedDecisionCount={count(decisions.decisions)}
+          />
+        </div>
       )}
     </main>
   );
