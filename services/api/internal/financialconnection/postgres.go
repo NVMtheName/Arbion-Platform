@@ -27,17 +27,37 @@ func scanConnection(row pgx.Row) (Connection, error) {
 	return c, e
 }
 func (s *PostgresStore) ListConnections(ctx context.Context, user string) ([]Connection, error) {
-	rows, e := s.db.Query(ctx, `SELECT `+connectionColumns+` FROM provider_connections WHERE user_id=$1 AND provider_category='financial' ORDER BY created_at`, user)
+	rows, e := s.db.Query(ctx, `SELECT `+connectionColumns+`,
+		(SELECT count(*)::integer
+		 FROM automation_mandates m
+		 JOIN financial_accounts a ON a.id=m.financial_account_id AND a.user_id=m.user_id
+		 WHERE a.provider_connection_id=p.id AND m.user_id=p.user_id
+		   AND m.status IN ('READY','PAUSED')),
+		(SELECT count(*)::integer
+		 FROM strategy_instances i
+		 JOIN financial_accounts a ON a.id=i.financial_account_id AND a.user_id=i.user_id
+		 WHERE a.provider_connection_id=p.id AND i.user_id=p.user_id
+		   AND i.status IN ('ACTIVE','PAUSED'))
+	FROM provider_connections p
+	WHERE p.user_id=$1 AND p.provider_category='financial'
+	ORDER BY p.created_at`, user)
 	if e != nil {
 		return nil, e
 	}
 	defer rows.Close()
 	out := []Connection{}
 	for rows.Next() {
-		c, e := scanConnection(rows)
+		var c Connection
+		e := rows.Scan(
+			&c.ID, &c.Provider, &c.DisplayName, &c.Status, &c.TokenExpiresAt,
+			&c.AuthorizationExpiresAt, &c.LastSyncedAt, &c.CredentialStorage,
+			&c.CreatedAt, &c.UpdatedAt, &c.ProtectedMandateCount,
+			&c.ActiveStrategyCount,
+		)
 		if e != nil {
 			return nil, e
 		}
+		c.RuntimeProtected = c.ProtectedMandateCount > 0 || c.ActiveStrategyCount > 0
 		out = append(out, c)
 	}
 	return out, rows.Err()

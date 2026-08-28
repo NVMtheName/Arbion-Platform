@@ -34,17 +34,52 @@ func (s *PostgresStore) scan(row pgx.Row) (Connection, error) {
 	return c, err
 }
 func (s *PostgresStore) List(ctx context.Context, user string) ([]Connection, error) {
-	rows, err := s.db.Query(ctx, `SELECT `+columns+` FROM provider_connections WHERE user_id=$1 AND provider_category='ai' ORDER BY created_at`, user)
+	rows, err := s.db.Query(ctx, `SELECT `+columns+`,
+		(SELECT count(*)::integer FROM automation_mandates m
+		 WHERE m.user_id=p.user_id AND m.ai_provider_connection_id=p.id
+		   AND m.status IN ('READY','PAUSED')),
+		(SELECT count(*)::integer
+		 FROM strategy_instances i
+		 JOIN automation_mandate_versions v
+		   ON v.mandate_id=i.automation_mandate_id AND v.version_number=i.mandate_version
+		 WHERE i.user_id=p.user_id AND i.status IN ('ACTIVE','PAUSED')
+		   AND v.snapshot->>'ai_provider_connection_id'=p.id::text),
+		(SELECT count(DISTINCT dependency.mandate_id)::integer
+		 FROM (
+			SELECT m.id AS mandate_id FROM automation_mandates m
+			WHERE m.user_id=p.user_id AND m.ai_provider_connection_id=p.id
+			UNION
+			SELECT v.mandate_id FROM automation_mandate_versions v
+			JOIN automation_mandates m ON m.id=v.mandate_id
+			WHERE m.user_id=p.user_id AND v.snapshot->>'ai_provider_connection_id'=p.id::text
+		 ) dependency),
+		EXISTS(SELECT 1 FROM neural_engine_preferences n
+		 WHERE n.user_id=p.user_id AND n.provider_connection_id=p.id)
+	FROM provider_connections p
+	WHERE p.user_id=$1 AND p.provider_category='ai'
+	ORDER BY p.created_at`, user)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []Connection{}
 	for rows.Next() {
-		c, e := s.scan(rows)
+		var c Connection
+		e := rows.Scan(
+			&c.ID, &c.Provider, &c.DisplayName, &c.Status, &c.Enabled,
+			&c.CredentialHint, &c.CreatedAt, &c.UpdatedAt, &c.LastVerifiedAt,
+			&c.CredentialGeneration, &c.ProtectedMandateCount,
+			&c.ActiveStrategyCount, &c.RetainedAutomationCount,
+			&c.DefaultModelSelected,
+		)
 		if e != nil {
 			return nil, e
 		}
+		if provider, ok := s.registry.Get(c.Provider); ok {
+			c.ProviderLabel = provider.Label
+		}
+		c.RuntimeProtected = c.ProtectedMandateCount > 0 || c.ActiveStrategyCount > 0
+		c.RemovalProtected = c.DefaultModelSelected || c.RetainedAutomationCount > 0
 		out = append(out, c)
 	}
 	return out, rows.Err()

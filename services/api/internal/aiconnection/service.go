@@ -34,17 +34,23 @@ const (
 )
 
 type Connection struct {
-	ID                   string     `json:"id"`
-	Provider             string     `json:"provider"`
-	ProviderLabel        string     `json:"provider_label"`
-	DisplayName          string     `json:"display_name"`
-	Status               string     `json:"status"`
-	Enabled              bool       `json:"enabled"`
-	CredentialHint       string     `json:"credential_hint"`
-	CreatedAt            time.Time  `json:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at"`
-	LastVerifiedAt       *time.Time `json:"last_verified_at,omitempty"`
-	CredentialGeneration int64      `json:"-"`
+	ID                      string     `json:"id"`
+	Provider                string     `json:"provider"`
+	ProviderLabel           string     `json:"provider_label"`
+	DisplayName             string     `json:"display_name"`
+	Status                  string     `json:"status"`
+	Enabled                 bool       `json:"enabled"`
+	CredentialHint          string     `json:"credential_hint"`
+	RuntimeProtected        bool       `json:"runtime_protected"`
+	RemovalProtected        bool       `json:"removal_protected"`
+	ProtectedMandateCount   int        `json:"protected_mandate_count"`
+	ActiveStrategyCount     int        `json:"active_strategy_count"`
+	RetainedAutomationCount int        `json:"retained_automation_count"`
+	DefaultModelSelected    bool       `json:"default_model_selected"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
+	LastVerifiedAt          *time.Time `json:"last_verified_at,omitempty"`
+	CredentialGeneration    int64      `json:"-"`
 }
 
 type Store interface {

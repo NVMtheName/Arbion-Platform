@@ -67,6 +67,7 @@ func TestPostgresAIConnectionDependenciesTrackPreferencesMandatesAndPinnedRuntim
 	}
 	store := NewPostgresStore(pool, DefaultRegistry())
 	assertAIConnectionDependency(t, store, userID, aiConnectionA, false, false)
+	assertAIConnectionProjection(t, store, userID, aiConnectionA, false, false, 0, 0, 0, false)
 	if _, err = pool.Exec(ctx, `UPDATE provider_connections SET encrypted_credential_payload=$2 WHERE id=$1`, aiConnectionA, []byte("current-ciphertext")); err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +98,7 @@ func TestPostgresAIConnectionDependenciesTrackPreferencesMandatesAndPinnedRuntim
 		t.Fatal(err)
 	}
 	assertAIConnectionDependency(t, store, userID, aiConnectionA, true, false)
+	assertAIConnectionProjection(t, store, userID, aiConnectionA, false, true, 0, 0, 0, true)
 	if _, err = pool.Exec(ctx, `DELETE FROM neural_engine_preferences WHERE user_id=$1`, userID); err != nil {
 		t.Fatal(err)
 	}
@@ -117,11 +119,13 @@ func TestPostgresAIConnectionDependenciesTrackPreferencesMandatesAndPinnedRuntim
 		t.Fatal(err)
 	}
 	assertAIConnectionDependency(t, store, userID, aiConnectionA, true, false)
+	assertAIConnectionProjection(t, store, userID, aiConnectionA, false, true, 0, 0, 1, false)
 
 	if _, err = pool.Exec(ctx, `UPDATE automation_mandates SET status='READY' WHERE id=$1`, mandateID); err != nil {
 		t.Fatal(err)
 	}
 	assertAIConnectionDependency(t, store, userID, aiConnectionA, true, true)
+	assertAIConnectionProjection(t, store, userID, aiConnectionA, true, true, 1, 0, 1, false)
 
 	if _, err = pool.Exec(ctx, `UPDATE automation_mandates SET status='DRAFT',current_version=2,ai_provider_connection_id=$2 WHERE id=$1`, mandateID, aiConnectionB); err != nil {
 		t.Fatal(err)
@@ -152,6 +156,8 @@ func TestPostgresAIConnectionDependenciesTrackPreferencesMandatesAndPinnedRuntim
 	}
 	assertAIConnectionDependency(t, store, userID, aiConnectionA, true, true)
 	assertAIConnectionDependency(t, store, userID, aiConnectionB, true, false)
+	assertAIConnectionProjection(t, store, userID, aiConnectionA, true, true, 0, 1, 1, false)
+	assertAIConnectionProjection(t, store, userID, aiConnectionB, false, true, 0, 0, 1, false)
 	assertAIConnectionDependency(t, store, foreignUserID, aiConnectionA, false, false)
 
 	completedAt := time.Now().UTC().Add(time.Second).Truncate(time.Microsecond)
@@ -173,6 +179,7 @@ func TestPostgresAIConnectionDependenciesTrackPreferencesMandatesAndPinnedRuntim
 		t.Fatal(err)
 	}
 	assertAIConnectionDependency(t, store, userID, aiConnectionB, true, true)
+	assertAIConnectionProjection(t, store, userID, aiConnectionB, true, true, 1, 0, 1, false)
 }
 
 func assertAIConnectionDependency(t *testing.T, store *PostgresStore, user, connection string, wantDurable, wantInUse bool) {
@@ -188,4 +195,22 @@ func assertAIConnectionDependency(t *testing.T, store *PostgresStore, user, conn
 	if durable != wantDurable || inUse != wantInUse {
 		t.Fatalf("dependency mismatch for %s: durable=%t/%t in_use=%t/%t", connection, durable, wantDurable, inUse, wantInUse)
 	}
+}
+
+func assertAIConnectionProjection(t *testing.T, store *PostgresStore, user, connection string, wantRuntime, wantRemoval bool, wantMandates, wantStrategies, wantRetained int, wantDefault bool) {
+	t.Helper()
+	connections, err := store.List(context.Background(), user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range connections {
+		if item.ID != connection {
+			continue
+		}
+		if item.RuntimeProtected != wantRuntime || item.RemovalProtected != wantRemoval || item.ProtectedMandateCount != wantMandates || item.ActiveStrategyCount != wantStrategies || item.RetainedAutomationCount != wantRetained || item.DefaultModelSelected != wantDefault {
+			t.Fatalf("continuity projection mismatch for %s: %#v", connection, item)
+		}
+		return
+	}
+	t.Fatalf("connection %s was absent from continuity projection", connection)
 }

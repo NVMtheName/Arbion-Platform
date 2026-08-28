@@ -62,6 +62,9 @@ describe("FinancialManager", () => {
             provider: "coinbase",
             display_name: "Coinbase",
             status: "active",
+            runtime_protected: false,
+            protected_mandate_count: 0,
+            active_strategy_count: 0,
           },
         ]}
         accounts={[
@@ -98,6 +101,9 @@ describe("FinancialManager", () => {
             provider: "schwab",
             display_name: "Charles Schwab",
             status: "expired",
+            runtime_protected: false,
+            protected_mandate_count: 0,
+            active_strategy_count: 0,
           },
         ]}
         accounts={[
@@ -139,6 +145,9 @@ describe("FinancialManager", () => {
             provider: "schwab",
             display_name: "Charles Schwab",
             status: "active",
+            runtime_protected: false,
+            protected_mandate_count: 0,
+            active_strategy_count: 0,
             authorization_expires_at: "2026-08-31T17:45:00Z",
           },
         ]}
@@ -153,6 +162,45 @@ describe("FinancialManager", () => {
     expect(
       screen.getByRole("button", { name: "Renew Schwab access" }),
     ).toBeEnabled();
+  });
+
+  it("shows strategy continuity and blocks only destructive connection actions", () => {
+    render(
+      <FinancialManager
+        provider={{
+          id: "coinbase",
+          label: "Coinbase",
+          auth_type: "jwt_key_pair",
+        }}
+        entitled
+        connections={[
+          {
+            id: "connection-1",
+            provider: "coinbase",
+            display_name: "Coinbase Production",
+            status: "active",
+            runtime_protected: true,
+            protected_mandate_count: 1,
+            active_strategy_count: 1,
+          },
+        ]}
+        accounts={[]}
+      />,
+    );
+
+    const continuity = screen.getByRole("region", {
+      name: "Coinbase Production connection continuity",
+    });
+    expect(continuity).toHaveTextContent("Strategy continuity protected");
+    expect(continuity).toHaveTextContent("1 active or paused engine");
+    expect(continuity).toHaveTextContent("1 ready or paused mandate");
+    expect(
+      screen.getByRole("button", { name: "Refresh accounts" }),
+    ).toBeEnabled();
+
+    fireEvent.click(screen.getByText("Manage connection"));
+    expect(screen.getByRole("button", { name: "Disable" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeDisabled();
   });
 
   it("extracts downloaded Coinbase JSON, sends it only to the connection endpoint, and clears it", async () => {
