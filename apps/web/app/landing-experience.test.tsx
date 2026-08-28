@@ -21,5 +21,19 @@ describe("Arbion landing experience", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/no live prices shown/i)).toBeInTheDocument();
     expect(screen.getByText(/no live execution path/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /clarity is a feature/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /draft for u\.s\. securities, privacy, and technology counsel/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /contact the arbion team/i }),
+    ).toHaveAttribute(
+      "href",
+      expect.stringContaining("mailto:support@arbion.ai"),
+    );
   });
 });

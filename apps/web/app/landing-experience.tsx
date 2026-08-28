@@ -33,6 +33,29 @@ const capabilities = [
   },
 ];
 
+const legalHighlights = [
+  {
+    index: "01",
+    title: "Your accounts stay yours.",
+    copy: "You choose every broker, exchange, custodian, market-data, and AI connection. Provider permissions and provider records remain independent from Arbion.",
+  },
+  {
+    index: "02",
+    title: "AI is not the control plane.",
+    copy: "Models can summarize context and propose ideas. Deterministic risk controls, your mandate, and the connected institution govern what can happen.",
+  },
+  {
+    index: "03",
+    title: "The risks are part of the product.",
+    copy: "The planned disclosures address market, liquidity, volatility, options, crypto, technology, third-party, automation, and simulated-result risks.",
+  },
+  {
+    index: "04",
+    title: "Privacy has a boundary.",
+    copy: "Arbion is designed around bring-your-own AI credentials, separates provider trust boundaries, and does not use brokerage credentials or private financial data to train a public general-purpose model.",
+  },
+];
+
 export function LandingExperience() {
   return (
     <main className="landing-page">
@@ -41,6 +64,7 @@ export function LandingExperience() {
         <div className="landing-nav-links">
           <a href="#platform">Platform</a>
           <a href="#trust">Trust</a>
+          <a href="#legal">Legal &amp; trust</a>
           <Link href="/login">Sign in</Link>
           <Link className="landing-nav-cta" href="/register">
             Create invited account
@@ -239,6 +263,59 @@ export function LandingExperience() {
               orders.
             </p>
           </article>
+        </div>
+      </section>
+
+      <section
+        className="landing-legal"
+        id="legal"
+        aria-labelledby="legal-heading"
+      >
+        <div className="landing-legal-intro">
+          <p className="landing-kicker">LEGAL · PRIVACY · RISK</p>
+          <h2 id="legal-heading">Clarity is a feature.</h2>
+          <p>
+            Arbion’s legal suite is being prepared to explain the service in
+            plain language before a customer relies on it. These summaries are
+            product context—not a substitute for the final agreements or
+            professional advice.
+          </p>
+          <div className="landing-legal-status">
+            <span>REVIEW STATUS</span>
+            <strong>
+              Draft for U.S. securities, privacy, and technology counsel
+            </strong>
+            <small>
+              Prepared August 27, 2026 · facts remain subject to production
+              validation
+            </small>
+          </div>
+        </div>
+        <div className="landing-legal-grid">
+          {legalHighlights.map((highlight, index) => (
+            <motion.article
+              key={highlight.index}
+              className="landing-legal-card"
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              whileHover={{ y: -4 }}
+              viewport={{ once: true, amount: 0.25 }}
+              transition={{ delay: index * 0.07 }}
+            >
+              <span>{highlight.index}</span>
+              <h3>{highlight.title}</h3>
+              <p>{highlight.copy}</p>
+            </motion.article>
+          ))}
+          <div className="landing-legal-contact">
+            <p>
+              Want the full review copy or have a privacy, security, or legal
+              question?
+            </p>
+            <a href="mailto:support@arbion.ai?subject=Arbion%20legal%20suite">
+              Contact the Arbion team <span aria-hidden="true">↗</span>
+            </a>
+          </div>
         </div>
       </section>
 
