@@ -38,6 +38,9 @@ type Connection struct {
 	Provider               string     `json:"provider"`
 	DisplayName            string     `json:"display_name"`
 	Status                 string     `json:"status"`
+	RuntimeProtected       bool       `json:"runtime_protected"`
+	ProtectedMandateCount  int        `json:"protected_mandate_count"`
+	ActiveStrategyCount    int        `json:"active_strategy_count"`
 	TokenExpiresAt         *time.Time `json:"token_expires_at,omitempty"`
 	AuthorizationExpiresAt *time.Time `json:"authorization_expires_at,omitempty"`
 	LastSyncedAt           *time.Time `json:"last_synced_at,omitempty"`

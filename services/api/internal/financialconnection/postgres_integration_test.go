@@ -87,6 +87,22 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 	if err != nil || !inUse {
 		t.Fatalf("active automation did not protect its connection: in_use=%v err=%v", inUse, err)
 	}
+	connections, err := store.ListConnections(ctx, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, connection := range connections {
+		switch connection.ID {
+		case connectionA:
+			if connection.RuntimeProtected || connection.ProtectedMandateCount != 0 || connection.ActiveStrategyCount != 0 {
+				t.Fatalf("unbound connection reported a protected dependency: %#v", connection)
+			}
+		case connectionB:
+			if !connection.RuntimeProtected || connection.ProtectedMandateCount != 1 || connection.ActiveStrategyCount != 0 {
+				t.Fatalf("protected connection continuity facts were incorrect: %#v", connection)
+			}
+		}
+	}
 	reconciliation, err := store.CreateReconciliation(ctx, userID, PortfolioReconciliation{
 		FinancialAccountID: accountA, Provider: "coinbase", ComparisonStatus: "BASELINE",
 		BalancesStatus: "READY", PositionsStatus: "READY", PerformanceStatus: "UNAVAILABLE",

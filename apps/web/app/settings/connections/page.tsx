@@ -13,6 +13,12 @@ export type Connection = {
   status: string;
   enabled: boolean;
   credential_hint: string;
+  runtime_protected: boolean;
+  removal_protected: boolean;
+  protected_mandate_count: number;
+  active_strategy_count: number;
+  retained_automation_count: number;
+  default_model_selected: boolean;
   last_verified_at?: string;
 };
 export type Provider = {
@@ -33,6 +39,9 @@ export type FinancialConnection = {
   provider: string;
   display_name: string;
   status: string;
+  runtime_protected: boolean;
+  protected_mandate_count: number;
+  active_strategy_count: number;
   last_synced_at?: string;
   authorization_expires_at?: string;
 };

@@ -19,8 +19,10 @@ type captureDB struct {
 	args  []any
 }
 
-func (db *captureDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	return nil, errors.New("unexpected Query call")
+func (db *captureDB) Query(_ context.Context, query string, args ...any) (pgx.Rows, error) {
+	db.query = query
+	db.args = args
+	return nil, errors.New("stop after capturing query")
 }
 
 func (db *captureDB) QueryRow(_ context.Context, query string, args ...any) pgx.Row {
@@ -95,6 +97,31 @@ func TestRuntimeUseIncludesCurrentMandatesAndPinnedImmutableVersions(t *testing.
 	}
 	if len(db.args) != 2 || db.args[0] != "connection-1" || db.args[1] != "user-1" {
 		t.Fatalf("unexpected runtime arguments: %#v", db.args)
+	}
+}
+
+func TestConnectionListProjectsOwnerScopedContinuityFacts(t *testing.T) {
+	db := &captureDB{}
+	_, err := NewPostgresStore(db, DefaultRegistry()).List(context.Background(), "user-1")
+	if err == nil {
+		t.Fatal("expected the capture query to stop the list")
+	}
+	for _, required := range []string{
+		"p.user_id=$1",
+		"p.provider_category='ai'",
+		"m.status IN ('READY','PAUSED')",
+		"i.status IN ('ACTIVE','PAUSED')",
+		"v.version_number=i.mandate_version",
+		"snapshot->>'ai_provider_connection_id'",
+		"count(DISTINCT dependency.mandate_id)",
+		"neural_engine_preferences",
+	} {
+		if !strings.Contains(db.query, required) {
+			t.Fatalf("continuity projection is missing %q: %s", required, db.query)
+		}
+	}
+	if len(db.args) != 1 || db.args[0] != "user-1" {
+		t.Fatalf("unexpected continuity projection arguments: %#v", db.args)
 	}
 }
 

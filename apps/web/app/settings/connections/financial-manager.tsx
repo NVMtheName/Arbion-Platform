@@ -31,6 +31,41 @@ function coinbaseCredentialProblem(name: string, privateKey: string) {
   return "";
 }
 
+function dependencyCount(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function FinancialConnectionContinuity({
+  connection,
+}: {
+  connection: FinancialConnection;
+}) {
+  return (
+    <section
+      className={`connection-continuity ${
+        connection.runtime_protected ? "is-protected" : "is-clear"
+      }`}
+      id={`financial-connection-continuity-${connection.id}`}
+      aria-label={`${connection.display_name} connection continuity`}
+    >
+      <strong>
+        {connection.runtime_protected
+          ? "Strategy continuity protected"
+          : "No protected automation dependency"}
+      </strong>
+      <p>
+        {connection.runtime_protected
+          ? `${dependencyCount(connection.active_strategy_count, "active or paused engine", "active or paused engines")} · ${dependencyCount(connection.protected_mandate_count, "ready or paused mandate", "ready or paused mandates")}. Arbion blocks disabling or disconnecting this account connection.`
+          : "No active or paused engine and no ready or paused mandate currently depends on this account connection."}
+      </p>
+      <small>
+        Refresh and renewal preserve strategy, reservation, and order-evidence
+        identity. Dependency rules are rechecked by the server before changes.
+      </small>
+    </section>
+  );
+}
+
 export function FinancialManager({
   provider,
   entitled,
@@ -369,6 +404,7 @@ export function FinancialManager({
               </p>
             </div>
           )}
+          <FinancialConnectionContinuity connection={c} />
           <div className="connection-actions connection-primary-actions">
             <button
               disabled={busy || c.status !== "active"}
@@ -386,8 +422,11 @@ export function FinancialManager({
             <summary>Manage connection</summary>
             <div className="connection-actions">
               <button
-                disabled={busy}
+                disabled={
+                  busy || (c.status !== "disabled" && c.runtime_protected)
+                }
                 className="secondary"
+                aria-describedby={`financial-connection-continuity-${c.id}`}
                 onClick={() =>
                   change(c, c.status === "disabled" ? "enable" : "disable")
                 }
@@ -395,8 +434,9 @@ export function FinancialManager({
                 {c.status === "disabled" ? "Enable" : "Disable"}
               </button>
               <button
-                disabled={busy}
+                disabled={busy || c.runtime_protected}
                 className="danger"
+                aria-describedby={`financial-connection-continuity-${c.id}`}
                 onClick={() => disconnect(c)}
               >
                 Disconnect
