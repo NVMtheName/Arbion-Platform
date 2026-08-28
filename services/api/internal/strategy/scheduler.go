@@ -90,7 +90,10 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 	if err != nil || run == nil {
 		return false, err
 	}
-	completion := ScheduleCompletion{CompletedAt: now, NextRunAt: now.Add(time.Duration(run.IntervalMinutes) * time.Minute)}
+	if run.StartedAt.IsZero() {
+		run.StartedAt = now
+	}
+	completion := ScheduleCompletion{NextRunAt: now.Add(time.Duration(run.IntervalMinutes) * time.Minute)}
 	if run.ExecutionMode != Paper && run.ExecutionMode != Shadow {
 		completion.Status, completion.ErrorCode = "FAILED", "UNSUPPORTED_MODE"
 	} else if run.Session == "US_EQUITIES_REGULAR" && !inRegularSession(now) {
@@ -115,13 +118,23 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 			}
 		}
 		if completion.Status == "" {
-			_, err = s.evaluator.Evaluate(ctx, principal, run.StrategyInstanceID, eventID)
+			var outcome EvaluationOutcome
+			outcome, err = s.evaluator.Evaluate(ctx, principal, run.StrategyInstanceID, eventID)
 			if err == nil || errors.Is(err, ErrDuplicate) {
 				completion.Status = "SUCCEEDED"
+				completion.DuplicateRecovered = errors.Is(err, ErrDuplicate)
+				if err == nil {
+					completion.AIDecision = outcome.AIDecision
+					completion.ExecutionStatus = outcome.Execution.Status
+				}
 			} else {
 				completion.Status, completion.ErrorCode = "FAILED", classifyScheduleError(err)
 			}
 		}
+	}
+	completion.CompletedAt = s.now().UTC()
+	if completion.CompletedAt.Before(run.StartedAt) {
+		completion.CompletedAt = run.StartedAt
 	}
 	if err := s.store.CompleteSchedule(ctx, *run, completion); err != nil {
 		return true, err

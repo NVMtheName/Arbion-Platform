@@ -109,7 +109,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if scheduled, claimErr := store.ClaimDueSchedule(ctx, earlyClaimAt, scheduleLeaseDuration); claimErr != nil || scheduled != nil {
 		t.Fatalf("new schedule ran before its configured interval: %#v %v", scheduled, claimErr)
 	}
-	claimAt := time.Now().UTC().Add(61 * time.Minute)
+	claimAt := time.Now().UTC().Add(61 * time.Minute).Truncate(time.Microsecond)
 	scheduled, err := store.ClaimDueSchedule(ctx, claimAt, scheduleLeaseDuration)
 	if err != nil || scheduled == nil {
 		t.Fatalf("guarded schedule was not claimed: %#v %v", scheduled, err)
@@ -117,8 +117,43 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if scheduled.FinancialAccountID != accountID || scheduled.OwnerEmail != "test@example.com" || !scheduled.OwnerEmailVerified || !scheduled.NotifyEvaluation || !scheduled.NotifyLifecycle || !scheduled.NotifyFirstFailure || scheduled.PreviousErrorCode != nil || scheduled.ConsecutiveFailures != 0 {
 		t.Fatalf("notification preferences crossed the schedule boundary: %#v", scheduled)
 	}
+	if !scheduled.StartedAt.Equal(claimAt) {
+		t.Fatalf("schedule claim start time was not preserved: got=%s want=%s", scheduled.StartedAt, claimAt)
+	}
+	invalidCompletion := ScheduleCompletion{
+		CompletedAt: claimAt,
+		NextRunAt:   claimAt.Add(24 * time.Hour),
+		Status:      "SUCCEEDED",
+		AIDecision:  "INVALID",
+	}
+	if err = store.CompleteSchedule(ctx, *scheduled, invalidCompletion); err == nil {
+		t.Fatal("invalid immutable schedule evidence advanced the current schedule")
+	}
+	var retainedLease string
+	var retainedStatus *string
+	var retainedNextRunAt time.Time
+	if err = pool.QueryRow(ctx, `SELECT lease_token::text,last_status,next_run_at FROM nonlive_strategy_schedules WHERE strategy_instance_id=$1`, instance.ID).Scan(&retainedLease, &retainedStatus, &retainedNextRunAt); err != nil {
+		t.Fatal(err)
+	}
+	if retainedLease != scheduled.LeaseToken || retainedStatus != nil || !retainedNextRunAt.Equal(scheduled.ScheduledFor) {
+		t.Fatalf("failed history insert was not atomic: lease=%q status=%v next=%s", retainedLease, retainedStatus, retainedNextRunAt)
+	}
 	if err = store.CompleteSchedule(ctx, *scheduled, ScheduleCompletion{CompletedAt: claimAt, NextRunAt: claimAt.Add(24 * time.Hour), Status: "SKIPPED", ErrorCode: "OUTSIDE_SESSION"}); err != nil {
 		t.Fatal(err)
+	}
+	scheduleRuns, err := store.ScheduleRuns(ctx, userID, instance.ID, 10, nil)
+	if err != nil || len(scheduleRuns) != 1 || scheduleRuns[0].Status != "SKIPPED" || scheduleRuns[0].ErrorCode == nil || *scheduleRuns[0].ErrorCode != "OUTSIDE_SESSION" || scheduleRuns[0].ExecutionMode != Paper || scheduleRuns[0].ConsecutiveFailures != 0 {
+		t.Fatalf("immutable schedule run was not recorded: %#v %v", scheduleRuns, err)
+	}
+	foreignScheduleRuns, err := store.ScheduleRuns(ctx, "99999999-9999-4999-8999-999999999999", instance.ID, 10, nil)
+	if err != nil || len(foreignScheduleRuns) != 0 {
+		t.Fatalf("schedule run history crossed its owner boundary: %#v %v", foreignScheduleRuns, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE nonlive_schedule_runs SET status='SUCCEEDED' WHERE id=$1`, scheduleRuns[0].ID); err == nil {
+		t.Fatal("immutable schedule run was updated")
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM nonlive_schedule_runs WHERE id=$1`, scheduleRuns[0].ID); err == nil {
+		t.Fatal("immutable schedule run was deleted")
 	}
 	if _, err = pool.Exec(ctx, `UPDATE automation_mandates SET status='DISABLED' WHERE id=$1`, mandateID); err != nil {
 		t.Fatal(err)
@@ -513,13 +548,17 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || len(due) != 1 || due[0].Horizon != ShadowOutcomeTwentyFourHours {
 		t.Fatalf("24-hour AI shadow mark was not independently due: %#v %v", due, err)
 	}
-	aiClaimAt := time.Now().UTC().Add(62 * time.Minute)
+	aiClaimAt := time.Now().UTC().Add(62 * time.Minute).Truncate(time.Microsecond)
 	aiScheduled, err := store.ClaimDueSchedule(ctx, aiClaimAt, scheduleLeaseDuration)
 	if err != nil || aiScheduled == nil || aiScheduled.StrategyInstanceID != aiInstance.ID || !aiScheduled.NotifyReconciliationReview || aiScheduled.LastReconciliationNotificationID != nil {
 		t.Fatalf("AI drift-review preference did not cross the durable claim boundary: %#v %v", aiScheduled, err)
 	}
-	if err = store.CompleteSchedule(ctx, *aiScheduled, ScheduleCompletion{CompletedAt: aiClaimAt, NextRunAt: aiClaimAt.Add(time.Hour), Status: "SUCCEEDED"}); err != nil {
+	if err = store.CompleteSchedule(ctx, *aiScheduled, ScheduleCompletion{CompletedAt: aiClaimAt, NextRunAt: aiClaimAt.Add(time.Hour), Status: "SUCCEEDED", AIDecision: "ABSTAIN", ExecutionStatus: ExecutionCanceled}); err != nil {
 		t.Fatal(err)
+	}
+	aiScheduleRuns, err := store.ScheduleRuns(ctx, userID, aiInstance.ID, 10, nil)
+	if err != nil || len(aiScheduleRuns) != 1 || aiScheduleRuns[0].AIDecision == nil || *aiScheduleRuns[0].AIDecision != "ABSTAIN" || aiScheduleRuns[0].ExecutionStatus == nil || *aiScheduleRuns[0].ExecutionStatus != string(ExecutionCanceled) || aiScheduleRuns[0].ExecutionMode != Shadow {
+		t.Fatalf("AI schedule disposition was not recorded safely: %#v %v", aiScheduleRuns, err)
 	}
 	var driftID string
 	if err = pool.QueryRow(ctx, `INSERT INTO portfolio_reconciliations(user_id,financial_account_id,provider_name,comparison_status,balances_status,positions_status,performance_status,realized_performance_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,observed_position_count,performance_position_count,change_count,blocking_change_count,changes,evidence_hash,observed_at) VALUES($1,$2,'schwab','DRIFT_DETECTED','READY','READY','UNAVAILABLE','UNAVAILABLE','REVIEW_RECOMMENDED',true,true,0,0,1,1,'[{"symbol":"SPY","instrument_type":"EQUITY","direction":"long","change_type":"POSITION_APPEARED","control_impact":"TRADABLE_INVENTORY","current_quantity":"1"}]',decode(repeat('cd',32),'hex'),$3) RETURNING id::text`, userID, aiAccountID, markTime).Scan(&driftID); err != nil {

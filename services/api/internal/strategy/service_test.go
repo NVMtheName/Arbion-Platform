@@ -12,9 +12,11 @@ import (
 
 type journalPersistenceFake struct {
 	entries            []JournalActivity
+	scheduleRuns       []ScheduleRun
 	requestedUser      string
 	requestedLimit     int
 	requestedAfter     *JournalCursor
+	requestedRunAfter  *ScheduleRunCursor
 	lifecycleID        string
 	lifecycle          LifecycleCommand
 	lifecycleAt        time.Time
@@ -120,6 +122,16 @@ func (f *journalPersistenceFake) Journal(_ context.Context, userID string, limit
 }
 func (*journalPersistenceFake) Schedule(context.Context, string, string) (ScheduleStatus, error) {
 	return ScheduleStatus{}, nil
+}
+func (f *journalPersistenceFake) ScheduleRuns(_ context.Context, userID, instanceID string, limit int, after *ScheduleRunCursor) ([]ScheduleRun, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	f.requestedLimit = limit
+	f.requestedRunAfter = after
+	if len(f.scheduleRuns) < limit {
+		limit = len(f.scheduleRuns)
+	}
+	return f.scheduleRuns[:limit], nil
 }
 func (f *journalPersistenceFake) RecordLifecycle(_ context.Context, userID, instanceID string, command LifecycleCommand, occurredAt time.Time) (LifecycleResult, error) {
 	f.requestedUser = userID
@@ -289,6 +301,40 @@ func TestJournalRequiresAutomationEntitlement(t *testing.T) {
 	_, err := service.Journal(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, 25, nil)
 	if !errors.Is(err, ErrForbidden) || store.requestedUser != "" {
 		t.Fatalf("unentitled journal request was not rejected: %v", err)
+	}
+}
+
+func TestScheduleRunsAreOwnerScopedAndBuildStableNextCursor(t *testing.T) {
+	now := time.Date(2026, 8, 28, 1, 0, 0, 0, time.UTC)
+	store := &journalPersistenceFake{
+		instance: Instance{ID: "instance-1", UserID: "owner"},
+		scheduleRuns: []ScheduleRun{
+			{ID: "11111111-1111-4111-8111-111111111111", ScheduledFor: now},
+			{ID: "22222222-2222-4222-8222-222222222222", ScheduledFor: now.Add(-time.Hour)},
+			{ID: "33333333-3333-4333-8333-333333333333", ScheduledFor: now.Add(-2 * time.Hour)},
+		},
+	}
+	service := NewInstanceService(store, nil)
+	page, err := service.ScheduleRuns(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", 2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.requestedUser != "owner" || store.requestedID != "instance-1" || store.requestedLimit != 3 {
+		t.Fatalf("schedule-run owner boundary changed: %#v", store)
+	}
+	if len(page.Runs) != 2 || page.NextCursor == nil || page.NextCursor.ID != page.Runs[1].ID || !page.NextCursor.ScheduledFor.Equal(page.Runs[1].ScheduledFor) {
+		t.Fatalf("unexpected schedule-run page: %#v", page)
+	}
+}
+
+func TestScheduleRunsRequireAutomationEntitlementAndValidBounds(t *testing.T) {
+	store := &journalPersistenceFake{instance: Instance{ID: "instance-1"}}
+	service := NewInstanceService(store, nil)
+	if _, err := service.ScheduleRuns(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, "instance-1", 20, nil); !errors.Is(err, ErrForbidden) || store.requestedID != "" {
+		t.Fatalf("unentitled schedule-run request reached persistence: id=%q err=%v", store.requestedID, err)
+	}
+	if _, err := service.ScheduleRuns(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, "instance-1", 0, nil); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid schedule-run limit was accepted: %v", err)
 	}
 }
 
