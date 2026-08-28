@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -584,7 +585,51 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err = store.RecordReconciliationNotification(ctx, run, foreignDriftID, deliveredAt.Add(2*time.Hour)); err == nil {
 		t.Fatal("cross-account drift evidence was accepted as a notification marker")
 	}
+	reviewedAt := aiClaimAt.Add(3 * time.Hour).Truncate(time.Microsecond)
+	review, err := store.CreateShadowEvidenceReview(ctx, userID, ShadowEvidenceReview{
+		StrategyInstanceID:          aiInstance.ID,
+		MandateID:                   aiMandateID,
+		MandateVersion:              1,
+		EvidenceFingerprint:         strings.Repeat("ab", 32),
+		GateStatus:                  ShadowEvidenceReviewable,
+		OneHourSampleSize:           20,
+		TwentyFourHourSampleSize:    20,
+		EvidenceWindowHours:         168,
+		ScheduleHealthy:             true,
+		LastScheduleStatus:          "SUCCEEDED",
+		ConsecutiveScheduleFailures: 0,
+		ExecutionBoundary:           ShadowExecutionBoundary,
+		LiveExecutionAvailable:      false,
+		ReviewScope:                 ShadowEvidenceReviewScope,
+		MFAMethod:                   "totp",
+		ReviewedAt:                  reviewedAt,
+	})
+	if err != nil || review.ID == "" || review.EvidenceFingerprint != strings.Repeat("ab", 32) || !review.ReviewedAt.Equal(reviewedAt) || review.LiveExecutionAvailable {
+		t.Fatalf("Shadow evidence review was not persisted safely: %#v %v", review, err)
+	}
+	latestReview, err := store.LatestShadowEvidenceReview(ctx, userID, aiInstance.ID)
+	if err != nil || latestReview == nil || latestReview.ID != review.ID || latestReview.ReviewScope != ShadowEvidenceReviewScope {
+		t.Fatalf("owner Shadow evidence review was not projected safely: %#v %v", latestReview, err)
+	}
+	foreignReview, err := store.LatestShadowEvidenceReview(ctx, "99999999-9999-4999-8999-999999999999", aiInstance.ID)
+	if err != nil || foreignReview != nil {
+		t.Fatalf("Shadow evidence review crossed its owner boundary: %#v %v", foreignReview, err)
+	}
+	invalidReview := review
+	invalidReview.ID = ""
+	invalidReview.MandateID = secondMandateID
+	invalidReview.EvidenceFingerprint = strings.Repeat("cd", 32)
+	if _, err = store.CreateShadowEvidenceReview(ctx, userID, invalidReview); err == nil {
+		t.Fatal("cross-mandate Shadow evidence review was accepted")
+	}
+	if _, err = pool.Exec(ctx, `UPDATE shadow_evidence_reviews SET one_hour_sample_size=21 WHERE id=$1`, review.ID); err == nil {
+		t.Fatal("immutable Shadow evidence review was updated")
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM shadow_evidence_reviews WHERE id=$1`, review.ID); err == nil {
+		t.Fatal("immutable Shadow evidence review was deleted")
+	}
 	assertCount(t, pool, `SELECT count(*) FROM shadow_execution_outcomes`, 1)
+	assertCount(t, pool, `SELECT count(*) FROM shadow_evidence_reviews`, 1)
 }
 
 func proposedOption(instance Instance, eventID, actionID string) risk.ProposedAction {

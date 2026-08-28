@@ -41,6 +41,7 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/strategy-instances/{id}/executions", h.require(stdhttp.HandlerFunc(h.strategyExecutions)))
 	m.Handle("GET /api/strategy-instances/{id}/shadow-outcomes", h.require(stdhttp.HandlerFunc(h.strategyShadowOutcomes)))
 	m.Handle("GET /api/strategy-instances/{id}/shadow-scorecard", h.require(stdhttp.HandlerFunc(h.strategyShadowScorecard)))
+	m.Handle("POST /api/strategy-instances/{id}/shadow-evidence-reviews", h.require(stdhttp.HandlerFunc(h.recordShadowEvidenceReview)))
 	m.Handle("GET /api/strategy-instances/{id}/paper-portfolio", h.require(stdhttp.HandlerFunc(h.strategyPaperPortfolio)))
 	m.Handle("GET /api/strategy-instances/{id}/schedule", h.require(stdhttp.HandlerFunc(h.strategySchedule)))
 	m.Handle("GET /api/strategy-instances/{id}/schedule-runs", h.require(stdhttp.HandlerFunc(h.strategyScheduleRuns)))
@@ -167,6 +168,12 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 409, "PAPER_POSITION_OPEN", "Resolve every open simulated position before finishing this PAPER strategy.")
 	case errors.Is(e, strategy.ErrMandateStale):
 		writeError(w, 409, "MANDATE_NOT_READY", "The strategy's pinned mandate version is not eligible for this non-live action.")
+	case errors.Is(e, strategy.ErrEvidenceNotReviewable):
+		writeError(w, 409, "EVIDENCE_NOT_REVIEWABLE", "This exact Shadow evidence snapshot has not reached the durable review gate.")
+	case errors.Is(e, strategy.ErrEvidenceSnapshotChanged):
+		writeError(w, 409, "EVIDENCE_SNAPSHOT_CHANGED", "The Shadow evidence changed. Refresh and review the current snapshot before recording your acknowledgment.")
+	case errors.Is(e, strategy.ErrEvidenceReviewStepUp):
+		writeError(w, 403, "EVIDENCE_REVIEW_MFA_REQUIRED", "Enter a fresh code from your authenticator app to record this non-live evidence review.")
 	case errors.Is(e, strategy.ErrConflict):
 		writeError(w, 409, "STRATEGY_CONFLICT", "The strategy state changed or this request conflicts with an existing record.")
 	case errors.Is(e, strategy.ErrDuplicate):
@@ -270,6 +277,31 @@ func (h *authHandler) strategyShadowScorecard(w stdhttp.ResponseWriter, r *stdht
 		"evidence_gate_grants_authority": false,
 		"live_promotion_available":       false,
 		"live_execution_available":       false,
+	})
+}
+
+func (h *authHandler) recordShadowEvidenceReview(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var command strategy.ShadowEvidenceReviewCommand
+	if !decode(w, r, &command) {
+		return
+	}
+	review, err := h.strategies.RecordShadowEvidenceReview(r.Context(), principal(r), r.PathValue("id"), command)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 201, map[string]any{
+		"evidence_review":                  review,
+		"review_scope":                     strategy.ShadowEvidenceReviewScope,
+		"evidence_review_grants_authority": false,
+		"broker_action_available":          false,
+		"live_promotion_available":         false,
+		"live_execution_available":         false,
 	})
 }
 

@@ -265,6 +265,13 @@ const presentations: Record<string, Presentation> = {
     detail: "The non-live instance completed and retained its evidence.",
     tone: "authority",
   },
+  "strategy_instance.shadow_evidence_reviewed": {
+    category: "Autonomy",
+    title: "Shadow evidence reviewed",
+    detail:
+      "An MFA-backed review of one exact non-live evidence snapshot was recorded without trading authority.",
+    tone: "authority",
+  },
   "order_intent.user_reviewed_nonexecuting": {
     category: "Approval",
     title: "Non-executing proposal reviewed",

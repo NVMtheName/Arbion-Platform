@@ -13,13 +13,16 @@ import (
 )
 
 var (
-	ErrForbidden    = errors.New("strategy entitlement required")
-	ErrNotFound     = errors.New("strategy instance not found")
-	ErrConflict     = errors.New("strategy instance conflict")
-	ErrCapitalLimit = errors.New("paper starting cash exceeds capital bucket capacity")
-	ErrAccountInUse = errors.New("financial account already has an active non-live strategy")
-	ErrOpenExposure = errors.New("paper strategy still has open simulated positions")
-	ErrMandateStale = errors.New("strategy mandate is not current and ready")
+	ErrForbidden               = errors.New("strategy entitlement required")
+	ErrNotFound                = errors.New("strategy instance not found")
+	ErrConflict                = errors.New("strategy instance conflict")
+	ErrCapitalLimit            = errors.New("paper starting cash exceeds capital bucket capacity")
+	ErrAccountInUse            = errors.New("financial account already has an active non-live strategy")
+	ErrOpenExposure            = errors.New("paper strategy still has open simulated positions")
+	ErrMandateStale            = errors.New("strategy mandate is not current and ready")
+	ErrEvidenceNotReviewable   = errors.New("shadow evidence is not reviewable")
+	ErrEvidenceSnapshotChanged = errors.New("shadow evidence snapshot changed")
+	ErrEvidenceReviewStepUp    = errors.New("fresh authenticator code required for shadow evidence review")
 )
 
 type Persistence interface {
@@ -51,6 +54,13 @@ type ShadowOutcomeReader interface {
 type ShadowScorecardReader interface {
 	ShadowScorecard(context.Context, string, string) (ShadowScorecard, error)
 }
+type ShadowEvidenceReviewStore interface {
+	CreateShadowEvidenceReview(context.Context, string, ShadowEvidenceReview) (ShadowEvidenceReview, error)
+	LatestShadowEvidenceReview(context.Context, string, string) (*ShadowEvidenceReview, error)
+}
+type ShadowEvidenceReviewStepUp interface {
+	VerifyShadowEvidenceReviewStepUp(context.Context, string, string) (string, time.Time, error)
+}
 type ScheduleRunReader interface {
 	ScheduleRuns(context.Context, string, string, int, *ScheduleRunCursor) ([]ScheduleRun, error)
 }
@@ -65,10 +75,15 @@ type DecisionJournalEntry struct {
 	CreatedAt                                                             time.Time
 }
 type InstanceService struct {
-	store    Persistence
-	mandates Mandates
-	audit    Auditor
-	now      func() time.Time
+	store                Persistence
+	mandates             Mandates
+	audit                Auditor
+	evidenceReviewStepUp ShadowEvidenceReviewStepUp
+	now                  func() time.Time
+}
+
+func (s *InstanceService) ConfigureEvidenceReview(stepUp ShadowEvidenceReviewStepUp) {
+	s.evidenceReviewStepUp = stepUp
 }
 
 func NewInstanceService(s Persistence, m Mandates, auditors ...Auditor) *InstanceService {
@@ -268,17 +283,6 @@ func (s *InstanceService) ShadowOutcomes(c context.Context, p authorization.Prin
 	}
 	return reader.ShadowOutcomes(c, p.UserID, id)
 }
-func (s *InstanceService) ShadowScorecard(c context.Context, p authorization.Principal, id string) (ShadowScorecard, error) {
-	if !entitled(p) {
-		return ShadowScorecard{}, ErrForbidden
-	}
-	reader, ok := s.store.(ShadowScorecardReader)
-	if !ok {
-		return ShadowScorecard{}, ErrInvalid
-	}
-	return reader.ShadowScorecard(c, p.UserID, id)
-}
-
 func (s *InstanceService) PaperPortfolio(c context.Context, p authorization.Principal, id string) (PaperPortfolio, error) {
 	if !entitled(p) {
 		return PaperPortfolio{}, ErrForbidden

@@ -30,6 +30,11 @@ type journalPersistenceFake struct {
 	scorecard          ShadowScorecard
 	scorecardError     error
 	scorecardCalls     int
+	latestReview       *ShadowEvidenceReview
+	latestReviewError  error
+	createdReview      ShadowEvidenceReview
+	createReviewError  error
+	createReviewCalls  int
 	requestedID        string
 	initializedUser    string
 	initializedCash    string
@@ -105,6 +110,26 @@ func (f *journalPersistenceFake) ShadowScorecard(_ context.Context, userID, inst
 	f.scorecardCalls++
 	return f.scorecard, f.scorecardError
 }
+func (f *journalPersistenceFake) LatestShadowEvidenceReview(_ context.Context, userID, instanceID string) (*ShadowEvidenceReview, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	return f.latestReview, f.latestReviewError
+}
+func (f *journalPersistenceFake) CreateShadowEvidenceReview(_ context.Context, userID string, review ShadowEvidenceReview) (ShadowEvidenceReview, error) {
+	f.requestedUser = userID
+	f.createReviewCalls++
+	f.createdReview = review
+	if f.createReviewError != nil {
+		return ShadowEvidenceReview{}, f.createReviewError
+	}
+	if review.ID == "" {
+		review.ID = "review-1"
+	}
+	if review.CreatedAt.IsZero() {
+		review.CreatedAt = review.ReviewedAt
+	}
+	return review, nil
+}
 func (f *journalPersistenceFake) PaperPortfolio(_ context.Context, userID, instanceID string) (PaperPortfolio, error) {
 	f.requestedUser = userID
 	f.requestedID = instanceID
@@ -150,6 +175,22 @@ type strategyAuditFake struct {
 	userID   *string
 	action   string
 	metadata map[string]any
+}
+
+type evidenceReviewStepUpFake struct {
+	userID     string
+	code       string
+	method     string
+	verifiedAt time.Time
+	err        error
+	calls      int
+}
+
+func (f *evidenceReviewStepUpFake) VerifyShadowEvidenceReviewStepUp(_ context.Context, userID, code string) (string, time.Time, error) {
+	f.userID = userID
+	f.code = code
+	f.calls++
+	return f.method, f.verifiedAt, f.err
 }
 
 func (f *strategyAuditFake) Record(_ context.Context, userID *string, action string, metadata map[string]any) error {
@@ -366,18 +407,162 @@ func TestPaperPortfolioIsOwnerScopedAndPaperOnly(t *testing.T) {
 }
 
 func TestShadowScorecardIsOwnerScopedAndEntitled(t *testing.T) {
-	store := &journalPersistenceFake{scorecard: ShadowScorecard{
-		StrategyInstanceID: "instance-1", TotalMarks: 1,
-		Horizons: []ShadowHorizonScore{{Horizon: ShadowOutcomeOneHour, SampleSize: 1}},
-	}}
+	store := &journalPersistenceFake{
+		instance: Instance{ID: "instance-1", UserID: "owner", AutomationMandateID: "mandate-1", MandateVersion: 4, StrategyIdentifier: "ai_shadow", ExecutionMode: Shadow, CurrentState: AIMonitoring},
+		scorecard: ShadowScorecard{
+			StrategyInstanceID: "instance-1", TotalMarks: 1,
+			Horizons: []ShadowHorizonScore{{Horizon: ShadowOutcomeOneHour, SampleSize: 1}},
+		}}
 	service := NewInstanceService(store, nil)
 	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
 	scorecard, err := service.ShadowScorecard(context.Background(), principal, "instance-1")
-	if err != nil || scorecard.TotalMarks != 1 || store.requestedUser != "owner" || store.requestedID != "instance-1" || store.scorecardCalls != 1 {
+	if err != nil || scorecard.TotalMarks != 1 || !shadowEvidenceFingerprintPattern.MatchString(scorecard.EvidenceReviewFingerprint) || store.requestedUser != "owner" || store.requestedID != "instance-1" || store.scorecardCalls != 1 {
 		t.Fatalf("shadow scorecard owner boundary changed: scorecard=%#v store=%#v err=%v", scorecard, store, err)
 	}
 	if _, err = service.ShadowScorecard(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, "instance-1"); !errors.Is(err, ErrForbidden) || store.scorecardCalls != 1 {
 		t.Fatalf("unentitled shadow scorecard request reached persistence: calls=%d err=%v", store.scorecardCalls, err)
+	}
+}
+
+func reviewableShadowScorecard(instanceID string) ShadowScorecard {
+	first := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	last := first.Add(8 * 24 * time.Hour)
+	return ShadowScorecard{
+		StrategyInstanceID: instanceID,
+		TotalMarks:         40,
+		Horizons: []ShadowHorizonScore{
+			{Horizon: ShadowOutcomeOneHour, SampleSize: 20, FirstEvaluatedAt: &first, LastEvaluatedAt: &last, Interpretation: "observational", MinimumSampleForObservationalLabel: 20},
+			{Horizon: ShadowOutcomeTwentyFourHours, SampleSize: 20, FirstEvaluatedAt: &first, LastEvaluatedAt: &last, Interpretation: "observational", MinimumSampleForObservationalLabel: 20},
+		},
+		Behavior: ShadowBehaviorScore{TotalAIDecisions: 24, Abstentions: 4, ProposedDecisions: 20, Routes: []ShadowRouteBehavior{}, Symbols: []ShadowSymbolBehavior{}},
+		EvidenceGate: ShadowEvidenceGate{
+			Status:                      ShadowEvidenceReviewable,
+			Blockers:                    []string{},
+			OneHourSampleSize:           20,
+			TwentyFourHourSampleSize:    20,
+			MinimumSamplePerHorizon:     ShadowScorecardMinimumSample,
+			EvidenceWindowHours:         192,
+			MinimumEvidenceWindowHours:  ShadowEvidenceMinimumWindowHours,
+			ScheduleHealthy:             true,
+			LastScheduleStatus:          "SUCCEEDED",
+			ConsecutiveScheduleFailures: 0,
+			ExecutionBoundary:           ShadowExecutionBoundary,
+			LiveExecutionAvailable:      false,
+		},
+	}
+}
+
+func TestRecordShadowEvidenceReviewRequiresExactReviewableSnapshotAndFreshTOTP(t *testing.T) {
+	verifiedAt := time.Date(2026, 8, 28, 4, 30, 0, 0, time.UTC)
+	instance := Instance{ID: "instance-1", UserID: "owner", AutomationMandateID: "mandate-1", MandateVersion: 4, StrategyIdentifier: "ai_shadow", ExecutionMode: Shadow, CurrentState: AIMonitoring, Status: "ACTIVE"}
+	scorecard := reviewableShadowScorecard(instance.ID)
+	fingerprint, err := shadowEvidenceFingerprint(instance, scorecard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &journalPersistenceFake{instance: instance, scorecard: scorecard}
+	audit := &strategyAuditFake{}
+	stepUp := &evidenceReviewStepUpFake{method: "totp", verifiedAt: verifiedAt}
+	service := NewInstanceService(store, nil, audit)
+	service.ConfigureEvidenceReview(stepUp)
+
+	review, err := service.RecordShadowEvidenceReview(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, instance.ID, ShadowEvidenceReviewCommand{
+		EvidenceFingerprint:  fingerprint,
+		ConfirmNonLiveReview: true,
+		MFACode:              "123456",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if review.ID != "review-1" || review.EvidenceFingerprint != fingerprint || review.ReviewScope != ShadowEvidenceReviewScope || review.ExecutionBoundary != ShadowExecutionBoundary || review.LiveExecutionAvailable || !review.ReviewedAt.Equal(verifiedAt) {
+		t.Fatalf("unexpected immutable review: %#v", review)
+	}
+	if stepUp.calls != 1 || stepUp.userID != "owner" || stepUp.code != "123456" || store.createReviewCalls != 1 || store.createdReview.MandateID != "mandate-1" || store.createdReview.MandateVersion != 4 {
+		t.Fatalf("review boundary was not preserved: step-up=%#v store=%#v", stepUp, store)
+	}
+	if audit.userID == nil || *audit.userID != "owner" || audit.action != "strategy_instance.shadow_evidence_reviewed" || audit.metadata["evidence_fingerprint"] != fingerprint || audit.metadata["live_execution_available"] != false || audit.metadata["broker_order_created"] != false || audit.metadata["execution_authority_granted"] != false {
+		t.Fatalf("review audit evidence is incomplete: %#v", audit)
+	}
+}
+
+func TestRecordShadowEvidenceReviewFailsClosedBeforeConsumingTOTP(t *testing.T) {
+	instance := Instance{ID: "instance-1", UserID: "owner", AutomationMandateID: "mandate-1", MandateVersion: 4, StrategyIdentifier: "ai_shadow", ExecutionMode: Shadow, CurrentState: AIMonitoring, Status: "ACTIVE"}
+	scorecard := reviewableShadowScorecard(instance.ID)
+	fingerprint, err := shadowEvidenceFingerprint(instance, scorecard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &journalPersistenceFake{instance: instance, scorecard: scorecard}
+	stepUp := &evidenceReviewStepUpFake{method: "totp", verifiedAt: time.Now().UTC()}
+	service := NewInstanceService(store, nil)
+	service.ConfigureEvidenceReview(stepUp)
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+
+	if _, err = service.RecordShadowEvidenceReview(context.Background(), principal, instance.ID, ShadowEvidenceReviewCommand{EvidenceFingerprint: "b" + fingerprint[1:], ConfirmNonLiveReview: true, MFACode: "123456"}); !errors.Is(err, ErrEvidenceSnapshotChanged) {
+		t.Fatalf("stale snapshot returned %v", err)
+	}
+	if stepUp.calls != 0 || store.createReviewCalls != 0 {
+		t.Fatal("stale snapshot consumed MFA or reached persistence")
+	}
+	store.scorecard.EvidenceGate.Status = "COLLECTING_EVIDENCE"
+	store.scorecard.EvidenceGate.Blockers = []string{"ONE_HOUR_SAMPLE_INCOMPLETE"}
+	if _, err = service.RecordShadowEvidenceReview(context.Background(), principal, instance.ID, ShadowEvidenceReviewCommand{EvidenceFingerprint: fingerprint, ConfirmNonLiveReview: true, MFACode: "123456"}); !errors.Is(err, ErrEvidenceNotReviewable) {
+		t.Fatalf("collecting evidence returned %v", err)
+	}
+	if stepUp.calls != 0 || store.createReviewCalls != 0 {
+		t.Fatal("collecting evidence consumed MFA or reached persistence")
+	}
+	store.scorecard = scorecard
+	stepUp.err = errors.New("rejected")
+	if _, err = service.RecordShadowEvidenceReview(context.Background(), principal, instance.ID, ShadowEvidenceReviewCommand{EvidenceFingerprint: fingerprint, ConfirmNonLiveReview: true, MFACode: "000000"}); !errors.Is(err, ErrEvidenceReviewStepUp) {
+		t.Fatalf("rejected MFA returned %v", err)
+	}
+	if stepUp.calls != 1 || store.createReviewCalls != 0 {
+		t.Fatal("rejected MFA reached review persistence")
+	}
+	if _, err = service.RecordShadowEvidenceReview(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, instance.ID, ShadowEvidenceReviewCommand{EvidenceFingerprint: fingerprint, ConfirmNonLiveReview: true, MFACode: "123456"}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("unentitled review returned %v", err)
+	}
+}
+
+func TestShadowScorecardMarksOnlyTheExactCurrentSnapshotReviewed(t *testing.T) {
+	instance := Instance{ID: "instance-1", UserID: "owner", AutomationMandateID: "mandate-1", MandateVersion: 4, StrategyIdentifier: "ai_shadow", ExecutionMode: Shadow, CurrentState: AIMonitoring}
+	scorecard := reviewableShadowScorecard(instance.ID)
+	fingerprint, err := shadowEvidenceFingerprint(instance, scorecard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &journalPersistenceFake{instance: instance, scorecard: scorecard, latestReview: &ShadowEvidenceReview{ID: "review-1", EvidenceFingerprint: fingerprint}}
+	service := NewInstanceService(store, nil)
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+
+	current, err := service.ShadowScorecard(context.Background(), principal, instance.ID)
+	if err != nil || !current.CurrentEvidenceReviewed || current.LatestEvidenceReview == nil {
+		t.Fatalf("current review was not attached: %#v %v", current, err)
+	}
+	store.scorecard.TotalMarks++
+	changed, err := service.ShadowScorecard(context.Background(), principal, instance.ID)
+	if err != nil || changed.CurrentEvidenceReviewed || changed.EvidenceReviewFingerprint == fingerprint || changed.LatestEvidenceReview == nil {
+		t.Fatalf("changed evidence reused an old review: %#v %v", changed, err)
+	}
+}
+
+func TestRecordShadowEvidenceReviewIsIdempotentForAnAlreadyReviewedFingerprint(t *testing.T) {
+	instance := Instance{ID: "instance-1", UserID: "owner", AutomationMandateID: "mandate-1", MandateVersion: 4, StrategyIdentifier: "ai_shadow", ExecutionMode: Shadow, CurrentState: AIMonitoring}
+	scorecard := reviewableShadowScorecard(instance.ID)
+	fingerprint, err := shadowEvidenceFingerprint(instance, scorecard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	existing := &ShadowEvidenceReview{ID: "review-1", StrategyInstanceID: instance.ID, EvidenceFingerprint: fingerprint, ReviewScope: ShadowEvidenceReviewScope}
+	store := &journalPersistenceFake{instance: instance, scorecard: scorecard, latestReview: existing}
+	stepUp := &evidenceReviewStepUpFake{err: errors.New("must not be called")}
+	service := NewInstanceService(store, nil)
+	service.ConfigureEvidenceReview(stepUp)
+
+	review, err := service.RecordShadowEvidenceReview(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, instance.ID, ShadowEvidenceReviewCommand{EvidenceFingerprint: fingerprint, ConfirmNonLiveReview: true})
+	if err != nil || review.ID != existing.ID || stepUp.calls != 0 || store.createReviewCalls != 0 {
+		t.Fatalf("current review was not idempotent: review=%#v step-up=%#v store=%#v err=%v", review, stepUp, store, err)
 	}
 }
 

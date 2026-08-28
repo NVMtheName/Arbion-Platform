@@ -5,11 +5,13 @@ import (
 	"errors"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/neural"
+	"github.com/arbion/platform/services/api/internal/platform/config"
 	"github.com/arbion/platform/services/api/internal/strategy"
 )
 
@@ -41,6 +43,9 @@ func TestStrategyErrorReturnsSafeEvaluationDiagnostics(t *testing.T) {
 		{strategy.ErrEvaluationMarketDataStale, stdhttp.StatusUnprocessableEntity, "MARKET_DATA_STALE"},
 		{strategy.ErrEvaluationNoEligibleContracts, stdhttp.StatusUnprocessableEntity, "NO_ELIGIBLE_OPTION_CONTRACTS"},
 		{strategy.ErrMandateStale, stdhttp.StatusConflict, "MANDATE_NOT_READY"},
+		{strategy.ErrEvidenceNotReviewable, stdhttp.StatusConflict, "EVIDENCE_NOT_REVIEWABLE"},
+		{strategy.ErrEvidenceSnapshotChanged, stdhttp.StatusConflict, "EVIDENCE_SNAPSHOT_CHANGED"},
+		{strategy.ErrEvidenceReviewStepUp, stdhttp.StatusForbidden, "EVIDENCE_REVIEW_MFA_REQUIRED"},
 		{aiconnection.ErrRateLimit, stdhttp.StatusTooManyRequests, "AI_DECISION_BUDGET_EXHAUSTED"},
 		{&neural.ProviderError{Code: neural.RateLimited}, stdhttp.StatusTooManyRequests, "AI_PROVIDER_RATE_LIMITED"},
 	}
@@ -90,5 +95,25 @@ func TestScheduleRunCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
 		if _, err = decodeScheduleRunCursor(input); err == nil {
 			t.Fatalf("malformed schedule-run cursor was accepted: %q", input)
 		}
+	}
+}
+
+func TestShadowEvidenceReviewCommandRequiresTrustedOriginAndStrictJSON(t *testing.T) {
+	handler := &authHandler{cfg: config.Auth{AllowedOrigins: []string{"https://www.arbion.ai"}}}
+	withoutOrigin := httptest.NewRequest(stdhttp.MethodPost, "/api/strategy-instances/instance-1/shadow-evidence-reviews", strings.NewReader(`{"evidence_fingerprint":"`+strings.Repeat("a", 64)+`","confirm_non_live_review":true,"mfa_code":"123456"}`))
+	withoutOrigin.SetPathValue("id", "instance-1")
+	recorder := httptest.NewRecorder()
+	handler.recordShadowEvidenceReview(recorder, withoutOrigin)
+	if recorder.Code != stdhttp.StatusForbidden || !strings.Contains(recorder.Body.String(), "csrf_rejected") {
+		t.Fatalf("untrusted review request returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	unknownField := httptest.NewRequest(stdhttp.MethodPost, "/api/strategy-instances/instance-1/shadow-evidence-reviews", strings.NewReader(`{"evidence_fingerprint":"`+strings.Repeat("a", 64)+`","confirm_non_live_review":true,"mfa_code":"123456","live_execution":true}`))
+	unknownField.Header.Set("Origin", "https://www.arbion.ai")
+	unknownField.SetPathValue("id", "instance-1")
+	recorder = httptest.NewRecorder()
+	handler.recordShadowEvidenceReview(recorder, unknownField)
+	if recorder.Code != stdhttp.StatusBadRequest || !strings.Contains(recorder.Body.String(), "invalid_request") {
+		t.Fatalf("unrecognized review authority returned %d: %s", recorder.Code, recorder.Body.String())
 	}
 }

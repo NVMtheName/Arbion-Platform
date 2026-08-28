@@ -316,6 +316,13 @@ func (s *Service) VerifySafetyControlStepUp(ctx context.Context, userID, code st
 	return s.verifyTOTPOnlyStepUp(ctx, userID, code, "safety_control")
 }
 
+// VerifyShadowEvidenceReviewStepUp consumes one fresh authenticator step for
+// an immutable, non-live evidence acknowledgment. It grants no execution
+// authority and deliberately excludes recovery codes.
+func (s *Service) VerifyShadowEvidenceReviewStepUp(ctx context.Context, userID, code string) (string, time.Time, error) {
+	return s.verifyTOTPOnlyStepUp(ctx, userID, code, "shadow_evidence_review")
+}
+
 func (s *Service) verifyTOTPOnlyStepUp(ctx context.Context, userID, code, purpose string) (string, time.Time, error) {
 	if s.mfaStore == nil || s.mfaProtector == nil || userID == "" {
 		return "", time.Time{}, ErrMFAUnavailable
