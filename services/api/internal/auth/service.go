@@ -56,6 +56,30 @@ func NewService(users UserStore, sessions SessionStore, limiter RateLimiter, aud
 	return s
 }
 
+func (s *Service) SecurityActivity(ctx context.Context, userID string, limit int, cursor *SecurityActivityCursor) (SecurityActivityPage, error) {
+	if userID == "" {
+		return SecurityActivityPage{}, ErrUnauthenticated
+	}
+	if limit < 1 || limit > 100 || (cursor != nil && (cursor.OccurredAt.IsZero() || cursor.ID == "")) {
+		return SecurityActivityPage{}, ErrSecurityActivityInvalid
+	}
+	reader, ok := s.audit.(SecurityActivityReader)
+	if !ok {
+		return SecurityActivityPage{}, ErrSecurityActivityUnavailable
+	}
+	activities, err := reader.SecurityActivities(ctx, userID, limit+1, cursor)
+	if err != nil {
+		return SecurityActivityPage{}, err
+	}
+	page := SecurityActivityPage{Activities: activities}
+	if len(activities) > limit {
+		page.Activities = activities[:limit]
+		last := page.Activities[len(page.Activities)-1]
+		page.NextCursor = &SecurityActivityCursor{OccurredAt: last.OccurredAt, ID: last.ID}
+	}
+	return page, nil
+}
+
 func (s *Service) ConfigureEmail(tokens EmailTokenStore, sender mailer.Sender, policy EmailPolicy) {
 	s.emailTokens = tokens
 	s.emailSender = sender

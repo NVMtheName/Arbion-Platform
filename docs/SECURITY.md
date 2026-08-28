@@ -148,7 +148,9 @@ Automated and AI-assisted actions also require a structured Decision Journal lin
 
 ## Required future security decisions
 
-Before product integration work, Arbion must choose its identity and tenancy model, authorization policy system, consent and step-up approval design, secret manager and cryptographic ownership, data classification and retention policy, audit integrity controls, AI-provider privacy requirements, connector OAuth scopes, incident-response process, and formal threat models for tools, connectors, MCP, and any execution workflow.
+Before product integration work, Arbion must choose its identity and tenancy model, authorization policy system, consent and step-up approval design, secret manager and cryptographic ownership, data classification and retention policy, external audit archival and cryptographic anchoring, AI-provider privacy requirements, connector OAuth scopes, incident-response process, and formal threat models for tools, connectors, MCP, and any execution workflow.
+
+Platform audit rows are append-only at the PostgreSQL boundary: updates and deletes are rejected for every event, including existing history. The authenticated `GET /api/auth/security-activity` route is owner-scoped, bounded to 1–100 rows, `no-store`, and stably paginated by opaque time/ID cursor. It selects only an explicit set of access, provider-connection, autonomy-policy, non-executing approval, authorization, and emergency-control actions and returns only immutable ID, controlled action code, and occurrence time. The website maps those codes to fixed Arbion copy. Audit metadata, actor/target identifiers, email and network attributes, provider responses, credentials, portfolio data, and broker data remain outside the projection. This is append-only database enforcement, not a claim of external cryptographic anchoring or indefinite archival retention.
 
 ## Financial authorization implementation controls
 

@@ -66,6 +66,7 @@ jobs:
           --health-retries 12
     env:
       STRATEGY_TEST_DATABASE_URL: postgres://arbion:ci-integration-not-a-production-secret@127.0.0.1:5432/arbion_strategy?sslmode=disable
+      AUTH_TEST_DATABASE_URL: postgres://arbion:ci-integration-not-a-production-secret@127.0.0.1:5432/arbion_strategy?sslmode=disable
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -73,6 +74,7 @@ jobs:
           go-version-file: services/api/go.mod
           cache-dependency-path: services/api/go.sum
       - run: go test -race ./internal/strategy -run TestPostgresEvaluationCommitIsAtomicAndModeBound -count=1
+      - run: go test -race ./internal/auth -run TestPostgresSecurityActivityIsOwnerScopedFilteredAndAppendOnly -count=1
       - run: go test -race ./internal/marketintelligence -run TestPostgresHealthHistoryAggregatesAndPrunesSafeOutcomes -count=1
       - run: go test -race ./internal/marketintelligence -run TestPostgresWatchlistIsOwnerScopedUniqueAndHardBounded -count=1
       - run: go test -race ./internal/orderintent -run TestPostgresOrderIntentIsIdempotentOwnerScopedImmutableAndNonExecuting -count=1

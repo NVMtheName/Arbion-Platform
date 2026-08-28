@@ -23,6 +23,8 @@ var ErrMFANotEnabled = errors.New("multi-factor authentication is not enabled")
 var ErrInvalidMFACode = errors.New("multi-factor authentication code is invalid")
 var ErrInvalidMFAChallenge = errors.New("multi-factor authentication challenge is invalid or expired")
 var ErrMFAEnrollmentExpired = errors.New("multi-factor authentication enrollment is invalid or expired")
+var ErrSecurityActivityInvalid = errors.New("security activity pagination is invalid")
+var ErrSecurityActivityUnavailable = errors.New("security activity is unavailable")
 
 type User struct {
 	ID              string
@@ -127,4 +129,27 @@ type RateLimiter interface {
 }
 type Auditor interface {
 	Record(context.Context, *string, string, map[string]any) error
+}
+
+// SecurityActivity is a deliberately narrow projection of the platform audit
+// trail. It excludes metadata, actor/target identifiers, network attributes,
+// provider details, and every credential-bearing field.
+type SecurityActivity struct {
+	ID         string    `json:"id"`
+	Action     string    `json:"action"`
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+type SecurityActivityCursor struct {
+	OccurredAt time.Time
+	ID         string
+}
+
+type SecurityActivityPage struct {
+	Activities []SecurityActivity
+	NextCursor *SecurityActivityCursor
+}
+
+type SecurityActivityReader interface {
+	SecurityActivities(context.Context, string, int, *SecurityActivityCursor) ([]SecurityActivity, error)
 }
