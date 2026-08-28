@@ -29,6 +29,19 @@ type StrategyFleetProps = {
   contextWarnings?: string[];
 };
 
+export type StrategyFleetNextAction = {
+  key: string;
+  priority: number;
+  tone: "ATTENTION" | "READY" | "PAUSED";
+  eyebrow: string;
+  title: string;
+  detail: string;
+  href: string;
+  actionLabel: string;
+  accountName?: string;
+  provider?: string;
+};
+
 function providerLabel(provider: string) {
   if (provider === "coinbase") return "Coinbase";
   if (provider === "schwab") return "Charles Schwab";
@@ -68,6 +81,20 @@ function isAI(item: StrategyFleetItem) {
   return item.automationType === "AI_AUTONOMOUS";
 }
 
+function isAutonomous(item: StrategyFleetItem) {
+  return (
+    item.autonomyLevel === "FULL_AUTONOMOUS" ||
+    item.autonomyLevel === "STRATEGY_AUTONOMOUS"
+  );
+}
+
+function historicalInstance(item: StrategyFleetItem) {
+  return Boolean(
+    item.instanceStatus &&
+      !["ACTIVE", "PAUSED", "ERROR"].includes(item.instanceStatus),
+  );
+}
+
 function needsReview(item: StrategyFleetItem) {
   return (
     item.instanceStatus === "ERROR" ||
@@ -88,6 +115,7 @@ function statusLabel(item: StrategyFleetItem) {
   if (item.instanceStatus === "ACTIVE" && item.currentState === "AI_MONITORING")
     return "Monitoring";
   if (item.instanceStatus === "ACTIVE") return "Active";
+  if (historicalInstance(item)) return "New version required";
   if (item.mandateStatus === "DRAFT") return "Draft";
   if (item.mandateStatus === "READY") return "Ready to initialize";
   return readable(item.mandateStatus || "Unknown");
@@ -104,10 +132,163 @@ function healthLabel(item: StrategyFleetItem) {
   if (item.instanceStatus === "ERROR" || item.currentState === "ERROR")
     return "Engine needs review";
   if (item.instanceStatus === "PAUSED") return "Paused by owner";
+  if (historicalInstance(item)) return "Historical version complete";
   if (item.scheduleEnabled && item.nextRunAt) return "Healthy schedule";
   if (item.instanceStatus === "ACTIVE") return "Manual cycles only";
   if (item.mandateStatus === "READY") return "Ready to initialize";
   return "Draft configuration";
+}
+
+export function selectStrategyFleetNextAction(
+  item: StrategyFleetItem,
+): StrategyFleetNextAction | null {
+  const destination = `/automations/${item.id}`;
+  const identity = {
+    key: item.id,
+    accountName: item.accountName,
+    provider: item.provider,
+  };
+
+  if (
+    item.accountContextAvailable === false ||
+    item.instanceContextAvailable === false
+  ) {
+    return {
+      key: "CURRENT_FLEET_CONTEXT",
+      priority: 0,
+      tone: "ATTENTION",
+      eyebrow: "CURRENT CONTEXT UNAVAILABLE",
+      title: "Refresh the current fleet context",
+      detail:
+        "Arbion will not infer owner actions from a partial account or strategy inventory. No mandate or schedule was changed.",
+      href: "/automations",
+      actionLabel: "Refresh automations",
+    };
+  }
+  if (item.instanceStatus === "ERROR" || item.currentState === "ERROR") {
+    return {
+      ...identity,
+      priority: 1,
+      tone: "ATTENTION",
+      eyebrow: "ENGINE REVIEW REQUIRED",
+      title: `Review ${item.title} runtime evidence`,
+      detail:
+        "The non-live instance is in an error state. Arbion stopped the cycle and did not send a broker order.",
+      href: `${destination}#runtime-evidence`,
+      actionLabel: "Review runtime evidence",
+    };
+  }
+  if (
+    item.scheduleAvailable === false ||
+    item.scheduleStatus === "FAILED" ||
+    item.consecutiveFailures > 0
+  ) {
+    return {
+      ...identity,
+      priority: 2,
+      tone: "ATTENTION",
+      eyebrow: "SCHEDULE NEEDS REVIEW",
+      title: `Review ${item.title} schedule health`,
+      detail:
+        item.scheduleAvailable === false
+          ? "Arbion could not refresh the current schedule record and will not label this engine healthy."
+          : `${item.consecutiveFailures} consecutive ${item.consecutiveFailures === 1 ? "failure" : "failures"}. The scheduler failed closed without broker execution.`,
+      href: `${destination}#schedule-controls`,
+      actionLabel: "Review schedule",
+    };
+  }
+  if (item.mandateStatus === "DRAFT") {
+    return {
+      ...identity,
+      priority: 10,
+      tone: "READY",
+      eyebrow: "DRAFT REVIEW",
+      title: `Finish reviewing ${item.title}`,
+      detail:
+        "Review the exact saved version and mark it Ready before any non-live instance can initialize.",
+      href: `${destination}#mandate-lifecycle-controls`,
+      actionLabel: "Review draft",
+    };
+  }
+  if (historicalInstance(item)) {
+    return {
+      ...identity,
+      priority: 20,
+      tone: "READY",
+      eyebrow: "HISTORICAL VERSION COMPLETE",
+      title: `Create the next ${item.title} version`,
+      detail:
+        "This immutable version already produced a historical instance. A new bounded version is required before initialization.",
+      href: `${destination}#configuration-controls`,
+      actionLabel: "Open version controls",
+    };
+  }
+  if (!item.instanceStatus && item.mandateStatus === "READY") {
+    return {
+      ...identity,
+      priority: 30,
+      tone: "READY",
+      eyebrow: "READY FOR NON-LIVE INITIALIZATION",
+      title: `Initialize ${item.title}`,
+      detail:
+        "The mandate is Ready for its exact initialization checks. This creates no broker order or live authority.",
+      href: `${destination}#strategy-readiness-check`,
+      actionLabel: "Review initialization",
+    };
+  }
+  if (item.instanceStatus === "PAUSED") {
+    return {
+      ...identity,
+      priority: 40,
+      tone: "PAUSED",
+      eyebrow: "PAUSED BY OWNER",
+      title: `Decide when to resume ${item.title}`,
+      detail:
+        "The non-live capital claim remains protected while evaluations are stopped. Resume only when you choose.",
+      href: `${destination}#strategy-instance-controls`,
+      actionLabel: "Open resume controls",
+    };
+  }
+  if (item.instanceStatus === "ACTIVE" && isAutonomous(item)) {
+    if (!item.scheduleEnabled || !item.nextRunAt) {
+      return {
+        ...identity,
+        priority: 50,
+        tone: "READY",
+        eyebrow: "AUTOMATIC CYCLES ARE OFF",
+        title: `Configure ${item.title} scheduling`,
+        detail:
+          "The non-live engine is active, but it has no current automatic cycle. Review and save a bounded schedule.",
+        href: `${destination}#schedule-controls`,
+        actionLabel: "Open schedule controls",
+      };
+    }
+    return null;
+  }
+  if (item.instanceStatus === "ACTIVE") {
+    return {
+      ...identity,
+      priority: 60,
+      tone: "READY",
+      eyebrow: "OWNER-INVOKED STRATEGY",
+      title: `Evaluate ${item.title} when ready`,
+      detail:
+        "This strategy waits for an owner-invoked PAPER or SHADOW evaluation through the deterministic risk gate.",
+      href: `${destination}#manual-evaluation`,
+      actionLabel: "Open evaluation controls",
+    };
+  }
+  return {
+    ...identity,
+    priority: 70,
+    tone: "ATTENTION",
+    eyebrow: "MANDATE REVIEW REQUIRED",
+    title: `Review ${item.title}`,
+    detail:
+      "The current lifecycle state does not map to an automatic owner action. Review the immutable mandate before proceeding.",
+    href: destination,
+    actionLabel: "Open strategy",
+  };
 }
 
 function healthClass(item: StrategyFleetItem) {
@@ -156,6 +337,19 @@ export function StrategyFleet({
   ).length;
   const attention = items.filter(needsReview).length;
   const drafts = items.filter((item) => item.mandateStatus === "DRAFT").length;
+  const nextActions = Array.from(
+    new Map(
+      items
+        .map(selectStrategyFleetNextAction)
+        .filter((action): action is StrategyFleetNextAction => Boolean(action))
+        .sort((left, right) =>
+          left.priority !== right.priority
+            ? left.priority - right.priority
+            : left.title.localeCompare(right.title),
+        )
+        .map((action) => [action.key, action]),
+    ).values(),
+  );
 
   return (
     <>
@@ -186,6 +380,61 @@ export function StrategyFleet({
         <section className="strategy-fleet-warning" role="status">
           <strong>Some live strategy context is unavailable.</strong>
           <p>{contextWarnings.join(" ")}</p>
+        </section>
+      )}
+
+      {inventoryAvailable && ordered.length > 0 && (
+        <section
+          className={`strategy-fleet-action-queue${nextActions.length === 0 ? " is-clear" : ""}`}
+          aria-labelledby="strategy-fleet-action-heading"
+        >
+          <header>
+            <div>
+              <p className="eyebrow">OWNER ACTION QUEUE</p>
+              <h2 id="strategy-fleet-action-heading">
+                {nextActions.length === 0
+                  ? "No owner action right now."
+                  : "Your clearest path forward."}
+              </h2>
+              <p>
+                {nextActions.length === 0
+                  ? "Every current autonomous engine has a healthy next cycle or no actionable exception."
+                  : "Ordered by safety and lifecycle priority from the complete current fleet snapshot."}
+              </p>
+            </div>
+            <span>
+              {nextActions.length} owner{" "}
+              {nextActions.length === 1 ? "step" : "steps"}
+            </span>
+          </header>
+          {nextActions.length > 0 && (
+            <ol>
+              {nextActions.map((action, index) => (
+                <li
+                  className={`is-${action.tone.toLowerCase()}`}
+                  key={action.key}
+                >
+                  <span aria-hidden="true">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <div>
+                    <small>
+                      {action.provider && action.accountName
+                        ? `${providerLabel(action.provider)} · ${action.accountName}`
+                        : action.eyebrow}
+                    </small>
+                    <h3>{action.title}</h3>
+                    <p>{action.detail}</p>
+                  </div>
+                  <Link href={action.href}>{action.actionLabel} →</Link>
+                </li>
+              ))}
+            </ol>
+          )}
+          <footer>
+            Guidance only · opening a control does not run a cycle or authorize
+            an order
+          </footer>
         </section>
       )}
 
