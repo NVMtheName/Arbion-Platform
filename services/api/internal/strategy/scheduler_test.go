@@ -14,9 +14,12 @@ import (
 )
 
 type scheduleStoreFake struct {
-	run        *ScheduledRun
-	completion ScheduleCompletion
-	claims     int
+	run                      *ScheduledRun
+	completion               ScheduleCompletion
+	claims                   int
+	reconciliationMarker     string
+	reconciliationMarkerTime time.Time
+	markerErr                error
 }
 
 func (f *scheduleStoreFake) ClaimDueSchedule(context.Context, time.Time, time.Duration) (*ScheduledRun, error) {
@@ -29,6 +32,14 @@ func (f *scheduleStoreFake) CompleteSchedule(_ context.Context, _ ScheduledRun, 
 	f.completion = completion
 	return nil
 }
+func (f *scheduleStoreFake) RecordReconciliationNotification(_ context.Context, _ ScheduledRun, reconciliationID string, deliveredAt time.Time) error {
+	if f.markerErr != nil {
+		return f.markerErr
+	}
+	f.reconciliationMarker = reconciliationID
+	f.reconciliationMarkerTime = deliveredAt
+	return nil
+}
 
 type scheduledEvaluatorFake struct {
 	calls     int
@@ -38,19 +49,21 @@ type scheduledEvaluatorFake struct {
 }
 
 type scheduledReconcilerFake struct {
-	calls     int
-	principal authorization.Principal
-	accountID string
-	now       time.Time
-	err       error
+	calls            int
+	principal        authorization.Principal
+	accountID        string
+	now              time.Time
+	reconciliationID string
+	reviewRequired   bool
+	err              error
 }
 
-func (f *scheduledReconcilerFake) EnsureScheduledReconciliation(_ context.Context, principal authorization.Principal, accountID string, now time.Time) error {
+func (f *scheduledReconcilerFake) EnsureScheduledReconciliation(_ context.Context, principal authorization.Principal, accountID string, now time.Time) (string, bool, error) {
 	f.calls++
 	f.principal = principal
 	f.accountID = accountID
 	f.now = now
-	return f.err
+	return f.reconciliationID, f.reviewRequired, f.err
 }
 
 type scheduleNotifierFake struct {
@@ -138,7 +151,7 @@ func TestSchedulerRefreshesAIShadowReconciliationBeforeEvaluation(t *testing.T) 
 	run.Session = "CONTINUOUS"
 	store := &scheduleStoreFake{run: run}
 	evaluator := &scheduledEvaluatorFake{}
-	reconciler := &scheduledReconcilerFake{}
+	reconciler := &scheduledReconcilerFake{reconciliationID: "reconciliation-1"}
 	scheduler := NewScheduler(store, evaluator)
 	scheduler.ConfigureReconciliation(reconciler)
 	scheduler.now = func() time.Time { return now }
@@ -146,7 +159,7 @@ func TestSchedulerRefreshesAIShadowReconciliationBeforeEvaluation(t *testing.T) 
 	if claimed, err := scheduler.RunOnce(context.Background()); err != nil || !claimed {
 		t.Fatalf("AI Shadow schedule failed: claimed=%v err=%v", claimed, err)
 	}
-	if reconciler.calls != 1 || reconciler.accountID != "account" || !reconciler.now.Equal(now) || reconciler.principal.UserID != "owner" || evaluator.calls != 1 || store.completion.Status != "SUCCEEDED" {
+	if reconciler.calls != 1 || reconciler.accountID != "account" || !reconciler.now.Equal(now) || reconciler.principal.UserID != "owner" || evaluator.calls != 1 || store.completion.Status != "SUCCEEDED" || store.completion.ReconciliationID != "reconciliation-1" {
 		t.Fatalf("reconciliation did not precede the evaluation boundary: reconciler=%#v evaluator_calls=%d completion=%#v", reconciler, evaluator.calls, store.completion)
 	}
 }
@@ -250,6 +263,15 @@ func TestScheduleNotificationsAreOptInVerifiedAndDeduplicated(t *testing.T) {
 		kind       automationnotification.Kind
 	}{
 		{
+			name: "new blocking reconciliation drift",
+			run: ScheduledRun{
+				OwnerEmail: "owner@example.com", OwnerEmailVerified: true, MandateID: "mandate", FinancialAccountID: "account",
+				ExecutionMode: Shadow, ScheduledFor: scheduledFor, NotifyReconciliationReview: true,
+			},
+			completion: ScheduleCompletion{Status: "SUCCEEDED", ReconciliationID: "reconciliation-1", ReconciliationReviewRequired: true},
+			kind:       automationnotification.ReconciliationReviewRequired,
+		},
+		{
 			name:       "evaluation",
 			run:        ScheduledRun{OwnerEmail: "owner@example.com", OwnerEmailVerified: true, MandateID: "mandate", ExecutionMode: Paper, ScheduledFor: scheduledFor, NotifyEvaluation: true},
 			completion: ScheduleCompletion{Status: "SUCCEEDED"},
@@ -282,17 +304,59 @@ func TestScheduleNotificationsAreOptInVerifiedAndDeduplicated(t *testing.T) {
 		{OwnerEmail: "owner@example.com", OwnerEmailVerified: true},
 		{OwnerEmail: "owner@example.com", OwnerEmailVerified: true, NotifyLifecycle: true, PreviousErrorCode: &waiting},
 		{OwnerEmail: "owner@example.com", OwnerEmailVerified: true, NotifyFirstFailure: true, ConsecutiveFailures: 1},
+		{OwnerEmail: "owner@example.com", OwnerEmailVerified: true, NotifyReconciliationReview: true, LastReconciliationNotificationID: stringPointer("reconciliation-1")},
 	}
 	completions := []ScheduleCompletion{
 		{Status: "SUCCEEDED"},
 		{Status: "SUCCEEDED"},
 		{Status: "SKIPPED", ErrorCode: "WAITING_FOR_LIFECYCLE"},
 		{Status: "FAILED", ErrorCode: "PROVIDER"},
+		{Status: "SUCCEEDED", ReconciliationID: "reconciliation-1", ReconciliationReviewRequired: true},
 	}
 	for index := range suppressed {
 		if event := scheduleNotification(suppressed[index], completions[index]); event != nil {
 			t.Fatalf("notification was not suppressed: %#v", event)
 		}
+	}
+}
+
+func stringPointer(value string) *string { return &value }
+
+func TestSuccessfulDriftReviewDeliveryRecordsTheImmutableEvidenceMarker(t *testing.T) {
+	now := time.Date(2026, 8, 27, 15, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now)
+	run.ExecutionMode = Shadow
+	run.Session = "CONTINUOUS"
+	run.NotifyReconciliationReview = true
+	store := &scheduleStoreFake{run: run}
+	reconciler := &scheduledReconcilerFake{reconciliationID: "reconciliation-1", reviewRequired: true}
+	notifier := &scheduleNotifierFake{}
+	scheduler := NewScheduler(store, &scheduledEvaluatorFake{}, notifier)
+	scheduler.ConfigureReconciliation(reconciler)
+	scheduler.now = func() time.Time { return now }
+
+	claimed, err := scheduler.RunOnce(context.Background())
+	if err != nil || !claimed || len(notifier.events) != 1 || notifier.events[0].Kind != automationnotification.ReconciliationReviewRequired || store.reconciliationMarker != "reconciliation-1" || !store.reconciliationMarkerTime.Equal(now) {
+		t.Fatalf("drift delivery was not durably marked: claimed=%v events=%#v marker=%q marker_time=%s err=%v", claimed, notifier.events, store.reconciliationMarker, store.reconciliationMarkerTime, err)
+	}
+}
+
+func TestFailedDriftReviewDeliveryLeavesTheEvidenceRetryable(t *testing.T) {
+	now := time.Date(2026, 8, 27, 15, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now)
+	run.ExecutionMode = Shadow
+	run.Session = "CONTINUOUS"
+	run.NotifyReconciliationReview = true
+	store := &scheduleStoreFake{run: run}
+	reconciler := &scheduledReconcilerFake{reconciliationID: "reconciliation-1", reviewRequired: true}
+	notifier := &scheduleNotifierFake{err: errors.New("delivery unavailable")}
+	scheduler := NewScheduler(store, &scheduledEvaluatorFake{}, notifier)
+	scheduler.ConfigureReconciliation(reconciler)
+	scheduler.now = func() time.Time { return now }
+
+	claimed, err := scheduler.RunOnce(context.Background())
+	if err != nil || !claimed || store.completion.Status != "SUCCEEDED" || store.reconciliationMarker != "" {
+		t.Fatalf("delivery failure consumed drift evidence or failed the schedule: claimed=%v completion=%#v marker=%q err=%v", claimed, store.completion, store.reconciliationMarker, err)
 	}
 }
 

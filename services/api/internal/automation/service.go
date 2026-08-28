@@ -351,6 +351,9 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 	if err != nil {
 		return false, err
 	}
+	if schedule.Notifications.ReconciliationReviewNeeded && c.AutomationType != "AI_AUTONOMOUS" {
+		return false, ErrInvalid
+	}
 	validStrategySchedule := c.AutomationType == "STRATEGY" && c.AutonomyLevel == "STRATEGY_AUTONOMOUS" && (c.ExecutionMode == "PAPER" || c.ExecutionMode == "SHADOW") && schedule.Session == "US_EQUITIES_REGULAR"
 	validAIShadowSchedule := c.AutomationType == "AI_AUTONOMOUS" && c.AutonomyLevel == "FULL_AUTONOMOUS" && c.ExecutionMode == "SHADOW" && ((af.Provider == "coinbase" && schedule.Session == "CONTINUOUS") || (af.Provider == "schwab" && schedule.Session == "US_EQUITIES_REGULAR"))
 	if schedule.Enabled && !validStrategySchedule && !validAIShadowSchedule {

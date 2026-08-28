@@ -49,7 +49,8 @@ func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, lea
 		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,evaluation_completed}')::boolean,false),
 		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,lifecycle_required}')::boolean,false),
 		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,first_failure}')::boolean,false),
-		c.last_error_code,c.consecutive_failures
+		COALESCE((v.snapshot #>> '{schedule_conditions,notifications,reconciliation_review_required}')::boolean,false),
+		c.last_reconciliation_notification_id::text,c.last_error_code,c.consecutive_failures
 	FROM claimed c
 	JOIN strategy_instances i ON i.id=c.strategy_instance_id
 	JOIN automation_mandate_versions v ON v.mandate_id=c.mandate_id AND v.version_number=c.mandate_version
@@ -57,7 +58,8 @@ func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, lea
 		&run.StrategyInstanceID, &run.UserID, &run.FinancialAccountID, &run.OwnerEmail, &run.OwnerEmailVerified, &run.MandateID, &run.MandateVersion,
 		&run.ExecutionMode, &run.CurrentState, &run.IntervalMinutes, &run.Session,
 		&run.ScheduledFor, &run.LeaseToken, &run.NotifyEvaluation, &run.NotifyLifecycle,
-		&run.NotifyFirstFailure, &run.PreviousErrorCode, &run.ConsecutiveFailures,
+		&run.NotifyFirstFailure, &run.NotifyReconciliationReview, &run.LastReconciliationNotificationID,
+		&run.PreviousErrorCode, &run.ConsecutiveFailures,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, nil
@@ -66,6 +68,30 @@ func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, lea
 		return nil, err
 	}
 	return &run, nil
+}
+
+func (s *PostgresStore) RecordReconciliationNotification(ctx context.Context, run ScheduledRun, reconciliationID string, deliveredAt time.Time) error {
+	command, err := s.db.Exec(ctx, `UPDATE nonlive_strategy_schedules
+		SET last_reconciliation_notification_id=$3,last_reconciliation_notification_at=$4,updated_at=$4
+		WHERE strategy_instance_id=$1 AND user_id=$2
+		  AND last_reconciliation_notification_id IS DISTINCT FROM $3::uuid`,
+		run.StrategyInstanceID, run.UserID, reconciliationID, deliveredAt.UTC())
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 1 {
+		return nil
+	}
+	var existing *string
+	err = s.db.QueryRow(ctx, `SELECT last_reconciliation_notification_id::text
+		FROM nonlive_strategy_schedules WHERE strategy_instance_id=$1 AND user_id=$2`, run.StrategyInstanceID, run.UserID).Scan(&existing)
+	if err != nil {
+		return err
+	}
+	if existing != nil && *existing == reconciliationID {
+		return nil
+	}
+	return ErrConflict
 }
 
 func (s *PostgresStore) CompleteSchedule(ctx context.Context, run ScheduledRun, completion ScheduleCompletion) error {

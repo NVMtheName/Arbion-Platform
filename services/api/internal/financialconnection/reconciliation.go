@@ -461,15 +461,16 @@ func (s *Service) RunReconciliationCommand(ctx context.Context, principal author
 // EnsureScheduledReconciliation keeps AI Shadow evidence current using only
 // provider balance and position reads. It never retries through confirmed
 // drift, so a later stable snapshot cannot silently acknowledge a real change.
-func (s *Service) EnsureScheduledReconciliation(ctx context.Context, principal authorization.Principal, accountID string, now time.Time) error {
+func (s *Service) EnsureScheduledReconciliation(ctx context.Context, principal authorization.Principal, accountID string, now time.Time) (string, bool, error) {
 	if !allowed(principal) {
-		return ErrForbidden
+		return "", false, ErrForbidden
 	}
 	if s.reconciliations == nil {
-		return ErrReconciliationUnavailable
+		return "", false, ErrReconciliationUnavailable
 	}
 	now = now.UTC()
-	return s.store.WithLock(ctx, reconciliationLockKey(principal.UserID, accountID), func() error {
+	var current PortfolioReconciliation
+	err := s.store.WithLock(ctx, reconciliationLockKey(principal.UserID, accountID), func() error {
 		account, err := s.GetAccount(ctx, principal, accountID)
 		if err != nil {
 			return err
@@ -482,11 +483,17 @@ func (s *Service) EnsureScheduledReconciliation(ctx context.Context, principal a
 			return err
 		}
 		if err == nil && !scheduledReconciliationDue(latest, now) {
+			current = latest
 			return nil
 		}
-		_, err = s.runReconciliationAt(ctx, principal, account.ID, now, "SCHEDULED_FRESHNESS", "")
+		current, err = s.runReconciliationAt(ctx, principal, account.ID, now, "SCHEDULED_FRESHNESS", "")
 		return err
 	})
+	if err != nil {
+		return "", false, err
+	}
+	reviewRequired := current.ComparisonStatus == "DRIFT_DETECTED" && current.BlockingChangeCount > 0 && current.BlocksNewActions
+	return current.ID, reviewRequired, nil
 }
 
 func scheduledReconciliationDue(latest PortfolioReconciliation, now time.Time) bool {

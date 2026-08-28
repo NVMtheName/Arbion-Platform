@@ -205,6 +205,23 @@ func TestReconciliationChangeImpactPreservesEvidenceAndFailsClosed(t *testing.T)
 	}
 }
 
+func TestReconciliationNotificationMarkerIsOwnerAccountScopedAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00030_reconciliation_notification_marker.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"last_reconciliation_notification_id", "last_reconciliation_notification_at", "portfolio_reconciliations", "strategy_instances", "financial_account_id=r.financial_account_id", "DRIFT_DETECTED", "blocking_change_count > 0", "blocks_new_actions=true"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("reconciliation notification migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order", "broker_order", "LIVE_EXECUTION", "acknowledge_current_drift"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("reconciliation notification migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00013_paper_lifecycle_events.sql")
 	if err != nil {
