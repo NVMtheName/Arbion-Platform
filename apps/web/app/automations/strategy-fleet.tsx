@@ -38,6 +38,12 @@ export type StrategyFleetItem = {
   latestDecisionRiskDecision?: string;
   latestDecisionRiskReasons?: string[];
   latestDecisionExecutionStatus?: string;
+  latestDecisionAIProvider?: string;
+  latestDecisionAIModelID?: string;
+  latestDecisionAIProfile?: string;
+  latestDecisionLatencyMS?: number;
+  latestDecisionInputUsage?: number;
+  latestDecisionOutputUsage?: number;
   accountContextAvailable?: boolean;
   instanceContextAvailable?: boolean;
 };
@@ -427,6 +433,39 @@ function latestExecutionLabel(value?: string) {
   return `${readable(value)} · non-live`;
 }
 
+function aiProviderLabel(value: string) {
+  if (value === "openai") return "OpenAI";
+  if (value === "anthropic") return "Claude";
+  if (value === "gemini") return "Gemini";
+  return readable(value);
+}
+
+function latestRouteLabel(item: StrategyFleetItem) {
+  if (
+    !item.latestDecisionAIProvider ||
+    !item.latestDecisionAIModelID ||
+    !item.latestDecisionAIProfile
+  )
+    return "Unattributed legacy route";
+  return `${aiProviderLabel(item.latestDecisionAIProvider)} · ${item.latestDecisionAIModelID} · ${readable(item.latestDecisionAIProfile)}`;
+}
+
+function latestTelemetryLabel(item: StrategyFleetItem) {
+  const values = [
+    item.latestDecisionLatencyMS,
+    item.latestDecisionInputUsage,
+    item.latestDecisionOutputUsage,
+  ];
+  if (
+    values.some(
+      (value) => value === undefined || !Number.isFinite(value) || value < 0,
+    )
+  )
+    return "Telemetry unavailable";
+  const integer = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+  return `${integer.format(item.latestDecisionLatencyMS ?? 0)} ms · ${integer.format(item.latestDecisionInputUsage ?? 0)} in / ${integer.format(item.latestDecisionOutputUsage ?? 0)} out`;
+}
+
 function StrategyFleetDecision({ item }: { item: StrategyFleetItem }) {
   if (!isAI(item)) return null;
   if (!item.instanceStatus) {
@@ -486,12 +525,23 @@ function StrategyFleetDecision({ item }: { item: StrategyFleetItem }) {
           <dt>Risk gate</dt>
           <dd>{latestRiskLabel(item)}</dd>
         </div>
+        <div>
+          <dt>AI route</dt>
+          <dd>{latestRouteLabel(item)}</dd>
+        </div>
+        <div>
+          <dt>Route telemetry</dt>
+          <dd>{latestTelemetryLabel(item)}</dd>
+        </div>
       </dl>
       <p>
         <time dateTime={item.latestDecisionAt}>
           {readableTime(item.latestDecisionAt)}
         </time>
         <span>{latestExecutionLabel(item.latestDecisionExecutionStatus)}</span>
+        <Link href={`/automations/${item.id}#decision-journal`}>
+          Decision journal →
+        </Link>
       </p>
     </section>
   );

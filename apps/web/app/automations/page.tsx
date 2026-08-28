@@ -258,6 +258,28 @@ async function fleetItem(
       "execution_status",
       "ExecutionStatus",
     ),
+    latestDecisionAIProvider: text(
+      decisionRationale,
+      "ai_provider",
+      "AIProvider",
+    ),
+    latestDecisionAIModelID: text(decisionRationale, "model_id", "ModelID"),
+    latestDecisionAIProfile: text(decisionRationale, "profile", "Profile"),
+    latestDecisionLatencyMS: number(
+      decisionRationale,
+      "latency_ms",
+      "LatencyMS",
+    ),
+    latestDecisionInputUsage: number(
+      decisionRationale,
+      "input_usage",
+      "InputUsage",
+    ),
+    latestDecisionOutputUsage: number(
+      decisionRationale,
+      "output_usage",
+      "OutputUsage",
+    ),
     accountContextAvailable: accountContextAvailable && Boolean(account),
     instanceContextAvailable,
   };

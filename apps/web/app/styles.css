@@ -1871,6 +1871,15 @@ button:disabled {
   color: #648077;
   text-align: right;
 }
+.strategy-fleet-decision > p a {
+  color: #67d7db;
+  font-weight: 720;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.strategy-fleet-decision > p a:hover {
+  color: #8ce8e9;
+}
 .strategy-fleet-decision.is-pending,
 .strategy-fleet-decision.is-unavailable {
   display: grid;
