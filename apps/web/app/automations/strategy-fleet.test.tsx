@@ -60,6 +60,19 @@ describe("StrategyFleet", () => {
     expect(screen.getByText("Covered Call")).toBeInTheDocument();
     expect(screen.getByText("Deterministic rules")).toBeInTheDocument();
     expect(screen.getByText("Draft configuration")).toBeInTheDocument();
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    expect(queue).toHaveTextContent("1 owner step");
+    expect(
+      within(queue).getByText("Finish reviewing Covered Call"),
+    ).toBeInTheDocument();
+    expect(
+      within(queue).getByRole("link", { name: /Review draft/i }),
+    ).toHaveAttribute(
+      "href",
+      "/automations/rules-mandate#mandate-lifecycle-controls",
+    );
     expect(
       screen.getByRole("region", { name: "Execution boundary" }),
     ).toHaveTextContent("Neither mode can submit a broker order");
@@ -93,6 +106,138 @@ describe("StrategyFleet", () => {
     expect(
       within(fleet).queryByText("Healthy schedule"),
     ).not.toBeInTheDocument();
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    expect(
+      within(queue).getByText(/Review AI Shadow Engine schedule health/i),
+    ).toBeInTheDocument();
+    expect(
+      within(queue).getByRole("link", { name: /Review schedule/i }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
+  });
+
+  it("shows a clear owner queue for a healthy scheduled fleet", () => {
+    render(<StrategyFleet items={[coinbaseEngine]} />);
+
+    const queue = screen.getByRole("region", {
+      name: "No owner action right now.",
+    });
+    expect(queue).toHaveTextContent("0 owner steps");
+    expect(queue).toHaveTextContent("healthy next cycle");
+    expect(queue).toHaveTextContent(
+      "opening a control does not run a cycle or authorize an order",
+    );
+    expect(within(queue).queryByRole("list")).not.toBeInTheDocument();
+  });
+
+  it("orders failed schedules before draft and paused owner choices", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            id: "paused",
+            accountName: "Paused account",
+            instanceStatus: "PAUSED",
+            scheduleEnabled: false,
+            nextRunAt: undefined,
+          },
+          {
+            ...coinbaseEngine,
+            id: "draft",
+            accountName: "Draft account",
+            mandateStatus: "DRAFT",
+            instanceStatus: undefined,
+            currentState: undefined,
+            scheduleAvailable: undefined,
+            scheduleEnabled: undefined,
+            scheduleStatus: undefined,
+            nextRunAt: undefined,
+          },
+          {
+            ...coinbaseEngine,
+            id: "failed",
+            accountName: "Failed account",
+            scheduleStatus: "FAILED",
+            consecutiveFailures: 2,
+          },
+        ]}
+      />,
+    );
+
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    const actions = within(queue).getAllByRole("listitem");
+    expect(actions).toHaveLength(3);
+    expect(actions[0]).toHaveTextContent(
+      "Review AI Shadow Engine schedule health",
+    );
+    expect(actions[1]).toHaveTextContent("Finish reviewing AI Shadow Engine");
+    expect(actions[2]).toHaveTextContent(
+      "Decide when to resume AI Shadow Engine",
+    );
+  });
+
+  it("does not mislabel a completed immutable version as ready to initialize", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            instanceStatus: "COMPLETED",
+            currentState: "AI_MONITORING",
+            scheduleAvailable: undefined,
+            scheduleEnabled: undefined,
+            scheduleStatus: undefined,
+            nextRunAt: undefined,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("New version required")).toBeInTheDocument();
+    expect(screen.getByText("Historical version complete")).toBeInTheDocument();
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    expect(
+      within(queue).getByRole("link", { name: /version controls/i }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#configuration-controls");
+  });
+
+  it("collapses repeated partial-context warnings into one fail-closed action", () => {
+    render(
+      <StrategyFleet
+        contextWarnings={["Current engine state could not be refreshed."]}
+        items={[
+          {
+            ...coinbaseEngine,
+            id: "first",
+            instanceContextAvailable: false,
+          },
+          {
+            ...coinbaseEngine,
+            id: "second",
+            accountName: "Second account",
+            instanceContextAvailable: false,
+          },
+        ]}
+      />,
+    );
+
+    const queue = screen.getByRole("region", {
+      name: "Your clearest path forward.",
+    });
+    expect(within(queue).getAllByRole("listitem")).toHaveLength(1);
+    expect(
+      within(queue).getByText("Refresh the current fleet context"),
+    ).toBeInTheDocument();
+    expect(
+      within(queue).getByRole("link", { name: /Refresh automations/i }),
+    ).toHaveAttribute("href", "/automations");
+    expect(queue).toHaveTextContent("No mandate or schedule was changed");
   });
 
   it("keeps the empty state focused on a bounded shadow launch", () => {
