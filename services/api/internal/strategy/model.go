@@ -221,6 +221,11 @@ type ShadowHorizonScore struct {
 	FlatMarks                          int                  `json:"flat_marks"`
 	FavorableRatePercent               *string              `json:"favorable_rate_percent,omitempty"`
 	AverageDirectionalChangePercent    *string              `json:"average_directional_change_percent,omitempty"`
+	MedianDirectionalChangePercent     *string              `json:"median_directional_change_percent,omitempty"`
+	BestDirectionalChangePercent       *string              `json:"best_directional_change_percent,omitempty"`
+	WorstDirectionalChangePercent      *string              `json:"worst_directional_change_percent,omitempty"`
+	AverageDirectionalChangeUSD        *string              `json:"average_directional_change_usd,omitempty"`
+	CumulativeDirectionalChangeUSD     *string              `json:"cumulative_directional_change_usd,omitempty"`
 	FirstEvaluatedAt                   *time.Time           `json:"first_evaluated_at,omitempty"`
 	LastEvaluatedAt                    *time.Time           `json:"last_evaluated_at,omitempty"`
 	Interpretation                     string               `json:"interpretation"`

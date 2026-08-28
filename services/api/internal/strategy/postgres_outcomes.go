@@ -137,6 +137,11 @@ func (s *PostgresStore) ShadowScorecard(ctx context.Context, userID, instanceID 
 		(COUNT(*) FILTER (WHERE o.directional_change_percent=0))::integer,
 		COALESCE(round(((COUNT(*) FILTER (WHERE o.directional_change_percent>0))::numeric / NULLIF(COUNT(o.id),0)::numeric)*100,10)::text,''),
 		COALESCE(round(avg(o.directional_change_percent),10)::text,''),
+		COALESCE(round(percentile_disc(0.5) WITHIN GROUP (ORDER BY o.directional_change_percent),10)::text,''),
+		COALESCE(round(max(o.directional_change_percent),10)::text,''),
+		COALESCE(round(min(o.directional_change_percent),10)::text,''),
+		COALESCE(round(avg(o.directional_change_usd),10)::text,''),
+		COALESCE(round(sum(o.directional_change_usd),10)::text,''),
 		min(o.evaluated_at),max(o.evaluated_at)
 	FROM strategy_instances i
 	CROSS JOIN horizons h
@@ -152,10 +157,11 @@ func (s *PostgresStore) ShadowScorecard(ctx context.Context, userID, instanceID 
 	scorecard := ShadowScorecard{StrategyInstanceID: instanceID, Horizons: []ShadowHorizonScore{}}
 	for rows.Next() {
 		var score ShadowHorizonScore
-		var favorableRate, averageChange string
+		var favorableRate, averageChange, medianChange, bestChange, worstChange, averageUSD, cumulativeUSD string
 		if err = rows.Scan(&scorecard.StrategyInstanceID, &score.Horizon, &score.SampleSize,
 			&score.FavorableMarks, &score.UnfavorableMarks, &score.FlatMarks,
-			&favorableRate, &averageChange, &score.FirstEvaluatedAt, &score.LastEvaluatedAt); err != nil {
+			&favorableRate, &averageChange, &medianChange, &bestChange, &worstChange,
+			&averageUSD, &cumulativeUSD, &score.FirstEvaluatedAt, &score.LastEvaluatedAt); err != nil {
 			return ShadowScorecard{}, err
 		}
 		if favorableRate != "" {
@@ -163,6 +169,21 @@ func (s *PostgresStore) ShadowScorecard(ctx context.Context, userID, instanceID 
 		}
 		if averageChange != "" {
 			score.AverageDirectionalChangePercent = &averageChange
+		}
+		if medianChange != "" {
+			score.MedianDirectionalChangePercent = &medianChange
+		}
+		if bestChange != "" {
+			score.BestDirectionalChangePercent = &bestChange
+		}
+		if worstChange != "" {
+			score.WorstDirectionalChangePercent = &worstChange
+		}
+		if averageUSD != "" {
+			score.AverageDirectionalChangeUSD = &averageUSD
+		}
+		if cumulativeUSD != "" {
+			score.CumulativeDirectionalChangeUSD = &cumulativeUSD
 		}
 		score.Interpretation = "INSUFFICIENT_SAMPLE"
 		if score.SampleSize >= ShadowScorecardMinimumSample {

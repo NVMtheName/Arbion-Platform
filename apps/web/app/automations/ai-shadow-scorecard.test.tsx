@@ -94,6 +94,11 @@ describe("AI shadow scorecard", () => {
               flat_marks: 0,
               favorable_rate_percent: "0.0000000000",
               average_directional_change_percent: "-1.0349650350",
+              median_directional_change_percent: "-0.7500000000",
+              best_directional_change_percent: "2.2500000000",
+              worst_directional_change_percent: "-3.5000000000",
+              average_directional_change_usd: "-0.0400000000",
+              cumulative_directional_change_usd: "-0.0800000000",
               interpretation: "INSUFFICIENT_SAMPLE",
               minimum_sample_for_observational_label: 20,
             },
@@ -117,6 +122,14 @@ describe("AI shadow scorecard", () => {
     expect(screen.getByText("1-hour horizon")).toBeInTheDocument();
     expect(screen.getByText("24-hour horizon")).toBeInTheDocument();
     expect(screen.getByText("-1.034965035%")).toBeInTheDocument();
+    expect(screen.getByText("-0.75%")).toBeInTheDocument();
+    expect(screen.getByText("+2.25%")).toBeInTheDocument();
+    expect(screen.getByText("-3.5%")).toBeInTheDocument();
+    expect(screen.getByText("-$0.04")).toBeInTheDocument();
+    expect(screen.getByText("-$0.08")).toBeInTheDocument();
+    expect(
+      screen.getByText(/does not reconstruct a portfolio/i),
+    ).toBeInTheDocument();
     expect(screen.getAllByText("Early evidence")).toHaveLength(2);
     expect(screen.getByText(/1 of 20 marks/)).toBeInTheDocument();
     expect(screen.getByText("Collecting evidence")).toBeInTheDocument();
