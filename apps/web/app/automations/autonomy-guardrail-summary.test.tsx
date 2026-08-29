@@ -9,6 +9,7 @@ describe("autonomy guardrail summary", () => {
   it("shows the immutable server-enforced limits in owner language", () => {
     render(
       <AutonomyGuardrailSummary
+        executionMode="SHADOW"
         riskPolicy={{
           max_trades_per_day: 4,
           minimum_cash_reserve: "25.0000000000",
@@ -30,9 +31,19 @@ describe("autonomy guardrail summary", () => {
   });
 
   it("labels older mandates without inventing missing limits", () => {
-    render(<AutonomyGuardrailSummary riskPolicy={{}} />);
+    render(<AutonomyGuardrailSummary executionMode="SHADOW" riskPolicy={{}} />);
     expect(screen.getByText("Legacy mandate")).toBeInTheDocument();
     expect(screen.getAllByText("Bucket policy")).toHaveLength(2);
     expect(screen.getByText("No extra cap")).toBeInTheDocument();
+  });
+
+  it("describes Paper guardrails as an isolated simulation", () => {
+    render(<AutonomyGuardrailSummary executionMode="PAPER" riskPolicy={{}} />);
+    expect(
+      screen.getByText(/simulated result or immutable abstention/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/isolated simulated cash and position ledger/i),
+    ).toBeInTheDocument();
   });
 });

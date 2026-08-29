@@ -7,6 +7,7 @@ type Props = {
   instanceId: string;
   status: string;
   stateVersion: number;
+  executionMode: string;
 };
 
 export function StrategyInstanceControls(props: Props) {
@@ -43,8 +44,8 @@ export function StrategyInstanceControls(props: Props) {
     }
     setMessage(
       action === "pause"
-        ? "Simulation paused. Scheduled and manual evaluations are stopped, its capital claim is retained, and no Schwab change was made."
-        : "Simulation resumed under its exact READY mandate. It is eligible for non-live evaluation again; no Schwab order was sent.",
+        ? "Simulation paused. Scheduled and manual evaluations are stopped, its capital claim is retained, and no connected-account change was made."
+        : "Simulation resumed under its exact READY mandate. It is eligible for non-live evaluation again; no broker order was sent.",
     );
     router.refresh();
   }
@@ -77,7 +78,7 @@ export function StrategyInstanceControls(props: Props) {
       return;
     }
     setMessage(
-      "Simulation finished. Its account capital claim is released. No Schwab order or account change was made.",
+      "Simulation finished. Its Arbion policy reservation is released. No broker order or connected-account change was made.",
     );
     router.refresh();
   }
@@ -127,10 +128,9 @@ export function StrategyInstanceControls(props: Props) {
       )}
       <h2>Finish this simulation</h2>
       <p>
-        Active and paused simulations keep the financial account&apos;s Arbion
-        capital claim. PAPER must have no open simulated positions. Finishing is
-        permanent, preserves all history, and only releases that claim. It never
-        changes the Schwab account.
+        {props.executionMode === "PAPER"
+          ? "Active and paused PAPER simulations retain their isolated simulated-cash reservation. PAPER must have no open simulated positions. Finishing is permanent, preserves all history, and releases only that simulated reservation. It never changes the connected account."
+          : "Active and paused SHADOW simulations retain their Arbion account-policy reservation. Finishing is permanent, preserves all history, and releases only that policy reservation. It never changes the connected account."}
       </p>
       <form onSubmit={finish}>
         <label className="checkbox-row">

@@ -12,6 +12,7 @@ type Props = {
   currency: string;
   protectedAmount: string;
   allocationLimit?: string;
+  executionMode: string;
   isReserve: boolean;
   status: string;
   hasActiveInstance: boolean;
@@ -104,9 +105,13 @@ export function CapitalBucketAllocationControls(props: Props) {
             required
           />
           <span className="field-hint">
-            {props.allocationLimit
-              ? `Shared account ceiling: ${props.currency} ${conciseDecimal(props.allocationLimit)}. Compatible non-live strategies may share this ceiling without overlapping their reservations.`
-              : "No shared account ceiling is configured, so an active non-live strategy uses this account exclusively."}
+            {props.executionMode === "PAPER"
+              ? props.allocationLimit
+                ? `Paper simulation ceiling: ${props.currency} ${conciseDecimal(props.allocationLimit)}. It bounds starting cash without consuming or sharing Shadow broker authority.`
+                : "Paper starting cash is isolated from other account strategies and cannot consume broker cash or Shadow authority."
+              : props.allocationLimit
+                ? `Shared account ceiling: ${props.currency} ${conciseDecimal(props.allocationLimit)}. Compatible Shadow strategies may share this ceiling without overlapping their reservations.`
+                : "No shared account ceiling is configured, so an active Shadow strategy uses this account authority exclusively."}
           </span>
         </label>
         <button type="submit" disabled={busy || !editable}>

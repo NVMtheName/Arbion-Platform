@@ -20,6 +20,7 @@ const base = {
   name: "Paper Test",
   allocationType: "FIXED_AMOUNT",
   allocationValue: "1.0000000000",
+  executionMode: "PAPER",
   currency: "USD",
   protectedAmount: "0.0000000000",
   isReserve: false,
@@ -66,6 +67,9 @@ describe("CapitalBucketAllocationControls", () => {
       await screen.findByText(/changed only arbion's non-live risk limit/i),
     ).toBeInTheDocument();
     expect(screen.getByText(/not deposited cash/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Paper starting cash is isolated/i),
+    ).toBeInTheDocument();
     expect(navigation.refresh).toHaveBeenCalledTimes(1);
   });
 
