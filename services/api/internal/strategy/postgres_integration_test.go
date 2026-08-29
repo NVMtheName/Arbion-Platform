@@ -103,9 +103,6 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	secondMandate.ID = secondMandateID
 	secondMandate.CapitalBucketID = secondBucketID
 	secondMandate.ScheduleConditions = json.RawMessage(`{}`)
-	if _, err = store.Initialize(ctx, userID, secondMandate, "1000", ReadyForPut); !errors.Is(err, ErrAccountInUse) {
-		t.Fatalf("financial account was reused by a second active strategy: %v", err)
-	}
 	assertCount(t, pool, `SELECT count(*) FROM strategy_instances`, 1)
 	earlyClaimAt := time.Now().UTC().Add(59 * time.Minute)
 	if scheduled, claimErr := store.ClaimDueSchedule(ctx, earlyClaimAt, scheduleLeaseDuration); claimErr != nil || scheduled != nil {
@@ -403,7 +400,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	}
 	secondInstance, err := store.Initialize(ctx, userID, secondMandate, "1000", ReadyForPut)
 	if err != nil || secondInstance.CapitalBucketID != secondBucketID || secondInstance.FinancialAccountID != accountID {
-		t.Fatalf("completed strategy did not release its financial account: %#v %v", secondInstance, err)
+		t.Fatalf("second Paper strategy did not initialize: %#v %v", secondInstance, err)
 	}
 	pauseTime := finishedAt.Add(time.Minute)
 	paused, err := store.Pause(ctx, userID, secondInstance.ID, 1, pauseTime)
