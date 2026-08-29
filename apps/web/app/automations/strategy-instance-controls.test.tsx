@@ -29,6 +29,7 @@ describe("StrategyInstanceControls", () => {
         instanceId="instance-1"
         status="ACTIVE"
         stateVersion={3}
+        executionMode="PAPER"
       />,
     );
 
@@ -57,6 +58,7 @@ describe("StrategyInstanceControls", () => {
         instanceId="instance-1"
         status="PAUSED"
         stateVersion={4}
+        executionMode="PAPER"
       />,
     );
 
@@ -91,6 +93,7 @@ describe("StrategyInstanceControls", () => {
         instanceId="instance-1"
         status="ACTIVE"
         stateVersion={7}
+        executionMode="PAPER"
       />,
     );
 
@@ -111,7 +114,9 @@ describe("StrategyInstanceControls", () => {
         }),
       },
     );
-    expect(screen.getByText(/no schwab order/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/no broker order or connected-account change/i),
+    ).toBeInTheDocument();
     expect(navigation.refresh).toHaveBeenCalledTimes(1);
   });
 
@@ -121,6 +126,7 @@ describe("StrategyInstanceControls", () => {
         instanceId="instance-1"
         status="COMPLETED"
         stateVersion={8}
+        executionMode="PAPER"
       />,
     );
     expect(
@@ -139,6 +145,7 @@ describe("StrategyInstanceControls", () => {
         instanceId="instance-1"
         status="ACTIVE"
         stateVersion={2}
+        executionMode="PAPER"
       />,
     );
 

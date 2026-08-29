@@ -18,8 +18,10 @@ function dollars(value: unknown, fallback: string) {
 
 export function AutonomyGuardrailSummary({
   riskPolicy = {},
+  executionMode,
 }: {
   riskPolicy?: RiskPolicy;
+  executionMode: string;
 }) {
   const actions = Number(
     read(riskPolicy, "max_trades_per_day", "MaxTradesPerDay") ?? 0,
@@ -46,7 +48,11 @@ export function AutonomyGuardrailSummary({
       </header>
       <p>
         Every proposal is checked against this immutable mandate version after
-        the AI responds and before SHADOW evidence can be recorded.
+        the AI responds and before{" "}
+        {executionMode === "PAPER"
+          ? "a simulated result or immutable abstention"
+          : "Shadow evidence"}{" "}
+        can be recorded.
       </p>
       <dl>
         <div>
@@ -72,7 +78,11 @@ export function AutonomyGuardrailSummary({
               "Bucket policy",
             )}
           </dd>
-          <small>Connected-account exposure after the proposal</small>
+          <small>
+            {executionMode === "PAPER"
+              ? "Simulated portfolio exposure after the proposal"
+              : "Connected-account exposure after the proposal"}
+          </small>
         </div>
         <div>
           <dt>One-symbol exposure</dt>
@@ -94,10 +104,9 @@ export function AutonomyGuardrailSummary({
         </div>
       </dl>
       <p className="security-note">
-        Daily realized-loss enforcement is intentionally unavailable for this
-        SHADOW mandate because Arbion does not infer broker profit and loss. The
-        account budget, circuit breaker, allowlist, repeat-action cooldown, and
-        the limits above remain authoritative.
+        {executionMode === "PAPER"
+          ? "Daily realized-loss enforcement is not enabled for this PAPER mandate. The isolated simulated cash and position ledger, account budget, circuit breaker, allowlist, repeat-action cooldown, and the limits above remain authoritative."
+          : "Daily realized-loss enforcement is intentionally unavailable for this SHADOW mandate because Arbion does not infer broker profit and loss. The account budget, circuit breaker, allowlist, repeat-action cooldown, and the limits above remain authoritative."}
       </p>
     </section>
   );

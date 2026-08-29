@@ -508,6 +508,7 @@ export default async function MandateReview({
             (capitalBucket.allocation_limit ??
               capitalBucket.AllocationLimit) as string | undefined
           }
+          executionMode={executionMode}
           isReserve={Boolean(
             capitalBucket.is_reserve ?? capitalBucket.IsReserve,
           )}
@@ -641,6 +642,7 @@ export default async function MandateReview({
                 stateVersion={Number(
                   instance.StateVersion ?? instance.state_version ?? 0,
                 )}
+                executionMode={executionMode}
               />
             </>
           )}
@@ -649,6 +651,7 @@ export default async function MandateReview({
       {automationType === "AI_AUTONOMOUS" && (
         <>
           <AutonomyGuardrailSummary
+            executionMode={executionMode}
             riskPolicy={
               (m.risk_parameters ?? m.Risk ?? {}) as Record<string, unknown>
             }
@@ -720,6 +723,7 @@ export default async function MandateReview({
                 stateVersion={Number(
                   instance.StateVersion ?? instance.state_version ?? 0,
                 )}
+                executionMode={executionMode}
               />
               {executionMode === "SHADOW" && (
                 <AIShadowScorecard
@@ -811,13 +815,19 @@ export default async function MandateReview({
               {reservationBasisLabel(capitalReservation.reservation_basis)}
             </p>
             <p>
-              <strong>Shared account ceiling</strong>
-              {capitalReservation.account_allocation_limit
-                ? capitalAmount(
-                    capitalReservation.currency,
-                    capitalReservation.account_allocation_limit,
-                  )
-                : "Exclusive account claim"}
+              <strong>
+                {executionMode === "PAPER"
+                  ? "Paper isolation"
+                  : "Shared account ceiling"}
+              </strong>
+              {executionMode === "PAPER"
+                ? "Separate simulated ledger"
+                : capitalReservation.account_allocation_limit
+                  ? capitalAmount(
+                      capitalReservation.currency,
+                      capitalReservation.account_allocation_limit,
+                    )
+                  : "Exclusive Shadow account claim"}
             </p>
             <p>
               This is an Arbion policy reservation, not a broker hold. It grants
