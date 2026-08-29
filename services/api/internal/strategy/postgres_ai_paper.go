@@ -157,7 +157,7 @@ func validAIPaperCommit(instance Instance, expectedVersion int, decision Decisio
 	if evaluation.ID == "" || evaluation.UserID != instance.UserID || evaluation.AccountID != instance.FinancialAccountID || evaluation.MandateID == nil || *evaluation.MandateID != instance.AutomationMandateID || evaluation.MandateVersion == nil || *evaluation.MandateVersion != instance.MandateVersion || evaluation.Decision != risk.Allow || evaluation.ApprovalRequired || evaluation.Mode != "PAPER" || evaluation.PlatformExecutionAvailable {
 		return false
 	}
-	if fill.Status != SimulatedFilled || !fill.SimulationOnly || fill.Reason != "paper_simulation_only_no_broker_order" || fill.Instrument != decision.InstrumentType || fill.Symbol != action.Instrument || fill.Side != action.Side || fill.Quantity != action.Quantity || fill.RequestedNotional != action.Notional || action.EstimatedPrice == nil || !sameAIPaperDecimal(fill.ReferencePrice, *action.EstimatedPrice) || !fill.SimulatedAt.Equal(evaluatedAt) {
+	if fill.Status != SimulatedFilled || !fill.SimulationOnly || fill.Reason != "paper_simulation_only_no_broker_order" || fill.Instrument != decision.InstrumentType || fill.Symbol != action.Instrument || fill.Side != action.Side || !sameAIPaperDecimal(fill.Quantity, action.Quantity) || !sameAIPaperDecimal(fill.RequestedNotional, action.Notional) || action.EstimatedPrice == nil || !sameAIPaperDecimal(fill.ReferencePrice, *action.EstimatedPrice) || !fill.SimulatedAt.Equal(evaluatedAt) {
 		return false
 	}
 	if fill.MarketObservedAt.IsZero() || fill.MarketProvider == "" || fill.MarketFeed == "" || fill.MarketQuality == "" || fill.PricingBasis == "" {
