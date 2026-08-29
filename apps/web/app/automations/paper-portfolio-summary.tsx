@@ -116,7 +116,7 @@ export function PaperPortfolioSummary({
       <h2>{money(portfolio.cash, portfolio.currency)} simulated cash</h2>
       <p>
         This is Arbion&apos;s isolated simulation ledger. These amounts and
-        positions are not Schwab balances or broker holdings.
+        positions are not connected-account balances or provider holdings.
       </p>
       <div className="paper-portfolio-summary">
         <p>
