@@ -322,17 +322,21 @@ export function assessStrategyInitialization(
     ),
   );
 
-  let paperStartingCashLimit =
+  const paperStartingCashLimit =
     claim && input.executionMode === "PAPER"
       ? unitsDecimal(claim.capacity)
       : undefined;
   const accountID = text(input.financialAccount, "id", "ID");
   const bucketID = text(input.capitalBucket, "id", "ID");
-  const activeReservations = input.activeReservations.filter(
+  const accountReservations = input.activeReservations.filter(
     (reservation) =>
       text(reservation, "status", "Status") === "ACTIVE" &&
       text(reservation, "financial_account_id", "FinancialAccountID") ===
         accountID,
+  );
+  const shadowReservations = accountReservations.filter(
+    (reservation) =>
+      text(reservation, "execution_mode", "ExecutionMode") === "SHADOW",
   );
   let capitalAvailability = readinessCheck(
     "ACCOUNT_CAPACITY",
@@ -358,7 +362,7 @@ export function assessStrategyInitialization(
       "Arbion will not calculate headroom from incomplete or malformed inventory.",
     );
   } else if (
-    activeReservations.some(
+    accountReservations.some(
       (reservation) =>
         text(reservation, "capital_bucket_id", "CapitalBucketID") === bucketID,
     )
@@ -370,15 +374,21 @@ export function assessStrategyInitialization(
       true,
       "The selected budget is already claimed by another active or paused strategy.",
     );
-  } else if (activeReservations.length === 0) {
+  } else if (input.executionMode === "PAPER") {
     capitalAvailability = readinessCheck(
       "ACCOUNT_CAPACITY",
       "Account reservation capacity",
       "READY",
       false,
-      input.executionMode === "PAPER"
-        ? `No active claim overlaps this account. Starting simulated cash may be up to ${money(claim.currency, unitsDecimal(claim.capacity))}.`
-        : `No active claim overlaps the exact ${money(claim.currency, unitsDecimal(claim.shadowAmount ?? claim.capacity))} Shadow reservation.`,
+      `Paper starting cash is isolated from ${accountReservations.length} active account ${accountReservations.length === 1 ? "reservation" : "reservations"} and may be up to ${money(claim.currency, unitsDecimal(claim.capacity))}. It cannot consume broker cash or dilute Shadow authority.`,
+    );
+  } else if (shadowReservations.length === 0) {
+    capitalAvailability = readinessCheck(
+      "ACCOUNT_CAPACITY",
+      "Account reservation capacity",
+      "READY",
+      false,
+      `No active Shadow claim overlaps the exact ${money(claim.currency, unitsDecimal(claim.shadowAmount ?? claim.capacity))} reservation. Paper simulations do not consume broker authority.`,
     );
   } else if (claim.sharedCeiling === undefined) {
     capitalAvailability = readinessCheck(
@@ -391,7 +401,7 @@ export function assessStrategyInitialization(
   } else {
     let reserved = BigInt(0);
     let compatible = true;
-    for (const reservation of activeReservations) {
+    for (const reservation of shadowReservations) {
       const amount = decimalUnits(
         text(reservation, "reservation_amount", "ReservationAmount"),
       );
@@ -418,16 +428,6 @@ export function assessStrategyInitialization(
         "BLOCKED",
         true,
         "Active account claims are exclusive, inconsistent, or have exhausted their exact shared ceiling.",
-      );
-    } else if (input.executionMode === "PAPER") {
-      const maximum = headroom < claim.capacity ? headroom : claim.capacity;
-      paperStartingCashLimit = unitsDecimal(maximum);
-      capitalAvailability = readinessCheck(
-        "ACCOUNT_CAPACITY",
-        "Account reservation capacity",
-        "READY",
-        false,
-        `Compatible shared headroom is ${money(claim.currency, unitsDecimal(headroom))}; this PAPER strategy may start with up to ${money(claim.currency, paperStartingCashLimit)}.`,
       );
     } else if ((claim.shadowAmount ?? claim.capacity) <= headroom) {
       capitalAvailability = readinessCheck(
