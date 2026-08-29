@@ -98,11 +98,12 @@ describe("CapitalBudgetCenter", () => {
     const account = screen
       .getByRole("heading", { name: "Coinbase Prime" })
       .closest("section") as HTMLElement;
-    expect(account).toHaveTextContent("Shared ceiling active");
+    expect(account).toHaveTextContent("Shared Shadow ceiling active");
     expect(account).toHaveTextContent("Fixed budgets defined$550");
-    expect(account).toHaveTextContent("Actively reserved$550");
-    expect(account).toHaveTextContent("Shared account ceiling$1,000");
-    expect(account).toHaveTextContent("Unreserved shared headroom$450");
+    expect(account).toHaveTextContent("Shadow capital reserved$550");
+    expect(account).toHaveTextContent("Paper starting cash$0");
+    expect(account).toHaveTextContent("Shared Shadow ceiling$1,000");
+    expect(account).toHaveTextContent("Unreserved Shadow headroom$450");
     expect(
       within(account).getAllByText("Reserved by an active strategy"),
     ).toHaveLength(2);
@@ -113,7 +114,7 @@ describe("CapitalBudgetCenter", () => {
     ).toHaveAttribute("href", "/automations/mandate-btc");
     expect(
       screen.getByRole("region", { name: "Execution boundary" }),
-    ).toHaveTextContent("never grant order or live-execution permission");
+    ).toHaveTextContent("neither grants order or live-execution permission");
   });
 
   it("explains exclusive claims and protected reserves without inventing headroom", () => {
@@ -162,13 +163,85 @@ describe("CapitalBudgetCenter", () => {
       />,
     );
 
-    expect(screen.getByText("Exclusive account claim")).toBeInTheDocument();
+    expect(screen.getByText("Exclusive Shadow claim")).toBeInTheDocument();
     expect(
-      screen.getByText(/stays exclusive until its running strategy finishes/),
+      screen.getByText(/Shadow authority stays exclusive/i),
     ).toBeInTheDocument();
     expect(screen.getByText("Protected reserve")).toBeInTheDocument();
     expect(screen.getByText("Not applicable")).toBeInTheDocument();
     expect(screen.getByText("Exclusive when active")).toBeInTheDocument();
+  });
+
+  it("keeps simulated Paper cash separate from exclusive Shadow authority", () => {
+    render(
+      <CapitalBudgetCenter
+        accounts={accounts}
+        buckets={[
+          {
+            id: "shadow",
+            financialAccountID: "coinbase-account",
+            name: "Observed sleeve",
+            allocationType: "FIXED_AMOUNT",
+            allocationValue: "45.0000000000",
+            currency: "USD",
+            protectedAmount: "0.0000000000",
+            isReserve: false,
+            status: "ACTIVE",
+          },
+          {
+            id: "paper",
+            financialAccountID: "coinbase-account",
+            name: "Paper lab",
+            allocationType: "FIXED_AMOUNT",
+            allocationValue: "500.0000000000",
+            currency: "USD",
+            protectedAmount: "0.0000000000",
+            isReserve: false,
+            status: "ACTIVE",
+          },
+        ]}
+        reservations={[
+          {
+            id: "shadow-reservation",
+            strategyInstanceID: "shadow-instance",
+            financialAccountID: "coinbase-account",
+            capitalBucketID: "shadow",
+            executionMode: "SHADOW",
+            reservationAmount: "45.0000000000",
+            currency: "USD",
+            reservationBasis: "BUCKET_FIXED_CAPACITY",
+            status: "ACTIVE",
+            reservedAt: "2026-08-28T10:00:00Z",
+          },
+          {
+            id: "paper-reservation",
+            strategyInstanceID: "paper-instance",
+            financialAccountID: "coinbase-account",
+            capitalBucketID: "paper",
+            executionMode: "PAPER",
+            reservationAmount: "500.0000000000",
+            currency: "USD",
+            reservationBasis: "PAPER_STARTING_CASH",
+            status: "ACTIVE",
+            reservedAt: "2026-08-28T10:01:00Z",
+          },
+        ]}
+        strategies={[]}
+      />,
+    );
+
+    const account = screen
+      .getByRole("heading", { name: "Coinbase Prime" })
+      .closest("section") as HTMLElement;
+    expect(account).toHaveTextContent("Exclusive Shadow claim");
+    expect(account).toHaveTextContent("Shadow capital reserved$45");
+    expect(account).toHaveTextContent("Paper starting cash$500");
+    expect(account).toHaveTextContent(/Paper simulations may run in parallel/i);
+    expect(account).toHaveTextContent(
+      /Paper starting cash is simulated and excluded from Shadow/i,
+    );
+    expect(account).toHaveTextContent("Simulation-only");
+    expect(account).toHaveTextContent("Used by an active Paper simulation");
   });
 
   it("fails closed when the complete inventory cannot be loaded", () => {
@@ -211,7 +284,7 @@ describe("CapitalBudgetCenter", () => {
     );
 
     expect(screen.getByText("Capital inventory invalid")).toBeInTheDocument();
-    expect(screen.getAllByText("Unavailable")).toHaveLength(2);
+    expect(screen.getAllByText("Unavailable")).toHaveLength(3);
     expect(
       screen.getByText(/will not calculate account totals/),
     ).toBeInTheDocument();
