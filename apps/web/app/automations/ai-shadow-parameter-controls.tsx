@@ -71,8 +71,8 @@ export function AIShadowParameterControls(props: Props) {
       <h2>Objective and proposal ceiling</h2>
       <p>
         This ceiling limits a proposal recorded in the{" "}
-        {paper ? "Paper" : "Shadow"}
-        journal. It never grants broker-write access or enables live execution.
+        {paper ? "Paper" : "Shadow"} journal. It never grants broker-write
+        access or enables live execution.
       </p>
       <form onSubmit={save}>
         <label>

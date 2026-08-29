@@ -38,7 +38,9 @@ describe("PaperPortfolioSummary", () => {
     expect(
       screen.getByText(/\$20,125\.00 simulated cash/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/not Schwab balances/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/not connected-account balances/i),
+    ).toBeInTheDocument();
     const table = screen.getByRole("table", {
       name: /simulated paper positions/i,
     });
