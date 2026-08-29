@@ -95,6 +95,33 @@ describe("StrategyInitializationReadiness", () => {
     ).toMatch(/simulated portfolio state/i);
   });
 
+  it("admits isolated AI Paper alongside an exclusive Shadow reservation", () => {
+    const assessment = assessStrategyInitialization({
+      ...base,
+      executionMode: "PAPER",
+      reconciliation: undefined,
+      reconciliationAvailable: false,
+      activeReservations: [
+        {
+          id: "existing-shadow",
+          status: "ACTIVE",
+          execution_mode: "SHADOW",
+          financial_account_id: "account-1",
+          capital_bucket_id: "other-bucket",
+          reservation_amount: "1.0000000000",
+          currency: "USD",
+        },
+      ],
+    });
+
+    expect(assessment.eligible).toBe(true);
+    expect(assessment.paperStartingCashLimit).toBe("900");
+    expect(
+      assessment.checks.find((check) => check.code === "ACCOUNT_CAPACITY")
+        ?.detail,
+    ).toMatch(/isolated from 1 active account reservation/i);
+  });
+
   it("fails AI Paper closed when the selected model has no active provider route", () => {
     const assessment = assessStrategyInitialization({
       ...base,
@@ -116,6 +143,7 @@ describe("StrategyInitializationReadiness", () => {
         {
           id: "existing",
           status: "ACTIVE",
+          execution_mode: "SHADOW",
           financial_account_id: "account-1",
           capital_bucket_id: "other-bucket",
           reservation_amount: "1.0000000000",
@@ -134,19 +162,19 @@ describe("StrategyInitializationReadiness", () => {
     expect(capacity).toHaveTextContent("no compatible shared account ceiling");
   });
 
-  it("calculates an exact PAPER maximum from shared headroom", () => {
+  it("calculates exact Shadow headroom without counting Paper authority", () => {
     const assessment = assessStrategyInitialization({
       ...base,
       automationType: "STRATEGY",
       autonomyLevel: "STRATEGY_AUTONOMOUS",
-      executionMode: "PAPER",
+      executionMode: "SHADOW",
       strategyIdentifier: "wheel",
       modelID: "—",
       aiConnection: undefined,
       financialProvider: "schwab",
       capitalBucket: {
         ...base.capitalBucket,
-        allocation_value: "600.0000000000",
+        allocation_value: "300.0000000000",
         protected_amount: "100.0000000000",
         allocation_limit: "1000.0000000000",
       },
@@ -159,6 +187,7 @@ describe("StrategyInitializationReadiness", () => {
         {
           id: "existing",
           status: "ACTIVE",
+          execution_mode: "SHADOW",
           financial_account_id: "account-1",
           capital_bucket_id: "other-bucket",
           reservation_amount: "750.0000000000",
@@ -169,11 +198,11 @@ describe("StrategyInitializationReadiness", () => {
     });
 
     expect(assessment.eligible).toBe(true);
-    expect(assessment.paperStartingCashLimit).toBe("250");
+    expect(assessment.paperStartingCashLimit).toBeUndefined();
     expect(
       assessment.checks.find((check) => check.code === "ACCOUNT_CAPACITY")
         ?.detail,
-    ).toContain("may start with up to $250");
+    ).toContain("$200 fits within $250");
   });
 
   it("fails closed when the complete current inventory is unavailable", () => {
