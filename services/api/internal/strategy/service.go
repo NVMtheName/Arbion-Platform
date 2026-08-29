@@ -249,7 +249,7 @@ func (s *InstanceService) Initialize(ctx context.Context, p authorization.Princi
 		return Instance{}, ErrInvalid
 	}
 	if m.AutomationType == "AI_AUTONOMOUS" {
-		if m.StrategyIdentifier != nil || m.AIProviderConnectionID == nil || m.AIModelID == nil || m.Status != "READY" || m.ExecutionMode != "SHADOW" || m.AutonomyLevel != "FULL_AUTONOMOUS" {
+		if m.StrategyIdentifier != nil || m.AIProviderConnectionID == nil || m.AIModelID == nil || m.Status != "READY" || (m.ExecutionMode != "PAPER" && m.ExecutionMode != "SHADOW") || m.AutonomyLevel != "FULL_AUTONOMOUS" {
 			return Instance{}, ErrInvalid
 		}
 		if _, e = automation.ParseAIShadowParameters(m.StrategyParameters); e != nil {
@@ -259,10 +259,25 @@ func (s *InstanceService) Initialize(ctx context.Context, p authorization.Princi
 		if bucketErr != nil || bucket.UserID != p.UserID || bucket.FinancialAccountID != m.FinancialAccountID || bucket.Status != "ACTIVE" || bucket.IsReserve {
 			return Instance{}, ErrInvalid
 		}
-		if _, claimErr := reservationClaim(bucket, Shadow, ""); claimErr != nil {
+		if m.ExecutionMode == "PAPER" {
+			if !paperCashPattern.MatchString(startingCash) {
+				return Instance{}, ErrInvalid
+			}
+			amount, ok := new(big.Rat).SetString(startingCash)
+			if !ok || amount.Sign() <= 0 {
+				return Instance{}, ErrInvalid
+			}
+			capacity, available := paperCashCapacity(bucket)
+			if !available || amount.Cmp(capacity) > 0 {
+				return Instance{}, ErrCapitalLimit
+			}
+		} else {
+			startingCash = ""
+		}
+		if _, claimErr := reservationClaim(bucket, ExecutionMode(m.ExecutionMode), startingCash); claimErr != nil {
 			return Instance{}, claimErr
 		}
-		return s.store.Initialize(ctx, p.UserID, m, "", AIMonitoring)
+		return s.store.Initialize(ctx, p.UserID, m, startingCash, AIMonitoring)
 	}
 	if m.AutomationType != "STRATEGY" || m.StrategyIdentifier == nil || m.Status != "READY" || (*m.StrategyIdentifier != "wheel" && *m.StrategyIdentifier != "covered_call" && *m.StrategyIdentifier != "cash_secured_put") {
 		return Instance{}, ErrInvalid

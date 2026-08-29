@@ -164,6 +164,10 @@ function decisionLabel(engine: DashboardAIEngineSummary) {
   if (engine.journalAvailable === false) return "Decision journal unavailable";
   if (engine.lastDecision === "ALLOW_WOULD_HAVE_SUBMITTED")
     return `Would have submitted${engine.lastDecisionSymbol ? ` · ${engine.lastDecisionSymbol}` : ""}`;
+  if (engine.lastDecision === "ALLOW_SIMULATED_FILLED")
+    return `Simulated fill${engine.lastDecisionSymbol ? ` · ${engine.lastDecisionSymbol}` : ""}`;
+  if (engine.lastDecision === "ALLOW_SIMULATED_REJECTED")
+    return `Simulation rejected${engine.lastDecisionSymbol ? ` · ${engine.lastDecisionSymbol}` : ""}`;
   if (engine.lastDecision?.startsWith("DENY_"))
     return `Held by controls${engine.lastDecisionSymbol ? ` · ${engine.lastDecisionSymbol}` : ""}`;
   if (engine.lastDecision === "ABSTAIN") return "Abstained · No action";
@@ -424,7 +428,7 @@ export function CommandCenterDashboard({
             <p className="command-kicker">AUTONOMOUS ENGINE</p>
             <h2 id="ai-engine-cockpit-title">AI oversight at a glance.</h2>
             <p>
-              Current model, schedule health, and immutable shadow reasoning
+              Current model, schedule health, and immutable non-live reasoning
               across your connected accounts.
             </p>
           </div>
@@ -433,17 +437,18 @@ export function CommandCenterDashboard({
 
         {aiEngines.length === 0 ? (
           <div className="ai-engine-empty">
-            <strong>No AI Shadow Engine is monitoring yet.</strong>
+            <strong>No AI Engine is monitoring yet.</strong>
             <p>
               Start with a bounded, non-live engine tied to one account and one
               model.
             </p>
-            <Link href="/automations/new">Create an AI Shadow Engine →</Link>
+            <Link href="/automations/new">Create an AI Engine →</Link>
           </div>
         ) : (
           <div className="ai-engine-grid">
             {aiEngines.map((engine) => {
-              const evidence = evidenceSummary(engine);
+              const paper = engine.executionMode === "PAPER";
+              const evidence = paper ? undefined : evidenceSummary(engine);
               return (
                 <article key={engine.id}>
                   <header>
@@ -468,7 +473,9 @@ export function CommandCenterDashboard({
                       >
                         {engineStatus(engine)}
                       </span>
-                      <span className="is-shadow">Shadow only</span>
+                      <span className={paper ? "is-paper" : "is-shadow"}>
+                        {paper ? "Paper simulation" : "Shadow only"}
+                      </span>
                     </div>
                   </header>
                   <dl>
@@ -505,31 +512,50 @@ export function CommandCenterDashboard({
                       </dd>
                     </div>
                   </dl>
-                  <div
-                    className="ai-engine-evidence"
-                    aria-label="Shadow evidence progress"
-                  >
-                    <div className="ai-engine-evidence-heading">
-                      <span>Shadow evidence</span>
-                      <strong>{evidence.label}</strong>
+                  {paper ? (
+                    <div
+                      className="ai-engine-evidence is-paper"
+                      aria-label="Paper simulation boundary"
+                    >
+                      <div className="ai-engine-evidence-heading">
+                        <span>PAPER LEDGER</span>
+                        <strong>Simulation only</strong>
+                      </div>
+                      <small>
+                        Isolated simulated cash, positions, and fills. The
+                        connected account supplies prices only; no broker order
+                        can be sent.
+                      </small>
                     </div>
-                    <progress
-                      max={evidence.required}
-                      value={evidence.completed}
-                      aria-label={`${evidence.completed} of ${evidence.required} evidence marks`}
-                    />
-                    <small>{evidence.detail}</small>
-                    {evidence.blockers.length > 0 && (
-                      <ul
-                        className="ai-engine-evidence-blockers"
-                        aria-label="Shadow evidence blockers"
-                      >
-                        {evidence.blockers.map((blocker) => (
-                          <li key={blocker}>{evidenceBlockerLabel(blocker)}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                  ) : (
+                    <div
+                      className="ai-engine-evidence"
+                      aria-label="Shadow evidence progress"
+                    >
+                      <div className="ai-engine-evidence-heading">
+                        <span>Shadow evidence</span>
+                        <strong>{evidence?.label}</strong>
+                      </div>
+                      <progress
+                        max={evidence?.required}
+                        value={evidence?.completed}
+                        aria-label={`${evidence?.completed} of ${evidence?.required} evidence marks`}
+                      />
+                      <small>{evidence?.detail}</small>
+                      {evidence && evidence.blockers.length > 0 && (
+                        <ul
+                          className="ai-engine-evidence-blockers"
+                          aria-label="Shadow evidence blockers"
+                        >
+                          {evidence.blockers.map((blocker) => (
+                            <li key={blocker}>
+                              {evidenceBlockerLabel(blocker)}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                   <footer>
                     <span
                       className={

@@ -625,6 +625,7 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 		"live_execution_available": false,
 		"proposed_notional":        action.Notional,
 		"reason":                   result.Reason,
+		"simulation_only":          instance.ExecutionMode == Paper,
 	})
 	if err != nil {
 		return err
@@ -724,7 +725,7 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 }
 
 func (s *PostgresStore) CommitAIAbstention(c context.Context, instance Instance, eventID string, rationale json.RawMessage, evaluatedAt time.Time) error {
-	if instance.StrategyIdentifier != "ai_shadow" || instance.ExecutionMode != Shadow || instance.CurrentState != AIMonitoring || !evaluationEventID.MatchString(eventID) || !json.Valid(rationale) || len(rationale) == 0 || rationale[0] != '{' || evaluatedAt.IsZero() {
+	if instance.StrategyIdentifier != "ai_shadow" || (instance.ExecutionMode != Paper && instance.ExecutionMode != Shadow) || instance.CurrentState != AIMonitoring || !evaluationEventID.MatchString(eventID) || !json.Valid(rationale) || len(rationale) == 0 || rationale[0] != '{' || evaluatedAt.IsZero() {
 		return ErrInvalid
 	}
 	tx, err := s.db.Begin(c)
@@ -744,7 +745,7 @@ func (s *PostgresStore) CommitAIAbstention(c context.Context, instance Instance,
 		return err
 	}
 	var id string
-	err = tx.QueryRow(c, `UPDATE strategy_instances SET last_evaluated_at=$4,updated_at=$4 WHERE id=$1 AND user_id=$2 AND state_version=$3 AND current_state='AI_MONITORING' AND status='ACTIVE' RETURNING id::text`, instance.ID, instance.UserID, instance.StateVersion, evaluatedAt).Scan(&id)
+	err = tx.QueryRow(c, `UPDATE strategy_instances SET last_evaluated_at=$4,updated_at=$4 WHERE id=$1 AND user_id=$2 AND state_version=$3 AND current_state='AI_MONITORING' AND status='ACTIVE' AND execution_mode=$5 RETURNING id::text`, instance.ID, instance.UserID, instance.StateVersion, evaluatedAt, instance.ExecutionMode).Scan(&id)
 	if err == pgx.ErrNoRows {
 		return ErrConflict
 	}
@@ -775,22 +776,28 @@ func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, ev
 	if err = s.db.QueryRow(c, `SELECT count(*) FROM nonlive_execution_records WHERE user_id=$1 AND strategy_instance_id=$2 AND created_at >= $3 AND created_at < $4`, instance.UserID, instance.ID, dayStart, dayStart.Add(24*time.Hour)).Scan(&facts.ActionsToday); err != nil {
 		return EvaluationFacts{}, err
 	}
-	if instance.StrategyIdentifier == "ai_shadow" && instance.ExecutionMode == Shadow {
-		var reconciliation risk.ReconciliationSnapshot
-		reconciliationErr := s.db.QueryRow(c, `SELECT financial_account_id::text,comparison_status,balances_status,positions_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,change_count,blocking_change_count,observed_at FROM portfolio_reconciliations WHERE user_id=$1 AND financial_account_id=$2 ORDER BY observed_at DESC,id DESC LIMIT 1`, instance.UserID, instance.FinancialAccountID).Scan(
-			&reconciliation.AccountID, &reconciliation.ComparisonStatus, &reconciliation.BalancesStatus,
-			&reconciliation.PositionsStatus, &reconciliation.AutonomySignal,
-			&reconciliation.AutonomyEnforcementActive, &reconciliation.BlocksNewActions,
-			&reconciliation.ChangeCount, &reconciliation.BlockingChangeCount, &reconciliation.ObservedAt,
-		)
-		if reconciliationErr != nil && !errors.Is(reconciliationErr, pgx.ErrNoRows) {
-			return EvaluationFacts{}, reconciliationErr
-		}
-		if reconciliationErr == nil {
-			facts.Reconciliation = &reconciliation
+	if instance.StrategyIdentifier == "ai_shadow" && (instance.ExecutionMode == Paper || instance.ExecutionMode == Shadow) {
+		if instance.ExecutionMode == Shadow {
+			var reconciliation risk.ReconciliationSnapshot
+			reconciliationErr := s.db.QueryRow(c, `SELECT financial_account_id::text,comparison_status,balances_status,positions_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,change_count,blocking_change_count,observed_at FROM portfolio_reconciliations WHERE user_id=$1 AND financial_account_id=$2 ORDER BY observed_at DESC,id DESC LIMIT 1`, instance.UserID, instance.FinancialAccountID).Scan(
+				&reconciliation.AccountID, &reconciliation.ComparisonStatus, &reconciliation.BalancesStatus,
+				&reconciliation.PositionsStatus, &reconciliation.AutonomySignal,
+				&reconciliation.AutonomyEnforcementActive, &reconciliation.BlocksNewActions,
+				&reconciliation.ChangeCount, &reconciliation.BlockingChangeCount, &reconciliation.ObservedAt,
+			)
+			if reconciliationErr != nil && !errors.Is(reconciliationErr, pgx.ErrNoRows) {
+				return EvaluationFacts{}, reconciliationErr
+			}
+			if reconciliationErr == nil {
+				facts.Reconciliation = &reconciliation
+			}
 		}
 
-		recentRows, recentErr := s.db.Query(c, `SELECT symbol,side,created_at FROM nonlive_execution_records WHERE strategy_instance_id=$1 AND user_id=$2 AND mode='SHADOW' AND status='WOULD_HAVE_SUBMITTED' AND created_at >= $3 AND created_at < $4 ORDER BY created_at DESC LIMIT 101`, instance.ID, instance.UserID, evaluatedAt.Add(-risk.AIRepeatActionCooldown), evaluatedAt)
+		recentStatus := "SIMULATED_FILLED"
+		if instance.ExecutionMode == Shadow {
+			recentStatus = "WOULD_HAVE_SUBMITTED"
+		}
+		recentRows, recentErr := s.db.Query(c, `SELECT symbol,side,created_at FROM nonlive_execution_records WHERE strategy_instance_id=$1 AND user_id=$2 AND mode=$3 AND status=$4 AND created_at >= $5 AND created_at < $6 ORDER BY created_at DESC LIMIT 101`, instance.ID, instance.UserID, instance.ExecutionMode, recentStatus, evaluatedAt.Add(-risk.AIRepeatActionCooldown), evaluatedAt)
 		if recentErr != nil {
 			return EvaluationFacts{}, recentErr
 		}
@@ -809,7 +816,7 @@ func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, ev
 			return EvaluationFacts{}, err
 		}
 
-		decisionRows, decisionErr := s.db.Query(c, `SELECT decision_type,structured_rationale,created_at FROM decision_journal_entries WHERE strategy_instance_id=$1 AND user_id=$2 AND source='AI' AND decision_type IN ('ABSTAIN','ALLOW_WOULD_HAVE_SUBMITTED','DENY_RISK_DENIED') AND created_at >= $3 AND created_at < $4 ORDER BY created_at DESC,id DESC LIMIT $5`, instance.ID, instance.UserID, evaluatedAt.Add(-aiDecisionMemoryWindow), evaluatedAt, aiDecisionMemoryLimit)
+		decisionRows, decisionErr := s.db.Query(c, `SELECT decision_type,structured_rationale,created_at FROM decision_journal_entries WHERE strategy_instance_id=$1 AND user_id=$2 AND source='AI' AND decision_type IN ('ABSTAIN','ALLOW_WOULD_HAVE_SUBMITTED','ALLOW_SIMULATED_FILLED','ALLOW_SIMULATED_REJECTED','DENY_RISK_DENIED') AND created_at >= $3 AND created_at < $4 ORDER BY created_at DESC,id DESC LIMIT $5`, instance.ID, instance.UserID, evaluatedAt.Add(-aiDecisionMemoryWindow), evaluatedAt, aiDecisionMemoryLimit)
 		if decisionErr != nil {
 			return EvaluationFacts{}, decisionErr
 		}
@@ -835,6 +842,10 @@ func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, ev
 				disposition = "ABSTAINED"
 			case "ALLOW_WOULD_HAVE_SUBMITTED":
 				disposition = "WOULD_HAVE_SUBMITTED"
+			case "ALLOW_SIMULATED_FILLED":
+				disposition = "SIMULATED_FILLED"
+			case "ALLOW_SIMULATED_REJECTED":
+				disposition = "SIMULATED_REJECTED"
 			case "DENY_RISK_DENIED":
 				disposition = "HELD_BY_CONTROLS"
 			}
@@ -863,6 +874,7 @@ func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, ev
 	defer positionRows.Close()
 	positions := []Position{}
 	exposureBySymbol := map[string]*big.Rat{}
+	availableBySymbol := map[string]*big.Rat{}
 	totalExposure := new(big.Rat)
 	for positionRows.Next() {
 		var symbol, instrument, optionType, strikeText, quantityText, averagePriceText string
@@ -891,7 +903,13 @@ func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, ev
 		}
 		exposureBySymbol[symbol].Add(exposureBySymbol[symbol], exposure)
 		totalExposure.Add(totalExposure, exposure)
-		positions = append(positions, Position{Symbol: symbol, Instrument: instrument, Quantity: quantityText})
+		if availableBySymbol[symbol] == nil {
+			availableBySymbol[symbol] = new(big.Rat)
+		}
+		if (instrument == "EQUITY" || instrument == "CRYPTO") && !strings.HasPrefix(quantityText, "-") {
+			availableBySymbol[symbol].Add(availableBySymbol[symbol], quantity)
+		}
+		positions = append(positions, Position{Symbol: symbol, Instrument: instrument, Quantity: quantityText, AveragePrice: averagePriceText})
 	}
 	if err = positionRows.Err(); err != nil {
 		return EvaluationFacts{}, err
@@ -903,7 +921,7 @@ func (s *PostgresStore) EvaluationFacts(c context.Context, instance Instance, ev
 	sort.Strings(symbols)
 	riskPositions := make([]risk.Position, 0, len(symbols))
 	for _, symbol := range symbols {
-		riskPositions = append(riskPositions, risk.Position{Instrument: symbol, Exposure: exposureBySymbol[symbol].FloatString(10)})
+		riskPositions = append(riskPositions, risk.Position{Instrument: symbol, Exposure: exposureBySymbol[symbol].FloatString(10), AvailableQuantity: availableBySymbol[symbol].FloatString(10)})
 	}
 	facts.Paper = &PaperEvaluationFacts{Cash: cash, CurrentExposure: totalExposure.FloatString(10), Positions: positions, RiskPositions: riskPositions}
 	return facts, nil

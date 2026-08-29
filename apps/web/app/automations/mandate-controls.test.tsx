@@ -76,6 +76,39 @@ describe("MandateControls", () => {
     ).toBeInTheDocument();
   });
 
+  it("initializes an AI Paper engine with isolated simulated cash", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <MandateControls
+        {...base}
+        automationType="AI_AUTONOMOUS"
+        strategyIdentifier="—"
+        status="READY"
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/starting simulated cash/i), {
+      target: { value: "900" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /initialize paper ai engine/i }),
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/automations/mandate-1/strategy/initialize",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ starting_cash: "900" }),
+      },
+    );
+    expect(
+      await screen.findByText(/PAPER strategy initialized/i),
+    ).toBeInTheDocument();
+  });
+
   it("explains a protected capital bucket rejection", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: false,

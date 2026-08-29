@@ -99,7 +99,7 @@ export function StrategyScheduleControls(props: Props) {
       (props.executionMode === "PAPER" || props.executionMode === "SHADOW")) ||
     (props.automationType === "AI_AUTONOMOUS" &&
       props.autonomyLevel === "FULL_AUTONOMOUS" &&
-      props.executionMode === "SHADOW");
+      (props.executionMode === "PAPER" || props.executionMode === "SHADOW"));
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -111,7 +111,10 @@ export function StrategyScheduleControls(props: Props) {
       lifecycle_required: form.get("notify_lifecycle_required") === "on",
       first_failure: form.get("notify_first_failure") === "on",
     };
-    if (props.automationType === "AI_AUTONOMOUS") {
+    if (
+      props.automationType === "AI_AUTONOMOUS" &&
+      props.executionMode === "SHADOW"
+    ) {
       notifications.reconciliation_review_required =
         form.get("notify_reconciliation_review_required") === "on";
     }
@@ -171,7 +174,7 @@ export function StrategyScheduleControls(props: Props) {
       {!eligible && (
         <p className="security-note">
           Scheduling requires STRATEGY_AUTONOMOUS for a non-live deterministic
-          strategy, or FULL_AUTONOMOUS for an AI Shadow mandate.
+          strategy, or FULL_AUTONOMOUS for an AI Paper/Shadow mandate.
         </p>
       )}
       <form onSubmit={save}>
@@ -236,19 +239,20 @@ export function StrategyScheduleControls(props: Props) {
               Email once when a PAPER option needs lifecycle review
             </label>
           )}
-          {props.automationType === "AI_AUTONOMOUS" && (
-            <label>
-              <input
-                name="notify_reconciliation_review_required"
-                type="checkbox"
-                defaultChecked={Boolean(
-                  props.conditions.notifications
-                    ?.reconciliation_review_required,
-                )}
-              />{" "}
-              Email when a new tradable-inventory change needs review
-            </label>
-          )}
+          {props.automationType === "AI_AUTONOMOUS" &&
+            props.executionMode === "SHADOW" && (
+              <label>
+                <input
+                  name="notify_reconciliation_review_required"
+                  type="checkbox"
+                  defaultChecked={Boolean(
+                    props.conditions.notifications
+                      ?.reconciliation_review_required,
+                  )}
+                />{" "}
+                Email when a new tradable-inventory change needs review
+              </label>
+            )}
           <label>
             <input
               name="notify_first_failure"

@@ -77,6 +77,32 @@ describe("projectPinnedAIRuntime", () => {
     expect(contract.scheduleSession).toBe("CONTINUOUS");
   });
 
+  it("accepts an exact pinned AI Paper runtime without weakening non-live mode matching", () => {
+    const paperContract = projectPinnedAIRuntime({
+      mandate,
+      instance: { ...instance, execution_mode: "PAPER" },
+      versionAvailable: true,
+      version: {
+        ...version,
+        Snapshot: { ...snapshot, execution_mode: "PAPER" },
+      },
+    });
+
+    expect(paperContract.bindingValid).toBe(true);
+    expect(paperContract.configuration?.execution_mode).toBe("PAPER");
+    expect(
+      projectPinnedAIRuntime({
+        mandate,
+        instance,
+        versionAvailable: true,
+        version: {
+          ...version,
+          Snapshot: { ...snapshot, execution_mode: "PAPER" },
+        },
+      }).bindingValid,
+    ).toBe(false);
+  });
+
   it("fails closed when the version read is unavailable", () => {
     const contract = projectPinnedAIRuntime({
       mandate,

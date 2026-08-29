@@ -9,6 +9,7 @@ type RawRecord = Record<string, unknown>;
 
 type Props = {
   strategyInstanceId: string;
+  executionMode?: string;
   initialDecisions?: RawRecord[];
   initialOutcomes?: RawRecord[];
   initialCursor?: string;
@@ -35,6 +36,7 @@ function appendUnique(current: RawRecord[], incoming: RawRecord[]) {
 
 export function AIShadowDecisionWorkspace({
   strategyInstanceId,
+  executionMode = "SHADOW",
   initialDecisions = [],
   initialOutcomes = [],
   initialCursor = "",
@@ -104,7 +106,9 @@ export function AIShadowDecisionWorkspace({
 
   return (
     <>
-      <DecisionReplayLab decisions={decisions} outcomes={outcomes} />
+      {executionMode === "SHADOW" && (
+        <DecisionReplayLab decisions={decisions} outcomes={outcomes} />
+      )}
       <div className="ai-shadow-decision-history-controls">
         <div>
           <strong>{decisions.length} immutable decisions loaded</strong>
@@ -126,7 +130,11 @@ export function AIShadowDecisionWorkspace({
           {message}
         </p>
       )}
-      <AIDecisionJournal decisions={decisions} outcomes={outcomes} />
+      <AIDecisionJournal
+        decisions={decisions}
+        outcomes={outcomes}
+        executionMode={executionMode}
+      />
     </>
   );
 }

@@ -61,6 +61,9 @@ export default function AutomationBuilder() {
   const [connections, setConnections] = useState<Item[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [accountID, setAccountID] = useState("");
+  const [executionMode, setExecutionMode] = useState<"PAPER" | "SHADOW">(
+    "PAPER",
+  );
   const [connectionID, setConnectionID] = useState("");
   const [modelID, setModelID] = useState("");
   const [preferredModelID, setPreferredModelID] = useState("");
@@ -206,6 +209,7 @@ export default function AutomationBuilder() {
   )
     ? bucketID
     : (eligibleBuckets[0]?.id ?? "");
+  const modeName = executionMode === "PAPER" ? "AI Paper" : "AI Shadow";
 
   async function createBudget() {
     if (!accountID || !budgetAmount) return;
@@ -217,7 +221,7 @@ export default function AutomationBuilder() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           financial_account_id: accountID,
-          name: "AI Shadow budget",
+          name: `${modeName} budget`,
           allocation_type: "FIXED_AMOUNT",
           allocation_value: budgetAmount,
           currency: "USD",
@@ -234,7 +238,7 @@ export default function AutomationBuilder() {
       setBuckets((current) => [...current, item]);
       setBucketID(item.id);
       setBudgetAmount("");
-      setMessage("AI Shadow budget saved for this account.");
+      setMessage(`${modeName} budget saved for this account.`);
     } catch {
       setMessage(
         "The budget could not be saved. Check the amount and try again.",
@@ -265,7 +269,7 @@ export default function AutomationBuilder() {
           ai_model_id: modelID,
           capital_bucket_id: selectedBucketID,
           autonomy_level: "FULL_AUTONOMOUS",
-          execution_mode: "SHADOW",
+          execution_mode: executionMode,
           margin_allowed: false,
           options_allowed: false,
           strategy_parameters: {
@@ -313,7 +317,7 @@ export default function AutomationBuilder() {
         } | null;
         throw new Error(
           rejected?.error?.message ??
-            "The AI Shadow draft could not be created. Review the account, model, symbols, and budget.",
+            `${modeName} draft could not be created. Review the account, model, symbols, and budget.`,
         );
       }
       const payload = (await response.json()) as {
@@ -322,13 +326,13 @@ export default function AutomationBuilder() {
       const id = String(payload.automation?.id ?? payload.automation?.ID ?? "");
       setCreatedID(id);
       setMessage(
-        "AI Shadow draft created. Review the immutable controls, then mark it ready. No broker order was sent.",
+        `${modeName} draft created. Review the immutable controls, then mark it ready. No broker order was sent.`,
       );
     } catch (error) {
       setMessage(
         error instanceof Error
           ? error.message
-          : "The AI Shadow draft could not be created. Review the account, model, symbols, and budget.",
+          : `${modeName} draft could not be created. Review the account, model, symbols, and budget.`,
       );
     } finally {
       setBusy(false);
@@ -363,9 +367,9 @@ export default function AutomationBuilder() {
         <p className="eyebrow">ARBION AUTONOMOUS ENGINE</p>
         <strong>One intelligence layer. Every connected account.</strong>
         <p>
-          Build the same bounded AI decision loop for Coinbase or Schwab. This
-          milestone watches real portfolios and real market data, then records
-          shadow decisions without sending orders.
+          Build the same bounded AI decision loop for Coinbase or Schwab. Choose
+          an isolated simulated portfolio or observation-only Shadow evidence.
+          Neither mode can send a broker order.
         </p>
       </section>
       {loading && <p>Loading your command center connections…</p>}
@@ -397,6 +401,28 @@ export default function AutomationBuilder() {
           </div>
         </header>
         <div className="strategy-launch-grid">
+          <label>
+            Learning mode
+            <select
+              aria-label="AI learning mode"
+              value={executionMode}
+              onChange={(event) =>
+                setExecutionMode(event.target.value as "PAPER" | "SHADOW")
+              }
+            >
+              <option value="PAPER">
+                Paper · simulated portfolio and fills
+              </option>
+              <option value="SHADOW">
+                Shadow · observe the connected portfolio
+              </option>
+            </select>
+            <span className="field-hint">
+              {executionMode === "PAPER"
+                ? "Uses isolated simulated cash and holdings. The broker connection supplies prices only."
+                : "Uses the connected portfolio as read-only context and records what Arbion would have attempted."}
+            </span>
+          </label>
           <label>
             Financial account
             <select
@@ -490,7 +516,8 @@ export default function AutomationBuilder() {
             <span className="field-hint">Up to 8, comma separated.</span>
           </label>
           <label>
-            Maximum per shadow proposal (USD)
+            Maximum per {executionMode === "PAPER" ? "paper" : "shadow"}{" "}
+            proposal (USD)
             <input
               required
               inputMode="decimal"
@@ -517,7 +544,8 @@ export default function AutomationBuilder() {
         </header>
         <div className="strategy-launch-grid autonomy-guardrail-grid">
           <label>
-            Maximum shadow actions per UTC day
+            Maximum {executionMode === "PAPER" ? "paper" : "shadow"} actions per
+            UTC day
             <input
               required
               inputMode="numeric"
@@ -561,8 +589,9 @@ export default function AutomationBuilder() {
               onChange={(event) => setMaxCapitalDeployed(event.target.value)}
             />
             <span className="field-hint">
-              Uses the connected account&apos;s current exposure after the
-              proposed action.
+              {executionMode === "PAPER"
+                ? "Uses the simulated portfolio's current marked exposure after the proposed action."
+                : "Uses the connected account's current exposure after the proposed action."}
             </span>
           </label>
           <label>
@@ -639,7 +668,7 @@ export default function AutomationBuilder() {
         ) : (
           <div className="strategy-budget-create">
             <label>
-              New AI Shadow budget (USD)
+              New {modeName} budget (USD)
               <input
                 inputMode="decimal"
                 min="1"
@@ -691,14 +720,19 @@ export default function AutomationBuilder() {
 
       <footer className="strategy-launch-footer">
         <div>
-          <strong>Shadow-only launch</strong>
+          <strong>
+            {executionMode === "PAPER"
+              ? "Paper-only launch"
+              : "Shadow-only launch"}
+          </strong>
           <span>
-            Real data in. Decision journal out. No Coinbase or Schwab order
-            route exists.
+            {executionMode === "PAPER"
+              ? "Real prices in. Simulated cash, holdings, fills, and journal evidence out. No Coinbase or Schwab order route exists."
+              : "Real data in. Decision journal out. No Coinbase or Schwab order route exists."}
           </span>
         </div>
         <button disabled={!ready || busy} type="submit">
-          {busy ? "Creating…" : "Create AI Shadow draft"}
+          {busy ? "Creating…" : `Create ${modeName} draft`}
         </button>
       </footer>
       {message && (

@@ -102,7 +102,8 @@ export function MandateControls(props: MandateControlsProps) {
     ((props.automationType === "STRATEGY" &&
       initializableStrategies.has(props.strategyIdentifier)) ||
       (props.automationType === "AI_AUTONOMOUS" &&
-        props.executionMode === "SHADOW")) &&
+        (props.executionMode === "PAPER" ||
+          props.executionMode === "SHADOW"))) &&
     !props.instanceExists;
 
   return (

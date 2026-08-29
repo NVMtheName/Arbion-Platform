@@ -11,12 +11,14 @@ type Props = {
   status: string;
   hasActiveInstance: boolean;
   parameters: AIShadowParameters;
+  executionMode?: string;
 };
 
 export function AIShadowParameterControls(props: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const paper = props.executionMode === "PAPER";
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,7 +49,7 @@ export function AIShadowParameterControls(props: Props) {
       setMessage(
         body?.error?.code === "VERSION_CONFLICT"
           ? "The mandate changed while you were reviewing it. Refresh and try again."
-          : "The AI Shadow controls were not accepted. Use a positive USD ceiling no greater than $1,000,000,000.",
+          : `The AI ${paper ? "Paper" : "Shadow"} controls were not accepted. Use a positive USD ceiling no greater than $1,000,000,000.`,
       );
       return;
     }
@@ -61,12 +63,15 @@ export function AIShadowParameterControls(props: Props) {
     <section
       id="configuration-controls"
       className="mandate-controls"
-      aria-label="AI shadow controls"
+      aria-label={`AI ${paper ? "paper" : "shadow"} controls`}
     >
-      <p className="eyebrow">AI SHADOW DECISION ENVELOPE</p>
+      <p className="eyebrow">
+        AI {paper ? "PAPER" : "SHADOW"} DECISION ENVELOPE
+      </p>
       <h2>Objective and proposal ceiling</h2>
       <p>
-        This ceiling limits a hypothetical proposal recorded in the Shadow
+        This ceiling limits a proposal recorded in the{" "}
+        {paper ? "Paper" : "Shadow"}
         journal. It never grants broker-write access or enables live execution.
       </p>
       <form onSubmit={save}>
@@ -91,13 +96,15 @@ export function AIShadowParameterControls(props: Props) {
             required
           />
           <span className="field-hint">
-            Shadow-only. A saved change creates a new DRAFT version and stops
-            the current instance from evaluating until the reviewed version is
-            initialized.
+            {paper ? "Paper-only" : "Shadow-only"}. A saved change creates a new
+            DRAFT version and stops the current instance from evaluating until
+            the reviewed version is initialized.
           </span>
         </label>
         <button type="submit" disabled={busy || props.status === "ARCHIVED"}>
-          {busy ? "Saving immutable draft…" : "Save AI Shadow controls"}
+          {busy
+            ? "Saving immutable draft…"
+            : `Save AI ${paper ? "Paper" : "Shadow"} controls`}
         </button>
       </form>
       {props.hasActiveInstance && (

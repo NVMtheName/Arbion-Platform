@@ -10,6 +10,7 @@ export type AIShadowParameters = {
 
 type Props = {
   status: string;
+  executionMode?: string;
   instanceId: string;
   instanceStatus: string;
   parameters: AIShadowParameters;
@@ -24,6 +25,7 @@ export function AIShadowEvaluationControls(props: Props) {
     props.status === "READY" &&
     Boolean(props.instanceId) &&
     props.instanceStatus === "ACTIVE";
+  const paper = props.executionMode === "PAPER";
 
   async function evaluate() {
     setBusy(true);
@@ -68,15 +70,22 @@ export function AIShadowEvaluationControls(props: Props) {
         ? `Arbion abstained (${result.confidence ?? "unknown"} confidence). The reason is in the Decision Journal; no order was sent.`
         : repeatHeld
           ? "The model proposed repeating the same symbol and side inside one hour. Arbion held it at the deterministic control gate and journaled the evidence; no order was sent."
-          : `Shadow proposal recorded: ${result.risk_decision} · ${result.execution?.status}. No order was sent.`,
+          : `${paper ? "Paper proposal processed" : "Shadow proposal recorded"}: ${result.risk_decision} · ${result.execution?.status}. No order was sent.`,
     );
     router.refresh();
   }
 
   return (
-    <section className="mandate-controls" aria-label="AI shadow engine">
-      <p className="eyebrow">AI SHADOW COMMAND LOOP</p>
-      <h2>Observe → reason → risk-check → journal</h2>
+    <section
+      className="mandate-controls"
+      aria-label={`AI ${paper ? "paper" : "shadow"} engine`}
+    >
+      <p className="eyebrow">AI {paper ? "PAPER" : "SHADOW"} COMMAND LOOP</p>
+      <h2>
+        {paper
+          ? "Price → reason → risk-check → simulate → journal"
+          : "Observe → reason → risk-check → journal"}
+      </h2>
       <p>{props.parameters.objective ?? "No objective saved."}</p>
       <div className="review-grid">
         <p>
@@ -88,17 +97,21 @@ export function AIShadowEvaluationControls(props: Props) {
           {props.parameters.max_proposal_notional ?? "—"}
         </p>
         <p>
-          <strong>Broker access</strong>Read-only
+          <strong>Broker access</strong>
+          {paper ? "Market prices only" : "Read-only"}
         </p>
         <p>
-          <strong>Execution result</strong>Shadow journal only
+          <strong>Execution result</strong>
+          {paper ? "Isolated simulated ledger only" : "Shadow journal only"}
         </p>
         <p>
           <strong>Repeat-action guard</strong>One hour · same symbol and side
         </p>
       </div>
       <button disabled={!canEvaluate || busy} onClick={evaluate}>
-        {busy ? "Running guarded cycle…" : "Run AI Shadow cycle now"}
+        {busy
+          ? "Running guarded cycle…"
+          : `Run AI ${paper ? "Paper" : "Shadow"} cycle now`}
       </button>
       {!props.instanceId && (
         <p className="security-note">

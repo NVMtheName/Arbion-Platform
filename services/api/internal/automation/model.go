@@ -39,8 +39,9 @@ type StrategyParameters struct {
 }
 
 // AIShadowParameters is the deliberately small, immutable decision envelope for
-// autonomous AI research. The model may choose one symbol and BUY/SELL, but it
-// can never exceed MaxProposalNotional and the execution mode remains SHADOW.
+// non-live autonomous AI evaluation. The model may choose one symbol and
+// BUY/SELL, but it can never exceed MaxProposalNotional and the execution mode
+// remains PAPER or SHADOW.
 type AIShadowParameters struct {
 	Objective           string `json:"objective"`
 	MaxProposalNotional string `json:"max_proposal_notional"`

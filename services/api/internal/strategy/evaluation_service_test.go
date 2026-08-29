@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -20,9 +21,12 @@ type evaluationStoreFake struct {
 	instance          Instance
 	facts             EvaluationFacts
 	commits           int
+	paperCommits      int
 	commitErr         error
 	abstains          int
 	decision          Decision
+	execution         ExecutionResult
+	paperFill         AIPaperFill
 	abstainRationale  json.RawMessage
 	outcomeCandidates []ShadowOutcomeCandidate
 	outcomeMarks      []ShadowOutcome
@@ -102,9 +106,16 @@ func (f *evaluationMarketsFake) RecentInsiderFilingsForSymbol(_ context.Context,
 func (f *evaluationStoreFake) EvaluationFacts(context.Context, Instance, time.Time) (EvaluationFacts, error) {
 	return f.facts, nil
 }
-func (f *evaluationStoreFake) CommitEvaluation(_ context.Context, _ Instance, _ int, decision Decision, _ risk.RiskEvaluation, _ ExecutionResult, _ time.Time) error {
+func (f *evaluationStoreFake) CommitEvaluation(_ context.Context, _ Instance, _ int, decision Decision, _ risk.RiskEvaluation, result ExecutionResult, _ time.Time) error {
 	f.commits++
 	f.decision = decision
+	f.execution = result
+	return f.commitErr
+}
+func (f *evaluationStoreFake) CommitAIPaperEvaluation(_ context.Context, _ Instance, _ int, decision Decision, _ risk.RiskEvaluation, fill AIPaperFill, _ time.Time) error {
+	f.paperCommits++
+	f.decision = decision
+	f.paperFill = fill
 	return f.commitErr
 }
 
@@ -484,6 +495,45 @@ func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
 		t.Fatalf("unexpected Coinbase boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
 	assertAIInputEvidence(t, store.abstainRationale, "coinbase", "100", 1, 1, 0)
+}
+
+func TestCoinbaseAIPaperProposalUsesOnlyIsolatedPortfolioAndSimulatesAtomically(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", ProposedNotional: "100", Confidence: "MEDIUM", Thesis: "Bounded paper candidate", RiskFlags: []string{}, Limitations: []string{"Simulation only"}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, store, finances, ai, principal := aiEvaluationFixture("coinbase", decision)
+	store.instance.ExecutionMode = Paper
+	store.facts = EvaluationFacts{Paper: &PaperEvaluationFacts{
+		Cash: "900.0000000000", CurrentExposure: "100.0000000000",
+		Positions:     []Position{{Symbol: "BTC", Instrument: "CRYPTO", Quantity: "1.0000000000", AveragePrice: "100.0000000000"}},
+		RiskPositions: []risk.Position{{Instrument: "BTC", Exposure: "100.0000000000", AvailableQuantity: "1.0000000000"}},
+	}, Breakers: []risk.CircuitBreaker{}}
+	automations := service.automation.(*evaluationAutomationFake)
+	automations.mandate.ExecutionMode = "PAPER"
+	automations.mandate.StrategyParameters = json.RawMessage(`{"objective":"Preserve simulated capital.","max_proposal_notional":"100"}`)
+	automations.bucket.AllocationValue = "1000"
+
+	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:paper-buy")
+	if err != nil || outcome.AIDecision != "PROPOSE" || outcome.Execution.Status != SimulatedFilled || outcome.RiskDecision != risk.Allow {
+		t.Fatalf("unexpected AI Paper outcome: %#v err=%v", outcome, err)
+	}
+	if store.paperCommits != 1 || store.commits != 0 || store.abstains != 0 || finances.balanceCalls != 0 || finances.positionCalls != 0 || finances.quoteCalls != 0 {
+		t.Fatalf("AI Paper crossed an isolated boundary: paper=%d generic=%d abstain=%d balances=%d positions=%d quotes=%d", store.paperCommits, store.commits, store.abstains, finances.balanceCalls, finances.positionCalls, finances.quoteCalls)
+	}
+	if ai.request.AvailableCashUSD != "900.0000000000" || ai.request.BuyingPowerUSD != "900.0000000000" || len(ai.request.Positions) != 1 || ai.request.Positions[0].AveragePriceUSD != "100.0000000000" || ai.request.Positions[0].CurrentPriceUSD != "100.0000000000" || ai.request.Positions[0].AvailableQuantity != "1.0000000000" {
+		t.Fatalf("isolated paper context was not supplied to the model: %#v", ai.request)
+	}
+	if !store.paperFill.SimulationOnly || store.paperFill.MarketProvider != "coinbase" || store.paperFill.PricingBasis != "ASK" || store.paperFill.RequestedNotional != "100.0000000000" {
+		t.Fatalf("simulated fill provenance was incomplete: %#v", store.paperFill)
+	}
+	debit, debitOK := new(big.Rat).SetString(strings.TrimPrefix(store.paperFill.CashDelta, "-"))
+	if !debitOK || debit.Cmp(big.NewRat(100, 1)) > 0 {
+		t.Fatalf("paper costs exceeded the model's bounded proposal: %#v", store.paperFill)
+	}
+	if len(store.outcomeMarks) != 0 {
+		t.Fatalf("Paper evaluation wrote Shadow outcome marks: %#v", store.outcomeMarks)
+	}
+	if !strings.Contains(string(store.decision.Rationale), `"execution_mode":"PAPER"`) || !strings.Contains(string(store.decision.Rationale), `"portfolio_source":"arbion_isolated_paper_ledger"`) {
+		t.Fatalf("Paper simulation contract was not journaled: %s", store.decision.Rationale)
+	}
 }
 
 func TestAIShadowRepeatProposalIsDeniedBeforeShadowExecution(t *testing.T) {

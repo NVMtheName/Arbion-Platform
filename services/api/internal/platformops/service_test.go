@@ -59,7 +59,10 @@ func TestOverviewReportsNominalCredentialFreeShadowEvidence(t *testing.T) {
 	now := time.Date(2026, 8, 27, 23, 0, 0, 0, time.UTC)
 	store := &storeFake{active: true, facts: Facts{
 		ActiveAIShadowInstances: 2,
+		ActiveAIPaperInstances:  1,
 		ExecutionBoundary: ExecutionBoundary{
+			NonShadowAIInstances:          1,
+			NonShadowAIExecutions:         2,
 			NonExecutingAIProposals:       3,
 			ReviewedNonExecutingProposals: 1,
 		},
@@ -71,7 +74,7 @@ func TestOverviewReportsNominalCredentialFreeShadowEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if overview.OperationalStatus != StatusNominal || overview.ActiveAIShadowInstances != 2 || overview.LiveExecutionAvailable || overview.BrokerActionRequested || !overview.GeneratedAt.Equal(now) {
+	if overview.OperationalStatus != StatusNominal || overview.ActiveAIShadowInstances != 2 || overview.ActiveAIPaperInstances != 1 || overview.LiveExecutionAvailable || overview.BrokerActionRequested || !overview.GeneratedAt.Equal(now) {
 		t.Fatalf("nominal overview changed: %#v", overview)
 	}
 	if len(overview.Signals) != 5 {
@@ -99,6 +102,8 @@ func TestOverviewPrioritizesGlobalStopAndPreservesBoundaryViolations(t *testing.
 			LiveMandates:              1,
 			NonShadowAIInstances:      1,
 			NonShadowAIExecutions:     1,
+			UnsafeAIInstances:         1,
+			UnsafeAIExecutions:        1,
 			ExecutableRiskEvaluations: 1,
 		},
 	}}
@@ -109,7 +114,7 @@ func TestOverviewPrioritizesGlobalStopAndPreservesBoundaryViolations(t *testing.
 	if overview.OperationalStatus != StatusStopped || overview.LiveExecutionAvailable || overview.BrokerActionRequested {
 		t.Fatalf("global stop did not dominate safely: %#v", overview)
 	}
-	if overview.Signals[0].Code != "SHADOW_EXECUTION_BOUNDARY" || overview.Signals[0].State != SignalAttention || overview.Signals[0].Count != 4 {
+	if overview.Signals[0].Code != "NONLIVE_EXECUTION_BOUNDARY" || overview.Signals[0].State != SignalAttention || overview.Signals[0].Count != 4 {
 		t.Fatalf("execution violations were not exact: %#v", overview.Signals[0])
 	}
 	breaker := overview.Signals[len(overview.Signals)-1]

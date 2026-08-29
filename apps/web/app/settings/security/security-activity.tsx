@@ -236,8 +236,9 @@ const presentations: Record<string, Presentation> = {
   },
   "automation_mandate.ai_shadow_parameters_changed": {
     category: "Autonomy",
-    title: "AI Shadow parameters changed",
-    detail: "A new immutable mandate version changed AI Shadow boundaries.",
+    title: "Non-live AI parameters changed",
+    detail:
+      "A new immutable mandate version changed AI Paper or Shadow boundaries.",
     tone: "authority",
   },
   "automation_mandate.paper_options_simulation_attestation_changed": {

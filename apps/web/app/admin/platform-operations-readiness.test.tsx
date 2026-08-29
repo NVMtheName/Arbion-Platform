@@ -10,6 +10,7 @@ const nominal: PlatformOperationsOverview = {
   generated_at: "2026-08-27T23:30:00Z",
   operational_status: "NOMINAL",
   active_ai_shadow_instances: 2,
+  active_ai_paper_instances: 1,
   unhealthy_ai_schedules: 0,
   unhealthy_ai_reconciliations: 0,
   unavailable_financial_connections: 0,
@@ -19,13 +20,15 @@ const nominal: PlatformOperationsOverview = {
     live_mandates: 0,
     non_shadow_ai_instances: 0,
     non_shadow_ai_executions: 0,
+    unsafe_ai_instances: 0,
+    unsafe_ai_executions: 0,
     executable_risk_evaluations: 0,
     non_executing_ai_proposals: 0,
     reviewed_non_executing_proposals: 0,
   },
   signals: [
     {
-      code: "SHADOW_EXECUTION_BOUNDARY",
+      code: "NONLIVE_EXECUTION_BOUNDARY",
       state: "PASS",
       count: 0,
       summary: "No incompatible execution record exists.",
@@ -38,12 +41,12 @@ const nominal: PlatformOperationsOverview = {
 describe("PlatformOperationsReadiness", () => {
   afterEach(cleanup);
 
-  it("renders credential-free Shadow operations evidence without action controls", () => {
+  it("renders credential-free non-live operations evidence without action controls", () => {
     render(<PlatformOperationsReadiness operations={nominal} />);
     expect(screen.getByText("NOMINAL")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
     expect(
-      screen.getByText(/shadow execution boundary/i).closest("li"),
+      screen.getByText(/nonlive execution boundary/i).closest("li"),
     ).toHaveTextContent(/pass/i);
     expect(
       screen.getByText(/live execution remains unavailable/i),

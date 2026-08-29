@@ -74,3 +74,64 @@ export function capitalReservationMatchesPolicy({
   const expectedReservation = capacity - protectedUnits;
   return expectedReservation > BigInt(0) && reservation === expectedReservation;
 }
+
+export function paperCapitalReservationMatchesPolicy({
+  allocationType,
+  allocationValue,
+  protectedAmount,
+  allocationLimit,
+  reservationAmount,
+  reservationBasis,
+  reservationAccountLimit,
+}: CapitalReservationPolicy) {
+  const allocation = decimalUnits(allocationValue);
+  const protectedUnits = decimalUnits(protectedAmount);
+  const reservation = decimalUnits(reservationAmount);
+  if (
+    allocation === undefined ||
+    protectedUnits === undefined ||
+    reservation === undefined ||
+    allocation <= BigInt(0) ||
+    protectedUnits < BigInt(0) ||
+    reservation <= BigInt(0) ||
+    reservationBasis !== "PAPER_STARTING_CASH"
+  )
+    return false;
+
+  const allocationLimitUnits = decimalUnits(allocationLimit);
+  const reservationAccountLimitUnits = decimalUnits(reservationAccountLimit);
+  let grossCapacity: bigint;
+  if (allocationType === "FIXED_AMOUNT") {
+    if (
+      (allocationLimit === undefined) !==
+        (reservationAccountLimit === undefined) ||
+      (allocationLimit !== undefined &&
+        (allocationLimitUnits === undefined ||
+          reservationAccountLimitUnits === undefined ||
+          allocationLimitUnits <= BigInt(0) ||
+          allocationLimitUnits !== reservationAccountLimitUnits))
+    )
+      return false;
+    grossCapacity =
+      allocationLimitUnits !== undefined && allocationLimitUnits < allocation
+        ? allocationLimitUnits
+        : allocation;
+  } else if (
+    allocationType === "PERCENT_OF_AVAILABLE_CASH" ||
+    allocationType === "PERCENT_OF_BUYING_POWER"
+  ) {
+    if (
+      allocation > BigInt("1000000000000") ||
+      allocationLimitUnits === undefined ||
+      allocationLimitUnits <= BigInt(0) ||
+      reservationAccountLimit !== undefined
+    )
+      return false;
+    grossCapacity = allocationLimitUnits;
+  } else {
+    return false;
+  }
+
+  const capacity = grossCapacity - protectedUnits;
+  return capacity > BigInt(0) && reservation <= capacity;
+}

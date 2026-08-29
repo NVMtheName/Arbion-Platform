@@ -89,7 +89,7 @@ function blockedAction(input: AutomationNextActionInput): AutomationNextAction {
         ...common,
         title: "Restore the AI model connection",
         detail:
-          "The saved model must match an active, enabled provider connection before the Shadow Engine can initialize.",
+          "The saved model must match an active, enabled provider connection before the non-live AI Engine can initialize.",
         href: "/settings/connections#ai-connections",
         actionLabel: "Open AI connections",
       };
@@ -243,7 +243,7 @@ export function selectAutomationNextAction(
       eyebrow: "READY FOR NON-LIVE INITIALIZATION",
       title:
         input.automationType === "AI_AUTONOMOUS"
-          ? "Initialize the AI Shadow Engine"
+          ? `Initialize the AI ${input.executionMode === "PAPER" ? "Paper" : "Shadow"} Engine`
           : `Initialize the ${input.executionMode} strategy`,
       detail:
         "The current exact checks pass. Initialization creates a durable non-live identity and capital claim, never a broker order.",

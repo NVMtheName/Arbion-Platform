@@ -170,6 +170,10 @@ function isAI(item: StrategyFleetItem) {
   return item.automationType === "AI_AUTONOMOUS";
 }
 
+function isAIShadow(item: StrategyFleetItem) {
+  return isAI(item) && item.executionMode === "SHADOW";
+}
+
 function isAutonomous(item: StrategyFleetItem) {
   return (
     item.autonomyLevel === "FULL_AUTONOMOUS" ||
@@ -186,6 +190,14 @@ function historicalInstance(item: StrategyFleetItem) {
 
 function requiresOperationalData(item: StrategyFleetItem) {
   return isAI(item) && item.instanceStatus === "ACTIVE";
+}
+
+function requiresReconciliationData(item: StrategyFleetItem) {
+  return requiresOperationalData(item) && isAIShadow(item);
+}
+
+function requiresShadowEvidence(item: StrategyFleetItem) {
+  return isAIShadow(item) && Boolean(item.instanceStatus);
 }
 
 function requiresCapitalData(item: StrategyFleetItem) {
@@ -233,7 +245,7 @@ function financialConnectionHealthy(item: StrategyFleetItem) {
 }
 
 function reconciliationHealthy(item: StrategyFleetItem) {
-  if (!requiresOperationalData(item)) return true;
+  if (!requiresReconciliationData(item)) return true;
   return (
     item.reconciliationAvailable === true &&
     item.reconciliationComparisonStatus === "MATCHED" &&
@@ -257,7 +269,7 @@ function needsReview(item: StrategyFleetItem) {
     !financialConnectionHealthy(item) ||
     !reconciliationHealthy(item) ||
     item.scheduleAvailable === false ||
-    item.evidenceAvailable === false ||
+    (requiresShadowEvidence(item) && item.evidenceAvailable === false) ||
     item.decisionAvailable === false ||
     item.scheduleStatus === "FAILED" ||
     item.consecutiveFailures > 0
@@ -298,7 +310,7 @@ function healthLabel(item: StrategyFleetItem) {
       return "Connection status unavailable";
     return "Financial connection needs review";
   }
-  if (requiresOperationalData(item) && !reconciliationHealthy(item)) {
+  if (requiresReconciliationData(item) && !reconciliationHealthy(item)) {
     if (item.reconciliationAvailable === false)
       return "Portfolio evidence unavailable";
     if (item.reconciliationFresh === false)
@@ -311,7 +323,8 @@ function healthLabel(item: StrategyFleetItem) {
     return "Portfolio evidence needs review";
   }
   if (item.scheduleAvailable === false) return "Schedule status unavailable";
-  if (item.evidenceAvailable === false) return "Evidence status unavailable";
+  if (requiresShadowEvidence(item) && item.evidenceAvailable === false)
+    return "Evidence status unavailable";
   if (item.decisionAvailable === false) return "Decision status unavailable";
   if (item.scheduleStatus === "FAILED" || item.consecutiveFailures > 0)
     return "Schedule needs review";
@@ -398,7 +411,7 @@ export function selectStrategyFleetNextAction(
       actionLabel: "Review connection",
     };
   }
-  if (requiresOperationalData(item) && !reconciliationHealthy(item)) {
+  if (requiresReconciliationData(item) && !reconciliationHealthy(item)) {
     const stale = item.reconciliationFresh === false;
     const drift =
       item.reconciliationBlocksNewActions ||
@@ -460,7 +473,7 @@ export function selectStrategyFleetNextAction(
       actionLabel: "Review schedule",
     };
   }
-  if (item.evidenceAvailable === false) {
+  if (requiresShadowEvidence(item) && item.evidenceAvailable === false) {
     return {
       ...identity,
       priority: 7,
@@ -487,6 +500,7 @@ export function selectStrategyFleetNextAction(
     };
   }
   if (
+    requiresShadowEvidence(item) &&
     item.evidenceStatus === "EVIDENCE_REVIEWABLE" &&
     !item.currentEvidenceReviewed
   ) {
@@ -640,6 +654,8 @@ function latestDecisionLabel(value: string) {
   if (value === "ABSTAIN") return "Abstained";
   if (value === "DENY_RISK_DENIED") return "Held by controls";
   if (value === "ALLOW_WOULD_HAVE_SUBMITTED") return "Would have submitted";
+  if (value === "ALLOW_SIMULATED_FILLED") return "Simulated fill";
+  if (value === "ALLOW_SIMULATED_REJECTED") return "Simulation rejected";
   return readable(value);
 }
 
@@ -671,6 +687,8 @@ function latestRiskLabel(item: StrategyFleetItem) {
 
 function latestExecutionLabel(value?: string) {
   if (value === "WOULD_HAVE_SUBMITTED") return "Shadow record only";
+  if (value === "SIMULATED_FILLED") return "Paper simulated fill only";
+  if (value === "SIMULATED_REJECTED") return "Paper simulation rejected";
   if (!value) return "No execution record";
   return `${readable(value)} · non-live`;
 }
@@ -940,6 +958,59 @@ function StrategyFleetCapitalAuthority({ item }: { item: StrategyFleetItem }) {
 function StrategyFleetDataHealth({ item }: { item: StrategyFleetItem }) {
   if (!requiresOperationalData(item)) return null;
   const connectionHealthy = financialConnectionHealthy(item);
+  if (item.executionMode === "PAPER") {
+    return (
+      <section
+        className={`strategy-fleet-data-health${connectionHealthy ? " is-verified" : " needs-review"}`}
+        aria-label={`${item.title} account data health`}
+      >
+        <header>
+          <span>MARKET PRICE SOURCE</span>
+          <strong>{connectionHealthy ? "Verified" : "Review required"}</strong>
+        </header>
+        <dl>
+          <div>
+            <dt>Connection</dt>
+            <dd>
+              {item.financialConnectionAvailable === false
+                ? "Unavailable"
+                : `${exactState(item.accountStatus)} account · ${exactState(item.financialConnectionStatus)} connection`}
+            </dd>
+          </div>
+          <div>
+            <dt>Broker portfolio</dt>
+            <dd>Not used by Paper</dd>
+          </div>
+          <div>
+            <dt>Cash and positions</dt>
+            <dd>Isolated Arbion simulation</dd>
+          </div>
+          {item.financialAuthorizationExpiresAt && (
+            <div>
+              <dt>Authorization expiry</dt>
+              <dd>{readableTime(item.financialAuthorizationExpiresAt)}</dd>
+            </div>
+          )}
+        </dl>
+        <p>
+          <span>
+            {connectionHealthy
+              ? "Connected account supplies current market prices only"
+              : "Paper cycles remain fail-closed until the price source is restored"}
+          </span>
+          {item.financialAccountID && (
+            <Link href={`/accounts/${item.financialAccountID}`}>
+              View price-source account →
+            </Link>
+          )}
+        </p>
+        <small>
+          Simulated ledger is isolated · no broker positions, cash, or order
+          action
+        </small>
+      </section>
+    );
+  }
   const portfolioHealthy = reconciliationHealthy(item);
   const healthy = connectionHealthy && portfolioHealthy;
   const coverage = [
@@ -1096,7 +1167,7 @@ function StrategyFleetDecision({ item }: { item: StrategyFleetItem }) {
 }
 
 function StrategyFleetEvidence({ item }: { item: StrategyFleetItem }) {
-  if (!isAI(item)) return null;
+  if (!isAIShadow(item)) return null;
   if (!item.instanceStatus) {
     return (
       <section
@@ -1267,7 +1338,7 @@ export function StrategyFleet({
         <article>
           <span>Monitoring</span>
           <strong>{inventoryAvailable ? monitoring : "—"}</strong>
-          <small>AI shadow engines</small>
+          <small>AI non-live engines</small>
         </article>
         <article>
           <span>Scheduled</span>
@@ -1362,14 +1433,14 @@ export function StrategyFleet({
         </section>
       ) : ordered.length === 0 ? (
         <section className="strategy-fleet-empty">
-          <p className="eyebrow">START IN SHADOW</p>
+          <p className="eyebrow">START NON-LIVE</p>
           <h2>No strategies yet.</h2>
           <p>
             Connect one account and one AI model, define a bounded objective and
-            budget, then begin with non-live observation.
+            budget, then begin with Paper simulation or Shadow observation.
           </p>
           <Link className="button-link" href="/automations/new">
-            Launch an AI Shadow Engine
+            Launch an AI Engine
           </Link>
         </section>
       ) : (

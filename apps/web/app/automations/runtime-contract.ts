@@ -137,6 +137,19 @@ export function projectPinnedAIRuntime({
     "IntervalMinutes",
   );
   const scheduleSession = text(scheduleConditions, "session", "Session");
+  const snapshotExecutionMode = text(
+    snapshot,
+    "execution_mode",
+    "ExecutionMode",
+  );
+  const instanceExecutionMode = text(
+    instance,
+    "execution_mode",
+    "ExecutionMode",
+  );
+  const nonLiveExecutionMode =
+    snapshotExecutionMode === instanceExecutionMode &&
+    (snapshotExecutionMode === "PAPER" || snapshotExecutionMode === "SHADOW");
   const scheduleValid =
     scheduleEnabled === false ||
     (scheduleEnabled === true &&
@@ -166,8 +179,7 @@ export function projectPinnedAIRuntime({
         text(instance, "capital_bucket_id", "CapitalBucketID") &&
       text(snapshot, "automation_type", "AutomationType") === "AI_AUTONOMOUS" &&
       text(snapshot, "status", "Status") === "READY" &&
-      text(snapshot, "execution_mode", "ExecutionMode") === "SHADOW" &&
-      text(instance, "execution_mode", "ExecutionMode") === "SHADOW" &&
+      nonLiveExecutionMode &&
       text(snapshot, "autonomy_level", "AutonomyLevel") === "FULL_AUTONOMOUS" &&
       text(snapshot, "ai_provider_connection_id", "AIProviderConnectionID") &&
       text(snapshot, "ai_model_id", "AIModelID") &&

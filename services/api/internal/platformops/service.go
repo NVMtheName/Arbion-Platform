@@ -51,8 +51,8 @@ func (service *Service) Overview(ctx context.Context, principal authorization.Pr
 		return Overview{}, err
 	}
 	boundaryViolations := facts.ExecutionBoundary.LiveMandates +
-		facts.ExecutionBoundary.NonShadowAIInstances +
-		facts.ExecutionBoundary.NonShadowAIExecutions +
+		facts.ExecutionBoundary.UnsafeAIInstances +
+		facts.ExecutionBoundary.UnsafeAIExecutions +
 		facts.ExecutionBoundary.ExecutableRiskEvaluations
 	status := StatusNominal
 	if boundaryViolations > 0 || facts.UnhealthyAISchedules > 0 || facts.UnhealthyAIReconciliations > 0 || facts.UnavailableFinancialConnections > 0 || facts.OpenScopedBreakers > 0 {
@@ -65,6 +65,7 @@ func (service *Service) Overview(ctx context.Context, principal authorization.Pr
 		GeneratedAt:                     generatedAt,
 		OperationalStatus:               status,
 		ActiveAIShadowInstances:         facts.ActiveAIShadowInstances,
+		ActiveAIPaperInstances:          facts.ActiveAIPaperInstances,
 		UnhealthyAISchedules:            facts.UnhealthyAISchedules,
 		UnhealthyAIReconciliations:      facts.UnhealthyAIReconciliations,
 		UnavailableFinancialConnections: facts.UnavailableFinancialConnections,
@@ -73,9 +74,9 @@ func (service *Service) Overview(ctx context.Context, principal authorization.Pr
 		ExecutionBoundary:               facts.ExecutionBoundary,
 		Signals: []Signal{
 			boundarySignal(boundaryViolations),
-			countSignal("AI_SCHEDULER", facts.UnhealthyAISchedules, "All active AI Shadow schedules report zero failures.", "One or more active AI Shadow schedules require operator review."),
+			countSignal("AI_SCHEDULER", facts.UnhealthyAISchedules, "All active AI PAPER/SHADOW schedules report zero failures.", "One or more active AI PAPER/SHADOW schedules require operator review."),
 			countSignal("PORTFOLIO_RECONCILIATION", facts.UnhealthyAIReconciliations, "All active AI Shadow accounts have current, enforced reconciliation evidence.", "One or more active AI Shadow accounts have missing, stale, incomplete, or blocking reconciliation evidence."),
-			countSignal("FINANCIAL_CONNECTIONS", facts.UnavailableFinancialConnections, "All financial connections used by active AI Shadow instances are active.", "One or more active AI Shadow instances use an unavailable account or connection."),
+			countSignal("FINANCIAL_CONNECTIONS", facts.UnavailableFinancialConnections, "All financial connections used by active AI PAPER/SHADOW instances are active.", "One or more active AI PAPER/SHADOW instances use an unavailable account or connection."),
 			breakerSignal(facts.OpenGlobalBreakers, facts.OpenScopedBreakers),
 		},
 		LiveExecutionAvailable: false,
@@ -86,6 +87,7 @@ func (service *Service) Overview(ctx context.Context, principal authorization.Pr
 		_ = service.audit.Record(ctx, &userID, "platform.operations_viewed", map[string]any{
 			"operational_status":         overview.OperationalStatus,
 			"active_ai_shadow_instances": overview.ActiveAIShadowInstances,
+			"active_ai_paper_instances":  overview.ActiveAIPaperInstances,
 			"live_execution_available":   false,
 			"broker_action_requested":    false,
 		})
@@ -95,9 +97,9 @@ func (service *Service) Overview(ctx context.Context, principal authorization.Pr
 
 func boundarySignal(count int64) Signal {
 	if count == 0 {
-		return Signal{Code: "SHADOW_EXECUTION_BOUNDARY", State: SignalPass, Summary: "No live mandate, non-Shadow AI runtime, non-Shadow AI execution, or executable risk record exists."}
+		return Signal{Code: "NONLIVE_EXECUTION_BOUNDARY", State: SignalPass, Summary: "No live mandate, AI runtime outside PAPER/SHADOW, non-live execution outside PAPER/SHADOW, or executable risk record exists."}
 	}
-	return Signal{Code: "SHADOW_EXECUTION_BOUNDARY", State: SignalAttention, Count: count, Summary: "The Shadow-only execution invariant has incompatible durable records and requires immediate review."}
+	return Signal{Code: "NONLIVE_EXECUTION_BOUNDARY", State: SignalAttention, Count: count, Summary: "The PAPER/SHADOW execution invariant has incompatible durable records and requires immediate review."}
 }
 
 func countSignal(code string, count int64, healthy, attention string) Signal {

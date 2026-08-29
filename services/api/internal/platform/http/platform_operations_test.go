@@ -38,8 +38,9 @@ func TestPlatformOperationsTransportIsSuperadminOnlyNoStoreAndNonExecuting(t *te
 		GeneratedAt:             now,
 		OperationalStatus:       platformops.StatusNominal,
 		ActiveAIShadowInstances: 2,
+		ActiveAIPaperInstances:  1,
 		Signals: []platformops.Signal{{
-			Code: "SHADOW_EXECUTION_BOUNDARY", State: platformops.SignalPass,
+			Code: "NONLIVE_EXECUTION_BOUNDARY", State: platformops.SignalPass,
 		}},
 	}}
 	handler := &authHandler{platformOperations: fake}
@@ -56,7 +57,7 @@ func TestPlatformOperationsTransportIsSuperadminOnlyNoStoreAndNonExecuting(t *te
 		LiveExecutionAvailable bool                 `json:"live_execution_available"`
 		BrokerActionRequested  bool                 `json:"broker_action_requested"`
 	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.Operations.ActiveAIShadowInstances != 2 || response.LiveExecutionAvailable || response.BrokerActionRequested {
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || response.Operations.ActiveAIShadowInstances != 2 || response.Operations.ActiveAIPaperInstances != 1 || response.LiveExecutionAvailable || response.BrokerActionRequested {
 		t.Fatalf("operations boundary changed: %#v err=%v", response, err)
 	}
 }

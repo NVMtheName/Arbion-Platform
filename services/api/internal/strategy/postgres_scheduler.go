@@ -78,7 +78,7 @@ func (s *PostgresStore) ClaimDueSchedule(ctx context.Context, now time.Time, lea
 		  AND m.status IN ('READY','DRAFT') AND m.current_version >= s.mandate_version
 		  AND v.snapshot->>'status'='READY'
 		  AND ((v.snapshot->>'automation_type'='STRATEGY' AND v.snapshot->>'autonomy_level'='STRATEGY_AUTONOMOUS') OR
-		       (v.snapshot->>'automation_type'='AI_AUTONOMOUS' AND v.snapshot->>'autonomy_level'='FULL_AUTONOMOUS' AND i.strategy_identifier='ai_shadow' AND i.execution_mode='SHADOW'))
+		       (v.snapshot->>'automation_type'='AI_AUTONOMOUS' AND v.snapshot->>'autonomy_level'='FULL_AUTONOMOUS' AND i.strategy_identifier='ai_shadow' AND i.execution_mode IN ('PAPER','SHADOW')))
 		  AND v.snapshot->>'execution_mode'=i.execution_mode
 		  AND (v.snapshot->>'effective_from')::timestamptz <= $1
 		  AND ((v.snapshot->>'effective_until') IS NULL OR (v.snapshot->>'effective_until')::timestamptz > $1)

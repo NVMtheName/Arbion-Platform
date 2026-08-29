@@ -73,6 +73,42 @@ describe("StrategyInitializationReadiness", () => {
     expect(screen.getByText(/Final admission is atomic/i)).toBeInTheDocument();
   });
 
+  it("admits AI Paper with an exact simulated budget and no broker reconciliation", () => {
+    const assessment = assessStrategyInitialization({
+      ...base,
+      executionMode: "PAPER",
+      reconciliation: undefined,
+      reconciliationAvailable: false,
+    });
+
+    expect(assessment.eligible).toBe(true);
+    expect(assessment.paperStartingCashLimit).toBe("900");
+    expect(
+      assessment.checks.find((check) => check.code === "AI_ROUTE")?.state,
+    ).toBe("READY");
+    expect(
+      assessment.checks.find((check) => check.code === "BROKER_RECONCILIATION"),
+    ).toMatchObject({ state: "NOT_APPLICABLE", blocking: false });
+    expect(
+      assessment.checks.find((check) => check.code === "EXECUTION_BOUNDARY")
+        ?.detail,
+    ).toMatch(/simulated portfolio state/i);
+  });
+
+  it("fails AI Paper closed when the selected model has no active provider route", () => {
+    const assessment = assessStrategyInitialization({
+      ...base,
+      executionMode: "PAPER",
+      aiConnection: undefined,
+      reconciliation: undefined,
+    });
+
+    expect(assessment.eligible).toBe(false);
+    expect(
+      assessment.checks.find((check) => check.code === "AI_ROUTE")?.state,
+    ).toBe("BLOCKED");
+  });
+
   it("blocks an exclusive account overlap before initialization", () => {
     const assessment = assessStrategyInitialization({
       ...base,
