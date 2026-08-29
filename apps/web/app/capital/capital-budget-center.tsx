@@ -141,10 +141,13 @@ function BudgetCard({
   const protectedValue = decimalUnits(bucket.protectedAmount) ?? BigInt(0);
   const isProtected = protectedValue > BigInt(0) || bucket.isReserve;
   const active = reservation?.status === "ACTIVE";
+  const paper = active && reservation?.executionMode === "PAPER";
   const claimLabel = bucket.isReserve
     ? "Protected reserve"
     : active
-      ? "Reserved by an active strategy"
+      ? paper
+        ? "Used by an active Paper simulation"
+        : "Reserved by an active strategy"
       : bucket.status === "ACTIVE"
         ? "Available for a strategy draft"
         : "Archived policy";
@@ -176,9 +179,11 @@ function BudgetCard({
           <dd>
             {bucket.isReserve
               ? "Never attachable"
-              : bucket.allocationLimit
-                ? money(bucket.currency, bucket.allocationLimit)
-                : "Exclusive when active"}
+              : paper
+                ? "Simulation-only"
+                : bucket.allocationLimit
+                  ? money(bucket.currency, bucket.allocationLimit)
+                  : "Exclusive when active"}
           </dd>
         </div>
         <div>
@@ -214,7 +219,7 @@ function BudgetCard({
               ? "Protected capital remains outside the claim."
               : "No capital is currently claimed."}
           </span>
-          <Link href="/automations/new">Use in a Shadow draft →</Link>
+          <Link href="/automations/new">Use in a non-live draft →</Link>
         </footer>
       )}
     </article>
@@ -302,6 +307,12 @@ export function CapitalBudgetCenter({
             const accountReservations = activeReservations.filter(
               (reservation) => reservation.financialAccountID === account.id,
             );
+            const shadowReservations = accountReservations.filter(
+              (reservation) => reservation.executionMode === "SHADOW",
+            );
+            const paperReservations = accountReservations.filter(
+              (reservation) => reservation.executionMode === "PAPER",
+            );
             const currencyMismatch =
               account.currency.length !== 3 ||
               accountBuckets.some(
@@ -315,16 +326,23 @@ export function CapitalBudgetCenter({
                 .filter((bucket) => bucket.allocationType === "FIXED_AMOUNT")
                 .map((bucket) => bucket.allocationValue),
             );
-            const reserved = exactSum(
-              accountReservations.map(
+            const shadowReserved = exactSum(
+              shadowReservations.map(
                 (reservation) => reservation.reservationAmount,
               ),
             );
-            const limits = accountReservations.map(
+            const paperStartingCash = exactSum(
+              paperReservations.map(
+                (reservation) => reservation.reservationAmount,
+              ),
+            );
+            const limits = shadowReservations.map(
               (reservation) => reservation.accountAllocationLimit,
             );
             const invalidAggregate =
-              fixedDefined === undefined || reserved === undefined;
+              fixedDefined === undefined ||
+              shadowReserved === undefined ||
+              paperStartingCash === undefined;
             const sharedCeiling =
               !currencyMismatch &&
               !invalidAggregate &&
@@ -338,8 +356,8 @@ export function CapitalBudgetCenter({
                 ? limits[0]
                 : undefined;
             const headroom =
-              sharedCeiling && reserved
-                ? exactDifference(sharedCeiling, reserved)
+              sharedCeiling && shadowReserved
+                ? exactDifference(sharedCeiling, shadowReserved)
                 : undefined;
             const policyState = currencyMismatch
               ? "Currency inventory mismatch"
@@ -348,8 +366,10 @@ export function CapitalBudgetCenter({
                 : accountReservations.length === 0
                   ? "No active claims"
                   : sharedCeiling
-                    ? "Shared ceiling active"
-                    : "Exclusive account claim";
+                    ? "Shared Shadow ceiling active"
+                    : shadowReservations.length > 0
+                      ? "Exclusive Shadow claim"
+                      : "Paper simulation active";
 
             return (
               <section className="capital-account" key={account.id}>
@@ -381,15 +401,23 @@ export function CapitalBudgetCenter({
                     </strong>
                   </div>
                   <div>
-                    <span>Actively reserved</span>
+                    <span>Shadow capital reserved</span>
                     <strong>
                       {currencyMismatch || invalidAggregate
                         ? "Unavailable"
-                        : money(account.currency, reserved)}
+                        : money(account.currency, shadowReserved)}
                     </strong>
                   </div>
                   <div>
-                    <span>Shared account ceiling</span>
+                    <span>Paper starting cash</span>
+                    <strong>
+                      {currencyMismatch || invalidAggregate
+                        ? "Unavailable"
+                        : money(account.currency, paperStartingCash)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Shared Shadow ceiling</span>
                     <strong>
                       {sharedCeiling
                         ? money(account.currency, sharedCeiling)
@@ -397,7 +425,7 @@ export function CapitalBudgetCenter({
                     </strong>
                   </div>
                   <div>
-                    <span>Unreserved shared headroom</span>
+                    <span>Unreserved Shadow headroom</span>
                     <strong>
                       {headroom === undefined
                         ? "Not applicable"
@@ -421,12 +449,21 @@ export function CapitalBudgetCenter({
                 )}
                 {!currencyMismatch &&
                   !invalidAggregate &&
-                  accountReservations.length > 0 &&
+                  shadowReservations.length > 0 &&
                   !sharedCeiling && (
                     <p className="capital-account-policy-note">
-                      This account stays exclusive until its running strategy
-                      finishes. You can draft another budget, but Arbion will
-                      not initialize it in parallel against this account.
+                      Shadow authority stays exclusive until its running
+                      strategy finishes. Isolated Paper simulations may run in
+                      parallel because they cannot consume broker cash or send
+                      an order.
+                    </p>
+                  )}
+                {!currencyMismatch &&
+                  !invalidAggregate &&
+                  paperReservations.length > 0 && (
+                    <p className="capital-account-policy-note">
+                      Paper starting cash is simulated and excluded from Shadow
+                      reserved totals and shared headroom.
                     </p>
                   )}
                 {accountBuckets.length > 0 ? (
@@ -499,9 +536,10 @@ export function CapitalBudgetCenter({
       >
         <strong>Arbion policy ledger—not broker cash</strong>
         <p>
-          Budgets and reservations prevent overlapping strategy authority inside
-          Arbion. They do not transfer, freeze, or earmark funds at Coinbase or
-          Schwab, and they never grant order or live-execution permission.
+          Shadow reservations prevent overlapping account authority. Paper
+          starting cash remains inside its isolated simulated ledger. Neither
+          transfers, freezes, or earmarks funds at Coinbase or Schwab, and
+          neither grants order or live-execution permission.
         </p>
       </section>
     </>

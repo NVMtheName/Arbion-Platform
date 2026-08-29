@@ -509,6 +509,30 @@ func TestNonliveStrategyReservationsAreDurableAggregateAndNonExecuting(t *testin
 	}
 }
 
+func TestPaperReservationsRemainExactButDoNotConsumeShadowCapitalAuthority(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00038_paper_reservation_isolation.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"CREATE OR REPLACE FUNCTION enforce_strategy_capital_reservation_insert()",
+		"IF NEW.execution_mode='PAPER' THEN",
+		"AND execution_mode='SHADOW' AND released_at IS NULL",
+		"AND r.execution_mode='SHADOW' AND r.released_at IS NULL",
+		"active Shadow strategy reservations do not fit one explicit account ceiling",
+		"cannot restore the legacy aggregate while an active Paper reservation shares an account",
+	} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("Paper reservation isolation migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order_id", "client_order_id", "SUBMITTED", "FILLED", "create_order"} {
+		if strings.Contains(strings.ToLower(string(body)), strings.ToLower(prohibited)) {
+			t.Errorf("Paper reservation isolation migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestAIPaperSpotLedgerIsOwnerBoundImmutableAndNonExecuting(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00036_ai_paper_spot_ledger.sql")
 	if err != nil {

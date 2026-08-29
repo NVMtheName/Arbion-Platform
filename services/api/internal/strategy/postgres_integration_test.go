@@ -103,9 +103,6 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	secondMandate.ID = secondMandateID
 	secondMandate.CapitalBucketID = secondBucketID
 	secondMandate.ScheduleConditions = json.RawMessage(`{}`)
-	if _, err = store.Initialize(ctx, userID, secondMandate, "1000", ReadyForPut); !errors.Is(err, ErrAccountInUse) {
-		t.Fatalf("financial account was reused by a second active strategy: %v", err)
-	}
 	assertCount(t, pool, `SELECT count(*) FROM strategy_instances`, 1)
 	earlyClaimAt := time.Now().UTC().Add(59 * time.Minute)
 	if scheduled, claimErr := store.ClaimDueSchedule(ctx, earlyClaimAt, scheduleLeaseDuration); claimErr != nil || scheduled != nil {
@@ -403,7 +400,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	}
 	secondInstance, err := store.Initialize(ctx, userID, secondMandate, "1000", ReadyForPut)
 	if err != nil || secondInstance.CapitalBucketID != secondBucketID || secondInstance.FinancialAccountID != accountID {
-		t.Fatalf("completed strategy did not release its financial account: %#v %v", secondInstance, err)
+		t.Fatalf("second Paper strategy did not initialize: %#v %v", secondInstance, err)
 	}
 	pauseTime := finishedAt.Add(time.Minute)
 	paused, err := store.Pause(ctx, userID, secondInstance.ID, 1, pauseTime)
@@ -751,11 +748,13 @@ func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T)
 		bucketThree  = "17171717-1717-4171-8171-171717171717"
 		bucketFour   = "21212121-2121-4212-8212-212121212121"
 		bucketFive   = "22222222-2121-4212-8212-212121212121"
+		paperBucket  = "25252525-2525-4252-8252-252525252525"
 		mandateOne   = "18181818-1818-4181-8181-181818181818"
 		mandateTwo   = "19191919-1919-4191-8191-191919191919"
 		mandateThree = "20202020-2020-4202-8202-202020202020"
 		mandateFour  = "23232323-2323-4232-8232-232323232323"
 		mandateFive  = "24242424-2424-4242-8242-242424242424"
+		paperMandate = "26262626-2626-4262-8262-262626262626"
 	)
 	for _, statement := range []struct {
 		query string
@@ -777,21 +776,30 @@ func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T)
 			t.Fatal(err)
 		}
 	}
+	if _, err = pool.Exec(ctx, `INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES($1,$2,$3,'Isolated Paper','FIXED_AMOUNT',500,'USD',0,'ACTIVE')`, paperBucket, userID, accountID); err != nil {
+		t.Fatal(err)
+	}
 	for _, binding := range []struct{ mandateID, bucketID string }{{mandateOne, bucketOne}, {mandateTwo, bucketTwo}, {mandateThree, bucketThree}, {mandateFour, bucketFour}, {mandateFive, bucketFive}} {
-		if _, err = pool.Exec(ctx, `INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES($1,$2,$3,'STRATEGY','wheel',$4,'RESEARCH_ONLY','PAPER','READY',1,'{}','{}','{"symbols":[],"universe_ids":[]}','{"symbols":[]}',false,true,'{}',false)`, binding.mandateID, userID, accountID, binding.bucketID); err != nil {
+		if _, err = pool.Exec(ctx, `INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES($1,$2,$3,'STRATEGY','wheel',$4,'RESEARCH_ONLY','SHADOW','READY',1,'{}','{}','{"symbols":[],"universe_ids":[]}','{"symbols":[]}',false,true,'{}',false)`, binding.mandateID, userID, accountID, binding.bucketID); err != nil {
 			t.Fatal(err)
 		}
 		if _, err = pool.Exec(ctx, `INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'UI',to_jsonb(m) || '{"execution_capable":false}'::jsonb,'{}'::jsonb FROM automation_mandates m WHERE id=$1`, binding.mandateID); err != nil {
 			t.Fatal(err)
 		}
 	}
+	if _, err = pool.Exec(ctx, `INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,strategy_identifier,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES($1,$2,$3,'STRATEGY','wheel',$4,'RESEARCH_ONLY','PAPER','READY',1,'{}','{}','{"symbols":[],"universe_ids":[]}','{"symbols":[]}',false,true,'{}',false)`, paperMandate, userID, accountID, paperBucket); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'UI',to_jsonb(m) || '{"execution_capable":false}'::jsonb,'{}'::jsonb FROM automation_mandates m WHERE id=$1`, paperMandate); err != nil {
+		t.Fatal(err)
+	}
 
 	wheel := "wheel"
 	mandate := func(id, bucket string) automation.Mandate {
-		return automation.Mandate{ID: id, UserID: userID, FinancialAccountID: accountID, AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: bucket, ExecutionMode: "PAPER", Status: "READY", CurrentVersion: 1, ScheduleConditions: json.RawMessage(`{}`)}
+		return automation.Mandate{ID: id, UserID: userID, FinancialAccountID: accountID, AutomationType: "STRATEGY", StrategyIdentifier: &wheel, CapitalBucketID: bucket, ExecutionMode: "SHADOW", Status: "READY", CurrentVersion: 1, ScheduleConditions: json.RawMessage(`{}`)}
 	}
 	store := NewPostgresStore(pool)
-	first, err := store.Initialize(ctx, userID, mandate(mandateOne, bucketOne), "1000", ReadyForPut)
+	first, err := store.Initialize(ctx, userID, mandate(mandateOne, bucketOne), "", ReadyForPut)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -799,7 +807,7 @@ func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T)
 	if err != nil || firstReservation.Status != "ACTIVE" || firstReservation.ReservationAmount == nil || *firstReservation.ReservationAmount != "1000.0000000000" || firstReservation.AccountAllocationLimit == nil || *firstReservation.AccountAllocationLimit != "3000.0000000000" {
 		t.Fatalf("active reservation projection was incomplete: %#v %v", firstReservation, err)
 	}
-	second, err := store.Initialize(ctx, userID, mandate(mandateTwo, bucketTwo), "1500", ReadyForPut)
+	second, err := store.Initialize(ctx, userID, mandate(mandateTwo, bucketTwo), "", ReadyForPut)
 	if err != nil {
 		t.Fatalf("compatible fixed reservations did not share one account: %v", err)
 	}
@@ -816,7 +824,7 @@ func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T)
 	if err = pool.QueryRow(ctx, `SELECT count(*),sum(reservation_amount)::text,min(account_allocation_limit)::text FROM strategy_capital_reservations WHERE user_id=$1 AND financial_account_id=$2 AND released_at IS NULL`, userID, accountID).Scan(&activeCount, &activeAmount, &ceiling); err != nil || activeCount != 2 || activeAmount != "2500.0000000000" || ceiling != "3000.0000000000" {
 		t.Fatalf("aggregate reservation snapshot changed: count=%d amount=%s ceiling=%s err=%v", activeCount, activeAmount, ceiling, err)
 	}
-	if _, err = store.Initialize(ctx, userID, mandate(mandateThree, bucketThree), "600", ReadyForPut); !errors.Is(err, ErrAccountInUse) {
+	if _, err = store.Initialize(ctx, userID, mandate(mandateThree, bucketThree), "", ReadyForPut); !errors.Is(err, ErrAccountInUse) {
 		t.Fatalf("reservation exceeding the shared account ceiling was accepted: %v", err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE capital_buckets SET allocation_value=900 WHERE id=$1`, bucketOne); err == nil {
@@ -828,7 +836,7 @@ func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T)
 	if _, err = store.Pause(ctx, userID, second.ID, 1, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.Initialize(ctx, userID, mandate(mandateThree, bucketThree), "600", ReadyForPut); !errors.Is(err, ErrAccountInUse) {
+	if _, err = store.Initialize(ctx, userID, mandate(mandateThree, bucketThree), "", ReadyForPut); !errors.Is(err, ErrAccountInUse) {
 		t.Fatalf("paused reservation stopped counting toward the account ceiling: %v", err)
 	}
 	finishedAt := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
@@ -843,7 +851,7 @@ func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T)
 	if err != nil || firstReservation.Status != "RELEASED" || firstReservation.ReleasedAt == nil || !firstReservation.ReleasedAt.Equal(finishedAt) || firstReservation.ReleaseReason == nil || *firstReservation.ReleaseReason != "COMPLETED" {
 		t.Fatalf("released reservation projection was incomplete: %#v %v", firstReservation, err)
 	}
-	third, err := store.Initialize(ctx, userID, mandate(mandateThree, bucketThree), "600", ReadyForPut)
+	third, err := store.Initialize(ctx, userID, mandate(mandateThree, bucketThree), "", ReadyForPut)
 	if err != nil || third.ID == "" {
 		t.Fatalf("released capital was not reusable within the shared ceiling: %#v %v", third, err)
 	}
@@ -868,7 +876,7 @@ func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T)
 		go func(candidate automation.Mandate) {
 			defer concurrent.Done()
 			<-start
-			_, initializeErr := store.Initialize(ctx, userID, candidate, "2000", ReadyForPut)
+			_, initializeErr := store.Initialize(ctx, userID, candidate, "", ReadyForPut)
 			results <- initializeErr
 		}(candidate)
 	}
@@ -890,6 +898,21 @@ func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T)
 	}
 	if err = pool.QueryRow(ctx, `SELECT count(*),sum(reservation_amount)::text FROM strategy_capital_reservations WHERE user_id=$1 AND financial_account_id=$2 AND released_at IS NULL`, userID, accountID).Scan(&activeCount, &activeAmount); err != nil || activeCount != 1 || activeAmount != "2000.0000000000" {
 		t.Fatalf("concurrent reservation aggregate changed: count=%d amount=%s err=%v", activeCount, activeAmount, err)
+	}
+
+	paper := mandate(paperMandate, paperBucket)
+	paper.ExecutionMode = "PAPER"
+	paperInstance, err := store.Initialize(ctx, userID, paper, "500", ReadyForPut)
+	if err != nil || paperInstance.ID == "" {
+		t.Fatalf("isolated Paper simulation could not coexist with Shadow authority: %#v %v", paperInstance, err)
+	}
+	var shadowCount, paperCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE execution_mode='SHADOW'),count(*) FILTER (WHERE execution_mode='PAPER') FROM strategy_capital_reservations WHERE user_id=$1 AND financial_account_id=$2 AND released_at IS NULL`, userID, accountID).Scan(&shadowCount, &paperCount); err != nil || shadowCount != 1 || paperCount != 1 {
+		t.Fatalf("Paper and Shadow reservation inventories were not isolated: shadow=%d paper=%d err=%v", shadowCount, paperCount, err)
+	}
+	var paperCash, paperAmount string
+	if err = pool.QueryRow(ctx, `SELECT p.starting_cash::text,r.reservation_amount::text FROM paper_portfolios p JOIN strategy_capital_reservations r ON r.strategy_instance_id=p.strategy_instance_id AND r.user_id=p.user_id WHERE p.strategy_instance_id=$1`, paperInstance.ID).Scan(&paperCash, &paperAmount); err != nil || paperCash != "500.0000000000" || paperAmount != "500.0000000000" {
+		t.Fatalf("Paper simulation lost its exact isolated cash claim: cash=%s reservation=%s err=%v", paperCash, paperAmount, err)
 	}
 }
 
