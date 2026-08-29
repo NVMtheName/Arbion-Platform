@@ -112,15 +112,21 @@ async function aiEngineSummaries(
   base: string,
   headers: { cookie: string },
 ): Promise<DashboardAIEngineSummary[]> {
-  const engines = instances.filter(
-    (instance) =>
+  const engines = instances.filter((instance) => {
+    const executionMode = recordString(
+      instance,
+      "execution_mode",
+      "ExecutionMode",
+    );
+    return (
       recordString(instance, "strategy_identifier", "StrategyIdentifier") ===
         "ai_shadow" &&
-      recordString(instance, "execution_mode", "ExecutionMode") === "SHADOW" &&
+      (executionMode === "PAPER" || executionMode === "SHADOW") &&
       ["ACTIVE", "PAUSED"].includes(
         recordString(instance, "status", "Status") ?? "",
-      ),
-  );
+      )
+    );
+  });
 
   return Promise.all(
     engines.map(async (instance) => {
@@ -134,6 +140,8 @@ async function aiEngineSummaries(
       const accountID =
         recordString(instance, "financial_account_id", "FinancialAccountID") ??
         "";
+      const executionMode =
+        recordString(instance, "execution_mode", "ExecutionMode") ?? "SHADOW";
       const mandate = automations.find(
         (item) => recordString(item, "id", "ID") === mandateID,
       );
@@ -152,12 +160,17 @@ async function aiEngineSummaries(
             `${base}/api/strategy-instances/${encodeURIComponent(id)}/decisions`,
             headers,
           ),
-          fetchDashboardJSON<{
-            scorecard?: Record<string, unknown>;
-          }>(
-            `${base}/api/strategy-instances/${encodeURIComponent(id)}/shadow-scorecard`,
-            headers,
-          ),
+          executionMode === "SHADOW"
+            ? fetchDashboardJSON<{
+                scorecard?: Record<string, unknown>;
+              }>(
+                `${base}/api/strategy-instances/${encodeURIComponent(id)}/shadow-scorecard`,
+                headers,
+              )
+            : Promise.resolve({
+                available: true as const,
+                payload: undefined,
+              }),
         ]);
       const schedule = scheduleResult.payload?.schedule;
       const lastDecision = decisionsResult.payload?.decisions?.find(
@@ -186,8 +199,7 @@ async function aiEngineSummaries(
         status: recordString(instance, "status", "Status") ?? "UNKNOWN",
         currentState:
           recordString(instance, "current_state", "CurrentState") ?? "UNKNOWN",
-        executionMode:
-          recordString(instance, "execution_mode", "ExecutionMode") ?? "SHADOW",
+        executionMode,
         modelID: recordString(mandate, "ai_model_id", "AIModelID"),
         lastEvaluatedAt: recordString(
           instance,
@@ -198,7 +210,10 @@ async function aiEngineSummaries(
         scheduleStatus: recordString(schedule, "last_status", "LastStatus"),
         scheduleAvailable: scheduleResult.available,
         journalAvailable: decisionsResult.available,
-        evidenceAvailable: scorecardResult.available && Boolean(evidenceGate),
+        evidenceAvailable:
+          executionMode === "SHADOW"
+            ? scorecardResult.available && Boolean(evidenceGate)
+            : undefined,
         evidenceStatus: recordString(evidenceGate, "status", "Status"),
         evidenceBlockers: recordStrings(evidenceGate, "blockers", "Blockers"),
         oneHourSampleSize:

@@ -69,7 +69,7 @@ const connected: Fixtures = {
   ],
 };
 
-describe("AutomationBuilder AI Shadow launch", () => {
+describe("AutomationBuilder AI non-live launch", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
@@ -85,7 +85,7 @@ describe("AutomationBuilder AI Shadow launch", () => {
       screen.getByText(/connect and verify openai, claude, or gemini first/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /create ai shadow draft/i }),
+      screen.getByRole("button", { name: /create ai paper draft/i }),
     ).toBeDisabled();
   });
 
@@ -158,7 +158,7 @@ describe("AutomationBuilder AI Shadow launch", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("creates an isolated Coinbase continuous AI Shadow mandate", async () => {
+  it("creates an isolated Coinbase continuous AI Paper mandate by default", async () => {
     const fixtureFetch = fetchFixtures(connected);
     vi.stubGlobal(
       "fetch",
@@ -177,7 +177,7 @@ describe("AutomationBuilder AI Shadow launch", () => {
       screen.getByLabelText(/run guarded evaluations automatically/i),
     );
     const button = screen.getByRole("button", {
-      name: /create ai shadow draft/i,
+      name: /create ai paper draft/i,
     });
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
@@ -194,7 +194,7 @@ describe("AutomationBuilder AI Shadow launch", () => {
       automation_type: "AI_AUTONOMOUS",
       strategy_identifier: null,
       autonomy_level: "FULL_AUTONOMOUS",
-      execution_mode: "SHADOW",
+      execution_mode: "PAPER",
       options_allowed: false,
       ai_model_id: "gpt-5.6-sol",
       allowed_universe: { symbols: ["BTC", "ETH"] },
@@ -218,7 +218,7 @@ describe("AutomationBuilder AI Shadow launch", () => {
     fireEvent.change(await screen.findByLabelText(/allowed symbols/i), {
       target: { value: "BTC" },
     });
-    fireEvent.change(screen.getByLabelText(/maximum shadow actions/i), {
+    fireEvent.change(screen.getByLabelText(/maximum paper actions/i), {
       target: { value: "4" },
     });
     fireEvent.change(screen.getByLabelText(/minimum cash reserve/i), {
@@ -240,7 +240,7 @@ describe("AutomationBuilder AI Shadow launch", () => {
       },
     );
     const button = screen.getByRole("button", {
-      name: /create ai shadow draft/i,
+      name: /create ai paper draft/i,
     });
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
@@ -270,14 +270,14 @@ describe("AutomationBuilder AI Shadow launch", () => {
       target: { value: "BTC" },
     });
     const button = screen.getByRole("button", {
-      name: /create ai shadow draft/i,
+      name: /create ai paper draft/i,
     });
     await waitFor(() => expect(button).toBeEnabled());
-    fireEvent.change(screen.getByLabelText(/maximum shadow actions/i), {
+    fireEvent.change(screen.getByLabelText(/maximum paper actions/i), {
       target: { value: "49" },
     });
     expect(button).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/maximum shadow actions/i), {
+    fireEvent.change(screen.getByLabelText(/maximum paper actions/i), {
       target: { value: "6" },
     });
     fireEvent.change(
@@ -313,7 +313,7 @@ describe("AutomationBuilder AI Shadow launch", () => {
       target: { value: "BTC" },
     });
     const button = screen.getByRole("button", {
-      name: /create ai shadow draft/i,
+      name: /create ai paper draft/i,
     });
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
@@ -340,10 +340,43 @@ describe("AutomationBuilder AI Shadow launch", () => {
     );
     render(<AutomationBuilder />);
     expect(
-      await screen.findByLabelText(/new ai shadow budget/i),
+      await screen.findByLabelText(/new ai paper budget/i),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("option", { name: "Never touch" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps observation-only Shadow available as an explicit choice", async () => {
+    const fixtureFetch = fetchFixtures(connected);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input) === "/api/automations" && init?.method === "POST") {
+          return response({ automation: { id: "shadow-1" } });
+        }
+        return fixtureFetch(input);
+      }),
+    );
+    render(<AutomationBuilder />);
+    fireEvent.change(await screen.findByLabelText(/ai learning mode/i), {
+      target: { value: "SHADOW" },
+    });
+    fireEvent.change(screen.getByLabelText(/allowed symbols/i), {
+      target: { value: "BTC" },
+    });
+    const button = screen.getByRole("button", {
+      name: /create ai shadow draft/i,
+    });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await screen.findByRole("link", { name: /review ai engine/i });
+    const call = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([input, init]) =>
+          String(input) === "/api/automations" && init?.method === "POST",
+      );
+    expect(JSON.parse(String(call?.[1]?.body)).execution_mode).toBe("SHADOW");
   });
 });

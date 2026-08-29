@@ -86,7 +86,7 @@ type MarketSnapshot struct {
 	UnderlyingPrice, Bid, Ask *string
 	Options                   []OptionCandidate
 }
-type Position struct{ Symbol, Instrument, Quantity string }
+type Position struct{ Symbol, Instrument, Quantity, AveragePrice string }
 type AccountSnapshot struct {
 	Timestamp     time.Time
 	AvailableCash string

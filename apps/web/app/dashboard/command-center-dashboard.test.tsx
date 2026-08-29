@@ -152,8 +152,54 @@ describe("Portfolio-first command center", () => {
       screen.getByText(/your accounts will appear here/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("No AI Shadow Engine is monitoring yet."),
+      screen.getByText("No AI Engine is monitoring yet."),
     ).toBeInTheDocument();
+  });
+
+  it("shows AI Paper as an isolated simulation without a Shadow evidence gate", () => {
+    render(
+      <CommandCenterDashboard
+        accounts={[]}
+        connectionCount={1}
+        modelConfigured
+        aiEngines={[
+          {
+            id: "paper-engine",
+            mandateID: "paper-mandate",
+            accountName: "Coinbase price source",
+            provider: "coinbase",
+            status: "ACTIVE",
+            currentState: "AI_MONITORING",
+            executionMode: "PAPER",
+            modelID: "gpt-5.6-sol",
+            scheduleStatus: "SUCCEEDED",
+            scheduleAvailable: true,
+            journalAvailable: true,
+            consecutiveFailures: 0,
+            lastDecision: "ALLOW_SIMULATED_FILLED",
+            lastDecisionSymbol: "BTC",
+          },
+        ]}
+        user={{
+          email: "owner@example.com",
+          display_name: "Nick Maya",
+          entitlement: "founder",
+          role: "superadmin",
+        }}
+      />,
+    );
+
+    const cockpit = screen.getByRole("region", {
+      name: "AI oversight at a glance.",
+    });
+    expect(cockpit).toHaveTextContent("Paper simulation");
+    expect(cockpit).toHaveTextContent("Simulated fill · BTC");
+    expect(cockpit).toHaveTextContent("PAPER LEDGER");
+    expect(cockpit).toHaveTextContent("Isolated simulated cash");
+    expect(cockpit).toHaveTextContent("supplies prices only");
+    expect(
+      screen.queryByLabelText("Shadow evidence progress"),
+    ).not.toBeInTheDocument();
   });
 
   it("surfaces unavailable AI evidence instead of implying a healthy engine", () => {

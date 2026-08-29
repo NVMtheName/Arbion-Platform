@@ -188,6 +188,29 @@ func TestAutonomousAIRepeatActionFailsClosedWithoutCurrentHistory(t *testing.T) 
 	}
 }
 
+func TestAutonomousAIPaperUsesIsolatedStateWithoutBrokerReconciliation(t *testing.T) {
+	c, action := fixture()
+	c.Mandate.AutomationType = "AI_AUTONOMOUS"
+	c.Mandate.AutonomyLevel = "FULL_AUTONOMOUS"
+	c.Mandate.ExecutionMode = "PAPER"
+	c.Mandate.MaxSinglePositionPercentage = nil
+	c.Mandate.MaxDailyLoss = nil
+	c.Mandate.MaxTradesPerDay = nil
+	c.Account.CurrentExposure = "0"
+	c.Reconciliation = nil
+	action.Source = SourceAI
+	action.Notional = "1"
+	result := NewEngine().Evaluate(c, action)
+	if result.Decision != Allow || reason(result, ReconciliationRequired) {
+		t.Fatalf("AI Paper incorrectly depended on broker reconciliation: %#v", result)
+	}
+	c.Activity.RecentActions = []RecentAction{{Instrument: "AAPL", Side: "BUY", OccurredAt: c.Now.Add(-time.Minute)}}
+	result = NewEngine().Evaluate(c, action)
+	if result.Decision != Deny || !reason(result, RepeatActionCooldownActive) {
+		t.Fatalf("AI Paper bypassed the repeat-action guard: %#v", result)
+	}
+}
+
 func TestAutonomousAIReconciliationGateFailsClosedAndUsesExactEvidence(t *testing.T) {
 	base := func() (EvaluationContext, ProposedAction) {
 		c, action := fixture()

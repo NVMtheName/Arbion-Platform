@@ -336,7 +336,7 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 	if ready && c.AutonomyLevel == "FULL_AUTONOMOUS" && c.AutomationType == "STRATEGY" {
 		return false, ErrInvalid
 	}
-	if c.AutomationType == "AI_AUTONOMOUS" && (c.StrategyIdentifier != nil || c.ExecutionMode != "SHADOW" || c.AutonomyLevel != "FULL_AUTONOMOUS" || c.MarginAllowed || c.OptionsAllowed) {
+	if c.AutomationType == "AI_AUTONOMOUS" && (c.StrategyIdentifier != nil || (c.ExecutionMode != "PAPER" && c.ExecutionMode != "SHADOW") || c.AutonomyLevel != "FULL_AUTONOMOUS" || c.MarginAllowed || c.OptionsAllowed) {
 		return false, ErrInvalid
 	}
 	if c.AutomationType == "AI_AUTONOMOUS" && (c.Risk.MaxTradesPerDay == nil || *c.Risk.MaxTradesPerDay < 1 || *c.Risk.MaxTradesPerDay > 48 || c.Risk.MaxDailyLoss != nil) {
@@ -373,12 +373,12 @@ func (s *Service) validate(ctx context.Context, p authorization.Principal, c Man
 	if err != nil {
 		return false, err
 	}
-	if schedule.Notifications.ReconciliationReviewNeeded && c.AutomationType != "AI_AUTONOMOUS" {
+	if schedule.Notifications.ReconciliationReviewNeeded && (c.AutomationType != "AI_AUTONOMOUS" || c.ExecutionMode != "SHADOW") {
 		return false, ErrInvalid
 	}
 	validStrategySchedule := c.AutomationType == "STRATEGY" && c.AutonomyLevel == "STRATEGY_AUTONOMOUS" && (c.ExecutionMode == "PAPER" || c.ExecutionMode == "SHADOW") && schedule.Session == "US_EQUITIES_REGULAR"
-	validAIShadowSchedule := c.AutomationType == "AI_AUTONOMOUS" && c.AutonomyLevel == "FULL_AUTONOMOUS" && c.ExecutionMode == "SHADOW" && ((af.Provider == "coinbase" && schedule.Session == "CONTINUOUS") || (af.Provider == "schwab" && schedule.Session == "US_EQUITIES_REGULAR"))
-	if schedule.Enabled && !validStrategySchedule && !validAIShadowSchedule {
+	validAIAutonomousSchedule := c.AutomationType == "AI_AUTONOMOUS" && c.AutonomyLevel == "FULL_AUTONOMOUS" && (c.ExecutionMode == "PAPER" || c.ExecutionMode == "SHADOW") && ((af.Provider == "coinbase" && schedule.Session == "CONTINUOUS") || (af.Provider == "schwab" && schedule.Session == "US_EQUITIES_REGULAR"))
+	if schedule.Enabled && !validStrategySchedule && !validAIAutonomousSchedule {
 		return false, ErrInvalid
 	}
 	for _, v := range []*string{c.Risk.MaxCapitalDeployed, c.Risk.MaxSinglePositionAmount, c.Risk.MaxSinglePositionPercentage, c.Risk.MaxDailyLoss, c.Risk.MinimumCashReserve} {
@@ -585,7 +585,7 @@ func (s *Service) UpdateAIShadowParameters(c context.Context, p authorization.Pr
 	if err != nil {
 		return Mandate{}, ErrNotFound
 	}
-	if old.AutomationType != "AI_AUTONOMOUS" || old.ExecutionMode != "SHADOW" {
+	if old.AutomationType != "AI_AUTONOMOUS" || (old.ExecutionMode != "PAPER" && old.ExecutionMode != "SHADOW") {
 		return Mandate{}, ErrInvalid
 	}
 	raw, err := json.Marshal(parameters)

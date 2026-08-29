@@ -136,7 +136,7 @@ describe("StrategyFleet", () => {
     );
 
     const summary = screen.getByRole("region", { name: "Fleet summary" });
-    expect(summary).toHaveTextContent("Monitoring1AI shadow engines");
+    expect(summary).toHaveTextContent("Monitoring1AI non-live engines");
     expect(summary).toHaveTextContent("Scheduled1healthy automatic cycles");
     expect(summary).toHaveTextContent("Attention0engine health signals");
     expect(summary).toHaveTextContent("Drafts1not initialized");
@@ -214,6 +214,64 @@ describe("StrategyFleet", () => {
         name: "Open AI Shadow Engine for Coinbase Portfolio ••••a5d0",
       }),
     ).toHaveAttribute("href", "/automations/ai-mandate");
+  });
+
+  it("treats AI Paper as an isolated healthy runtime without Shadow evidence or reconciliation", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            title: "AI Paper Engine",
+            executionMode: "PAPER",
+            capitalBucketName: "Coinbase AI Paper",
+            capitalReservationAmount: "900.0000000000",
+            capitalReservationBasis: "PAPER_STARTING_CASH",
+            latestDecisionType: "ALLOW_SIMULATED_FILLED",
+            latestDecisionSymbol: "BTC",
+            latestDecisionSide: "BUY",
+            latestDecisionQuantity: "0.0010000000",
+            latestDecisionRiskDecision: "ALLOW",
+            latestDecisionExecutionStatus: "SIMULATED_FILLED",
+            evidenceAvailable: undefined,
+            evidenceStatus: undefined,
+            reconciliationAvailable: undefined,
+            reconciliationComparisonStatus: undefined,
+            reconciliationBalancesStatus: undefined,
+            reconciliationPositionsStatus: undefined,
+            reconciliationAutonomySignal: undefined,
+            reconciliationAutonomyEnforcementActive: undefined,
+            reconciliationBlocksNewActions: undefined,
+            reconciliationObservedAt: undefined,
+            reconciliationFresh: undefined,
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      within(screen.getByRole("region", { name: "Strategy fleet" })).getByText(
+        "Monitoring",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Healthy schedule")).toBeInTheDocument();
+    const dataHealth = screen.getByRole("region", {
+      name: "AI Paper Engine account data health",
+    });
+    expect(dataHealth).toHaveTextContent("MARKET PRICE SOURCE");
+    expect(dataHealth).toHaveTextContent("Broker portfolioNot used by Paper");
+    expect(dataHealth).toHaveTextContent("Isolated Arbion simulation");
+    expect(dataHealth).toHaveTextContent("no broker positions, cash, or order");
+    expect(screen.getByText("Simulated fill")).toBeInTheDocument();
+    expect(screen.getByText("Paper simulated fill only")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("region", {
+        name: /AI Paper Engine Shadow evidence/i,
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "No owner action right now." }),
+    ).toBeInTheDocument();
   });
 
   it("surfaces a schedule outage instead of presenting healthy automation", () => {
@@ -884,12 +942,12 @@ describe("StrategyFleet", () => {
     expect(queue).toHaveTextContent("No mandate or schedule was changed");
   });
 
-  it("keeps the empty state focused on a bounded shadow launch", () => {
+  it("keeps the empty state focused on a bounded non-live launch", () => {
     render(<StrategyFleet items={[]} />);
 
     expect(screen.getByText("No strategies yet.")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Launch an AI Shadow Engine" }),
+      screen.getByRole("link", { name: "Launch an AI Engine" }),
     ).toHaveAttribute("href", "/automations/new");
   });
 

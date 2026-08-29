@@ -156,10 +156,13 @@ function elapsedLabel(value: unknown) {
 export function AIDecisionJournal({
   decisions,
   outcomes = [],
+  executionMode = "SHADOW",
 }: {
   decisions: RawDecision[];
   outcomes?: RawDecision[];
+  executionMode?: string;
 }) {
+  const paper = executionMode === "PAPER";
   const entries = decisions
     .filter((entry) => read(entry, "source", "Source") === "AI")
     .slice(0, 5);
@@ -171,7 +174,7 @@ export function AIDecisionJournal({
       <p>
         Every completed model decision is immutable. Abstentions stop before
         risk evaluation; proposals must still pass Arbion&apos;s deterministic
-        controls and remain shadow-only.
+        controls and remain {paper ? "simulation-only" : "shadow-only"}.
       </p>
 
       {entries.length === 0 ? (
@@ -207,6 +210,8 @@ export function AIDecisionJournal({
             );
             const shadowAttemptRecorded =
               executionRecorded && executionStatus === "WOULD_HAVE_SUBMITTED";
+            const paperFillRecorded =
+              executionRecorded && executionStatus === "SIMULATED_FILLED";
             const executionSymbol = field(entry, "symbol", "Symbol");
             const side = field(entry, "side", "Side");
             const quantity = field(entry, "quantity", "Quantity");
@@ -266,7 +271,11 @@ export function AIDecisionJournal({
                     <p>{facts.thesis ?? "No thesis was recorded."}</p>
                   </div>
                   <div className="journal-badges">
-                    <span className="journal-mode shadow">SHADOW</span>
+                    <span
+                      className={`journal-mode ${paper ? "paper" : "shadow"}`}
+                    >
+                      {paper ? "PAPER" : "SHADOW"}
+                    </span>
                     <span
                       className={`journal-decision ${riskDenied ? "deny" : riskReached ? "allow" : "abstain"}`}
                     >
@@ -309,9 +318,13 @@ export function AIDecisionJournal({
                     <dd>
                       {riskDenied
                         ? "Control denial"
-                        : shadowAttemptRecorded
-                          ? "Shadow record"
-                          : "None"}
+                        : paperFillRecorded
+                          ? "Simulated fill"
+                          : paper && executionRecorded
+                            ? label(executionStatus ?? "simulation_record")
+                            : shadowAttemptRecorded
+                              ? "Shadow record"
+                              : "None"}
                     </dd>
                   </div>
                 </dl>
@@ -600,9 +613,7 @@ export function AIDecisionJournal({
                                     position,
                                     "performance_status",
                                   ) === "PARTIAL" && (
-                                    <small>
-                                      Partial provider position performance
-                                    </small>
+                                    <small>Partial position performance</small>
                                   )}
                                 </>
                               )}

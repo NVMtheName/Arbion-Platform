@@ -9979,6 +9979,10 @@ h1 {
   border-color: rgba(25, 201, 214, 0.26);
   color: #65dce5;
 }
+.ai-engine-badges .is-paper {
+  border-color: rgba(94, 224, 160, 0.3);
+  color: #70e1a5;
+}
 .ai-engine-grid dl {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -10058,6 +10062,10 @@ h1 {
   color: #7e9489;
   font-size: 0.64rem;
   line-height: 1.45;
+}
+.ai-engine-evidence.is-paper {
+  border-color: rgba(94, 224, 160, 0.16);
+  background: rgba(94, 224, 160, 0.035);
 }
 .ai-engine-evidence-blockers {
   display: grid;

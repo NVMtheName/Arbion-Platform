@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { capitalReservationMatchesPolicy } from "./capital-authority";
+import {
+  capitalReservationMatchesPolicy,
+  paperCapitalReservationMatchesPolicy,
+} from "./capital-authority";
 
 describe("capitalReservationMatchesPolicy", () => {
   it("matches an exact fixed allocation, protected amount, and shared ceiling", () => {
@@ -107,6 +110,46 @@ describe("capitalReservationMatchesPolicy", () => {
       capitalReservationMatchesPolicy({
         ...base,
         allocationType: "BROKER_BUYING_POWER",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("paperCapitalReservationMatchesPolicy", () => {
+  it("accepts positive simulated cash no greater than exact protected capacity", () => {
+    expect(
+      paperCapitalReservationMatchesPolicy({
+        allocationType: "FIXED_AMOUNT",
+        allocationValue: "1000.0000000000",
+        protectedAmount: "100.0000000000",
+        allocationLimit: "1000.0000000000",
+        reservationAmount: "900.0000000000",
+        reservationBasis: "PAPER_STARTING_CASH",
+        reservationAccountLimit: "1000.0000000000",
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects simulated cash above capacity or with Shadow reservation evidence", () => {
+    const policy = {
+      allocationType: "FIXED_AMOUNT",
+      allocationValue: "1000.0000000000",
+      protectedAmount: "100.0000000000",
+      allocationLimit: undefined,
+      reservationAmount: "900.0000000000",
+      reservationBasis: "PAPER_STARTING_CASH",
+      reservationAccountLimit: undefined,
+    };
+    expect(
+      paperCapitalReservationMatchesPolicy({
+        ...policy,
+        reservationAmount: "900.0000000001",
+      }),
+    ).toBe(false);
+    expect(
+      paperCapitalReservationMatchesPolicy({
+        ...policy,
+        reservationBasis: "BUCKET_FIXED_CAPACITY",
       }),
     ).toBe(false);
   });

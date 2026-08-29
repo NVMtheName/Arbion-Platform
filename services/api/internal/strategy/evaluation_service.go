@@ -73,6 +73,8 @@ const (
 	aiEventLookbackDays         = 30
 	aiEventsPerSymbol           = 2
 	aiEventResolverMaxAge       = 24 * time.Hour
+	aiPaperFeeBasisPoints       = 50
+	aiPaperSlippageBasisPoints  = 25
 )
 
 type AIAbstentionStore interface {
@@ -159,7 +161,7 @@ func (s *EvaluationService) Evaluate(ctx context.Context, principal authorizatio
 		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
 	}
 	if instance.StrategyIdentifier == "ai_shadow" {
-		return s.evaluateAIShadow(ctx, principal, instance, mandate, eventID)
+		return s.evaluateAIAutonomous(ctx, principal, instance, mandate, eventID)
 	}
 	if mandate.StrategyIdentifier == nil || *mandate.StrategyIdentifier != instance.StrategyIdentifier {
 		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
@@ -386,8 +388,8 @@ func (s *EvaluationService) accountSnapshots(ctx context.Context, principal auth
 	return AccountSnapshot{Timestamp: now, AvailableCash: available, Positions: strategyPositions}, risk.AccountRiskSnapshot{AccountID: account.ID, Currency: account.BaseCurrency, Timestamp: now, Cash: cash, AvailableCash: available, BuyingPower: buyingPower, CurrentExposure: totalExposure.FloatString(10), Positions: riskPositions, Options: capabilities("options"), Margin: capabilities("margin")}, nil
 }
 
-func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal authorization.Principal, instance Instance, mandate automation.Mandate, eventID string) (EvaluationOutcome, error) {
-	if s.ai == nil || mandate.AutomationType != "AI_AUTONOMOUS" || mandate.AutonomyLevel != "FULL_AUTONOMOUS" || mandate.ExecutionMode != "SHADOW" || mandate.StrategyIdentifier != nil || mandate.AIProviderConnectionID == nil || mandate.AIModelID == nil || instance.CurrentState != AIMonitoring {
+func (s *EvaluationService) evaluateAIAutonomous(ctx context.Context, principal authorization.Principal, instance Instance, mandate automation.Mandate, eventID string) (EvaluationOutcome, error) {
+	if s.ai == nil || mandate.AutomationType != "AI_AUTONOMOUS" || mandate.AutonomyLevel != "FULL_AUTONOMOUS" || (mandate.ExecutionMode != "PAPER" && mandate.ExecutionMode != "SHADOW") || mandate.StrategyIdentifier != nil || mandate.AIProviderConnectionID == nil || mandate.AIModelID == nil || instance.CurrentState != AIMonitoring {
 		return EvaluationOutcome{}, ErrEvaluationConfigurationChanged
 	}
 	parameters, err := automation.ParseAIShadowParameters(mandate.StrategyParameters)
@@ -414,11 +416,20 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	if err != nil {
 		return EvaluationOutcome{}, err
 	}
-	if err = s.recordDueAIShadowOutcomes(ctx, instance, markets, now); err != nil {
-		return EvaluationOutcome{}, err
+	if instance.ExecutionMode == Shadow {
+		if err = s.recordDueAIShadowOutcomes(ctx, instance, markets, now); err != nil {
+			return EvaluationOutcome{}, err
+		}
 	}
 	eventCoverage, marketEvents := s.aiMarketEventFacts(ctx, account, mandate.AllowedUniverse.Symbols, now)
-	request, riskAccount, err := s.aiAccountFacts(ctx, principal, account, mandate.AllowedUniverse.Symbols, markets, now)
+	var request neural.ShadowDecisionRequest
+	var riskAccount risk.AccountRiskSnapshot
+	var paperPortfolio AIPaperPortfolioSnapshot
+	if instance.ExecutionMode == Paper {
+		request, riskAccount, paperPortfolio, err = aiPaperAccountFacts(account, facts.Paper, mandate.AllowedUniverse.Symbols, markets, now)
+	} else {
+		request, riskAccount, err = s.aiAccountFacts(ctx, principal, account, mandate.AllowedUniverse.Symbols, markets, now)
+	}
 	if err != nil {
 		return EvaluationOutcome{}, err
 	}
@@ -438,7 +449,7 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	if !validAIShadowDecision(decision, mandate.AllowedUniverse.Symbols, parameters.MaxProposalNotional) {
 		return EvaluationOutcome{}, ErrInvalid
 	}
-	rationale, err := json.Marshal(map[string]any{
+	rationaleFields := map[string]any{
 		"decision": decision.Decision, "symbol": decision.Symbol, "side": decision.Side,
 		"proposed_notional": decision.ProposedNotional, "confidence": decision.Confidence,
 		"thesis": decision.Thesis, "risk_flags": decision.RiskFlags, "limitations": decision.Limitations,
@@ -446,6 +457,7 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 		"profile": decision.Metadata.Profile, "input_usage": decision.Metadata.InputUsage,
 		"output_usage": decision.Metadata.OutputUsage, "latency_ms": decision.Metadata.LatencyMS,
 		"objective": parameters.Objective, "market_observed_at": oldestAIMarketTimestamp(markets),
+		"execution_mode": mandate.ExecutionMode,
 		"input_evidence": map[string]any{
 			"provider": account.Provider, "available_cash_usd": request.AvailableCashUSD,
 			"buying_power_usd": request.BuyingPowerUSD, "positions": request.Positions,
@@ -453,7 +465,16 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 			"market_events": request.MarketEvents, "recent_decisions": request.RecentDecisions,
 			"observed_at": request.ObservedAt,
 		},
-	})
+	}
+	if instance.ExecutionMode == Paper {
+		rationaleFields["simulation"] = map[string]any{
+			"model": "ai_paper_spot_v1", "simulation_only": true,
+			"fee_basis_points":      aiPaperFeeBasisPoints,
+			"slippage_basis_points": aiPaperSlippageBasisPoints,
+			"portfolio_source":      "arbion_isolated_paper_ledger",
+		}
+	}
+	rationale, err := json.Marshal(rationaleFields)
 	if err != nil {
 		return EvaluationOutcome{}, err
 	}
@@ -471,22 +492,19 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	if !ok || (decision.Side != "BUY" && decision.Side != "SELL") {
 		return EvaluationOutcome{}, ErrInvalid
 	}
-	price := market.Ask
-	if decision.Side == "SELL" {
-		price = market.Bid
-	}
-	if price == "" {
-		price = market.Mark
-	}
-	if price == "" {
-		price = market.Last
-	}
+	price, pricingBasis, priceAvailable := aiExecutionPrice(market, decision.Side)
 	priceRat, priceOK := new(big.Rat).SetString(price)
 	notionalRat, notionalOK := new(big.Rat).SetString(decision.ProposedNotional)
-	if !priceOK || priceRat.Sign() <= 0 || !notionalOK || notionalRat.Sign() <= 0 {
+	if !priceAvailable || !priceOK || priceRat.Sign() <= 0 || !notionalOK || notionalRat.Sign() <= 0 {
 		return EvaluationOutcome{}, ErrInvalid
 	}
-	quantity := floorRat(new(big.Rat).Quo(notionalRat, priceRat), 10)
+	quantityDivisor := new(big.Rat).Set(priceRat)
+	if instance.ExecutionMode == Paper && decision.Side == "BUY" {
+		slippage := new(big.Rat).Add(big.NewRat(1, 1), new(big.Rat).SetFrac64(aiPaperSlippageBasisPoints, aiPaperBasisPointDenominator))
+		fee := new(big.Rat).Add(big.NewRat(1, 1), new(big.Rat).SetFrac64(aiPaperFeeBasisPoints, aiPaperBasisPointDenominator))
+		quantityDivisor.Mul(quantityDivisor, new(big.Rat).Mul(slippage, fee))
+	}
+	quantity := floorRat(new(big.Rat).Quo(notionalRat, quantityDivisor), 10)
 	if quantity == "0.0000000000" {
 		return EvaluationOutcome{}, ErrInvalid
 	}
@@ -505,7 +523,16 @@ func (s *EvaluationService) evaluateAIShadow(ctx context.Context, principal auth
 	if account.Provider == "coinbase" {
 		instrument = "CRYPTO"
 	}
-	outcome, err := s.orchestrator.EvaluateDecision(ctx, instance, Decision{ProposedAction: &action, Source: "AI", InstrumentType: instrument, ProposedState: AIMonitoring, Reason: "bounded_ai_shadow_decision", Rationale: rationale}, riskContext, now)
+	decisionRecord := Decision{ProposedAction: &action, Source: "AI", InstrumentType: instrument, ProposedState: AIMonitoring, Reason: "bounded_ai_nonlive_decision", Rationale: rationale}
+	var outcome EvaluationOutcome
+	if instance.ExecutionMode == Paper {
+		outcome, err = s.orchestrator.EvaluateAIPaperDecision(ctx, instance, decisionRecord, riskContext, paperPortfolio, AIPaperMarketReference{
+			Symbol: decision.Symbol, Price: price, Basis: pricingBasis, Provider: account.Provider,
+			Feed: market.Feed, Quality: market.Quality, ObservedAt: market.ObservedAt,
+		}, AIPaperSimulationConfig{FeeBasisPoints: aiPaperFeeBasisPoints, SlippageBasisPoints: aiPaperSlippageBasisPoints}, now)
+	} else {
+		outcome, err = s.orchestrator.EvaluateDecision(ctx, instance, decisionRecord, riskContext, now)
+	}
 	outcome.AIDecision = "PROPOSE"
 	outcome.Confidence = decision.Confidence
 	return outcome, err
@@ -749,6 +776,70 @@ func (s *EvaluationService) aiAccountFacts(ctx context.Context, principal author
 	return request, riskAccount, nil
 }
 
+// aiPaperAccountFacts exposes only the isolated Arbion paper ledger to the
+// model and risk engine. The connected account remains the source of current
+// market references, never cash, positions, buying power, or execution state.
+func aiPaperAccountFacts(account financial.FinancialAccount, paper *PaperEvaluationFacts, allowed []string, markets []neural.ShadowMarketFact, now time.Time) (neural.ShadowDecisionRequest, risk.AccountRiskSnapshot, AIPaperPortfolioSnapshot, error) {
+	if paper == nil {
+		return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, AIPaperPortfolioSnapshot{}, ErrEvaluationPaperStateUnavailable
+	}
+	cash, cashOK := new(big.Rat).SetString(paper.Cash)
+	if !cashOK || cash.Sign() < 0 || account.BaseCurrency != "USD" || (account.Provider != "coinbase" && account.Provider != "schwab") {
+		return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, AIPaperPortfolioSnapshot{}, ErrInvalid
+	}
+	allowedSet := map[string]bool{}
+	for _, symbol := range allowed {
+		allowedSet[symbol] = true
+	}
+	expectedInstrument := "EQUITY"
+	if account.Provider == "coinbase" {
+		expectedInstrument = "CRYPTO"
+	}
+	request := neural.ShadowDecisionRequest{AvailableCashUSD: paper.Cash, BuyingPowerUSD: paper.Cash, Positions: []neural.ShadowPositionFact{}}
+	portfolio := AIPaperPortfolioSnapshot{Currency: "USD", Cash: paper.Cash, Positions: map[string]string{}}
+	riskPositions := []risk.Position{}
+	totalExposure := new(big.Rat)
+	for _, position := range paper.Positions {
+		symbol := strings.ToUpper(strings.TrimSpace(position.Symbol))
+		quantity, quantityOK := new(big.Rat).SetString(position.Quantity)
+		if symbol != position.Symbol || !allowedSet[symbol] || position.Instrument != expectedInstrument || !quantityOK || quantity.Sign() < 0 {
+			return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, AIPaperPortfolioSnapshot{}, ErrInvalid
+		}
+		if _, duplicate := portfolio.Positions[symbol]; duplicate {
+			return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, AIPaperPortfolioSnapshot{}, ErrInvalid
+		}
+		portfolio.Positions[symbol] = quantity.FloatString(aiPaperDecimalPlaces)
+		if quantity.Sign() == 0 {
+			continue
+		}
+		averagePrice, averageOK := new(big.Rat).SetString(position.AveragePrice)
+		currentPriceText, currentOK := aiMarketPrice(markets, symbol)
+		currentPrice, currentPriceOK := new(big.Rat).SetString(currentPriceText)
+		if !averageOK || averagePrice.Sign() <= 0 || !currentOK || !currentPriceOK || currentPrice.Sign() <= 0 {
+			return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, AIPaperPortfolioSnapshot{}, ErrInvalid
+		}
+		marketValue := new(big.Rat).Mul(new(big.Rat).Set(quantity), currentPrice)
+		openProfitLoss := new(big.Rat).Mul(new(big.Rat).Sub(currentPrice, averagePrice), quantity)
+		openProfitLossPercent := new(big.Rat).Mul(new(big.Rat).Quo(new(big.Rat).Sub(currentPrice, averagePrice), averagePrice), big.NewRat(100, 1))
+		totalExposure.Add(totalExposure, marketValue)
+		request.Positions = append(request.Positions, neural.ShadowPositionFact{
+			Symbol: symbol, Instrument: expectedInstrument, Quantity: quantity.FloatString(10),
+			AvailableQuantity: quantity.FloatString(10), MarketValueUSD: marketValue.FloatString(10),
+			PerformanceStatus: "PARTIAL", AveragePriceUSD: averagePrice.FloatString(10),
+			CurrentPriceUSD: currentPrice.FloatString(10), OpenProfitLossUSD: openProfitLoss.FloatString(10),
+			OpenProfitLossPercent: openProfitLossPercent.FloatString(10), PriceBasis: "PROVIDER_MARKET_REFERENCE",
+		})
+		riskPositions = append(riskPositions, risk.Position{Instrument: symbol, Exposure: marketValue.FloatString(10), AvailableQuantity: quantity.FloatString(10)})
+	}
+	riskAccount := risk.AccountRiskSnapshot{
+		AccountID: account.ID, Currency: "USD", Timestamp: now,
+		Cash: paper.Cash, AvailableCash: paper.Cash, BuyingPower: paper.Cash,
+		CurrentExposure: totalExposure.FloatString(10), Positions: riskPositions,
+		Options: risk.CapabilityUnsupported, Margin: risk.CapabilityUnsupported,
+	}
+	return request, riskAccount, portfolio, nil
+}
+
 const aiPositionPriceBasis = "PROVIDER_POSITION_MARKET_VALUE_PER_UNIT"
 
 func addAIPositionPerformance(fact *neural.ShadowPositionFact, position financial.Position) {
@@ -974,6 +1065,23 @@ func findAIMarket(markets []neural.ShadowMarketFact, symbol string) (neural.Shad
 	}
 	return neural.ShadowMarketFact{}, false
 }
+
+func aiExecutionPrice(market neural.ShadowMarketFact, side string) (string, string, bool) {
+	type candidate struct{ value, basis string }
+	prices := []candidate{{market.Ask, "ASK"}, {market.Mark, "MARK_FALLBACK"}, {market.Last, "LAST_FALLBACK"}}
+	if side == "SELL" {
+		prices = []candidate{{market.Bid, "BID"}, {market.Mark, "MARK_FALLBACK"}, {market.Last, "LAST_FALLBACK"}}
+	} else if side != "BUY" {
+		return "", "", false
+	}
+	for _, price := range prices {
+		value, ok := new(big.Rat).SetString(price.value)
+		if ok && value.Sign() > 0 {
+			return price.value, price.basis, true
+		}
+	}
+	return "", "", false
+}
 func oldestAIMarketTimestamp(markets []neural.ShadowMarketFact) time.Time {
 	var result time.Time
 	for _, market := range markets {
@@ -1026,7 +1134,7 @@ func validAIRecentDecision(decision neural.ShadowRecentDecision) bool {
 	if decision.Decision == "ABSTAIN" {
 		return decision.Symbol == "NONE" && decision.Side == "NONE" && decision.Disposition == "ABSTAINED"
 	}
-	if decision.Decision != "PROPOSE" || (decision.Side != "BUY" && decision.Side != "SELL") || (decision.Disposition != "WOULD_HAVE_SUBMITTED" && decision.Disposition != "HELD_BY_CONTROLS") || len(decision.Symbol) == 0 || len(decision.Symbol) > 16 {
+	if decision.Decision != "PROPOSE" || (decision.Side != "BUY" && decision.Side != "SELL") || (decision.Disposition != "WOULD_HAVE_SUBMITTED" && decision.Disposition != "SIMULATED_FILLED" && decision.Disposition != "SIMULATED_REJECTED" && decision.Disposition != "HELD_BY_CONTROLS") || len(decision.Symbol) == 0 || len(decision.Symbol) > 16 {
 		return false
 	}
 	for index, value := range []byte(decision.Symbol) {

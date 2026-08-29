@@ -28,7 +28,7 @@ func NewEngine() *Engine {
 }
 
 func reconciliationRule(c *EvaluationContext, action ProposedAction) RiskCheck {
-	if action.Source != SourceAI || c.Mandate == nil || c.Mandate.AutomationType != "AI_AUTONOMOUS" {
+	if action.Source != SourceAI || c.Mandate == nil || c.Mandate.AutomationType != "AI_AUTONOMOUS" || c.Mandate.ExecutionMode != "SHADOW" {
 		return check(ReconciliationRequired, true, "The autonomous reconciliation gate does not apply.")
 	}
 	snapshot := c.Reconciliation
@@ -51,8 +51,8 @@ func reconciliationRule(c *EvaluationContext, action ProposedAction) RiskCheck {
 }
 
 func repeatActionRule(c *EvaluationContext, action ProposedAction) RiskCheck {
-	if action.Source != SourceAI || c.Mandate == nil || c.Mandate.AutomationType != "AI_AUTONOMOUS" || c.Mandate.ExecutionMode != "SHADOW" {
-		return check(RepeatActionCooldownActive, true, "The autonomous SHADOW repeat-action guard does not apply.")
+	if action.Source != SourceAI || c.Mandate == nil || c.Mandate.AutomationType != "AI_AUTONOMOUS" || (c.Mandate.ExecutionMode != "PAPER" && c.Mandate.ExecutionMode != "SHADOW") {
+		return check(RepeatActionCooldownActive, true, "The autonomous non-live repeat-action guard does not apply.")
 	}
 	if c.Activity == nil || !c.Activity.Timestamp.Equal(c.Now) {
 		return check(ActivityDataUnavailable, false, "Current autonomous action history is unavailable.")
@@ -62,10 +62,10 @@ func repeatActionRule(c *EvaluationContext, action ProposedAction) RiskCheck {
 			return check(ActivityDataUnavailable, false, "Autonomous action history is invalid.")
 		}
 		if strings.EqualFold(recent.Instrument, action.Instrument) && recent.Side == action.Side && c.Now.Sub(recent.OccurredAt) < AIRepeatActionCooldown {
-			return check(RepeatActionCooldownActive, false, "An identical autonomous SHADOW action is still inside the one-hour cooldown.")
+			return check(RepeatActionCooldownActive, false, "An identical autonomous non-live action is still inside the one-hour cooldown.")
 		}
 	}
-	return check(RepeatActionCooldownActive, true, "No identical autonomous SHADOW action is inside the one-hour cooldown.")
+	return check(RepeatActionCooldownActive, true, "No identical autonomous non-live action is inside the one-hour cooldown.")
 }
 func check(code ReasonCode, ok bool, message string) RiskCheck {
 	r := Pass
@@ -98,10 +98,14 @@ func (e *Engine) Evaluate(c EvaluationContext, a ProposedAction) RiskEvaluation 
 	rules := e.rules
 	if a.Source == SourceAI && c.Mandate != nil && c.Mandate.AutomationType == "AI_AUTONOMOUS" {
 		rules = make([]Rule, 0, len(e.rules)+2)
-		rules = append(rules, e.rules[:6]...)
-		rules = append(rules, rule{ReconciliationRequired, reconciliationRule})
-		rules = append(rules, e.rules[6:]...)
 		if c.Mandate.ExecutionMode == "SHADOW" {
+			rules = append(rules, e.rules[:6]...)
+			rules = append(rules, rule{ReconciliationRequired, reconciliationRule})
+			rules = append(rules, e.rules[6:]...)
+		} else {
+			rules = append(rules, e.rules...)
+		}
+		if c.Mandate.ExecutionMode == "PAPER" || c.Mandate.ExecutionMode == "SHADOW" {
 			rules = append(rules, rule{RepeatActionCooldownActive, repeatActionRule})
 		}
 	}
@@ -447,12 +451,15 @@ func positionRule(c *EvaluationContext, a ProposedAction) RiskCheck {
 	}
 	if x := c.Mandate.MaxSinglePositionPercentage; x != nil {
 		total := rat(c.Account.CurrentExposure)
-		if total == nil || total.Sign() <= 0 {
+		if total == nil || total.Sign() < 0 {
 			return check(PositionLimitExceeded, false, "Exposure required for concentration is unavailable.")
 		}
 		projected := total
 		if a.ActionType == ActionBuy || a.ActionType == ActionOpenOption {
 			projected = add(total, n)
+		}
+		if projected.Sign() <= 0 {
+			return check(PositionLimitExceeded, false, "Projected exposure required for concentration is unavailable.")
 		}
 		pct := new(big.Rat).Quo(new(big.Rat).Mul(next, big.NewRat(100, 1)), projected)
 		if cmp(pct, rat(*x)) > 0 {

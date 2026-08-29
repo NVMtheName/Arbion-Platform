@@ -9,6 +9,7 @@ export type PlatformOperationsOverview = {
   generated_at: string;
   operational_status: "NOMINAL" | "ATTENTION" | "STOPPED";
   active_ai_shadow_instances: number;
+  active_ai_paper_instances: number;
   unhealthy_ai_schedules: number;
   unhealthy_ai_reconciliations: number;
   unavailable_financial_connections: number;
@@ -18,6 +19,8 @@ export type PlatformOperationsOverview = {
     live_mandates: number;
     non_shadow_ai_instances: number;
     non_shadow_ai_executions: number;
+    unsafe_ai_instances: number;
+    unsafe_ai_executions: number;
     executable_risk_evaluations: number;
     non_executing_ai_proposals: number;
     reviewed_non_executing_proposals: number;
@@ -38,7 +41,7 @@ export function PlatformOperationsReadiness({
       aria-label="Production operations"
     >
       <p className="eyebrow">PRODUCTION OPERATIONS</p>
-      <h2>Shadow control plane</h2>
+      <h2>Non-live control plane</h2>
       <p
         className={
           "status-badge platform-operations-status status-" +
@@ -56,6 +59,10 @@ export function PlatformOperationsReadiness({
         <div>
           <dt>Active AI Shadow engines</dt>
           <dd>{operations.active_ai_shadow_instances}</dd>
+        </div>
+        <div>
+          <dt>Active AI Paper engines</dt>
+          <dd>{operations.active_ai_paper_instances}</dd>
         </div>
         <div>
           <dt>Schedule issues</dt>

@@ -240,7 +240,7 @@ export function assessStrategyInitialization(
   const aiConfigurationReady =
     input.automationType === "AI_AUTONOMOUS" &&
     input.autonomyLevel === "FULL_AUTONOMOUS" &&
-    input.executionMode === "SHADOW" &&
+    (input.executionMode === "PAPER" || input.executionMode === "SHADOW") &&
     Boolean(modelProviders[input.modelID]);
   const configurationReady = deterministicReady || aiConfigurationReady;
   checks.push(
@@ -251,7 +251,7 @@ export function assessStrategyInitialization(
       true,
       configurationReady
         ? `${input.automationType === "AI_AUTONOMOUS" ? "AI autonomous" : input.strategyIdentifier} · ${input.autonomyLevel} · ${input.executionMode}.`
-        : "Only implemented deterministic PAPER/SHADOW strategies or FULL_AUTONOMOUS AI SHADOW can initialize.",
+        : "Only implemented deterministic PAPER/SHADOW strategies or FULL_AUTONOMOUS AI PAPER/SHADOW can initialize.",
     ),
   );
 
@@ -487,7 +487,10 @@ export function assessStrategyInitialization(
     ),
   );
 
-  if (input.automationType === "AI_AUTONOMOUS") {
+  if (
+    input.automationType === "AI_AUTONOMOUS" &&
+    input.executionMode === "SHADOW"
+  ) {
     const reconciliationReady =
       Boolean(input.reconciliation) &&
       text(input.reconciliation, "comparison_status", "ComparisonStatus") ===
@@ -529,7 +532,9 @@ export function assessStrategyInitialization(
         "Broker reconciliation",
         "NOT_APPLICABLE",
         false,
-        "The deterministic non-live adapter applies its own provider and risk checks at evaluation time.",
+        input.automationType === "AI_AUTONOMOUS"
+          ? "AI Paper uses only its isolated simulated portfolio for cash and positions; broker reconciliation does not apply."
+          : "The deterministic non-live adapter applies its own provider and risk checks at evaluation time.",
       ),
     );
   }

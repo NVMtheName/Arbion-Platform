@@ -369,6 +369,24 @@ func TestAIShadowInitializationCreatesMonitoringStateWithoutPaperCash(t *testing
 	}
 }
 
+func TestAIPaperInitializationCreatesIsolatedCashAndMonitoringState(t *testing.T) {
+	connection, model := "ai", "gpt-5.6-sol"
+	mandates := &instanceMandatesFake{
+		mandate: automation.Mandate{ID: "ai-paper-mandate", UserID: "owner", FinancialAccountID: "account", CapitalBucketID: "bucket", AutomationType: "AI_AUTONOMOUS", AIProviderConnectionID: &connection, AIModelID: &model, Status: "READY", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "PAPER", StrategyParameters: []byte(`{"objective":"Preserve simulated capital.","max_proposal_notional":"100"}`)},
+		bucket:  automation.CapitalBucket{ID: "bucket", UserID: "owner", FinancialAccountID: "account", AllocationType: "FIXED_AMOUNT", AllocationValue: "1000", Currency: "USD", ProtectedAmount: "100", Status: "ACTIVE"},
+	}
+	store := &journalPersistenceFake{}
+	service := NewInstanceService(store, mandates)
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+	instance, err := service.Initialize(context.Background(), principal, "ai-paper-mandate", "900.0000000000")
+	if err != nil || instance.CurrentState != AIMonitoring || store.initializedCash != "900.0000000000" {
+		t.Fatalf("AI Paper initialization was not isolated: instance=%#v cash=%q err=%v", instance, store.initializedCash, err)
+	}
+	if _, err = service.Initialize(context.Background(), principal, "ai-paper-mandate", "900.0000000001"); !errors.Is(err, ErrCapitalLimit) {
+		t.Fatalf("AI Paper starting cash exceeded protected bucket capacity: %v", err)
+	}
+}
+
 func TestCapitalReservationIsOwnerScopedAndDurable(t *testing.T) {
 	amount := "1000.0000000000"
 	store := &journalPersistenceFake{

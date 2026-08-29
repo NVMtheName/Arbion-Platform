@@ -21,8 +21,13 @@ function providerLabel(provider: string) {
   return humanize(provider) || "Connected account";
 }
 
-function strategyLabel(automationType: string, strategyIdentifier: string) {
-  if (automationType === "AI_AUTONOMOUS") return "AI Shadow Engine";
+function strategyLabel(
+  automationType: string,
+  strategyIdentifier: string,
+  executionMode: string,
+) {
+  if (automationType === "AI_AUTONOMOUS")
+    return executionMode === "PAPER" ? "AI Paper Engine" : "AI Shadow Engine";
   return humanize(strategyIdentifier) || "Configured strategy";
 }
 
@@ -119,7 +124,9 @@ export function MandateIdentitySummary({
         </article>
         <article>
           <strong>Engine</strong>
-          <span>{strategyLabel(automationType, strategyIdentifier)}</span>
+          <span>
+            {strategyLabel(automationType, strategyIdentifier, executionMode)}
+          </span>
           <small>One immutable mandate version at a time</small>
         </article>
         <article>
@@ -144,12 +151,16 @@ export function MandateIdentitySummary({
           <span>
             {executionMode === "SHADOW"
               ? "Shadow only"
-              : humanize(executionMode)}
+              : executionMode === "PAPER"
+                ? "Paper simulation"
+                : humanize(executionMode)}
           </span>
           <small>
             {executionMode === "SHADOW"
               ? "No broker order can be sent"
-              : "Uses the configured non-live adapter"}
+              : executionMode === "PAPER"
+                ? "Isolated simulated ledger; no broker order"
+                : "Uses the configured non-live adapter"}
           </small>
         </article>
         <article>

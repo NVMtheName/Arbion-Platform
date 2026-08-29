@@ -120,6 +120,40 @@ describe("StrategyScheduleControls", () => {
     expect(screen.getByText(/never acknowledge a change/i)).toBeInTheDocument();
   });
 
+  it("saves an AI Paper cadence without offering broker drift review", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <StrategyScheduleControls
+        {...base}
+        automationType="AI_AUTONOMOUS"
+        autonomyLevel="FULL_AUTONOMOUS"
+        financialProvider="coinbase"
+      />,
+    );
+
+    expect(
+      screen.queryByLabelText(/tradable-inventory change needs review/i),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/enable guarded/i));
+    fireEvent.click(screen.getByRole("button", { name: /save schedule/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      expected_version: 4,
+      schedule_conditions: {
+        enabled: true,
+        interval_minutes: 60,
+        session: "CONTINUOUS",
+        notifications: {
+          evaluation_completed: false,
+          lifecycle_required: false,
+          first_failure: false,
+        },
+      },
+    });
+  });
+
   it("keeps scheduling unavailable outside the guarded mandate boundary", () => {
     render(
       <StrategyScheduleControls

@@ -223,6 +223,26 @@ func TestAIShadowReadyMandateBindsProviderSessionAndBoundedParameters(t *testing
 	}
 }
 
+func TestAIPaperReadyMandateUsesTheSameBoundedProviderScheduleWithoutReconciliationAlerts(t *testing.T) {
+	connection, model := "ai", "gpt-5.6-sol"
+	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "PAPER", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve simulated capital.","max_proposal_notional":"100"}`), Risk: RiskPolicy{MaxTradesPerDay: intPointer(6)}, AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":true,"interval_minutes":60,"session":"CONTINUOUS"}`)}
+	store := baseStore()
+	store.account.Provider = "coinbase"
+	service := NewService(store, nil)
+	if _, err := service.validate(context.Background(), founder, command, true); err != nil {
+		t.Fatalf("valid Coinbase AI Paper mandate rejected: %v", err)
+	}
+	command.ScheduleConditions = []byte(`{"enabled":true,"interval_minutes":60,"session":"CONTINUOUS","notifications":{"reconciliation_review_required":true}}`)
+	if _, err := service.validate(context.Background(), founder, command, true); err != ErrInvalid {
+		t.Fatalf("Paper mandate accepted a broker-reconciliation alert: %v", err)
+	}
+	command.ExecutionMode = "LIVE"
+	command.ScheduleConditions = []byte(`{"enabled":false}`)
+	if _, err := service.validate(context.Background(), founder, command, true); err != ErrInvalid {
+		t.Fatalf("AI live mandate was accepted: %v", err)
+	}
+}
+
 func TestAIShadowReadyMandateAcceptsOnlyMatchingClaudeProviderAndModel(t *testing.T) {
 	connection, model := "ai", "claude-sonnet-5"
 	command := MandateCommand{FinancialAccountID: "a", AutomationType: "AI_AUTONOMOUS", CapitalBucketID: "b", AutonomyLevel: "FULL_AUTONOMOUS", ExecutionMode: "SHADOW", AIProviderConnectionID: &connection, AIModelID: &model, StrategyParameters: []byte(`{"objective":"Preserve capital.","max_proposal_notional":"1"}`), Risk: RiskPolicy{MaxTradesPerDay: intPointer(6)}, AllowedUniverse: Universe{Symbols: []string{"BTC"}}, ScheduleConditions: []byte(`{"enabled":false}`)}
@@ -574,8 +594,14 @@ func TestAIShadowParameterUpdateCreatesValidatedDraft(t *testing.T) {
 	if f.updatedCommand.ExecutionMode != "SHADOW" || f.updatedCommand.AutonomyLevel != "FULL_AUTONOMOUS" {
 		t.Fatalf("AI Shadow boundary changed: %#v", f.updatedCommand)
 	}
+	f.created.ExecutionMode = "PAPER"
+	f.created.CurrentVersion = 5
+	updated, err = service.UpdateAIShadowParameters(context.Background(), founder, "m", 5, AIShadowParameters{Objective: "Preserve simulated capital.", MaxProposalNotional: "500"})
+	if err != nil || updated.Status != "DRAFT" || f.updatedCommand.ExecutionMode != "PAPER" {
+		t.Fatalf("AI Paper controls did not preserve the non-live boundary: %#v %v", updated, err)
+	}
 
-	if _, err = service.UpdateAIShadowParameters(context.Background(), founder, "m", 5, AIShadowParameters{Objective: "Preserve capital.", MaxProposalNotional: "0"}); err != ErrInvalid {
+	if _, err = service.UpdateAIShadowParameters(context.Background(), founder, "m", 6, AIShadowParameters{Objective: "Preserve capital.", MaxProposalNotional: "0"}); err != ErrInvalid {
 		t.Fatalf("zero proposal ceiling was accepted: %v", err)
 	}
 	f.created.AutomationType = "STRATEGY"

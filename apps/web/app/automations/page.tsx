@@ -3,7 +3,10 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../app-page-header";
-import { capitalReservationMatchesPolicy } from "./capital-authority";
+import {
+  capitalReservationMatchesPolicy,
+  paperCapitalReservationMatchesPolicy,
+} from "./capital-authority";
 import { asList } from "./response";
 import {
   projectPinnedAIRuntime,
@@ -76,8 +79,11 @@ function exactCapitalCurrency(value: string | undefined) {
 }
 
 function strategyTitle(mandate: RecordValue) {
-  if (text(mandate, "automation_type", "AutomationType") === "AI_AUTONOMOUS")
-    return "AI Shadow Engine";
+  if (text(mandate, "automation_type", "AutomationType") === "AI_AUTONOMOUS") {
+    return text(mandate, "execution_mode", "ExecutionMode") === "PAPER"
+      ? "AI Paper Engine"
+      : "AI Shadow Engine";
+  }
   const identifier = text(mandate, "strategy_identifier", "StrategyIdentifier");
   if (!identifier) return "Trading strategy";
   return identifier
@@ -150,6 +156,10 @@ async function fleetItem(
   const instanceStatus = text(instance, "status", "Status");
   const instanceIsAIRuntime =
     text(instance, "strategy_identifier", "StrategyIdentifier") === "ai_shadow";
+  const runtimeExecutionMode =
+    (instanceIsAIRuntime
+      ? text(instance, "execution_mode", "ExecutionMode")
+      : text(mandate, "execution_mode", "ExecutionMode")) ?? "UNKNOWN";
   const expectsPinnedRuntime =
     Boolean(instanceID) &&
     ["ACTIVE", "PAUSED", "ERROR"].includes(instanceStatus ?? "") &&
@@ -236,12 +246,16 @@ async function fleetItem(
   );
   const expectsSchedule =
     Boolean(instanceID) && ["ACTIVE", "PAUSED"].includes(instanceStatus ?? "");
-  const expectsEvidence =
+  const expectsDecisionEvidence =
     Boolean(instanceID) &&
     (instanceIsAIRuntime || mutableAutomationType === "AI_AUTONOMOUS");
+  const expectsShadowEvidence =
+    expectsDecisionEvidence && runtimeExecutionMode === "SHADOW";
   const expectsOperationalData =
     instanceStatus === "ACTIVE" &&
     (instanceIsAIRuntime || mutableAutomationType === "AI_AUTONOMOUS");
+  const expectsReconciliation =
+    expectsOperationalData && runtimeExecutionMode === "SHADOW";
   const expectsCapitalData =
     Boolean(instanceID) &&
     ["ACTIVE", "PAUSED"].includes(instanceStatus ?? "") &&
@@ -267,20 +281,31 @@ async function fleetItem(
       accountID &&
     text(capitalReservation, "capital_bucket_id", "CapitalBucketID") ===
       capitalBucketID &&
-    text(instance, "execution_mode", "ExecutionMode") === "SHADOW" &&
-    text(capitalReservation, "execution_mode", "ExecutionMode") === "SHADOW" &&
+    (runtimeExecutionMode === "PAPER" || runtimeExecutionMode === "SHADOW") &&
+    text(capitalReservation, "execution_mode", "ExecutionMode") ===
+      runtimeExecutionMode &&
     text(capitalReservation, "status", "Status") === "ACTIVE" &&
     exactCapitalCurrency(capitalCurrency) &&
     capitalReservationCurrency === capitalCurrency &&
-    capitalReservationMatchesPolicy({
-      allocationType: capitalAllocationType,
-      allocationValue: capitalAllocationValue,
-      protectedAmount: capitalProtectedAmount,
-      allocationLimit: capitalAllocationLimit,
-      reservationAmount: capitalReservationAmount,
-      reservationBasis: capitalReservationBasis,
-      reservationAccountLimit: capitalReservationAccountLimit,
-    });
+    (runtimeExecutionMode === "PAPER"
+      ? paperCapitalReservationMatchesPolicy({
+          allocationType: capitalAllocationType,
+          allocationValue: capitalAllocationValue,
+          protectedAmount: capitalProtectedAmount,
+          allocationLimit: capitalAllocationLimit,
+          reservationAmount: capitalReservationAmount,
+          reservationBasis: capitalReservationBasis,
+          reservationAccountLimit: capitalReservationAccountLimit,
+        })
+      : capitalReservationMatchesPolicy({
+          allocationType: capitalAllocationType,
+          allocationValue: capitalAllocationValue,
+          protectedAmount: capitalProtectedAmount,
+          allocationLimit: capitalAllocationLimit,
+          reservationAmount: capitalReservationAmount,
+          reservationBasis: capitalReservationBasis,
+          reservationAccountLimit: capitalReservationAccountLimit,
+        }));
   const [
     versionResult,
     scheduleResult,
@@ -302,19 +327,19 @@ async function fleetItem(
           headers,
         )
       : Promise.resolve({ available: true as const, payload: undefined }),
-    expectsEvidence
+    expectsShadowEvidence
       ? fetchOptional<{ scorecard?: RecordValue }>(
           `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/shadow-scorecard`,
           headers,
         )
       : Promise.resolve({ available: true as const, payload: undefined }),
-    expectsEvidence
+    expectsDecisionEvidence
       ? fetchOptional<DecisionWindow>(
           `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/decisions?limit=10`,
           headers,
         )
       : Promise.resolve({ available: true as const, payload: undefined }),
-    expectsOperationalData && accountID
+    expectsReconciliation && accountID
       ? fetchOptional<ReconciliationEnvelope>(
           `${base}/api/accounts/${encodeURIComponent(accountID)}/reconciliations/latest`,
           headers,
@@ -360,9 +385,9 @@ async function fleetItem(
     | RecordValue
     | undefined;
   const evidenceAvailable =
-    expectsEvidence && scorecardResult.available && Boolean(evidenceGate);
+    expectsShadowEvidence && scorecardResult.available && Boolean(evidenceGate);
   const decisionAvailable =
-    expectsEvidence &&
+    expectsDecisionEvidence &&
     decisionResult.available &&
     decisionResult.payload?.decision_history_semantics ===
       "IMMUTABLE_OWNER_STRATEGY_DECISION_HISTORY" &&
@@ -384,7 +409,7 @@ async function fleetItem(
     "ObservedAt",
   );
   const reconciliationAvailable =
-    expectsOperationalData &&
+    expectsReconciliation &&
     reconciliationResult.available &&
     reconciliationResult.payload?.live_execution_available === false &&
     Boolean(reconciliation);
@@ -478,7 +503,7 @@ async function fleetItem(
       !expectsPinnedRuntime || runtimeScheduleBindingValid
         ? text(schedule, "next_run_at", "NextRunAt")
         : undefined,
-    evidenceAvailable: expectsEvidence ? evidenceAvailable : undefined,
+    evidenceAvailable: expectsShadowEvidence ? evidenceAvailable : undefined,
     evidenceStatus: text(evidenceGate, "status", "Status"),
     oneHourSampleSize: number(
       evidenceGate,
@@ -518,7 +543,7 @@ async function fleetItem(
       "current_evidence_reviewed",
       "CurrentEvidenceReviewed",
     ),
-    decisionAvailable: expectsEvidence ? decisionAvailable : undefined,
+    decisionAvailable: expectsDecisionEvidence ? decisionAvailable : undefined,
     latestDecisionType: text(latestAIDecision, "decision_type", "DecisionType"),
     latestDecisionAt: text(latestAIDecision, "created_at", "CreatedAt"),
     latestDecisionSymbol:
@@ -563,7 +588,7 @@ async function fleetItem(
       "output_usage",
       "OutputUsage",
     ),
-    reconciliationAvailable: expectsOperationalData
+    reconciliationAvailable: expectsReconciliation
       ? reconciliationAvailable
       : undefined,
     reconciliationComparisonStatus: text(
@@ -602,7 +627,7 @@ async function fleetItem(
       "BlockingChangeCount",
     ),
     reconciliationObservedAt,
-    reconciliationFresh: expectsOperationalData
+    reconciliationFresh: expectsReconciliation
       ? reconciliationAvailable &&
         reconciliationFreshWithinTwentyFourHours(
           reconciliationObservedAt,
@@ -723,7 +748,7 @@ export default async function Automations() {
         </div>
         <div className="strategy-fleet-actions">
           <Link className="button-link" href="/automations/new">
-            Launch AI Shadow Engine
+            Launch AI Engine
           </Link>
           <div className="strategy-fleet-secondary-actions">
             <Link href="/capital">Capital budgets →</Link>

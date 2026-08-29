@@ -71,4 +71,28 @@ describe("mandate identity summary", () => {
     expect(screen.getByText("bucket-123")).toBeInTheDocument();
     expect(screen.getByText("instance-123")).toBeInTheDocument();
   });
+
+  it("labels AI Paper as an isolated simulation instead of Shadow", () => {
+    render(
+      <MandateIdentitySummary
+        mandateId="mandate-paper"
+        automationType="AI_AUTONOMOUS"
+        financialAccountId="account-paper"
+        capitalBucketId="bucket-paper"
+        strategyIdentifier=""
+        aiModelId="gpt-5.6-sol"
+        autonomyLevel="FULL_AUTONOMOUS"
+        executionMode="PAPER"
+        status="READY"
+        currentVersion={1}
+      />,
+    );
+
+    expect(screen.getByText("AI Paper Engine")).toBeInTheDocument();
+    expect(screen.getByText("Paper simulation")).toBeInTheDocument();
+    expect(
+      screen.getByText("Isolated simulated ledger; no broker order"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("AI Shadow Engine")).not.toBeInTheDocument();
+  });
 });

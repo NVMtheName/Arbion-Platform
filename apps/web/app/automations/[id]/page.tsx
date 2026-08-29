@@ -284,6 +284,7 @@ export default async function MandateReview({
     Boolean(m[key] ?? m[legacy] ?? false);
   const count = (value: unknown) => (Array.isArray(value) ? value.length : 0);
   const automationType = read("automation_type", "AutomationType");
+  const executionMode = read("execution_mode", "ExecutionMode");
   const financialAccount = accounts.find(
     (item) => String(item.id ?? item.ID ?? "") === financialAccountID,
   );
@@ -383,7 +384,7 @@ export default async function MandateReview({
       <p className="eyebrow">AUTOMATION MANDATE REVIEW</p>
       <h1>
         {automationType === "AI_AUTONOMOUS"
-          ? "AI Shadow Engine"
+          ? `AI ${executionMode === "PAPER" ? "Paper" : "Shadow"} Engine`
           : automationType}
       </h1>
       <MandateIdentitySummary
@@ -407,7 +408,7 @@ export default async function MandateReview({
         simulation, but never SHADOW, LIVE, or broker execution.
       </p>
       <AutomationNextActionPanel action={nextAction} />
-      {automationType === "AI_AUTONOMOUS" && (
+      {automationType === "AI_AUTONOMOUS" && executionMode === "SHADOW" && (
         <AutonomyReadinessControlPlane
           provider={financialProvider}
           modelID={read("ai_model_id", "AIModelID")}
@@ -429,7 +430,7 @@ export default async function MandateReview({
           observedAt={observedAt}
         />
       )}
-      {automationType === "AI_AUTONOMOUS" && (
+      {automationType === "AI_AUTONOMOUS" && executionMode === "SHADOW" && (
         <AutonomyEvidenceReport
           generatedAt={observedAt}
           mandateId={id}
@@ -457,24 +458,26 @@ export default async function MandateReview({
           breakerObserved={breakerResponse.ok}
         />
       )}
-      {automationType === "AI_AUTONOMOUS" && instanceID && (
-        <ShadowEvidenceReviewControls
-          strategyInstanceId={instanceID}
-          scorecard={scorecard}
-          initialReviews={
-            Array.isArray(shadowEvidenceReviewsResponse.evidence_reviews)
-              ? (shadowEvidenceReviewsResponse.evidence_reviews as ShadowEvidenceReviewRecord[])
-              : []
-          }
-          initialCursor={String(
-            shadowEvidenceReviewsResponse.next_cursor ?? "",
-          )}
-          historyAvailable={
-            shadowEvidenceReviewsResponse.history_semantics ===
-            "IMMUTABLE_NONLIVE_OWNER_REVIEW_EVIDENCE"
-          }
-        />
-      )}
+      {automationType === "AI_AUTONOMOUS" &&
+        executionMode === "SHADOW" &&
+        instanceID && (
+          <ShadowEvidenceReviewControls
+            strategyInstanceId={instanceID}
+            scorecard={scorecard}
+            initialReviews={
+              Array.isArray(shadowEvidenceReviewsResponse.evidence_reviews)
+                ? (shadowEvidenceReviewsResponse.evidence_reviews as ShadowEvidenceReviewRecord[])
+                : []
+            }
+            initialCursor={String(
+              shadowEvidenceReviewsResponse.next_cursor ?? "",
+            )}
+            historyAvailable={
+              shadowEvidenceReviewsResponse.history_semantics ===
+              "IMMUTABLE_NONLIVE_OWNER_REVIEW_EVIDENCE"
+            }
+          />
+        )}
       <AutomationCircuitBreakerControls automationId={id} breaker={breaker} />
       {capitalBucket && (
         <CapitalBucketAllocationControls
@@ -655,6 +658,7 @@ export default async function MandateReview({
             currentVersion={currentVersion}
             status={read("status", "Status")}
             hasActiveInstance={hasActiveInstance}
+            executionMode={executionMode}
             parameters={
               (m.strategy_parameters ??
                 m.StrategyParameters ??
@@ -663,6 +667,7 @@ export default async function MandateReview({
           />
           <AIShadowEvaluationControls
             status={read("status", "Status")}
+            executionMode={executionMode}
             instanceId={instanceID}
             instanceStatus={String(instance?.Status ?? instance?.status ?? "")}
             parameters={
@@ -716,29 +721,34 @@ export default async function MandateReview({
                   instance.StateVersion ?? instance.state_version ?? 0,
                 )}
               />
-              <AIShadowScorecard
-                scorecard={
-                  scorecardResponse.scorecard as
-                    | Record<string, unknown>
-                    | undefined
-                }
-              />
-              <StrategySimulationWorkbench
-                automationId={id}
-                versions={mandateVersions}
-                currentVersion={currentVersion}
-                capitalBucket={capitalBucket}
-                status={read("status", "Status")}
-                hasActiveInstance={hasActiveInstance}
-                decisions={
-                  Array.isArray(decisions.decisions)
-                    ? (decisions.decisions as Record<string, unknown>[])
-                    : []
-                }
-              />
+              {executionMode === "SHADOW" && (
+                <AIShadowScorecard
+                  scorecard={
+                    scorecardResponse.scorecard as
+                      | Record<string, unknown>
+                      | undefined
+                  }
+                />
+              )}
+              {executionMode === "SHADOW" && (
+                <StrategySimulationWorkbench
+                  automationId={id}
+                  versions={mandateVersions}
+                  currentVersion={currentVersion}
+                  capitalBucket={capitalBucket}
+                  status={read("status", "Status")}
+                  hasActiveInstance={hasActiveInstance}
+                  decisions={
+                    Array.isArray(decisions.decisions)
+                      ? (decisions.decisions as Record<string, unknown>[])
+                      : []
+                  }
+                />
+              )}
               <div id="decision-journal">
                 <AIShadowDecisionWorkspace
                   strategyInstanceId={instanceID}
+                  executionMode={executionMode}
                   initialDecisions={
                     Array.isArray(decisions.decisions)
                       ? (decisions.decisions as Record<string, unknown>[])
@@ -828,6 +838,13 @@ export default async function MandateReview({
         <p className="security-note">
           <strong>SHADOW — NO REAL ORDER WAS SENT.</strong> Decisions record
           only what Arbion would have attempted.
+        </p>
+      )}
+      {executionMode === "PAPER" && (
+        <p className="security-note">
+          <strong>PAPER — SIMULATION ONLY.</strong> Arbion can update only its
+          isolated simulated cash, positions, and immutable fill ledger. No real
+          broker order was sent.
         </p>
       )}
       {instance && (
