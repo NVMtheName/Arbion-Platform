@@ -86,7 +86,7 @@ func TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected(t *testing.T)
 		ID: "ai-paper:buy:1", CorrelationID: "scheduled:ai-paper:buy:1", FinancialAccountID: accountID,
 		Source: risk.SourceAI, ActionType: risk.ActionBuy, MandateID: &instance.AutomationMandateID,
 		MandateVersion: &instance.MandateVersion, Instrument: "BTC", Side: "BUY", Quantity: "1.0000000000",
-		Notional: "100.0000000000", EstimatedPrice: &price, StrategyInstanceID: &instance.ID,
+		Notional: "100", EstimatedPrice: &price, StrategyInstanceID: &instance.ID,
 		StrategyState: &state, CreatedAt: now,
 	}
 	evaluation := risk.RiskEvaluation{
