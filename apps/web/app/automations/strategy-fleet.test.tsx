@@ -5,6 +5,7 @@ import {
   projectStrategyFleetAccountIsolation,
   projectStrategyFleetDecisionEvidence,
   projectStrategyFleetIdentityIsolation,
+  projectStrategyFleetInputCoverageMatrix,
   projectStrategyFleetOperatingBrief,
   projectStrategyFleetProvenanceDigest,
   projectStrategyFleetScheduleRecovery,
@@ -118,6 +119,22 @@ const coinbaseEngine: StrategyFleetItem = {
   latestDecisionMarketFeeds: ["rest_ticker"],
   latestDecisionMarketQualities: ["REAL_TIME_SINGLE_VENUE"],
   latestDecisionMarketObservedAt: "2026-08-26T16:17:38Z",
+  latestDecisionInputCoverageComplete: true,
+  latestDecisionHistoryLiquidityEvidenceComplete: true,
+  latestDecisionHistoryStatuses: ["COMPLETE"],
+  latestDecisionHistoryFeeds: ["coinbase_candles"],
+  latestDecisionHistoryQualities: ["REAL_TIME_SINGLE_VENUE"],
+  latestDecisionLiquidityStatuses: ["AVAILABLE"],
+  latestDecisionPositionEvidenceComplete: true,
+  latestDecisionPositionCount: 2,
+  latestDecisionPositionPerformanceStatuses: ["UNAVAILABLE"],
+  latestDecisionMarketEventEvidenceComplete: true,
+  latestDecisionMarketEventCoverageCount: 0,
+  latestDecisionMarketEventCoverageStatuses: [],
+  latestDecisionMarketEventProviders: [],
+  latestDecisionMarketEventFeeds: [],
+  latestDecisionMarketEventQualities: [],
+  latestDecisionMarketEventCount: 0,
   priorDecisionID: "decision-abstain-prior",
   priorDecisionType: "ABSTAIN",
   priorDecisionAt: "2026-08-26T15:17:39Z",
@@ -424,6 +441,79 @@ describe("StrategyFleet", () => {
     );
   });
 
+  it("projects exact input coverage without inferring missing evidence", () => {
+    const schwabEngine: StrategyFleetItem = {
+      ...coinbaseEngine,
+      id: "schwab-shadow",
+      strategyInstanceID: "schwab-shadow-instance",
+      financialAccountID: "schwab-account",
+      capitalBucketID: "schwab-bucket",
+      capitalReservationID: "schwab-reservation",
+      accountName: "Schwab Brokerage ••••1000",
+      provider: "schwab",
+      latestDecisionFinancialProvider: "schwab",
+      latestDecisionHistoryStatuses: ["UNAVAILABLE"],
+      latestDecisionHistoryFeeds: [],
+      latestDecisionHistoryQualities: [],
+      latestDecisionLiquidityStatuses: ["UNAVAILABLE"],
+      latestDecisionPositionCount: 0,
+      latestDecisionPositionPerformanceStatuses: [],
+      latestDecisionMarketEventCoverageCount: 1,
+      latestDecisionMarketEventCoverageStatuses: ["AVAILABLE"],
+      latestDecisionMarketEventProviders: ["sec_edgar"],
+      latestDecisionMarketEventFeeds: ["company_tickers"],
+      latestDecisionMarketEventQualities: ["AGGREGATED_REFERENCE"],
+      latestDecisionMarketEventCount: 0,
+    };
+    const matrix = projectStrategyFleetInputCoverageMatrix([
+      coinbaseEngine,
+      schwabEngine,
+    ]);
+
+    expect(matrix).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        engineCount: 2,
+        attributableCount: 2,
+        availableCategoryCount: 5,
+        partialCategoryCount: 0,
+        unavailableCategoryCount: 4,
+      }),
+    );
+    expect(matrix.engines[0].categories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "POSITION", status: "UNAVAILABLE" }),
+        expect.objectContaining({ key: "EVENTS", status: "UNAVAILABLE" }),
+      ]),
+    );
+    expect(matrix.engines[1].categories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "POSITION",
+          status: "NOT_APPLICABLE",
+        }),
+        expect.objectContaining({
+          key: "EVENTS",
+          status: "AVAILABLE",
+          evidence: expect.stringContaining("0 saved events"),
+        }),
+      ]),
+    );
+  });
+
+  it("fails the input coverage matrix closed when attribution is incomplete", () => {
+    const matrix = projectStrategyFleetInputCoverageMatrix([
+      {
+        ...coinbaseEngine,
+        latestDecisionInputCoverageComplete: false,
+      },
+    ]);
+
+    expect(matrix).toEqual(
+      expect.objectContaining({ status: "UNAVAILABLE", attributableCount: 0 }),
+    );
+  });
+
   it("proves complete immutable trails for abstentions and linked non-live outcomes", () => {
     const paperFill: StrategyFleetItem = {
       ...coinbaseEngine,
@@ -653,6 +743,24 @@ describe("StrategyFleet", () => {
     expect(
       within(provenanceDigest).getByRole("link", {
         name: /Compare immutable records/i,
+      }),
+    ).toHaveAttribute("href", "/activity");
+    const inputMatrix = screen.getByRole("region", {
+      name: "Every current engine input is exactly attributable.",
+    });
+    expect(inputMatrix).toHaveTextContent("AI INPUT COVERAGE");
+    expect(inputMatrix).toHaveTextContent("Financial input providerCoinbase");
+    expect(inputMatrix).toHaveTextContent("Market priceAvailable");
+    expect(inputMatrix).toHaveTextContent("Price historyAvailable");
+    expect(inputMatrix).toHaveTextContent("LiquidityAvailable");
+    expect(inputMatrix).toHaveTextContent("Position performanceUnavailable");
+    expect(inputMatrix).toHaveTextContent("Market eventsUnavailable");
+    expect(inputMatrix).toHaveTextContent(
+      "it does not prove why the model chose its conclusion",
+    );
+    expect(
+      within(inputMatrix).getByRole("link", {
+        name: /Open immutable evidence/i,
       }),
     ).toHaveAttribute("href", "/activity");
     expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(2);

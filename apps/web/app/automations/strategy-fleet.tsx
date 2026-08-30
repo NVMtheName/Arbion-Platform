@@ -96,6 +96,22 @@ export type StrategyFleetItem = {
   latestDecisionMarketFeeds?: string[];
   latestDecisionMarketQualities?: string[];
   latestDecisionMarketObservedAt?: string;
+  latestDecisionInputCoverageComplete?: boolean;
+  latestDecisionHistoryLiquidityEvidenceComplete?: boolean;
+  latestDecisionHistoryStatuses?: string[];
+  latestDecisionHistoryFeeds?: string[];
+  latestDecisionHistoryQualities?: string[];
+  latestDecisionLiquidityStatuses?: string[];
+  latestDecisionPositionEvidenceComplete?: boolean;
+  latestDecisionPositionCount?: number;
+  latestDecisionPositionPerformanceStatuses?: string[];
+  latestDecisionMarketEventEvidenceComplete?: boolean;
+  latestDecisionMarketEventCoverageCount?: number;
+  latestDecisionMarketEventCoverageStatuses?: string[];
+  latestDecisionMarketEventProviders?: string[];
+  latestDecisionMarketEventFeeds?: string[];
+  latestDecisionMarketEventQualities?: string[];
+  latestDecisionMarketEventCount?: number;
   priorDecisionID?: string;
   priorDecisionType?: string;
   priorDecisionAt?: string;
@@ -311,6 +327,39 @@ export type StrategyFleetProvenanceDigest = {
     marketQualities: string[];
     marketObservedAt?: string;
     followUp: string;
+  }>;
+};
+
+export type StrategyFleetInputCoverageStatus =
+  | "AVAILABLE"
+  | "PARTIAL"
+  | "UNAVAILABLE"
+  | "NOT_APPLICABLE";
+
+export type StrategyFleetInputCoverageMatrix = {
+  status: "VERIFIED" | "UNAVAILABLE";
+  engineCount: number;
+  attributableCount: number;
+  availableCategoryCount: number;
+  partialCategoryCount: number;
+  unavailableCategoryCount: number;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    decisionID?: string;
+    decisionAt?: string;
+    attributable: boolean;
+    financialProvider?: string;
+    categories: Array<{
+      key: "MARKET_PRICE" | "HISTORY" | "LIQUIDITY" | "POSITION" | "EVENTS";
+      label: string;
+      status: StrategyFleetInputCoverageStatus;
+      evidence: string;
+      limitation?: string;
+    }>;
   }>;
 };
 
@@ -1634,6 +1683,196 @@ export function projectStrategyFleetProvenanceDigest(
   };
 }
 
+function inputCoverageStatus(
+  values: string[],
+): StrategyFleetInputCoverageStatus {
+  if (values.length === 0) return "UNAVAILABLE";
+  const normalized = values.map((value) => value.toUpperCase());
+  const available = normalized.filter((value) =>
+    ["AVAILABLE", "COMPLETE"].includes(value),
+  ).length;
+  const partial = normalized.filter((value) => value === "PARTIAL").length;
+  if (available === normalized.length) return "AVAILABLE";
+  if (available > 0 || partial > 0) return "PARTIAL";
+  return "UNAVAILABLE";
+}
+
+function inputCoverageEvidence(values: string[]) {
+  return values.length > 0 ? values.map(readable).join(" · ") : "Unavailable";
+}
+
+function inputCoverageLimitation(label: string) {
+  return `${label} limits the evidence available to this engine. It does not establish why the model reached its conclusion.`;
+}
+
+export function projectStrategyFleetInputCoverageMatrix(
+  items: StrategyFleetItem[],
+): StrategyFleetInputCoverageMatrix {
+  const active = items.filter(
+    (item) => isAI(item) && item.instanceStatus === "ACTIVE",
+  );
+  const engines = active.map((item) => {
+    const marketPriceStatus: StrategyFleetInputCoverageStatus =
+      item.latestDecisionFinancialContextComplete === true
+        ? "AVAILABLE"
+        : "UNAVAILABLE";
+    const historyStatuses = item.latestDecisionHistoryStatuses ?? [];
+    const historySources = [
+      ...(item.latestDecisionHistoryFeeds ?? []),
+      ...(item.latestDecisionHistoryQualities ?? []),
+    ];
+    const rawHistoryStatus = inputCoverageStatus(historyStatuses);
+    const historyStatus =
+      item.latestDecisionHistoryLiquidityEvidenceComplete !== true
+        ? ("UNAVAILABLE" as const)
+        : rawHistoryStatus === "AVAILABLE" && historySources.length === 0
+          ? ("UNAVAILABLE" as const)
+          : rawHistoryStatus;
+    const liquidityStatuses = item.latestDecisionLiquidityStatuses ?? [];
+    const liquidityStatus =
+      item.latestDecisionHistoryLiquidityEvidenceComplete === true
+        ? inputCoverageStatus(liquidityStatuses)
+        : ("UNAVAILABLE" as const);
+    const positionStatuses =
+      item.latestDecisionPositionPerformanceStatuses ?? [];
+    const positionStatus: StrategyFleetInputCoverageStatus =
+      item.latestDecisionPositionEvidenceComplete !== true
+        ? "UNAVAILABLE"
+        : item.latestDecisionPositionCount === 0
+          ? "NOT_APPLICABLE"
+          : inputCoverageStatus(positionStatuses);
+    const eventStatuses = item.latestDecisionMarketEventCoverageStatuses ?? [];
+    const eventSources = [
+      ...(item.latestDecisionMarketEventProviders ?? []),
+      ...(item.latestDecisionMarketEventFeeds ?? []),
+      ...(item.latestDecisionMarketEventQualities ?? []),
+    ];
+    const rawEventStatus = inputCoverageStatus(eventStatuses);
+    const eventStatus =
+      item.latestDecisionMarketEventEvidenceComplete !== true
+        ? ("UNAVAILABLE" as const)
+        : rawEventStatus === "AVAILABLE" && eventSources.length < 3
+          ? ("UNAVAILABLE" as const)
+          : rawEventStatus;
+    const marketSymbols = item.latestDecisionMarketSymbols ?? [];
+    const marketSource = [
+      ...(item.latestDecisionMarketFeeds ?? []),
+      ...(item.latestDecisionMarketQualities ?? []),
+    ];
+    const attributable = Boolean(
+      item.decisionAvailable === true &&
+        item.latestDecisionID &&
+        exactDecisionInstant(item.latestDecisionAt) &&
+        item.latestDecisionInputCoverageComplete === true &&
+        item.latestDecisionFinancialProvider === item.provider,
+    );
+    const categories: StrategyFleetInputCoverageMatrix["engines"][number]["categories"] =
+      [
+        {
+          key: "MARKET_PRICE",
+          label: "Market price",
+          status: marketPriceStatus,
+          evidence:
+            marketPriceStatus === "AVAILABLE"
+              ? `${provenanceExactList(marketSymbols)} · ${provenanceReadableList(marketSource)}`
+              : "Exact saved price provenance is unavailable.",
+          limitation:
+            marketPriceStatus === "AVAILABLE"
+              ? undefined
+              : inputCoverageLimitation("Missing current market prices"),
+        },
+        {
+          key: "HISTORY",
+          label: "Price history",
+          status: historyStatus,
+          evidence:
+            historyStatus === "UNAVAILABLE"
+              ? inputCoverageEvidence(historyStatuses)
+              : `${inputCoverageEvidence(historyStatuses)} · ${provenanceReadableList(historySources)}`,
+          limitation:
+            historyStatus === "AVAILABLE"
+              ? undefined
+              : inputCoverageLimitation("Incomplete saved price history"),
+        },
+        {
+          key: "LIQUIDITY",
+          label: "Liquidity",
+          status: liquidityStatus,
+          evidence: inputCoverageEvidence(liquidityStatuses),
+          limitation:
+            liquidityStatus === "AVAILABLE"
+              ? undefined
+              : inputCoverageLimitation("Incomplete saved liquidity context"),
+        },
+        {
+          key: "POSITION",
+          label: "Position performance",
+          status: positionStatus,
+          evidence:
+            positionStatus === "NOT_APPLICABLE"
+              ? "Exact saved position set is empty."
+              : `${item.latestDecisionPositionCount ?? 0} saved position${item.latestDecisionPositionCount === 1 ? "" : "s"} · ${inputCoverageEvidence(positionStatuses)}`,
+          limitation:
+            positionStatus === "AVAILABLE" ||
+            positionStatus === "NOT_APPLICABLE"
+              ? undefined
+              : inputCoverageLimitation(
+                  "Incomplete saved position-performance data",
+                ),
+        },
+        {
+          key: "EVENTS",
+          label: "Market events",
+          status: eventStatus,
+          evidence:
+            eventStatus === "AVAILABLE"
+              ? `${inputCoverageEvidence(eventStatuses)} · ${provenanceReadableList(eventSources)} · ${item.latestDecisionMarketEventCount ?? 0} saved events`
+              : item.latestDecisionMarketEventCoverageCount === 0
+                ? "No saved market-event coverage record."
+                : inputCoverageEvidence(eventStatuses),
+          limitation:
+            eventStatus === "AVAILABLE"
+              ? undefined
+              : inputCoverageLimitation("Missing saved market-event coverage"),
+        },
+      ];
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      decisionID: item.latestDecisionID,
+      decisionAt: item.latestDecisionAt,
+      attributable,
+      financialProvider: item.latestDecisionFinancialProvider,
+      categories,
+    };
+  });
+  const categories = engines.flatMap((engine) => engine.categories);
+  const attributableCount = engines.filter(
+    (engine) => engine.attributable,
+  ).length;
+  return {
+    status:
+      engines.length > 0 && attributableCount === engines.length
+        ? "VERIFIED"
+        : "UNAVAILABLE",
+    engineCount: engines.length,
+    attributableCount,
+    availableCategoryCount: categories.filter(
+      (category) => category.status === "AVAILABLE",
+    ).length,
+    partialCategoryCount: categories.filter(
+      (category) => category.status === "PARTIAL",
+    ).length,
+    unavailableCategoryCount: categories.filter(
+      (category) => category.status === "UNAVAILABLE",
+    ).length,
+    engines,
+  };
+}
+
 function healthClass(item: StrategyFleetItem) {
   if (needsReview(item)) return "needs-review";
   return item.instanceStatus === "ACTIVE" ? "healthy" : "neutral";
@@ -2084,6 +2323,127 @@ function StrategyFleetProvenanceDigestView({
       <footer>
         Owner-scoped saved evidence only · no model rerun · no provider refresh
         · no broker order
+      </footer>
+    </section>
+  );
+}
+
+function inputCoverageStatusLabel(status: StrategyFleetInputCoverageStatus) {
+  if (status === "NOT_APPLICABLE") return "Not applicable";
+  return readable(status);
+}
+
+function StrategyFleetInputCoverageMatrixView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const matrix = projectStrategyFleetInputCoverageMatrix(items);
+  if (matrix.engineCount === 0) return null;
+  const verified = matrix.status === "VERIFIED";
+  return (
+    <section
+      className={`strategy-fleet-input-matrix ${verified ? "is-verified" : "needs-review"}`}
+      aria-labelledby="strategy-fleet-input-matrix-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">AI INPUT COVERAGE</p>
+          <h2 id="strategy-fleet-input-matrix-heading">
+            {verified
+              ? "Every current engine input is exactly attributable."
+              : "A current engine input record is incomplete."}
+          </h2>
+          <p>
+            See what each Paper or Shadow engine actually had available when it
+            saved its newest decision. Missing evidence stays unavailable;
+            Arbion never fills a gap by inference.
+          </p>
+        </div>
+        <span>{verified ? "Exact saved inputs" : "Review evidence"}</span>
+      </header>
+      <dl className="strategy-fleet-input-matrix-summary">
+        <div>
+          <dt>Attributable engines</dt>
+          <dd>
+            {matrix.attributableCount} / {matrix.engineCount}
+          </dd>
+        </div>
+        <div>
+          <dt>Available categories</dt>
+          <dd>{matrix.availableCategoryCount}</dd>
+        </div>
+        <div>
+          <dt>Partial categories</dt>
+          <dd>{matrix.partialCategoryCount}</dd>
+        </div>
+        <div>
+          <dt>Unavailable categories</dt>
+          <dd>{matrix.unavailableCategoryCount}</dd>
+        </div>
+      </dl>
+      <ol className="strategy-fleet-input-matrix-list">
+        {matrix.engines.map((engine) => (
+          <li
+            className={engine.attributable ? "is-verified" : "needs-review"}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{engine.attributable ? "Attributed" : "Unavailable"}</span>
+            </header>
+            <div className="strategy-fleet-input-source">
+              <span>Financial input provider</span>
+              <strong>
+                {engine.financialProvider
+                  ? providerLabel(engine.financialProvider)
+                  : "Unavailable"}
+              </strong>
+              <time dateTime={engine.decisionAt}>
+                Decision saved {readableTime(engine.decisionAt)}
+              </time>
+            </div>
+            <dl>
+              {engine.categories.map((category) => (
+                <div
+                  className={`is-${category.status.toLowerCase().replaceAll("_", "-")}`}
+                  key={category.key}
+                >
+                  <dt>
+                    <span>{category.label}</span>
+                    <strong>{inputCoverageStatusLabel(category.status)}</strong>
+                  </dt>
+                  <dd>{category.evidence}</dd>
+                  {category.limitation && <small>{category.limitation}</small>}
+                </div>
+              ))}
+            </dl>
+            <footer>
+              <span>
+                An unavailable input limits evidence; it does not prove why the
+                model chose its conclusion.
+              </span>
+              <Link href="/activity">Open immutable evidence →</Link>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Read-only current decision evidence · no model rerun · no provider
+        refresh · no broker order · no live path
       </footer>
     </section>
   );
@@ -3295,6 +3655,10 @@ export function StrategyFleet({
 
       {inventoryAvailable && (
         <StrategyFleetProvenanceDigestView items={items} />
+      )}
+
+      {inventoryAvailable && (
+        <StrategyFleetInputCoverageMatrixView items={items} />
       )}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}
