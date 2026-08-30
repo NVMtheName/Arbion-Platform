@@ -437,6 +437,10 @@ export default async function MandateReview({
           paperPortfolio={paperPortfolio}
           automationBreaker={breaker as unknown as Record<string, unknown>}
           schedulerEnabled={Boolean(scheduleResponse.scheduler_enabled)}
+          decisions={paperDecisions}
+          allowedSymbols={
+            allowedUniverse.symbols ?? allowedUniverse.Symbols ?? []
+          }
         />
       )}
       {automationType === "AI_AUTONOMOUS" && executionMode === "SHADOW" && (
