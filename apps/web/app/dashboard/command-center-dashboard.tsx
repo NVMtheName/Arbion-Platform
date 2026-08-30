@@ -9,6 +9,7 @@ import {
   OwnerAttentionCenter,
   type OwnerAttentionOverview,
 } from "./owner-attention-center";
+import { formatExactMoney, sumExactMoney } from "./exact-money";
 
 type DashboardUser = {
   email: string;
@@ -91,15 +92,7 @@ function firstName(user: DashboardUser) {
 }
 
 function formatMoney(money?: DashboardMoney) {
-  if (!money) return "Unavailable";
-  const amount = Number(money.amount);
-  if (!Number.isFinite(amount)) return `${money.amount} ${money.currency}`;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: money.currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+  return formatExactMoney(money);
 }
 
 function observedPortfolio(accounts: DashboardAccountSummary[]) {
@@ -110,20 +103,10 @@ function observedPortfolio(accounts: DashboardAccountSummary[]) {
       observedValue: DashboardMoney;
     } => Boolean(account.observedValue),
   );
-  const currencies = new Set(
-    values.map((account) => account.observedValue.currency),
-  );
-  if (values.length === 0 || currencies.size !== 1) return undefined;
-  const amount = values.reduce(
-    (total, account) => total + Number(account.observedValue.amount),
-    0,
-  );
-  if (!Number.isFinite(amount)) return undefined;
+  const money = sumExactMoney(values.map((account) => account.observedValue));
+  if (!money) return undefined;
   return {
-    money: {
-      amount: String(amount),
-      currency: values[0].observedValue.currency,
-    },
+    money,
     reporting: values.length,
   };
 }
