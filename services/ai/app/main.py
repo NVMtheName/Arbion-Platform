@@ -77,7 +77,11 @@ class ShadowPositionFact(BaseModel):
     open_profit_loss_percent: str = Field(
         default="", pattern=r"^(|-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?)$"
     )
-    price_basis: Literal["", "PROVIDER_POSITION_MARKET_VALUE_PER_UNIT"] = ""
+    price_basis: Literal[
+        "",
+        "PROVIDER_POSITION_MARKET_VALUE_PER_UNIT",
+        "PROVIDER_MARKET_REFERENCE",
+    ] = ""
 
     @model_validator(mode="after")
     def validate_performance_consistency(self) -> Self:

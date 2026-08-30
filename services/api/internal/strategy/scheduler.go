@@ -235,6 +235,8 @@ func classifyScheduleError(err error) string {
 		return "AI_DECISION_BUDGET_EXHAUSTED"
 	case neural.Code(err) == neural.RateLimited:
 		return "AI_PROVIDER_RATE_LIMITED"
+	case neural.Code(err) == neural.InvalidRequest:
+		return "AI_REQUEST_INVALID"
 	case errors.Is(err, aiconnection.ErrInactive), errors.Is(err, aiconnection.ErrDisabled), errors.Is(err, aiconnection.ErrNotFound), neural.Code(err) == neural.AuthenticationFailed:
 		return "AI_CONNECTION_UNAVAILABLE"
 	case errors.Is(err, aiconnection.ErrProvider), neural.Code(err) == neural.ProviderUnavailable, neural.Code(err) == neural.Timeout:

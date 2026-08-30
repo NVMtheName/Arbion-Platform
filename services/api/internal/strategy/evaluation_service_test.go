@@ -518,7 +518,7 @@ func TestCoinbaseAIPaperProposalUsesOnlyIsolatedPortfolioAndSimulatesAtomically(
 	if store.paperCommits != 1 || store.commits != 0 || store.abstains != 0 || finances.balanceCalls != 0 || finances.positionCalls != 0 || finances.quoteCalls != 0 {
 		t.Fatalf("AI Paper crossed an isolated boundary: paper=%d generic=%d abstain=%d balances=%d positions=%d quotes=%d", store.paperCommits, store.commits, store.abstains, finances.balanceCalls, finances.positionCalls, finances.quoteCalls)
 	}
-	if ai.request.AvailableCashUSD != "900.0000000000" || ai.request.BuyingPowerUSD != "900.0000000000" || len(ai.request.Positions) != 1 || ai.request.Positions[0].AveragePriceUSD != "100.0000000000" || ai.request.Positions[0].CurrentPriceUSD != "100.0000000000" || ai.request.Positions[0].AvailableQuantity != "1.0000000000" {
+	if ai.request.AvailableCashUSD != "900.0000000000" || ai.request.BuyingPowerUSD != "900.0000000000" || len(ai.request.Positions) != 1 || ai.request.Positions[0].AveragePriceUSD != "100.0000000000" || ai.request.Positions[0].CurrentPriceUSD != "100.0000000000" || ai.request.Positions[0].AvailableQuantity != "1.0000000000" || ai.request.Positions[0].PriceBasis != "PROVIDER_MARKET_REFERENCE" {
 		t.Fatalf("isolated paper context was not supplied to the model: %#v", ai.request)
 	}
 	if !store.paperFill.SimulationOnly || store.paperFill.MarketProvider != "coinbase" || store.paperFill.PricingBasis != "ASK" || store.paperFill.RequestedNotional != "100.0000000000" {

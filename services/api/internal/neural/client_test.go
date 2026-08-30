@@ -67,6 +67,21 @@ func TestVerifyKeepsRequestBodyUntilTransportReadsIt(t *testing.T) {
 	}
 }
 
+func TestValidationFailureIsClassifiedWithoutExposingResponseDetails(t *testing.T) {
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusUnprocessableEntity,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"detail":[{"msg":"request contract mismatch"}]}`)),
+		}, nil
+	})
+	client := NewHTTPClient("http://ai.internal", "internal-token", &http.Client{Transport: transport})
+	err := client.Verify(context.Background(), "openai", []byte("secret-value"))
+	if Code(err) != InvalidRequest {
+		t.Fatalf("validation failure code=%q want=%q", Code(err), InvalidRequest)
+	}
+}
+
 func TestProposeTradeSendsOnlyBoundedNormalizedFacts(t *testing.T) {
 	const secret = "secret-value"
 	observedAt := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
