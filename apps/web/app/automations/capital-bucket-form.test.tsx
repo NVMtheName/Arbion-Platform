@@ -113,4 +113,31 @@ describe("CapitalBucketForm", () => {
       is_reserve: false,
     });
   });
+
+  it("does not send browser-coercible non-canonical capital values", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <CapitalBucketForm
+        accounts={[
+          { id: "account-1", display_name: "Coinbase", status: "active" },
+        ]}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/bucket name/i), {
+      target: { value: "Invalid allocation" },
+    });
+    fireEvent.change(screen.getByLabelText(/allocation \(usd\)/i), {
+      target: { value: "1e3" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /create capital bucket/i }),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/use canonical decimal amounts/i),
+    ).toBeInTheDocument();
+  });
 });

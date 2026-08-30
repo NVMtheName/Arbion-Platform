@@ -3,12 +3,23 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { compareExactDecimals } from "../exact-money";
+
 export type CapitalAccountOption = {
   id: string;
   display_name: string;
   status: string;
   currency?: string;
 };
+
+function positiveDecimal(value: string) {
+  return compareExactDecimals(value, "0") === 1;
+}
+
+function nonNegativeDecimal(value: string) {
+  const comparison = compareExactDecimals(value, "0");
+  return comparison !== undefined && comparison >= 0;
+}
 
 export function CapitalBucketForm({
   accounts,
@@ -31,7 +42,28 @@ export function CapitalBucketForm({
     const form = event.currentTarget;
     const data = new FormData(form);
     const isReserve = data.get("reserve") === "on";
+    const allocation = String(data.get("allocation") ?? "").trim();
+    const protectedAmount = String(data.get("protected_amount") ?? "").trim();
     const allocationLimit = String(data.get("allocation_limit") ?? "").trim();
+    const allocationMaximum = compareExactDecimals(allocation, "100");
+    const allocationValid =
+      positiveDecimal(allocation) &&
+      (allocationType === "FIXED_AMOUNT" ||
+        (allocationMaximum !== undefined && allocationMaximum <= 0));
+    const limitValid =
+      allocationType === "FIXED_AMOUNT"
+        ? !allocationLimit || positiveDecimal(allocationLimit)
+        : positiveDecimal(allocationLimit);
+    if (
+      !allocationValid ||
+      !nonNegativeDecimal(protectedAmount) ||
+      !limitValid
+    ) {
+      setMessage(
+        "Use canonical decimal amounts. Allocation and any ceiling must be positive; protected capital cannot be negative.",
+      );
+      return;
+    }
     setBusy(true);
     setMessage("");
     const response = await fetch("/api/capital-buckets", {
@@ -41,9 +73,9 @@ export function CapitalBucketForm({
         financial_account_id: data.get("account"),
         name: data.get("name"),
         allocation_type: allocationType,
-        allocation_value: data.get("allocation"),
+        allocation_value: allocation,
         currency: "USD",
-        protected_amount: data.get("protected_amount"),
+        protected_amount: protectedAmount,
         ...(allocationLimit ? { allocation_limit: allocationLimit } : {}),
         is_reserve: isReserve,
       }),
