@@ -117,4 +117,28 @@ describe("PaperPerformanceHistory", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
+
+  it("keeps values above browser precision exact while charting", () => {
+    render(
+      <PaperPerformanceHistory
+        startingCash="9007199254740993.0000"
+        currency="USD"
+        decisions={[
+          decision({
+            id: "decision-large",
+            at: "2026-08-30T02:28:30Z",
+            cash: "9007199254740993.0050",
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("$9,007,199,254,740,993.005")).toHaveLength(2);
+    expect(screen.getByText("+$0.005")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", {
+        name: /1 decision-time simulated equity mark/i,
+      }),
+    ).toBeInTheDocument();
+  });
 });

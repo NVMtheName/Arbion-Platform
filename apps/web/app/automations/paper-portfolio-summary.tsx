@@ -3,6 +3,11 @@ import {
   type PaperMarketSnapshot,
 } from "./paper-performance";
 import { PaperPerformanceHistory } from "./paper-performance-history";
+import {
+  exactDecimalSign,
+  formatExactDecimal,
+  formatExactMoney,
+} from "../exact-money";
 
 export type PaperPosition = {
   symbol: string;
@@ -48,48 +53,38 @@ export type PaperPortfolio = {
 };
 
 function money(value: string, currency: string) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return `${value} ${currency}`;
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
-    }).format(amount);
-  } catch {
-    return `${value} ${currency}`;
-  }
+  return formatExactMoney(
+    { amount: value, currency },
+    { maximumFractionDigits: 4 },
+  );
 }
 
 function quantity(value: string) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return value;
-  return new Intl.NumberFormat("en-US", {
+  return formatExactDecimal(value, {
+    minimumFractionDigits: 0,
     maximumFractionDigits: 4,
-  }).format(amount);
+  });
 }
 
 function signedMoney(value: string, currency: string) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount) || amount === 0) return money(value, currency);
-  return `${amount > 0 ? "+" : "-"}${money(String(Math.abs(amount)), currency)}`;
+  return formatExactMoney(
+    { amount: value, currency },
+    { maximumFractionDigits: 4, signDisplay: "exceptZero" },
+  );
 }
 
 function signedPercent(value?: string) {
-  if (!value) return "Unavailable";
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return `${value}%`;
-  return `${amount > 0 ? "+" : ""}${new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
+  return formatExactDecimal(value, {
     maximumFractionDigits: 4,
-  }).format(amount)}%`;
+    signDisplay: "exceptZero",
+    suffix: "%",
+  });
 }
 
 function performanceClass(value?: string) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount) || amount === 0) return "is-flat";
-  return amount > 0 ? "is-positive" : "is-negative";
+  const sign = exactDecimalSign(value);
+  if (sign === undefined || sign === 0) return "is-flat";
+  return sign > 0 ? "is-positive" : "is-negative";
 }
 
 function marketSource(market: PaperMarketSnapshot) {
