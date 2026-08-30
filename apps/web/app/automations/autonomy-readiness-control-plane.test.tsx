@@ -109,4 +109,22 @@ describe("autonomy readiness control plane", () => {
     expect(screen.getAllByText("Blocked")).toHaveLength(2);
     expect(screen.getByText(/emergency stop is engaged/i)).toBeInTheDocument();
   });
+
+  it("rejects non-canonical capital values that JavaScript would coerce", () => {
+    render(
+      <AutonomyReadinessControlPlane
+        {...base}
+        capitalBucket={{
+          ...base.capitalBucket,
+          allocation_value: "1e3",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("REVIEW REQUIRED")).toBeInTheDocument();
+    expect(screen.getByText("8/9")).toBeInTheDocument();
+    expect(
+      screen.getByText(/active, positive, non-reserve capital allocation/i),
+    ).toBeInTheDocument();
+  });
 });
