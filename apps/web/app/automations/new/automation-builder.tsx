@@ -234,7 +234,10 @@ export default function AutomationBuilder() {
   const modeName = executionMode === "PAPER" ? "AI Paper" : "AI Shadow";
 
   async function createBudget() {
-    if (!accountID || !budgetAmount) return;
+    if (!accountID || !positiveDecimal(budgetAmount)) {
+      setMessage("Enter a positive canonical decimal budget amount.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {
@@ -698,7 +701,7 @@ export default function AutomationBuilder() {
               />
             </label>
             <button
-              disabled={busy || !budgetAmount}
+              disabled={busy || !positiveDecimal(budgetAmount)}
               onClick={createBudget}
               type="button"
             >

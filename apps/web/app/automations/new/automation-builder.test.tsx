@@ -378,6 +378,24 @@ describe("AutomationBuilder AI non-live launch", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps non-canonical inline budget amounts out of capital requests", async () => {
+    const fetchMock = fetchFixtures({ ...connected, buckets: [] });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AutomationBuilder />);
+
+    const budget = await screen.findByLabelText(/new ai paper budget/i);
+    const save = screen.getByRole("button", { name: /save isolated budget/i });
+    fireEvent.change(budget, { target: { value: "1e3" } });
+    expect(save).toBeDisabled();
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(
+          ([input]) => String(input) === "/api/capital-buckets",
+        ),
+    ).toHaveLength(1);
+  });
+
   it("keeps observation-only Shadow available as an explicit choice", async () => {
     const fixtureFetch = fetchFixtures(connected);
     vi.stubGlobal(
