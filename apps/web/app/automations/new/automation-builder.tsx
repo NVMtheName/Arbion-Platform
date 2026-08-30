@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import { compareExactDecimals } from "../../exact-money";
+
 type Item = {
   id: string;
   display_name?: string;
@@ -53,6 +55,26 @@ function bucketItem(value: Record<string, unknown>): Item {
       value.financial_account_id ?? value.FinancialAccountID ?? "",
     ),
   };
+}
+
+function boundedInteger(value: string, minimum: number, maximum: number) {
+  if (!/^(0|[1-9][0-9]*)$/.test(value) || value.length > 2) return false;
+  const parsed = BigInt(value);
+  return parsed >= BigInt(minimum) && parsed <= BigInt(maximum);
+}
+
+function positiveDecimal(value: string) {
+  return compareExactDecimals(value, "0") === 1;
+}
+
+function nonNegativeDecimal(value: string) {
+  const comparison = compareExactDecimals(value, "0");
+  return comparison !== undefined && comparison >= 0;
+}
+
+function percentage(value: string) {
+  const maximum = compareExactDecimals(value, "100");
+  return positiveDecimal(value) && maximum !== undefined && maximum <= 0;
 }
 
 export default function AutomationBuilder() {
@@ -349,16 +371,13 @@ export default function AutomationBuilder() {
         selectedBucketID &&
         objective.trim() &&
         symbols.trim() &&
-        Number(maxNotional) > 0 &&
-        Number.isInteger(Number(maxActionsPerDay)) &&
-        Number(maxActionsPerDay) >= 1 &&
-        Number(maxActionsPerDay) <= 48 &&
+        positiveDecimal(maxNotional) &&
+        boundedInteger(maxActionsPerDay, 1, 48) &&
         [minimumCashReserve, maxCapitalDeployed, maxSinglePositionAmount].every(
-          (value) => value === "" || Number(value) >= 0,
+          (value) => value === "" || nonNegativeDecimal(value),
         ) &&
         (maxSinglePositionPercentage === "" ||
-          (Number(maxSinglePositionPercentage) > 0 &&
-            Number(maxSinglePositionPercentage) <= 100)),
+          percentage(maxSinglePositionPercentage)),
     );
 
   return (

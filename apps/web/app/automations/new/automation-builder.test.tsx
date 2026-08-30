@@ -289,6 +289,37 @@ describe("AutomationBuilder AI non-live launch", () => {
     expect(button).toBeDisabled();
   });
 
+  it("rejects coercible non-canonical budget and guardrail values", async () => {
+    vi.stubGlobal("fetch", fetchFixtures(connected));
+    render(<AutomationBuilder />);
+    fireEvent.change(await screen.findByLabelText(/allowed symbols/i), {
+      target: { value: "BTC" },
+    });
+    const button = screen.getByRole("button", {
+      name: /create ai paper draft/i,
+    });
+    await waitFor(() => expect(button).toBeEnabled());
+
+    fireEvent.change(screen.getByLabelText(/maximum per paper proposal/i), {
+      target: { value: "1e3" },
+    });
+    expect(button).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/maximum per paper proposal/i), {
+      target: { value: "100" },
+    });
+    fireEvent.change(screen.getByLabelText(/maximum paper actions/i), {
+      target: { value: "1e1" },
+    });
+    expect(button).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/maximum paper actions/i), {
+      target: { value: "6" },
+    });
+    fireEvent.change(screen.getByLabelText(/minimum cash reserve/i), {
+      target: { value: "1e2" },
+    });
+    expect(button).toBeDisabled();
+  });
+
   it("shows the API's safe rejection reason", async () => {
     const fixtureFetch = fetchFixtures(connected);
     vi.stubGlobal(
