@@ -5,6 +5,7 @@ import {
   projectStrategyFleetAccountIsolation,
   projectStrategyFleetDecisionEvidence,
   projectStrategyFleetIdentityIsolation,
+  projectStrategyFleetOperatingBrief,
   projectStrategyFleetScheduleRecovery,
   projectStrategyFleetScheduleReliability,
   reconciliationFreshWithinTwentyFourHours,
@@ -263,6 +264,50 @@ describe("StrategyFleet", () => {
     expect(proof.engines[0].state).toBe("UNAVAILABLE");
   });
 
+  it("translates a healthy engine into a nontechnical operating brief", () => {
+    const brief = projectStrategyFleetOperatingBrief([coinbaseEngine]);
+
+    expect(brief).toEqual(
+      expect.objectContaining({
+        status: "ON_COURSE",
+        engineCount: 1,
+        onCourseCount: 1,
+        reviewCount: 0,
+      }),
+    );
+    expect(brief.engines[0]).toEqual(
+      expect.objectContaining({
+        status: "ON_COURSE",
+        conclusion: "AI chose to wait.",
+        nextStep: "The next guarded cycle runs automatically.",
+        nextRunAt: "2026-08-26T17:17:39Z",
+        reviewHref: undefined,
+      }),
+    );
+  });
+
+  it("gives an exact review step when scheduler evidence is unavailable", () => {
+    const brief = projectStrategyFleetOperatingBrief([
+      { ...coinbaseEngine, scheduleHistoryAvailable: false },
+    ]);
+
+    expect(brief).toEqual(
+      expect.objectContaining({
+        status: "REVIEW",
+        onCourseCount: 0,
+        reviewCount: 1,
+      }),
+    );
+    expect(brief.engines[0]).toEqual(
+      expect.objectContaining({
+        status: "REVIEW",
+        nextStep: "Review AI Shadow Engine schedule health",
+        reviewHref: "/automations/ai-mandate#schedule-controls",
+        reviewLabel: "Review schedule",
+      }),
+    );
+  });
+
   it("proves complete immutable trails for abstentions and linked non-live outcomes", () => {
     const paperFill: StrategyFleetItem = {
       ...coinbaseEngine,
@@ -451,6 +496,29 @@ describe("StrategyFleet", () => {
     expect(summary).toHaveTextContent("Scheduled1healthy automatic cycles");
     expect(summary).toHaveTextContent("Attention0engine health signals");
     expect(summary).toHaveTextContent("Drafts1not initialized");
+    const operatingBrief = screen.getByRole("region", {
+      name: "Your AI engines are continuing safely.",
+    });
+    expect(operatingBrief).toHaveTextContent("No owner action");
+    expect(operatingBrief).toHaveTextContent("1 of 1 on course");
+    expect(operatingBrief).toHaveTextContent("AI chose to wait.");
+    expect(operatingBrief).toHaveTextContent("Why this is okay");
+    expect(operatingBrief).toHaveTextContent(
+      "The next guarded cycle runs automatically.",
+    );
+    expect(operatingBrief).toHaveTextContent(
+      "Paper and Shadow remain isolated · no broker order · no live path",
+    );
+    expect(
+      within(operatingBrief).getByRole("link", {
+        name: /Open engine evidence/i,
+      }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#runtime-evidence");
+    expect(
+      within(operatingBrief).getByRole("link", {
+        name: /Open decision journal/i,
+      }),
+    ).toHaveAttribute("href", "/activity");
     expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(2);
     expect(screen.getAllByText("gpt-5.6-sol")).toHaveLength(2);
     expect(screen.getAllByText("BTC · ETH · XRP +1")).toHaveLength(2);
@@ -883,8 +951,13 @@ describe("StrategyFleet", () => {
       screen.getByText("Connection status unavailable"),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: /Review connection/i }),
-    ).toHaveAttribute("href", "/connections#financial-accounts");
+      screen
+        .getAllByRole("link", { name: /Review connection/i })
+        .every(
+          (link) =>
+            link.getAttribute("href") === "/connections#financial-accounts",
+        ),
+    ).toBe(true);
 
     rerender(
       <StrategyFleet
@@ -904,8 +977,8 @@ describe("StrategyFleet", () => {
     expect(dataHealth).toHaveTextContent("Stale or invalid");
     expect(screen.getByText("Portfolio evidence is stale")).toBeInTheDocument();
     expect(
-      screen.getByText(/older than the 24-hour autonomy threshold/i),
-    ).toBeInTheDocument();
+      screen.getAllByText(/older than the 24-hour autonomy threshold/i),
+    ).toHaveLength(2);
 
     rerender(
       <StrategyFleet
@@ -930,10 +1003,10 @@ describe("StrategyFleet", () => {
       screen.getByText("Portfolio evidence unavailable"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(
+      screen.getAllByText(
         /will not infer balances, positions, or proposal readiness/i,
       ),
-    ).toBeInTheDocument();
+    ).toHaveLength(2);
   });
 
   it("shows a clear owner queue for a healthy scheduled fleet", () => {

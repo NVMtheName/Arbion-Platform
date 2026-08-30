@@ -241,6 +241,29 @@ export type StrategyFleetNextAction = {
   provider?: string;
 };
 
+export type StrategyFleetOperatingBrief = {
+  status: "ON_COURSE" | "REVIEW" | "UNAVAILABLE";
+  engineCount: number;
+  onCourseCount: number;
+  reviewCount: number;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    status: "ON_COURSE" | "REVIEW" | "UNAVAILABLE";
+    conclusion: string;
+    explanation: string;
+    nextStep: string;
+    nextRunAt?: string;
+    decisionAt?: string;
+    detailHref: string;
+    reviewHref?: string;
+    reviewLabel?: string;
+  }>;
+};
+
 function providerLabel(provider: string) {
   if (provider === "coinbase") return "Coinbase";
   if (provider === "schwab") return "Charles Schwab";
@@ -1294,6 +1317,114 @@ export function selectStrategyFleetNextAction(
   };
 }
 
+function operatingConclusion(item: StrategyFleetItem) {
+  switch (item.latestDecisionType) {
+    case "ABSTAIN":
+      return "AI chose to wait.";
+    case "DENY_RISK_DENIED":
+      return "A proposal was held.";
+    case "ALLOW_SIMULATED_FILLED":
+      return "A Paper trade was simulated.";
+    case "ALLOW_SIMULATED_REJECTED":
+      return "A Paper simulation was rejected safely.";
+    case "ALLOW_WOULD_HAVE_SUBMITTED":
+      return "A Shadow proposal was recorded.";
+    default:
+      return item.decisionAvailable === true
+        ? "Waiting for the first AI conclusion."
+        : "The latest conclusion is unavailable.";
+  }
+}
+
+function operatingExplanation(
+  item: StrategyFleetItem,
+  action: StrategyFleetNextAction | null,
+) {
+  if (action) return action.detail;
+  switch (item.latestDecisionType) {
+    case "ABSTAIN":
+      return "The latest immutable journal ended safely without a proposal, so no risk or execution record was needed.";
+    case "DENY_RISK_DENIED":
+      return "Deterministic controls denied the proposal and preserved the exact reason without creating a broker order.";
+    case "ALLOW_SIMULATED_FILLED":
+      return "Deterministic controls allowed the proposal, and only the isolated Paper ledger changed.";
+    case "ALLOW_SIMULATED_REJECTED":
+      return "The isolated simulator rejected the proposal safely; no connected-account holding changed.";
+    case "ALLOW_WOULD_HAVE_SUBMITTED":
+      return "Deterministic controls allowed the proposal, but Shadow mode only preserved what would have happened.";
+    default:
+      return "The guarded engine will preserve its first completed AI conclusion in the immutable journal.";
+  }
+}
+
+export function projectStrategyFleetOperatingBrief(
+  items: StrategyFleetItem[],
+): StrategyFleetOperatingBrief {
+  const active = items.filter(
+    (item) =>
+      isAI(item) &&
+      Boolean(
+        item.instanceStatus &&
+          ["ACTIVE", "PAUSED"].includes(item.instanceStatus),
+      ),
+  );
+  const engines = active.map((item) => {
+    const action = selectStrategyFleetNextAction(item);
+    const unavailable =
+      item.accountContextAvailable === false ||
+      item.instanceContextAvailable === false ||
+      item.decisionAvailable === false;
+    const status = unavailable
+      ? ("UNAVAILABLE" as const)
+      : action
+        ? ("REVIEW" as const)
+        : ("ON_COURSE" as const);
+    const nextStep = action
+      ? action.title
+      : item.instanceStatus === "PAUSED"
+        ? "Nothing runs until you choose to resume it."
+        : item.scheduleStatus === "SKIPPED" &&
+            item.scheduleErrorCode === "OUTSIDE_SESSION"
+          ? "Arbion will wait for the next eligible market session."
+          : item.scheduleEnabled && item.nextRunAt
+            ? "The next guarded cycle runs automatically."
+            : "This engine waits for an owner-invoked non-live evaluation.";
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      status,
+      conclusion: operatingConclusion(item),
+      explanation: operatingExplanation(item, action),
+      nextStep,
+      nextRunAt: !action && item.scheduleEnabled ? item.nextRunAt : undefined,
+      decisionAt: item.latestDecisionAt,
+      detailHref: `/automations/${item.id}#runtime-evidence`,
+      reviewHref: action?.href,
+      reviewLabel: action?.actionLabel,
+    };
+  });
+  const reviewCount = engines.filter(
+    (engine) => engine.status === "REVIEW",
+  ).length;
+  const unavailable = engines.some((engine) => engine.status === "UNAVAILABLE");
+  return {
+    status:
+      active.length === 0 || unavailable
+        ? "UNAVAILABLE"
+        : reviewCount > 0
+          ? "REVIEW"
+          : "ON_COURSE",
+    engineCount: active.length,
+    onCourseCount: engines.filter((engine) => engine.status === "ON_COURSE")
+      .length,
+    reviewCount,
+    engines,
+  };
+}
+
 function healthClass(item: StrategyFleetItem) {
   if (needsReview(item)) return "needs-review";
   return item.instanceStatus === "ACTIVE" ? "healthy" : "neutral";
@@ -1427,6 +1558,127 @@ function capitalMoney(currency?: string, value?: string) {
   if (!amount || !currency || !/^[A-Z]{3}$/.test(currency))
     return "Unavailable";
   return currency === "USD" ? `$${amount}` : `${currency} ${amount}`;
+}
+
+function operatingStatusLabel(
+  status: StrategyFleetOperatingBrief["engines"][number]["status"],
+) {
+  if (status === "ON_COURSE") return "On course";
+  if (status === "REVIEW") return "Review";
+  return "Unavailable";
+}
+
+function StrategyFleetOperatingBrief({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const brief = projectStrategyFleetOperatingBrief(items);
+  if (brief.engineCount === 0) return null;
+  const title =
+    brief.status === "ON_COURSE"
+      ? "Your AI engines are continuing safely."
+      : brief.status === "REVIEW"
+        ? "An AI engine has a clear review step."
+        : "The current operating brief is incomplete.";
+  return (
+    <section
+      className={`strategy-fleet-operating-brief is-${brief.status.toLowerCase().replace("_", "-")}`}
+      aria-labelledby="strategy-fleet-operating-brief-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">OWNER OPERATING BRIEF</p>
+          <h2 id="strategy-fleet-operating-brief-heading">{title}</h2>
+          <p>
+            A plain-language view of what each engine concluded, why Arbion is
+            holding or continuing, what happens next, and where its immutable
+            evidence lives.
+          </p>
+        </div>
+        <span>
+          {brief.reviewCount === 0
+            ? "No owner action"
+            : `${brief.reviewCount} to review`}
+        </span>
+      </header>
+      <div className="strategy-fleet-operating-brief-summary">
+        <strong>
+          {brief.onCourseCount} of {brief.engineCount} on course
+        </strong>
+        <span>
+          Paper and Shadow remain isolated · no broker order · no live path
+        </span>
+      </div>
+      <ol>
+        {brief.engines.map((engine) => (
+          <li
+            className={`is-${engine.status.toLowerCase().replace("_", "-")}`}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{operatingStatusLabel(engine.status)}</span>
+            </header>
+            <dl>
+              <div>
+                <dt>What it concluded</dt>
+                <dd>{engine.conclusion}</dd>
+                {engine.decisionAt && (
+                  <time dateTime={engine.decisionAt}>
+                    {readableTime(engine.decisionAt)}
+                  </time>
+                )}
+              </div>
+              <div>
+                <dt>
+                  {engine.status === "ON_COURSE"
+                    ? "Why this is okay"
+                    : "Why review"}
+                </dt>
+                <dd>{engine.explanation}</dd>
+              </div>
+              <div>
+                <dt>What happens next</dt>
+                <dd>{engine.nextStep}</dd>
+                {engine.nextRunAt && (
+                  <time dateTime={engine.nextRunAt}>
+                    {readableTime(engine.nextRunAt)}
+                  </time>
+                )}
+              </div>
+            </dl>
+            <footer>
+              <div>
+                <Link href={engine.detailHref}>Open engine evidence →</Link>
+                <Link href="/activity">Open decision journal →</Link>
+              </div>
+              {engine.reviewHref && engine.reviewLabel && (
+                <Link href={engine.reviewHref}>{engine.reviewLabel} →</Link>
+              )}
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Read-only explanation from current owner-scoped records · no model rerun
+        · no provider call
+      </footer>
+    </section>
+  );
 }
 
 function StrategyFleetAccountIsolationMap({
@@ -2630,6 +2882,8 @@ export function StrategyFleet({
           <p>{contextWarnings.join(" ")}</p>
         </section>
       )}
+
+      {inventoryAvailable && <StrategyFleetOperatingBrief items={items} />}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}
 

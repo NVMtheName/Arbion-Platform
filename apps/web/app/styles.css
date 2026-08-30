@@ -1868,6 +1868,201 @@ button:disabled {
 .strategy-fleet-metrics .needs-review strong {
   color: #e1bd79;
 }
+.strategy-fleet-operating-brief {
+  margin-top: 20px;
+  padding: 26px;
+  border: 1px solid rgba(92, 216, 168, 0.24);
+  border-radius: 22px;
+  background:
+    radial-gradient(
+      circle at 0% 0%,
+      rgba(92, 216, 168, 0.1),
+      transparent 28rem
+    ),
+    linear-gradient(145deg, rgba(5, 29, 21, 0.94), rgba(3, 15, 12, 0.9));
+}
+.strategy-fleet-operating-brief.is-review,
+.strategy-fleet-operating-brief.is-unavailable {
+  border-color: rgba(216, 169, 82, 0.34);
+  background: rgba(41, 29, 11, 0.24);
+}
+.strategy-fleet-operating-brief > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+}
+.strategy-fleet-operating-brief > header > div {
+  max-width: 820px;
+}
+.strategy-fleet-operating-brief h2 {
+  margin: 7px 0 8px;
+  color: #f2fcf7;
+  font-size: clamp(1.45rem, 2.4vw, 2.15rem);
+}
+.strategy-fleet-operating-brief > header p:last-child,
+.strategy-fleet-operating-brief > footer {
+  color: #7f978c;
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+.strategy-fleet-operating-brief > header > span {
+  flex: 0 0 auto;
+  padding: 8px 11px;
+  border: 1px solid rgba(92, 216, 168, 0.34);
+  border-radius: 999px;
+  color: #70dbaf;
+  font-size: 0.65rem;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.strategy-fleet-operating-brief.is-review > header > span,
+.strategy-fleet-operating-brief.is-unavailable > header > span {
+  border-color: rgba(216, 169, 82, 0.38);
+  color: #e1bd79;
+}
+.strategy-fleet-operating-brief-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 20px 0 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(92, 216, 168, 0.14);
+  border-radius: 12px;
+  background: rgba(3, 15, 11, 0.66);
+}
+.strategy-fleet-operating-brief-summary strong {
+  color: #dff8eb;
+  font-size: 0.78rem;
+}
+.strategy-fleet-operating-brief-summary span {
+  color: #6f887d;
+  font-size: 0.64rem;
+}
+.strategy-fleet-operating-brief > ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 11px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-fleet-operating-brief > ol > li {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid rgba(139, 181, 163, 0.14);
+  border-radius: 15px;
+  background: rgba(2, 13, 10, 0.74);
+}
+.strategy-fleet-operating-brief > ol > li.is-review,
+.strategy-fleet-operating-brief > ol > li.is-unavailable {
+  border-color: rgba(216, 169, 82, 0.3);
+}
+.strategy-fleet-operating-brief > ol > li > header,
+.strategy-fleet-operating-brief > ol > li > header > div,
+.strategy-fleet-operating-brief > ol > li > footer,
+.strategy-fleet-operating-brief > ol > li > footer > div {
+  display: flex;
+  align-items: center;
+}
+.strategy-fleet-operating-brief > ol > li > header,
+.strategy-fleet-operating-brief > ol > li > footer {
+  justify-content: space-between;
+  gap: 12px;
+}
+.strategy-fleet-operating-brief > ol > li > header > div {
+  gap: 9px;
+  min-width: 0;
+}
+.strategy-fleet-operating-brief > ol > li > header p {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  margin: 0;
+}
+.strategy-fleet-operating-brief > ol > li > header small {
+  overflow: hidden;
+  color: #6e847a;
+  font-size: 0.6rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-fleet-operating-brief > ol > li > header strong {
+  color: #dcebe4;
+  font-size: 0.8rem;
+}
+.strategy-fleet-operating-brief > ol > li > header > span {
+  color: #70dbaf;
+  font-size: 0.62rem;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+.strategy-fleet-operating-brief > ol > li.is-review > header > span,
+.strategy-fleet-operating-brief > ol > li.is-unavailable > header > span {
+  color: #e1bd79;
+}
+.strategy-fleet-operating-brief > ol > li > dl {
+  display: grid;
+  gap: 1px;
+  margin: 15px 0;
+  overflow: hidden;
+  border: 1px solid rgba(139, 181, 163, 0.09);
+  border-radius: 11px;
+  background: rgba(139, 181, 163, 0.09);
+}
+.strategy-fleet-operating-brief > ol > li > dl > div {
+  min-width: 0;
+  padding: 12px;
+  background: rgba(3, 15, 11, 0.88);
+}
+.strategy-fleet-operating-brief dt,
+.strategy-fleet-operating-brief dd {
+  margin: 0;
+}
+.strategy-fleet-operating-brief dt {
+  color: #6e847a;
+  font-size: 0.57rem;
+  font-weight: 760;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.strategy-fleet-operating-brief dd {
+  margin-top: 5px;
+  color: #b9cec5;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+.strategy-fleet-operating-brief time {
+  display: block;
+  margin-top: 5px;
+  color: #63796f;
+  font-size: 0.59rem;
+}
+.strategy-fleet-operating-brief > ol > li > footer {
+  align-self: end;
+  padding-top: 2px;
+}
+.strategy-fleet-operating-brief > ol > li > footer > div {
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.strategy-fleet-operating-brief > ol > li > footer a {
+  color: #70dbaf;
+  font-size: 0.61rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.strategy-fleet-operating-brief > ol > li.is-review > footer > a,
+.strategy-fleet-operating-brief > ol > li.is-unavailable > footer > a {
+  color: #e1bd79;
+}
+.strategy-fleet-operating-brief > footer {
+  margin-top: 13px;
+}
 .strategy-fleet-isolation {
   margin-top: 20px;
   padding: 24px;
@@ -3421,6 +3616,7 @@ button:disabled {
   .strategy-fleet-grid > article > header,
   .strategy-fleet-grid footer,
   .strategy-fleet-safety,
+  .strategy-fleet-operating-brief > header,
   .strategy-fleet-isolation > header,
   .strategy-fleet-watchtower > header,
   .strategy-fleet-recovery > header,
@@ -3433,6 +3629,17 @@ button:disabled {
   }
   .strategy-fleet-isolation dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .strategy-fleet-operating-brief-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .strategy-fleet-operating-brief > ol {
+    grid-template-columns: 1fr;
+  }
+  .strategy-fleet-operating-brief > ol > li > footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .strategy-fleet-watchtower-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
