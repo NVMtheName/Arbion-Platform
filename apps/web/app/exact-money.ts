@@ -174,6 +174,17 @@ export function exactDecimalSign(value: string | undefined) {
   return amount.units > BigInt(0) ? 1 : -1;
 }
 
+export function compareExactDecimals(left: string, right: string) {
+  const leftAmount = parseExactDecimal(left);
+  const rightAmount = parseExactDecimal(right);
+  if (!leftAmount || !rightAmount) return;
+  const scale = Math.max(leftAmount.scale, rightAmount.scale);
+  const leftUnits = leftAmount.units * power10(scale - leftAmount.scale);
+  const rightUnits = rightAmount.units * power10(scale - rightAmount.scale);
+  if (leftUnits === rightUnits) return 0;
+  return leftUnits > rightUnits ? 1 : -1;
+}
+
 // Projects exact decimal values onto a bounded 0..1 visual range. BigInt does
 // every financial comparison; Number receives only a nine-digit screen ratio.
 export function projectExactDecimalRange(values: string[]) {

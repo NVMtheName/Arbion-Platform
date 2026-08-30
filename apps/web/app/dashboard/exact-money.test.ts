@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  compareExactDecimals,
   exactDecimalSign,
   formatExactDecimal,
   formatExactMoney,
@@ -87,6 +88,9 @@ describe("exact dashboard money", () => {
     ).toBe("+9,007,199,254,740,993.1235%");
     expect(exactDecimalSign("-0.00000000000000000001")).toBe(-1);
     expect(exactDecimalSign("malformed")).toBeUndefined();
+    expect(compareExactDecimals("100.0000000000", "100")).toBe(0);
+    expect(compareExactDecimals("99.9999999999", "100")).toBe(-1);
+    expect(compareExactDecimals("1e2", "100")).toBeUndefined();
     expect(
       projectExactDecimalRange([
         "900719925474099300000000000000.005",
