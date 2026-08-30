@@ -1,3 +1,5 @@
+import { exactDecimalSign } from "../exact-money";
+
 type Entity = Record<string, unknown> | null | undefined;
 
 type SignalState = "READY" | "COLLECTING" | "BLOCKED" | "UNAVAILABLE";
@@ -119,13 +121,12 @@ function buildSignals(props: Props): ReadinessSignal[] {
     "allocation_value",
     "AllocationValue",
   );
-  const allocation = Number(bucketAllocation);
+  const allocationSign = exactDecimalSign(bucketAllocation);
   const bucketReady =
     Boolean(read(props.capitalBucket, "id", "ID")) &&
     bucketStatus === "ACTIVE" &&
     !flag(props.capitalBucket, "is_reserve", "IsReserve") &&
-    Number.isFinite(allocation) &&
-    allocation > 0;
+    allocationSign === 1;
 
   const instanceStatus = read(props.instance, "status", "Status");
   const instanceState = read(props.instance, "current_state", "CurrentState");
