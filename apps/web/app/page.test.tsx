@@ -3,13 +3,19 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const navigation = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
+const navigation = vi.hoisted(() => ({
+  push: vi.fn(),
+  refresh: vi.fn(),
+  pathname: "/accounts",
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => navigation,
+  usePathname: () => navigation.pathname,
 }));
 
 import { AuthForm } from "./auth-form";
@@ -20,6 +26,7 @@ describe("Authentication experience", () => {
     cleanup();
     navigation.push.mockReset();
     navigation.refresh.mockReset();
+    navigation.pathname = "/accounts";
     vi.unstubAllGlobals();
   });
 
@@ -60,6 +67,33 @@ describe("Authentication experience", () => {
       "href",
       "/accounts",
     );
+    const appNavigation = screen.getByRole("navigation", {
+      name: "Application navigation",
+    });
+    expect(
+      within(appNavigation).getByRole("link", { name: "Dashboard" }),
+    ).toHaveAttribute("href", "/dashboard");
+    expect(
+      within(appNavigation).getByRole("link", { name: "Portfolio" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      within(appNavigation).getByRole("link", { name: "Markets" }),
+    ).toHaveAttribute("href", "/markets");
+    expect(
+      within(appNavigation).getByRole("link", { name: "Automations" }),
+    ).toHaveAttribute("href", "/automations");
+    expect(
+      within(appNavigation).getByRole("link", { name: "Activity" }),
+    ).toHaveAttribute("href", "/activity");
+    expect(
+      within(appNavigation).getByRole("link", { name: "Capital" }),
+    ).toHaveAttribute("href", "/capital");
+    expect(
+      within(appNavigation).getByRole("link", { name: "Connections" }),
+    ).toHaveAttribute("href", "/connections");
+    expect(
+      within(appNavigation).getByRole("link", { name: "Security" }),
+    ).toHaveAttribute("href", "/settings/security");
   });
 
   it("completes a password then authenticator sign-in without creating an early session", async () => {

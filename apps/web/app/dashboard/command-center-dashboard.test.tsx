@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const navigation = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({
   useRouter: () => navigation,
+  usePathname: () => "/dashboard",
 }));
 
 import { CommandCenterDashboard } from "./command-center-dashboard";
