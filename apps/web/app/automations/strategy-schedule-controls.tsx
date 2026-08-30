@@ -3,6 +3,8 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { scheduleFailureGuidance } from "./schedule-failure-guidance";
+
 export type StrategyScheduleConditions = {
   enabled?: boolean;
   interval_minutes?: number;
@@ -45,46 +47,6 @@ function readableTime(value?: string) {
   if (!value) return "—";
   const parsed = new Date(value);
   return Number.isNaN(parsed.valueOf()) ? "—" : parsed.toLocaleString();
-}
-
-function scheduleFailureGuidance(code: string) {
-  switch (code) {
-    case "AUTHORIZATION_FAILED":
-    case "AUTHORIZATION_EXPIRED":
-      return "Reconnect Schwab before the next scheduled evaluation.";
-    case "PROVIDER":
-    case "PROVIDER_UNAVAILABLE":
-    case "RATE_LIMITED":
-    case "TIMEOUT":
-      return "Schwab market data was unavailable. Arbion will remain fail-closed and can try again at the next eligible run.";
-    case "MARKET_DATA_STALE":
-      return "Schwab's quote or option-chain timestamp was not current. Arbion can try again after market data refreshes.";
-    case "NO_ELIGIBLE_OPTION_CONTRACTS":
-      return "No option contract matched the saved expiration, delta, and premium filters. Review those filters if this repeats.";
-    case "STRATEGY_NOT_ACTIVE":
-      return "Resume the non-live strategy if you want scheduled evaluations to continue.";
-    case "STRATEGY_CONFIGURATION_CHANGED":
-      return "The initialized strategy no longer matches its current mandate, capital bucket, or account. Review the automation before continuing.";
-    case "STRATEGY_PARAMETERS_INVALID":
-      return "Review and save valid deterministic strategy parameters before continuing.";
-    case "PAPER_STATE_UNAVAILABLE":
-      return "The PAPER portfolio state needed for evaluation is unavailable. Keep the schedule paused until the state is reviewed.";
-    case "WAITING_FOR_LIFECYCLE":
-      return "Record the explicit PAPER option lifecycle outcome before another evaluation can run.";
-    case "OUTSIDE_SESSION":
-      return "No action is needed. Arbion will wait for the next supported U.S. equities session.";
-    case "SESSION_CALENDAR_UNAVAILABLE":
-      return "The verified market-session calendar does not cover this date. The operator must extend it before scheduling resumes.";
-    case "CANCELED":
-      return "The run was canceled before completion. Arbion can try again at the next eligible run.";
-    case "CONFLICT":
-      return "The strategy state changed during the run. Refresh this page and review its latest state.";
-    case "FORBIDDEN":
-    case "NOT_FOUND":
-      return "The schedule can no longer access its required owner-scoped records. Review the automation before continuing.";
-    default:
-      return "The run failed closed. Review the automation and recent activity before continuing.";
-  }
 }
 
 export function StrategyScheduleControls(props: Props) {
@@ -317,9 +279,21 @@ export function StrategyScheduleControls(props: Props) {
           </div>
           {props.runtime.last_error_code && (
             <p className="security-note">
-              <strong>What to do</strong>{" "}
-              {scheduleFailureGuidance(props.runtime.last_error_code)} No broker
-              order was sent.
+              <strong>
+                {
+                  scheduleFailureGuidance(
+                    props.runtime.last_error_code,
+                    props.financialProvider,
+                  ).actionLabel
+                }
+              </strong>{" "}
+              {
+                scheduleFailureGuidance(
+                  props.runtime.last_error_code,
+                  props.financialProvider,
+                ).message
+              }{" "}
+              No broker order was sent.
             </p>
           )}
         </>

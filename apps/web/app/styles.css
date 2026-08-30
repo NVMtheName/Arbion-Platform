@@ -2642,6 +2642,9 @@ button:disabled {
   .schedule-run-list dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .schedule-run-guidance {
+    grid-template-columns: 1fr;
+  }
   .strategy-fleet-hero {
     align-items: start;
     grid-template-columns: 1fr;
@@ -4078,6 +4081,36 @@ button:disabled {
   margin: 10px 0;
   color: #a9c8ba;
   font-size: 0.78rem;
+}
+.schedule-run-guidance {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) 1fr;
+  gap: 10px;
+  align-items: baseline;
+  margin: 10px 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(139, 181, 163, 0.24);
+  border-radius: 9px;
+  color: #c8ddd3;
+  background: rgba(139, 181, 163, 0.06);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.schedule-run-guidance strong {
+  color: #e7f3ed;
+}
+.schedule-run-guidance.is-automatic-retry {
+  border-color: rgba(25, 201, 214, 0.28);
+  background: rgba(25, 201, 214, 0.06);
+}
+.schedule-run-guidance.is-owner-review,
+.schedule-run-guidance.is-no-action {
+  border-color: rgba(183, 155, 95, 0.32);
+  background: rgba(183, 155, 95, 0.07);
+}
+.schedule-run-guidance.is-operator-review {
+  border-color: rgba(184, 90, 90, 0.36);
+  background: rgba(184, 90, 90, 0.07);
 }
 .schedule-run-reconciliation {
   display: flex;
