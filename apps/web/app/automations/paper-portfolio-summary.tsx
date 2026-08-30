@@ -2,6 +2,7 @@ import {
   calculatePaperPerformance,
   type PaperMarketSnapshot,
 } from "./paper-performance";
+import { PaperPerformanceHistory } from "./paper-performance-history";
 
 export type PaperPosition = {
   symbol: string;
@@ -109,11 +110,13 @@ export function PaperPortfolioSummary({
   executionMode,
   fills = [],
   markets = [],
+  decisions = [],
 }: {
   portfolio?: PaperPortfolio;
   executionMode: string;
   fills?: AIPaperSpotFill[];
   markets?: PaperMarketSnapshot[];
+  decisions?: Record<string, unknown>[];
 }) {
   if (executionMode !== "PAPER") {
     return (
@@ -227,6 +230,11 @@ export function PaperPortfolioSummary({
           </>
         )}
       </div>
+      <PaperPerformanceHistory
+        decisions={decisions}
+        startingCash={portfolio.starting_cash}
+        currency={portfolio.currency}
+      />
       <div className="paper-portfolio-summary">
         <p>
           <strong>Starting cash</strong>

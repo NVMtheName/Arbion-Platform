@@ -41,6 +41,27 @@ export type PaperPerformance = {
   positions: PaperPositionValuation[];
 };
 
+export type PaperPerformanceHistoryPoint = {
+  decisionId: string;
+  decisionAt: string;
+  decision: "ABSTAIN" | "PROPOSE";
+  symbol?: string;
+  side?: string;
+  cash: string;
+  investedExposure: string;
+  simulatedEquity: string;
+  totalProfitLoss: string;
+  totalReturnPercent: string;
+  provider: string;
+  marketCount: number;
+  marketObservedAt: string;
+};
+
+export type PaperPerformanceHistory = {
+  points: PaperPerformanceHistoryPoint[];
+  unavailableDecisionCount: number;
+};
+
 type ExactDecimal = { units: bigint; scale: number };
 
 const decimalPattern = /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/;
@@ -146,6 +167,145 @@ function marketPrice(market: Record<string, unknown>) {
     const price = positiveDecimal(market[field]);
     if (price) return { price, basis };
   }
+}
+
+// Reconstructs one exact pre-decision Paper valuation from each immutable AI
+// journal entry. Invalid or incomplete entries remain explicit coverage gaps;
+// points are never joined across decisions and never treated as live quotes.
+export function extractPaperPerformanceHistory(
+  decisions: Record<string, unknown>[],
+  startingCashValue: string,
+): PaperPerformanceHistory {
+  const startingCash = parseDecimal(startingCashValue);
+  if (!startingCash || startingCash.units <= BigInt(0)) {
+    return { points: [], unavailableDecisionCount: decisions.length };
+  }
+
+  const points: PaperPerformanceHistoryPoint[] = [];
+  let unavailableDecisionCount = 0;
+  for (const entry of decisions) {
+    if ((entry.source ?? entry.Source) !== "AI") continue;
+    const rationale = record(
+      entry.structured_rationale ?? entry.StructuredRationale,
+    );
+    if (rationale?.execution_mode !== "PAPER") continue;
+    const evidence = record(rationale.input_evidence);
+    const decisionId = string(entry.id ?? entry.ID);
+    const decisionAt = string(entry.created_at ?? entry.CreatedAt);
+    const provider = string(evidence?.provider);
+    const cash = parseDecimal(evidence?.available_cash_usd);
+    const decision = string(rationale.decision);
+    const rawMarkets = Array.isArray(evidence?.markets) ? evidence.markets : [];
+    const rawPositions = Array.isArray(evidence?.positions)
+      ? evidence.positions
+      : [];
+    if (
+      !decisionId ||
+      !decisionAt ||
+      Number.isNaN(Date.parse(decisionAt)) ||
+      !provider ||
+      !cash ||
+      cash.units < BigInt(0) ||
+      (decision !== "ABSTAIN" && decision !== "PROPOSE") ||
+      rawMarkets.length === 0
+    ) {
+      unavailableDecisionCount += 1;
+      continue;
+    }
+
+    const marketSymbols = new Set<string>();
+    let marketObservedAt: string | undefined;
+    let valid = true;
+    for (const rawMarket of rawMarkets) {
+      const market = record(rawMarket);
+      const symbol = string(market?.symbol);
+      const feed = string(market?.feed);
+      const quality = string(market?.quality);
+      const observedAt = string(market?.observed_at);
+      if (
+        !symbol ||
+        !symbolPattern.test(symbol) ||
+        marketSymbols.has(symbol) ||
+        !feed ||
+        !quality ||
+        !observedAt ||
+        Number.isNaN(Date.parse(observedAt)) ||
+        !marketPrice(market ?? {})
+      ) {
+        valid = false;
+        break;
+      }
+      marketSymbols.add(symbol);
+      if (
+        !marketObservedAt ||
+        Date.parse(observedAt) < Date.parse(marketObservedAt)
+      ) {
+        marketObservedAt = observedAt;
+      }
+    }
+
+    let investedExposure: ExactDecimal = { units: BigInt(0), scale: 0 };
+    const positionSymbols = new Set<string>();
+    for (const rawPosition of rawPositions) {
+      const position = record(rawPosition);
+      const symbol = string(position?.symbol);
+      const instrument = string(position?.instrument);
+      const quantity = parseDecimal(position?.quantity);
+      const marketValue = parseDecimal(position?.market_value_usd);
+      const performanceStatus = string(position?.performance_status);
+      if (
+        !symbol ||
+        !symbolPattern.test(symbol) ||
+        positionSymbols.has(symbol) ||
+        (instrument !== "EQUITY" && instrument !== "CRYPTO") ||
+        !quantity ||
+        quantity.units < BigInt(0) ||
+        !marketValue ||
+        marketValue.units < BigInt(0) ||
+        (quantity.units > BigInt(0) &&
+          (!marketSymbols.has(symbol) ||
+            (performanceStatus !== "PARTIAL" &&
+              performanceStatus !== "AVAILABLE")))
+      ) {
+        valid = false;
+        break;
+      }
+      positionSymbols.add(symbol);
+      investedExposure = add(investedExposure, marketValue);
+    }
+    if (!valid || !marketObservedAt) {
+      unavailableDecisionCount += 1;
+      continue;
+    }
+
+    const simulatedEquity = add(cash, investedExposure);
+    const totalProfitLoss = subtract(simulatedEquity, startingCash);
+    const totalReturnPercent = percentage(totalProfitLoss, startingCash);
+    if (!totalReturnPercent) {
+      unavailableDecisionCount += 1;
+      continue;
+    }
+    points.push({
+      decisionId,
+      decisionAt,
+      decision,
+      symbol: string(rationale.symbol),
+      side: string(rationale.side),
+      cash: decimalText(cash),
+      investedExposure: decimalText(investedExposure),
+      simulatedEquity: decimalText(simulatedEquity),
+      totalProfitLoss: decimalText(totalProfitLoss),
+      totalReturnPercent: decimalText(totalReturnPercent),
+      provider,
+      marketCount: marketSymbols.size,
+      marketObservedAt,
+    });
+  }
+  points.sort((left, right) => {
+    const order = Date.parse(left.decisionAt) - Date.parse(right.decisionAt);
+    return order || left.decisionId.localeCompare(right.decisionId);
+  });
+  return { points, unavailableDecisionCount };
 }
 
 // Uses one immutable AI decision as a point-in-time valuation set. It never
