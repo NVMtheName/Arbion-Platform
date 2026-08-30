@@ -667,6 +667,7 @@ async function fleetItem(
 
   return {
     id,
+    freshnessObservedAt: observedAt.toISOString(),
     strategyInstanceID: instanceID,
     financialAccountID: accountID,
     capitalBucketID: capitalBucketID || undefined,

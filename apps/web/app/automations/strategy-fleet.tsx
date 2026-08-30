@@ -29,6 +29,7 @@ export type StrategyFleetDecisionInputCoverageSnapshot = {
 
 export type StrategyFleetItem = {
   id: string;
+  freshnessObservedAt?: string;
   strategyInstanceID?: string;
   financialAccountID?: string;
   capitalBucketID?: string;
@@ -491,6 +492,45 @@ export type StrategyFleetPersistentInputGapRegister = {
       gapSampleCount: number;
       firstGapAt?: string;
       latestGapAt?: string;
+    }>;
+  }>;
+};
+
+export type StrategyFleetEvidenceFreshnessState =
+  | "CURRENT"
+  | "NEARING_STALE"
+  | "STALE"
+  | "SESSION_SAFE_WAIT"
+  | "UNAVAILABLE";
+
+export type StrategyFleetEvidenceFreshnessBoard = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  engineCount: number;
+  currentCount: number;
+  nearingStaleCount: number;
+  staleCount: number;
+  safeWaitCount: number;
+  unavailableCount: number;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    state: StrategyFleetEvidenceFreshnessState;
+    intervalMinutes?: number;
+    ageThresholdMinutes?: number;
+    nextDueGraceMinutes: number;
+    followUp: string;
+    evidenceHref: string;
+    metrics: Array<{
+      key: "DECISION" | "MARKET" | "SCHEDULE" | "NEXT_DUE";
+      label: string;
+      state: StrategyFleetEvidenceFreshnessState;
+      timestamp?: string;
+      ageMinutes?: number;
+      minutesUntilDue?: number;
+      thresholdMinutes?: number;
     }>;
   }>;
 };
@@ -2337,6 +2377,200 @@ export function projectStrategyFleetPersistentInputGapRegister(
   };
 }
 
+const evidenceFreshnessGraceMinutes = 5;
+const evidenceFreshnessWarningMinutes = 10;
+
+function exactInstantMillis(value: string | undefined) {
+  if (!value) return undefined;
+  const instant = new Date(value).valueOf();
+  return Number.isFinite(instant) ? instant : undefined;
+}
+
+function evidenceAgeMetric(
+  key: "DECISION" | "MARKET" | "SCHEDULE",
+  label: string,
+  timestamp: string | undefined,
+  observedAt: number | undefined,
+  thresholdMinutes: number | undefined,
+  sessionSafeWait: boolean,
+): StrategyFleetEvidenceFreshnessBoard["engines"][number]["metrics"][number] {
+  const instant = exactInstantMillis(timestamp);
+  if (
+    instant === undefined ||
+    observedAt === undefined ||
+    instant > observedAt ||
+    thresholdMinutes === undefined ||
+    thresholdMinutes <= 0
+  ) {
+    return { key, label, state: "UNAVAILABLE", timestamp };
+  }
+  const exactAgeMinutes = (observedAt - instant) / 60_000;
+  const state: StrategyFleetEvidenceFreshnessState = sessionSafeWait
+    ? "SESSION_SAFE_WAIT"
+    : exactAgeMinutes > thresholdMinutes
+      ? "STALE"
+      : exactAgeMinutes >=
+          Math.max(0, thresholdMinutes - evidenceFreshnessWarningMinutes)
+        ? "NEARING_STALE"
+        : "CURRENT";
+  return {
+    key,
+    label,
+    state,
+    timestamp,
+    ageMinutes: Math.floor(exactAgeMinutes),
+    thresholdMinutes,
+  };
+}
+
+function evidenceNextDueMetric(
+  timestamp: string | undefined,
+  observedAt: number | undefined,
+  sessionSafeWait: boolean,
+): StrategyFleetEvidenceFreshnessBoard["engines"][number]["metrics"][number] {
+  const instant = exactInstantMillis(timestamp);
+  if (instant === undefined || observedAt === undefined) {
+    return {
+      key: "NEXT_DUE",
+      label: "Next guarded cycle",
+      state: "UNAVAILABLE",
+      timestamp,
+      thresholdMinutes: evidenceFreshnessGraceMinutes,
+    };
+  }
+  const exactMinutesUntilDue = (instant - observedAt) / 60_000;
+  const state: StrategyFleetEvidenceFreshnessState = sessionSafeWait
+    ? "SESSION_SAFE_WAIT"
+    : exactMinutesUntilDue > evidenceFreshnessWarningMinutes
+      ? "CURRENT"
+      : exactMinutesUntilDue >= -evidenceFreshnessGraceMinutes
+        ? "NEARING_STALE"
+        : "STALE";
+  return {
+    key: "NEXT_DUE",
+    label: "Next guarded cycle",
+    state,
+    timestamp,
+    minutesUntilDue: Math.floor(exactMinutesUntilDue),
+    thresholdMinutes: evidenceFreshnessGraceMinutes,
+  };
+}
+
+export function projectStrategyFleetEvidenceFreshnessBoard(
+  items: StrategyFleetItem[],
+): StrategyFleetEvidenceFreshnessBoard {
+  const active = items.filter(
+    (item) => isAI(item) && item.instanceStatus === "ACTIVE",
+  );
+  const engines = active.map((item) => {
+    const observedAt = exactInstantMillis(item.freshnessObservedAt);
+    const intervalMinutes = item.runtimeScheduleIntervalMinutes;
+    const ageThresholdMinutes =
+      intervalMinutes !== undefined && intervalMinutes > 0
+        ? intervalMinutes + evidenceFreshnessGraceMinutes
+        : undefined;
+    const nextDueAt = exactInstantMillis(item.nextRunAt);
+    const sessionSafeWait = Boolean(
+      observedAt !== undefined &&
+        nextDueAt !== undefined &&
+        nextDueAt > observedAt &&
+        item.scheduleAvailable === true &&
+        item.scheduleEnabled === true &&
+        item.scheduleStatus === "SKIPPED" &&
+        item.scheduleErrorCode === "OUTSIDE_SESSION" &&
+        item.consecutiveFailures === 0,
+    );
+    const metrics = [
+      evidenceAgeMetric(
+        "DECISION",
+        "Newest AI decision",
+        item.latestDecisionAt,
+        observedAt,
+        ageThresholdMinutes,
+        sessionSafeWait,
+      ),
+      evidenceAgeMetric(
+        "MARKET",
+        "Financial market observation",
+        item.latestDecisionMarketObservedAt,
+        observedAt,
+        ageThresholdMinutes,
+        sessionSafeWait,
+      ),
+      evidenceAgeMetric(
+        "SCHEDULE",
+        "Scheduler completion",
+        item.scheduleLastCompletedAt,
+        observedAt,
+        ageThresholdMinutes,
+        sessionSafeWait,
+      ),
+      evidenceNextDueMetric(item.nextRunAt, observedAt, sessionSafeWait),
+    ];
+    const states = metrics.map((metric) => metric.state);
+    const state: StrategyFleetEvidenceFreshnessState = states.includes(
+      "UNAVAILABLE",
+    )
+      ? "UNAVAILABLE"
+      : sessionSafeWait
+        ? "SESSION_SAFE_WAIT"
+        : states.includes("STALE")
+          ? "STALE"
+          : states.includes("NEARING_STALE")
+            ? "NEARING_STALE"
+            : "CURRENT";
+    const followUp =
+      state === "UNAVAILABLE"
+        ? "Review the saved evidence timestamps before relying on freshness. Arbion will not rerun the model or refresh a provider to fill the gap."
+        : state === "STALE"
+          ? "Review immutable scheduler history. Do not trigger a manual cycle; automatic recovery remains the safe path."
+          : state === "NEARING_STALE"
+            ? "No owner action is required yet. Arbion is watching the next automatic cycle against its exact grace window."
+            : state === "SESSION_SAFE_WAIT"
+              ? "No owner action is required. This engine is safely waiting for its next configured market session."
+              : "No owner action is required. Current saved evidence is inside its exact automatic-cycle freshness window.";
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      state,
+      intervalMinutes,
+      ageThresholdMinutes,
+      nextDueGraceMinutes: evidenceFreshnessGraceMinutes,
+      followUp,
+      evidenceHref: `/automations/${encodeURIComponent(item.id)}#runtime-evidence`,
+      metrics,
+    };
+  });
+  const unavailableCount = engines.filter(
+    (engine) => engine.state === "UNAVAILABLE",
+  ).length;
+  const staleCount = engines.filter(
+    (engine) => engine.state === "STALE",
+  ).length;
+  return {
+    status:
+      engines.length === 0 || unavailableCount > 0
+        ? "UNAVAILABLE"
+        : staleCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    engineCount: engines.length,
+    currentCount: engines.filter((engine) => engine.state === "CURRENT").length,
+    nearingStaleCount: engines.filter(
+      (engine) => engine.state === "NEARING_STALE",
+    ).length,
+    staleCount,
+    safeWaitCount: engines.filter(
+      (engine) => engine.state === "SESSION_SAFE_WAIT",
+    ).length,
+    unavailableCount,
+    engines,
+  };
+}
+
 function healthClass(item: StrategyFleetItem) {
   if (needsReview(item)) return "needs-review";
   return item.instanceStatus === "ACTIVE" ? "healthy" : "neutral";
@@ -3169,6 +3403,150 @@ function StrategyFleetPersistentInputGapRegisterView({
         Up to six owner-scoped saved decisions per engine · no inferred values ·
         no causal claim · no model rerun · no provider refresh · no broker order
         · no live path
+      </footer>
+    </section>
+  );
+}
+
+function evidenceFreshnessStateLabel(
+  state: StrategyFleetEvidenceFreshnessState,
+) {
+  if (state === "NEARING_STALE") return "Nearing stale";
+  if (state === "SESSION_SAFE_WAIT") return "Session-safe wait";
+  return readable(state);
+}
+
+function evidenceFreshnessMetricDetail(
+  metric: StrategyFleetEvidenceFreshnessBoard["engines"][number]["metrics"][number],
+) {
+  if (metric.state === "UNAVAILABLE") return "Exact timing unavailable";
+  if (metric.key === "NEXT_DUE") {
+    const minutes = metric.minutesUntilDue ?? 0;
+    return minutes >= 0
+      ? `Due in ${minutes}m · ${metric.thresholdMinutes}m overdue grace`
+      : `Overdue ${Math.abs(minutes)}m · ${metric.thresholdMinutes}m grace`;
+  }
+  return `Age ${metric.ageMinutes}m · stale after ${metric.thresholdMinutes}m`;
+}
+
+function StrategyFleetEvidenceFreshnessBoardView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const board = projectStrategyFleetEvidenceFreshnessBoard(items);
+  if (board.engineCount === 0) return null;
+  const verified = board.status === "VERIFIED";
+  return (
+    <section
+      className={`strategy-fleet-freshness ${verified ? "is-verified" : "needs-review"}`}
+      aria-labelledby="strategy-fleet-freshness-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">AI EVIDENCE FRESHNESS SLA</p>
+          <h2 id="strategy-fleet-freshness-heading">
+            {board.status === "UNAVAILABLE"
+              ? "An active engine has incomplete freshness evidence."
+              : board.status === "ATTENTION"
+                ? "An active engine crossed its saved-evidence freshness window."
+                : `${board.engineCount} active AI ${board.engineCount === 1 ? "engine is" : "engines are"} current or safely waiting.`}
+          </h2>
+          <p>
+            Exact saved timestamps are measured against each engine&apos;s
+            pinned schedule plus a five-minute completion grace. Future or
+            missing evidence fails closed; market-session waits remain explicit.
+          </p>
+        </div>
+        <span>{verified ? "Freshness verified" : "Review timing"}</span>
+      </header>
+      <dl className="strategy-fleet-freshness-summary">
+        <div>
+          <dt>Current</dt>
+          <dd>{board.currentCount}</dd>
+        </div>
+        <div>
+          <dt>Nearing stale</dt>
+          <dd>{board.nearingStaleCount}</dd>
+        </div>
+        <div>
+          <dt>Stale / unavailable</dt>
+          <dd>{board.staleCount + board.unavailableCount}</dd>
+        </div>
+        <div>
+          <dt>Session-safe waits</dt>
+          <dd>{board.safeWaitCount}</dd>
+        </div>
+      </dl>
+      <ol className="strategy-fleet-freshness-list">
+        {board.engines.map((engine) => (
+          <li
+            className={`is-${engine.state.toLowerCase().replaceAll("_", "-")}`}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{evidenceFreshnessStateLabel(engine.state)}</span>
+            </header>
+            <div className="strategy-fleet-freshness-policy">
+              <strong>
+                {engine.intervalMinutes
+                  ? `${engine.intervalMinutes}-minute pinned cycle`
+                  : "Schedule interval unavailable"}
+              </strong>
+              <span>
+                {engine.ageThresholdMinutes
+                  ? `${engine.ageThresholdMinutes}-minute evidence threshold`
+                  : "Evidence threshold unavailable"}
+              </span>
+              <small>
+                {providerLabel(engine.provider)} ·{" "}
+                {readable(engine.executionMode)} only
+              </small>
+            </div>
+            <dl>
+              {engine.metrics.map((metric) => (
+                <div
+                  className={`is-${metric.state.toLowerCase().replaceAll("_", "-")}`}
+                  key={metric.key}
+                >
+                  <dt>
+                    <span>{metric.label}</span>
+                    <strong>{evidenceFreshnessStateLabel(metric.state)}</strong>
+                  </dt>
+                  <dd>{evidenceFreshnessMetricDetail(metric)}</dd>
+                  <time dateTime={metric.timestamp}>
+                    {readableTime(metric.timestamp)}
+                  </time>
+                </div>
+              ))}
+            </dl>
+            <footer>
+              <span>{engine.followUp}</span>
+              <div>
+                <Link href={engine.evidenceHref}>Open engine evidence →</Link>
+                <Link href="/activity">Decision journal →</Link>
+              </div>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Saved timestamps only · no model rerun · no provider refresh · no manual
+        cycle · no broker order · no live path
       </footer>
     </section>
   );
@@ -4392,6 +4770,10 @@ export function StrategyFleet({
 
       {inventoryAvailable && (
         <StrategyFleetPersistentInputGapRegisterView items={items} />
+      )}
+
+      {inventoryAvailable && (
+        <StrategyFleetEvidenceFreshnessBoardView items={items} />
       )}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}

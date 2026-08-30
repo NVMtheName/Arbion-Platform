@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   projectStrategyFleetAccountIsolation,
   projectStrategyFleetDecisionEvidence,
+  projectStrategyFleetEvidenceFreshnessBoard,
   projectStrategyFleetIdentityIsolation,
   projectStrategyFleetInputCoverageChangeLedger,
   projectStrategyFleetInputCoverageMatrix,
@@ -20,6 +21,7 @@ import {
 
 const coinbaseEngine: StrategyFleetItem = {
   id: "ai-mandate",
+  freshnessObservedAt: "2026-08-26T16:30:00Z",
   strategyInstanceID: "coinbase-shadow-instance",
   financialAccountID: "coinbase-account",
   capitalBucketID: "coinbase-shadow-bucket",
@@ -827,6 +829,158 @@ describe("StrategyFleet", () => {
     );
   });
 
+  it("measures exact saved evidence freshness against the pinned cycle", () => {
+    const board = projectStrategyFleetEvidenceFreshnessBoard([coinbaseEngine]);
+
+    expect(board).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        engineCount: 1,
+        currentCount: 1,
+        nearingStaleCount: 0,
+        staleCount: 0,
+        safeWaitCount: 0,
+        unavailableCount: 0,
+      }),
+    );
+    expect(board.engines[0]).toEqual(
+      expect.objectContaining({
+        state: "CURRENT",
+        intervalMinutes: 60,
+        ageThresholdMinutes: 65,
+        nextDueGraceMinutes: 5,
+      }),
+    );
+    expect(board.engines[0].metrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "DECISION",
+          state: "CURRENT",
+          ageMinutes: 12,
+          thresholdMinutes: 65,
+        }),
+        expect.objectContaining({
+          key: "NEXT_DUE",
+          state: "CURRENT",
+          minutesUntilDue: 47,
+          thresholdMinutes: 5,
+        }),
+      ]),
+    );
+  });
+
+  it("uses exact nearing-stale, stale, and overdue-grace boundaries", () => {
+    const nearing = projectStrategyFleetEvidenceFreshnessBoard([
+      {
+        ...coinbaseEngine,
+        freshnessObservedAt: "2026-08-26T17:12:39Z",
+        nextRunAt: "2026-08-26T17:07:39Z",
+      },
+    ]);
+    expect(nearing.engines[0]).toEqual(
+      expect.objectContaining({ state: "NEARING_STALE" }),
+    );
+    expect(nearing.engines[0].metrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "DECISION",
+          state: "NEARING_STALE",
+          ageMinutes: 55,
+        }),
+        expect.objectContaining({
+          key: "NEXT_DUE",
+          state: "NEARING_STALE",
+          minutesUntilDue: -5,
+        }),
+      ]),
+    );
+
+    const stale = projectStrategyFleetEvidenceFreshnessBoard([
+      {
+        ...coinbaseEngine,
+        freshnessObservedAt: "2026-08-26T17:22:39.001Z",
+        nextRunAt: "2026-08-26T17:17:39Z",
+      },
+    ]);
+    expect(stale).toEqual(
+      expect.objectContaining({ status: "ATTENTION", staleCount: 1 }),
+    );
+    expect(stale.engines[0].metrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "DECISION", state: "STALE" }),
+        expect.objectContaining({ key: "NEXT_DUE", state: "STALE" }),
+      ]),
+    );
+  });
+
+  it("distinguishes an exact market-session safe wait from stale evidence", () => {
+    const board = projectStrategyFleetEvidenceFreshnessBoard([
+      {
+        ...coinbaseEngine,
+        id: "schwab-shadow",
+        title: "Schwab AI Shadow Engine",
+        provider: "schwab",
+        accountName: "Schwab Brokerage ••••1000",
+        freshnessObservedAt: "2026-08-30T17:47:56Z",
+        latestDecisionAt: "2026-08-28T19:35:12Z",
+        latestDecisionMarketObservedAt: "2026-08-28T19:35:10Z",
+        scheduleLastCompletedAt: "2026-08-28T19:35:13Z",
+        scheduleStatus: "SKIPPED",
+        scheduleErrorCode: "OUTSIDE_SESSION",
+        nextRunAt: "2026-08-31T13:35:00Z",
+      },
+    ]);
+
+    expect(board).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        safeWaitCount: 1,
+        staleCount: 0,
+      }),
+    );
+    expect(board.engines[0]).toEqual(
+      expect.objectContaining({
+        state: "SESSION_SAFE_WAIT",
+        followUp: expect.stringContaining("next configured market session"),
+      }),
+    );
+    expect(board.engines[0].metrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "DECISION",
+          state: "SESSION_SAFE_WAIT",
+        }),
+        expect.objectContaining({
+          key: "NEXT_DUE",
+          state: "SESSION_SAFE_WAIT",
+        }),
+      ]),
+    );
+  });
+
+  it("fails freshness closed for missing or future saved timestamps", () => {
+    const board = projectStrategyFleetEvidenceFreshnessBoard([
+      {
+        ...coinbaseEngine,
+        latestDecisionAt: "2026-08-26T16:30:00.001Z",
+        latestDecisionMarketObservedAt: undefined,
+      },
+    ]);
+
+    expect(board).toEqual(
+      expect.objectContaining({
+        status: "UNAVAILABLE",
+        unavailableCount: 1,
+      }),
+    );
+    expect(board.engines[0].metrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "DECISION", state: "UNAVAILABLE" }),
+        expect.objectContaining({ key: "MARKET", state: "UNAVAILABLE" }),
+      ]),
+    );
+  });
+
   it("proves complete immutable trails for abstentions and linked non-live outcomes", () => {
     const paperFill: StrategyFleetItem = {
       ...coinbaseEngine,
@@ -1110,6 +1264,32 @@ describe("StrategyFleet", () => {
     expect(
       within(inputGapRegister).getByRole("link", {
         name: /Review immutable window/i,
+      }),
+    ).toHaveAttribute("href", "/activity");
+    const freshnessBoard = screen.getByRole("region", {
+      name: "1 active AI engine is current or safely waiting.",
+    });
+    expect(freshnessBoard).toHaveTextContent("AI EVIDENCE FRESHNESS SLA");
+    expect(freshnessBoard).toHaveTextContent("Current1");
+    expect(freshnessBoard).toHaveTextContent("60-minute pinned cycle");
+    expect(freshnessBoard).toHaveTextContent("65-minute evidence threshold");
+    expect(freshnessBoard).toHaveTextContent(
+      "Newest AI decisionCurrentAge 12m · stale after 65m",
+    );
+    expect(freshnessBoard).toHaveTextContent(
+      "Next guarded cycleCurrentDue in 47m · 5m overdue grace",
+    );
+    expect(freshnessBoard).toHaveTextContent(
+      "Future or missing evidence fails closed",
+    );
+    expect(
+      within(freshnessBoard).getByRole("link", {
+        name: /Open engine evidence/i,
+      }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#runtime-evidence");
+    expect(
+      within(freshnessBoard).getByRole("link", {
+        name: /Decision journal/i,
       }),
     ).toHaveAttribute("href", "/activity");
     expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(2);
