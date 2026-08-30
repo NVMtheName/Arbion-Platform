@@ -6,6 +6,7 @@ import {
   projectStrategyFleetDecisionEvidence,
   projectStrategyFleetIdentityIsolation,
   projectStrategyFleetOperatingBrief,
+  projectStrategyFleetProvenanceDigest,
   projectStrategyFleetScheduleRecovery,
   projectStrategyFleetScheduleReliability,
   reconciliationFreshWithinTwentyFourHours,
@@ -103,12 +104,26 @@ const coinbaseEngine: StrategyFleetItem = {
   latestDecisionType: "ABSTAIN",
   latestDecisionAt: "2026-08-26T16:17:39Z",
   latestDecisionSymbol: "NONE",
+  latestDecisionSide: "NONE",
   latestDecisionAIProvider: "openai",
   latestDecisionAIModelID: "gpt-5.6-sol",
   latestDecisionAIProfile: "deep",
   latestDecisionLatencyMS: 1842,
   latestDecisionInputUsage: 12540,
   latestDecisionOutputUsage: 422,
+  latestDecisionProposedNotional: "0",
+  latestDecisionFinancialContextComplete: true,
+  latestDecisionFinancialProvider: "coinbase",
+  latestDecisionMarketSymbols: ["BTC", "ETH", "XRP", "SOL"],
+  latestDecisionMarketFeeds: ["rest_ticker"],
+  latestDecisionMarketQualities: ["REAL_TIME_SINGLE_VENUE"],
+  latestDecisionMarketObservedAt: "2026-08-26T16:17:38Z",
+  priorDecisionID: "decision-abstain-prior",
+  priorDecisionType: "ABSTAIN",
+  priorDecisionAt: "2026-08-26T15:17:39Z",
+  priorDecisionSymbol: "NONE",
+  priorDecisionSide: "NONE",
+  priorDecisionProposedNotional: "0.0000000000",
   reconciliationAvailable: true,
   reconciliationComparisonStatus: "MATCHED",
   reconciliationBalancesStatus: "READY",
@@ -304,6 +319,77 @@ describe("StrategyFleet", () => {
         nextStep: "Review AI Shadow Engine schedule health",
         reviewHref: "/automations/ai-mandate#schedule-controls",
         reviewLabel: "Review schedule",
+      }),
+    );
+  });
+
+  it("verifies an attributable decision that held its exact conclusion", () => {
+    const digest = projectStrategyFleetProvenanceDigest([coinbaseEngine]);
+
+    expect(digest).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        engineCount: 1,
+        attributableCount: 1,
+        changedCount: 0,
+        heldCourseCount: 1,
+      }),
+    );
+    expect(digest.engines[0]).toEqual(
+      expect.objectContaining({
+        state: "HELD_COURSE",
+        attributable: true,
+        financialProvider: "coinbase",
+        marketSymbols: ["BTC", "ETH", "XRP", "SOL"],
+      }),
+    );
+  });
+
+  it("reports an exact conclusion change without treating it as authority", () => {
+    const digest = projectStrategyFleetProvenanceDigest([
+      {
+        ...coinbaseEngine,
+        latestDecisionType: "ALLOW_SIMULATED_FILLED",
+        latestDecisionSymbol: "BTC",
+        latestDecisionSide: "BUY",
+        latestDecisionProposedNotional: "50.0000000000",
+      },
+    ]);
+
+    expect(digest).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        attributableCount: 1,
+        changedCount: 1,
+        heldCourseCount: 0,
+      }),
+    );
+    expect(digest.engines[0]).toEqual(
+      expect.objectContaining({
+        state: "CHANGED",
+        followUp: expect.stringContaining("No action is required"),
+      }),
+    );
+  });
+
+  it("fails the provenance digest closed on a financial-provider mismatch", () => {
+    const digest = projectStrategyFleetProvenanceDigest([
+      {
+        ...coinbaseEngine,
+        latestDecisionFinancialProvider: "schwab",
+      },
+    ]);
+
+    expect(digest).toEqual(
+      expect.objectContaining({
+        status: "UNAVAILABLE",
+        attributableCount: 0,
+      }),
+    );
+    expect(digest.engines[0]).toEqual(
+      expect.objectContaining({
+        state: "UNAVAILABLE",
+        followUp: expect.stringContaining("will not rerun the model"),
       }),
     );
   });
@@ -517,6 +603,23 @@ describe("StrategyFleet", () => {
     expect(
       within(operatingBrief).getByRole("link", {
         name: /Open decision journal/i,
+      }),
+    ).toHaveAttribute("href", "/activity");
+    const provenanceDigest = screen.getByRole("region", {
+      name: "1 current AI decision is fully attributable.",
+    });
+    expect(provenanceDigest).toHaveTextContent("DECISION CHANGE + PROVENANCE");
+    expect(provenanceDigest).toHaveTextContent("Held course");
+    expect(provenanceDigest).toHaveTextContent("OpenAI · gpt-5.6-sol · Deep");
+    expect(provenanceDigest).toHaveTextContent("Financial sourceCoinbase");
+    expect(provenanceDigest).toHaveTextContent("BTC · ETH · XRP · SOL");
+    expect(provenanceDigest).toHaveTextContent(
+      "Rest Ticker · Real Time Single Venue",
+    );
+    expect(provenanceDigest).toHaveTextContent("no model rerun");
+    expect(
+      within(provenanceDigest).getByRole("link", {
+        name: /Compare immutable records/i,
       }),
     ).toHaveAttribute("href", "/activity");
     expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(2);

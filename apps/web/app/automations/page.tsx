@@ -82,6 +82,73 @@ function record(value: unknown) {
     : undefined;
 }
 
+function uniqueStrings(values: Array<string | undefined>) {
+  return [
+    ...new Set(values.filter((value): value is string => Boolean(value))),
+  ];
+}
+
+function decisionProvenance(decision: RecordValue | undefined) {
+  const rationale = record(
+    decision?.structured_rationale ?? decision?.StructuredRationale,
+  );
+  const inputEvidence = record(
+    rationale?.input_evidence ?? rationale?.InputEvidence,
+  );
+  const rawMarkets = (inputEvidence?.markets ?? inputEvidence?.Markets) as
+    | RecordValue[]
+    | null
+    | undefined;
+  const marketRecords = asList(rawMarkets);
+  const financialProvider = text(inputEvidence, "provider", "Provider");
+  const marketObservedAt = text(
+    rationale,
+    "market_observed_at",
+    "MarketObservedAt",
+  );
+  const marketSymbols = marketRecords.map((market) =>
+    text(market, "symbol", "Symbol"),
+  );
+  const marketFeeds = marketRecords.map((market) =>
+    text(market, "feed", "Feed"),
+  );
+  const marketQualities = marketRecords.map((market) =>
+    text(market, "quality", "Quality"),
+  );
+  const marketObservationTimes = marketRecords.map((market) =>
+    text(market, "observed_at", "ObservedAt"),
+  );
+  const exactMarketRows = Boolean(
+    Array.isArray(rawMarkets) &&
+      rawMarkets.length > 0 &&
+      marketRecords.length === rawMarkets.length &&
+      marketRecords.every(
+        (_, index) =>
+          marketSymbols[index] &&
+          marketFeeds[index] &&
+          marketQualities[index] &&
+          marketObservationTimes[index] &&
+          !Number.isNaN(new Date(marketObservationTimes[index]!).valueOf()),
+      ) &&
+      new Set(marketSymbols).size === marketSymbols.length,
+  );
+  return {
+    rationale,
+    financialProvider,
+    financialContextComplete: Boolean(
+      inputEvidence &&
+        financialProvider &&
+        marketObservedAt &&
+        !Number.isNaN(new Date(marketObservedAt).valueOf()) &&
+        exactMarketRows,
+    ),
+    marketSymbols: uniqueStrings(marketSymbols),
+    marketFeeds: uniqueStrings(marketFeeds),
+    marketQualities: uniqueStrings(marketQualities),
+    marketObservedAt,
+  };
+}
+
 function exactCapitalCurrency(value: string | undefined) {
   return Boolean(value && /^[A-Z]{3}$/.test(value));
 }
@@ -441,13 +508,15 @@ async function fleetItem(
     decisionResult.payload.financial_provider_called === false &&
     decisionResult.payload.broker_action_available === false &&
     decisionResult.payload.live_execution_available === false;
-  const latestAIDecision = asList(decisionResult.payload?.decisions).find(
+  const aiDecisions = asList(decisionResult.payload?.decisions).filter(
     (decision) => text(decision, "source", "Source") === "AI",
   );
-  const decisionRationale = record(
-    latestAIDecision?.structured_rationale ??
-      latestAIDecision?.StructuredRationale,
-  );
+  const latestAIDecision = aiDecisions[0];
+  const priorAIDecision = aiDecisions[1];
+  const latestDecisionProvenance = decisionProvenance(latestAIDecision);
+  const priorDecisionProvenance = decisionProvenance(priorAIDecision);
+  const decisionRationale = latestDecisionProvenance.rationale;
+  const priorDecisionRationale = priorDecisionProvenance.rationale;
   const reconciliation = reconciliationResult.payload?.reconciliation;
   const reconciliationObservedAt = text(
     reconciliation,
@@ -672,6 +741,32 @@ async function fleetItem(
       decisionRationale,
       "output_usage",
       "OutputUsage",
+    ),
+    latestDecisionProposedNotional: text(
+      decisionRationale,
+      "proposed_notional",
+      "ProposedNotional",
+    ),
+    latestDecisionFinancialContextComplete:
+      latestDecisionProvenance.financialContextComplete,
+    latestDecisionFinancialProvider: latestDecisionProvenance.financialProvider,
+    latestDecisionMarketSymbols: latestDecisionProvenance.marketSymbols,
+    latestDecisionMarketFeeds: latestDecisionProvenance.marketFeeds,
+    latestDecisionMarketQualities: latestDecisionProvenance.marketQualities,
+    latestDecisionMarketObservedAt: latestDecisionProvenance.marketObservedAt,
+    priorDecisionID: text(priorAIDecision, "id", "ID"),
+    priorDecisionType: text(priorAIDecision, "decision_type", "DecisionType"),
+    priorDecisionAt: text(priorAIDecision, "created_at", "CreatedAt"),
+    priorDecisionSymbol:
+      text(priorAIDecision, "symbol", "Symbol") ??
+      text(priorDecisionRationale, "symbol", "Symbol"),
+    priorDecisionSide:
+      text(priorAIDecision, "side", "Side") ??
+      text(priorDecisionRationale, "side", "Side"),
+    priorDecisionProposedNotional: text(
+      priorDecisionRationale,
+      "proposed_notional",
+      "ProposedNotional",
     ),
     reconciliationAvailable: expectsReconciliation
       ? reconciliationAvailable
