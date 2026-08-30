@@ -3,6 +3,14 @@ export type ExactMoney = {
   currency: string;
 };
 
+export type ExactMoneyFormatOptions = {
+  minimumFractionDigits?: number;
+  maximumFractionDigits?: number;
+  signDisplay?: "auto" | "exceptZero";
+  negativeSign?: "-" | "−";
+  unavailable?: string;
+};
+
 type ExactDecimal = {
   units: bigint;
   scale: number;
@@ -80,23 +88,52 @@ export function sumExactMoney(values: ExactMoney[]): ExactMoney | undefined {
   return { amount: decimalText(total), currency };
 }
 
-export function formatExactMoney(value?: ExactMoney) {
-  if (!value) return "Unavailable";
+export function formatExactMoney(
+  value?: ExactMoney,
+  options: ExactMoneyFormatOptions = {},
+) {
+  const unavailable = options.unavailable ?? "Unavailable";
+  if (!value) return unavailable;
   const currency = value.currency.trim().toUpperCase();
   const amount = parseExactDecimal(value.amount);
   if (!amount || !/^[A-Z]{3}$/.test(currency)) {
-    return "Unavailable";
+    return unavailable;
   }
 
-  const minorUnits = roundedMinorUnits(amount, 2);
+  const minimumFractionDigits = options.minimumFractionDigits ?? 2;
+  const maximumFractionDigits = options.maximumFractionDigits ?? 2;
+  if (
+    !Number.isInteger(minimumFractionDigits) ||
+    !Number.isInteger(maximumFractionDigits) ||
+    minimumFractionDigits < 0 ||
+    maximumFractionDigits < minimumFractionDigits ||
+    maximumFractionDigits > 12
+  ) {
+    return unavailable;
+  }
+
+  const minorUnits = roundedMinorUnits(amount, maximumFractionDigits);
   const negative = minorUnits < BigInt(0);
   const absolute = negative ? -minorUnits : minorUnits;
-  const whole = (absolute / BigInt(100))
+  const scale = power10(maximumFractionDigits);
+  const whole = (absolute / scale)
     .toString()
     .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const fraction = String(absolute % BigInt(100)).padStart(2, "0");
-  const formatted = `${whole}.${fraction}`;
+  let fraction =
+    maximumFractionDigits === 0
+      ? ""
+      : String(absolute % scale).padStart(maximumFractionDigits, "0");
+  while (fraction.length > minimumFractionDigits && fraction.endsWith("0")) {
+    fraction = fraction.slice(0, -1);
+  }
+  const formatted = fraction ? `${whole}.${fraction}` : whole;
+  const positive = minorUnits > BigInt(0);
+  const sign = negative
+    ? (options.negativeSign ?? "-")
+    : options.signDisplay === "exceptZero" && positive
+      ? "+"
+      : "";
   return currency === "USD"
-    ? `${negative ? "-" : ""}$${formatted}`
-    : `${negative ? "-" : ""}${currency} ${formatted}`;
+    ? `${sign}$${formatted}`
+    : `${sign}${currency} ${formatted}`;
 }

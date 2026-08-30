@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -101,5 +107,52 @@ describe("PortfolioHoldingsLedger", () => {
     );
     expect(screen.queryByText("BTC")).not.toBeInTheDocument();
     expect(screen.getByText("AAPL")).toBeInTheDocument();
+  });
+
+  it("aggregates holdings exactly and fails mixed currencies closed", () => {
+    const exactHoldings: PortfolioHolding[] = [
+      {
+        ...holdings[0],
+        key: "exact-large",
+        marketValue: {
+          amount: "9007199254740993.005",
+          currency: "USD",
+        },
+      },
+      {
+        ...holdings[1],
+        key: "exact-fraction",
+        marketValue: { amount: "0.005", currency: "USD" },
+      },
+    ];
+    const { rerender } = render(
+      <PortfolioHoldingsLedger holdings={exactHoldings} />,
+    );
+
+    const observedValue = screen
+      .getByText("Observed holdings value")
+      .closest("article");
+    expect(observedValue).not.toBeNull();
+    expect(
+      within(observedValue!).getByText("$9,007,199,254,740,993.01"),
+    ).toBeInTheDocument();
+
+    rerender(
+      <PortfolioHoldingsLedger
+        holdings={[
+          exactHoldings[0],
+          {
+            ...exactHoldings[1],
+            marketValue: { amount: "0.005", currency: "EUR" },
+          },
+        ]}
+      />,
+    );
+    const mixedValue = screen
+      .getByText("Observed holdings value")
+      .closest("article");
+    expect(mixedValue).not.toBeNull();
+    expect(within(mixedValue!).getByText("—")).toBeInTheDocument();
+    expect(mixedValue).toHaveTextContent("2/2 positions valued");
   });
 });

@@ -9,7 +9,7 @@ import {
   OwnerAttentionCenter,
   type OwnerAttentionOverview,
 } from "./owner-attention-center";
-import { formatExactMoney, sumExactMoney } from "./exact-money";
+import { formatExactMoney, sumExactMoney } from "../exact-money";
 
 type DashboardUser = {
   email: string;

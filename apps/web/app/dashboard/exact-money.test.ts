@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatExactMoney, sumExactMoney } from "./exact-money";
+import { formatExactMoney, sumExactMoney } from "../exact-money";
 
 describe("exact dashboard money", () => {
   it("adds decimal account values without binary floating-point drift", () => {
@@ -26,6 +26,34 @@ describe("exact dashboard money", () => {
     expect(formatExactMoney({ amount: "not-a-decimal", currency: "USD" })).toBe(
       "Unavailable",
     );
+    expect(
+      formatExactMoney(
+        { amount: "0.1234564", currency: "USD" },
+        { maximumFractionDigits: 6 },
+      ),
+    ).toBe("$0.123456");
+    expect(
+      formatExactMoney(
+        { amount: "125", currency: "USD" },
+        { maximumFractionDigits: 6, signDisplay: "exceptZero" },
+      ),
+    ).toBe("+$125.00");
+    expect(
+      formatExactMoney(
+        { amount: "-5", currency: "USD" },
+        {
+          maximumFractionDigits: 6,
+          signDisplay: "exceptZero",
+          negativeSign: "−",
+        },
+      ),
+    ).toBe("−$5.00");
+    expect(
+      formatExactMoney(
+        { amount: "1.6", currency: "USD" },
+        { minimumFractionDigits: 0, maximumFractionDigits: 0 },
+      ),
+    ).toBe("$2");
   });
 
   it("fails aggregation closed for mixed, malformed, or unbounded evidence", () => {
