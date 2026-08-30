@@ -69,8 +69,12 @@ export type StrategyFleetItem = {
   evidenceBlockers?: string[];
   currentEvidenceReviewed?: boolean;
   decisionAvailable?: boolean;
+  latestDecisionID?: string;
   latestDecisionType?: string;
   latestDecisionAt?: string;
+  latestDecisionProposedActionID?: string;
+  latestDecisionRiskEvaluationID?: string;
+  latestDecisionExecutionRecordID?: string;
   latestDecisionSymbol?: string;
   latestDecisionSide?: string;
   latestDecisionQuantity?: string;
@@ -153,6 +157,31 @@ export type StrategyFleetScheduleReliability = {
     nextRunAt?: string;
     timingStatus: "ON_SCHEDULE" | "OVERDUE" | "UNAVAILABLE";
     consecutiveFailures: number;
+  }>;
+};
+
+export type StrategyFleetDecisionEvidence = {
+  status: "VERIFIED" | "UNAVAILABLE";
+  engineCount: number;
+  verifiedCount: number;
+  abstentionCount: number;
+  riskEvaluationCount: number;
+  nonLiveRecordCount: number;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    decisionID?: string;
+    decisionType?: string;
+    decisionAt?: string;
+    proposedActionID?: string;
+    riskEvaluationID?: string;
+    executionRecordID?: string;
+    riskDecision?: string;
+    executionStatus?: string;
+    verified: boolean;
   }>;
 };
 
@@ -554,6 +583,97 @@ export function projectStrategyFleetScheduleReliability(
       0,
     ),
     nextRunAt,
+    engines,
+  };
+}
+
+const linkedDecisionContracts: Record<
+  string,
+  { riskDecision: string; executionStatus: string }
+> = {
+  DENY_RISK_DENIED: {
+    riskDecision: "DENY",
+    executionStatus: "RISK_DENIED",
+  },
+  ALLOW_WOULD_HAVE_SUBMITTED: {
+    riskDecision: "ALLOW",
+    executionStatus: "WOULD_HAVE_SUBMITTED",
+  },
+  ALLOW_SIMULATED_FILLED: {
+    riskDecision: "ALLOW",
+    executionStatus: "SIMULATED_FILLED",
+  },
+  ALLOW_SIMULATED_REJECTED: {
+    riskDecision: "ALLOW",
+    executionStatus: "SIMULATED_REJECTED",
+  },
+};
+
+export function projectStrategyFleetDecisionEvidence(
+  items: StrategyFleetItem[],
+): StrategyFleetDecisionEvidence {
+  const active = items.filter(
+    (item) => isAI(item) && item.instanceStatus === "ACTIVE",
+  );
+  const engines = active.map((item) => {
+    const linkedContract = item.latestDecisionType
+      ? linkedDecisionContracts[item.latestDecisionType]
+      : undefined;
+    const abstentionVerified =
+      item.latestDecisionType === "ABSTAIN" &&
+      Boolean(item.latestDecisionID) &&
+      Boolean(item.latestDecisionAt) &&
+      !item.latestDecisionProposedActionID &&
+      !item.latestDecisionRiskEvaluationID &&
+      !item.latestDecisionExecutionRecordID &&
+      !item.latestDecisionRiskDecision &&
+      !item.latestDecisionExecutionStatus;
+    const linkedDecisionVerified = Boolean(
+      linkedContract &&
+        item.latestDecisionID &&
+        item.latestDecisionAt &&
+        item.latestDecisionProposedActionID &&
+        item.latestDecisionRiskEvaluationID &&
+        item.latestDecisionExecutionRecordID &&
+        item.latestDecisionRiskDecision === linkedContract.riskDecision &&
+        item.latestDecisionExecutionStatus === linkedContract.executionStatus,
+    );
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      decisionID: item.latestDecisionID,
+      decisionType: item.latestDecisionType,
+      decisionAt: item.latestDecisionAt,
+      proposedActionID: item.latestDecisionProposedActionID,
+      riskEvaluationID: item.latestDecisionRiskEvaluationID,
+      executionRecordID: item.latestDecisionExecutionRecordID,
+      riskDecision: item.latestDecisionRiskDecision,
+      executionStatus: item.latestDecisionExecutionStatus,
+      verified:
+        item.decisionAvailable === true &&
+        (abstentionVerified || linkedDecisionVerified),
+    };
+  });
+  const verifiedCount = engines.filter((engine) => engine.verified).length;
+  return {
+    status:
+      engines.length > 0 && verifiedCount === engines.length
+        ? "VERIFIED"
+        : "UNAVAILABLE",
+    engineCount: engines.length,
+    verifiedCount,
+    abstentionCount: engines.filter(
+      (engine) => engine.decisionType === "ABSTAIN" && engine.verified,
+    ).length,
+    riskEvaluationCount: engines.filter(
+      (engine) => Boolean(engine.riskEvaluationID) && engine.verified,
+    ).length,
+    nonLiveRecordCount: engines.filter(
+      (engine) => Boolean(engine.executionRecordID) && engine.verified,
+    ).length,
     engines,
   };
 }
@@ -1440,6 +1560,154 @@ function StrategyFleetScheduleWatchtower({
   );
 }
 
+function evidenceID(value?: string) {
+  if (!value) return "Not created";
+  return `${value.slice(0, 8)}…`;
+}
+
+function StrategyFleetDecisionEvidenceChain({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const evidence = projectStrategyFleetDecisionEvidence(items);
+  if (evidence.engineCount === 0) return null;
+  const verified = evidence.status === "VERIFIED";
+  return (
+    <section
+      className={`strategy-fleet-evidence-chain ${verified ? "is-verified" : "needs-review"}`}
+      aria-labelledby="strategy-fleet-evidence-chain-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">IMMUTABLE DECISION TRAILS</p>
+          <h2 id="strategy-fleet-evidence-chain-heading">
+            {verified
+              ? `${evidence.verifiedCount} latest AI ${evidence.verifiedCount === 1 ? "decision has" : "decisions have"} a complete evidence trail.`
+              : "A latest AI decision trail cannot be verified."}
+          </h2>
+          <p>
+            Every current AI conclusion is traced from its sealed journal entry
+            through the deterministic risk gate to a Paper or Shadow result.
+            Abstentions end at the journal without inventing downstream work.
+          </p>
+        </div>
+        <Link href="/activity">Open decision journal →</Link>
+      </header>
+      <dl className="strategy-fleet-evidence-chain-summary">
+        <div>
+          <dt>Verified trails</dt>
+          <dd>
+            {evidence.verifiedCount} / {evidence.engineCount}
+          </dd>
+        </div>
+        <div>
+          <dt>Safe abstentions</dt>
+          <dd>{evidence.abstentionCount}</dd>
+        </div>
+        <div>
+          <dt>Risk evaluations</dt>
+          <dd>{evidence.riskEvaluationCount}</dd>
+        </div>
+        <div>
+          <dt>Non-live records</dt>
+          <dd>{evidence.nonLiveRecordCount}</dd>
+        </div>
+      </dl>
+      <ol className="strategy-fleet-evidence-chain-list">
+        {evidence.engines.map((engine) => (
+          <li
+            className={engine.verified ? "is-verified" : "needs-review"}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{engine.verified ? "Trail verified" : "Review"}</span>
+            </header>
+            <dl>
+              <div>
+                <dt>01 · Journal</dt>
+                <dd>
+                  {latestDecisionLabel(engine.decisionType ?? "UNAVAILABLE")}
+                </dd>
+                <small>{evidenceID(engine.decisionID)}</small>
+              </div>
+              <div>
+                <dt>02 · Proposal</dt>
+                <dd>
+                  {engine.decisionType === "ABSTAIN"
+                    ? "None by design"
+                    : engine.proposedActionID
+                      ? "Recorded"
+                      : "Unavailable"}
+                </dd>
+                <small>
+                  {engine.decisionType === "ABSTAIN"
+                    ? "AI chose no action"
+                    : evidenceID(engine.proposedActionID)}
+                </small>
+              </div>
+              <div>
+                <dt>03 · Risk gate</dt>
+                <dd>
+                  {engine.decisionType === "ABSTAIN"
+                    ? "Not reached"
+                    : engine.riskDecision
+                      ? readable(engine.riskDecision)
+                      : "Unavailable"}
+                </dd>
+                <small>
+                  {engine.decisionType === "ABSTAIN"
+                    ? "No proposal to evaluate"
+                    : evidenceID(engine.riskEvaluationID)}
+                </small>
+              </div>
+              <div>
+                <dt>04 · Non-live result</dt>
+                <dd>
+                  {engine.decisionType === "ABSTAIN"
+                    ? "No record needed"
+                    : engine.executionStatus
+                      ? latestExecutionLabel(engine.executionStatus)
+                      : "Unavailable"}
+                </dd>
+                <small>
+                  {engine.decisionType === "ABSTAIN"
+                    ? "Terminal safe decision"
+                    : evidenceID(engine.executionRecordID)}
+                </small>
+              </div>
+            </dl>
+            <footer>
+              <time dateTime={engine.decisionAt}>
+                {readableTime(engine.decisionAt)}
+              </time>
+              <span>No credential data · no broker instruction</span>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Owner-scoped immutable evidence only · no model rerun · no provider call
+        · no live execution path
+      </footer>
+    </section>
+  );
+}
+
 function capitalPolicyLabel(item: StrategyFleetItem) {
   if (item.capitalAllocationType === "PERCENT_OF_AVAILABLE_CASH")
     return `${conciseCapitalDecimal(item.capitalAllocationValue) ?? "Unavailable"}% of available cash`;
@@ -2062,6 +2330,10 @@ export function StrategyFleet({
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}
 
       {inventoryAvailable && <StrategyFleetScheduleWatchtower items={items} />}
+
+      {inventoryAvailable && (
+        <StrategyFleetDecisionEvidenceChain items={items} />
+      )}
 
       {inventoryAvailable && ordered.length > 0 && (
         <section

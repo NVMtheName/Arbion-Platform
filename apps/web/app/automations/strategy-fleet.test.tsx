@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   projectStrategyFleetAccountIsolation,
+  projectStrategyFleetDecisionEvidence,
   projectStrategyFleetIdentityIsolation,
   projectStrategyFleetScheduleReliability,
   reconciliationFreshWithinTwentyFourHours,
@@ -82,6 +83,7 @@ const coinbaseEngine: StrategyFleetItem = {
   ],
   currentEvidenceReviewed: false,
   decisionAvailable: true,
+  latestDecisionID: "decision-abstain",
   latestDecisionType: "ABSTAIN",
   latestDecisionAt: "2026-08-26T16:17:39Z",
   latestDecisionSymbol: "NONE",
@@ -182,6 +184,59 @@ describe("StrategyFleet", () => {
         status: "ATTENTION",
         healthyCount: 0,
         overdueCount: 1,
+      }),
+    );
+  });
+
+  it("proves complete immutable trails for abstentions and linked non-live outcomes", () => {
+    const paperFill: StrategyFleetItem = {
+      ...coinbaseEngine,
+      id: "paper-mandate",
+      strategyInstanceID: "paper-instance",
+      capitalBucketID: "paper-bucket",
+      capitalReservationID: "paper-reservation",
+      title: "AI Paper Engine",
+      executionMode: "PAPER",
+      latestDecisionID: "paper-decision",
+      latestDecisionType: "ALLOW_SIMULATED_FILLED",
+      latestDecisionProposedActionID: "paper-action",
+      latestDecisionRiskEvaluationID: "paper-risk",
+      latestDecisionExecutionRecordID: "paper-execution",
+      latestDecisionRiskDecision: "ALLOW",
+      latestDecisionExecutionStatus: "SIMULATED_FILLED",
+    };
+
+    expect(
+      projectStrategyFleetDecisionEvidence([coinbaseEngine, paperFill]),
+    ).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        engineCount: 2,
+        verifiedCount: 2,
+        abstentionCount: 1,
+        riskEvaluationCount: 1,
+        nonLiveRecordCount: 1,
+      }),
+    );
+  });
+
+  it("fails immutable trail proof closed when a linked record identity is missing", () => {
+    const incomplete = {
+      ...coinbaseEngine,
+      latestDecisionType: "ALLOW_WOULD_HAVE_SUBMITTED",
+      latestDecisionProposedActionID: "shadow-action",
+      latestDecisionRiskEvaluationID: "shadow-risk",
+      latestDecisionExecutionRecordID: undefined,
+      latestDecisionRiskDecision: "ALLOW",
+      latestDecisionExecutionStatus: "WOULD_HAVE_SUBMITTED",
+    };
+
+    expect(projectStrategyFleetDecisionEvidence([incomplete])).toEqual(
+      expect.objectContaining({
+        status: "UNAVAILABLE",
+        engineCount: 1,
+        verifiedCount: 0,
+        nonLiveRecordCount: 0,
       }),
     );
   });
@@ -336,6 +391,24 @@ describe("StrategyFleet", () => {
     expect(watchtower).toHaveTextContent(
       "Paper or Shadow only · no manual cycle · no broker order",
     );
+    const decisionTrails = screen.getByRole("region", {
+      name: "1 latest AI decision has a complete evidence trail.",
+    });
+    expect(decisionTrails).toHaveTextContent("Verified trails1 / 1");
+    expect(decisionTrails).toHaveTextContent("Safe abstentions1");
+    expect(decisionTrails).toHaveTextContent("Risk evaluations0");
+    expect(decisionTrails).toHaveTextContent("Non-live records0");
+    expect(decisionTrails).toHaveTextContent("None by design");
+    expect(decisionTrails).toHaveTextContent("No proposal to evaluate");
+    expect(decisionTrails).toHaveTextContent("Terminal safe decision");
+    expect(decisionTrails).toHaveTextContent(
+      "no model rerun · no provider call · no live execution path",
+    );
+    expect(
+      within(decisionTrails).getByRole("link", {
+        name: /Open decision journal/i,
+      }),
+    ).toHaveAttribute("href", "/activity");
     const runtimeContract = screen.getByRole("region", {
       name: "AI Shadow Engine immutable runtime contract",
     });
@@ -454,8 +527,15 @@ describe("StrategyFleet", () => {
     expect(dataHealth).toHaveTextContent("Broker portfolioNot used by Paper");
     expect(dataHealth).toHaveTextContent("Isolated Arbion simulation");
     expect(dataHealth).toHaveTextContent("no broker positions, cash, or order");
-    expect(screen.getByText("Simulated fill")).toBeInTheDocument();
-    expect(screen.getByText("Paper simulated fill only")).toBeInTheDocument();
+    const decisionPulse = screen.getByRole("region", {
+      name: "AI Paper Engine latest AI decision",
+    });
+    expect(
+      within(decisionPulse).getByText("Simulated fill"),
+    ).toBeInTheDocument();
+    expect(
+      within(decisionPulse).getByText("Paper simulated fill only"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("region", {
         name: /AI Paper Engine Shadow evidence/i,
