@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   compareExactDecimals,
+  divideExactDecimals,
   exactDecimalSign,
   formatExactDecimal,
   formatExactMoney,
   projectExactDecimalRange,
+  multiplyExactDecimals,
+  subtractExactDecimals,
   sumExactMoney,
 } from "../exact-money";
 
@@ -99,5 +102,15 @@ describe("exact dashboard money", () => {
       ]),
     ).toEqual([0, 0.5, 1]);
     expect(projectExactDecimalRange(["1", "malformed"])).toBeUndefined();
+  });
+
+  it("calculates bounded financial scenarios without floating-point drift", () => {
+    expect(multiplyExactDecimals("100.0000000000", "3")).toBe("300");
+    expect(multiplyExactDecimals("0.1", "0.2")).toBe("0.02");
+    expect(subtractExactDecimals("1000.0000000000", "0.1")).toBe("999.9");
+    expect(divideExactDecimals("100", "3", 8)).toBe("33.33333333");
+    expect(divideExactDecimals("-1", "8", 2)).toBe("-0.13");
+    expect(divideExactDecimals("1", "0", 8)).toBeUndefined();
+    expect(divideExactDecimals("1", "3", 13)).toBeUndefined();
   });
 });

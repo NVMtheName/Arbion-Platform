@@ -64,6 +64,11 @@ function add(left: ExactDecimal, right: ExactDecimal): ExactDecimal {
   });
 }
 
+function boundedDecimalText(value: ExactDecimal) {
+  const text = decimalText(normalize(value));
+  return parseExactDecimal(text) ? text : undefined;
+}
+
 function roundedMinorUnits(value: ExactDecimal, fractionDigits: number) {
   if (value.scale <= fractionDigits) {
     return value.units * power10(fractionDigits - value.scale);
@@ -183,6 +188,61 @@ export function compareExactDecimals(left: string, right: string) {
   const rightUnits = rightAmount.units * power10(scale - rightAmount.scale);
   if (leftUnits === rightUnits) return 0;
   return leftUnits > rightUnits ? 1 : -1;
+}
+
+export function multiplyExactDecimals(left: string, right: string) {
+  const leftAmount = parseExactDecimal(left);
+  const rightAmount = parseExactDecimal(right);
+  if (!leftAmount || !rightAmount) return;
+  return boundedDecimalText({
+    units: leftAmount.units * rightAmount.units,
+    scale: leftAmount.scale + rightAmount.scale,
+  });
+}
+
+export function subtractExactDecimals(left: string, right: string) {
+  const leftAmount = parseExactDecimal(left);
+  const rightAmount = parseExactDecimal(right);
+  if (!leftAmount || !rightAmount) return;
+  return boundedDecimalText(
+    add(leftAmount, { units: -rightAmount.units, scale: rightAmount.scale }),
+  );
+}
+
+export function divideExactDecimals(
+  numerator: string,
+  denominator: string,
+  maximumFractionDigits = 12,
+) {
+  const numeratorAmount = parseExactDecimal(numerator);
+  const denominatorAmount = parseExactDecimal(denominator);
+  if (
+    !numeratorAmount ||
+    !denominatorAmount ||
+    denominatorAmount.units === BigInt(0) ||
+    !Number.isInteger(maximumFractionDigits) ||
+    maximumFractionDigits < 0 ||
+    maximumFractionDigits > 12
+  ) {
+    return;
+  }
+
+  let scaledNumerator =
+    numeratorAmount.units *
+    power10(denominatorAmount.scale + maximumFractionDigits);
+  let scaledDenominator =
+    denominatorAmount.units * power10(numeratorAmount.scale);
+  if (scaledDenominator < BigInt(0)) {
+    scaledNumerator = -scaledNumerator;
+    scaledDenominator = -scaledDenominator;
+  }
+  let quotient = scaledNumerator / scaledDenominator;
+  const remainder = scaledNumerator % scaledDenominator;
+  const absoluteRemainder = remainder < BigInt(0) ? -remainder : remainder;
+  if (absoluteRemainder * BigInt(2) >= scaledDenominator) {
+    quotient += scaledNumerator < BigInt(0) ? -BigInt(1) : BigInt(1);
+  }
+  return boundedDecimalText({ units: quotient, scale: maximumFractionDigits });
 }
 
 // Projects exact decimal values onto a bounded 0..1 visual range. BigInt does

@@ -199,6 +199,62 @@ describe("Strategy Simulation Workbench", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps large exact boundaries out of browser floating-point math", () => {
+    const exactVersions = structuredClone(versions);
+    exactVersions[1].Snapshot.strategy_parameters.max_proposal_notional =
+      "9007199254740993.01";
+    render(
+      <StrategySimulationWorkbench
+        automationId="mandate-exact"
+        capitalBucket={{
+          Name: "Exact capital policy",
+          AllocationType: "FIXED_AMOUNT",
+          AllocationValue: "9007199254740993.01",
+          ProtectedAmount: "0.01",
+        }}
+        currentVersion={2}
+        decisions={[
+          {
+            Source: "AI",
+            StructuredRationale: {
+              input_evidence: {
+                markets: [
+                  {
+                    symbol: "SPY",
+                    mark: "0.1",
+                    feed: "schwab_market_data",
+                    quality: "broker_realtime",
+                  },
+                ],
+              },
+            },
+          },
+        ]}
+        status="READY"
+        versions={exactVersions}
+      />,
+    );
+
+    expect(
+      screen.getAllByText("$9,007,199,254,740,993.01").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("$9,007,199,254,740,993.00")).toBeInTheDocument();
+    expect(
+      screen.getByText("90,071,992,547,409,930.1 SPY"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("EXCEEDS STATIC CAPACITY")).toBeInTheDocument();
+
+    fireEvent.change(
+      screen.getByRole("spinbutton", {
+        name: "Scenario per-decision ceiling",
+      }),
+      { target: { value: "9007199254740993.0100" } },
+    );
+    expect(
+      screen.getByRole("button", { name: "Review as new DRAFT" }),
+    ).toBeDisabled();
+  });
+
   it("keeps an honest empty state before the first mandate version", () => {
     render(<StrategySimulationWorkbench currentVersion={0} versions={[]} />);
     expect(
