@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   calculatePaperPerformance,
+  extractPaperPerformanceHistory,
   extractLatestPaperMarketSnapshots,
 } from "./paper-performance";
 
@@ -119,5 +120,93 @@ describe("Paper performance", () => {
     );
 
     expect(performance).toEqual({ status: "UNAVAILABLE", positions: [] });
+  });
+
+  it("derives exact chronological history only from complete Paper decisions", () => {
+    const history = extractPaperPerformanceHistory(
+      [
+        {
+          id: "later",
+          source: "AI",
+          created_at: "2026-08-30T02:28:30Z",
+          structured_rationale: {
+            execution_mode: "PAPER",
+            decision: "ABSTAIN",
+            input_evidence: {
+              provider: "coinbase",
+              available_cash_usd: "975.0000077919",
+              positions: [
+                {
+                  symbol: "BTC",
+                  instrument: "CRYPTO",
+                  quantity: "0.0003177277",
+                  market_value_usd: "24.8139482347",
+                  performance_status: "PARTIAL",
+                },
+              ],
+              markets: [
+                {
+                  symbol: "BTC",
+                  mark: "78098.31",
+                  feed: "rest_ticker",
+                  quality: "REAL_TIME_SINGLE_VENUE",
+                  observed_at: "2026-08-30T02:28:29Z",
+                },
+              ],
+            },
+          },
+        },
+        {
+          id: "earlier",
+          source: "AI",
+          created_at: "2026-08-29T21:27:00Z",
+          structured_rationale: {
+            execution_mode: "PAPER",
+            decision: "PROPOSE",
+            symbol: "BTC",
+            side: "BUY",
+            input_evidence: {
+              provider: "coinbase",
+              available_cash_usd: "1000",
+              positions: [],
+              markets: [
+                {
+                  symbol: "BTC",
+                  mark: "78097",
+                  feed: "rest_ticker",
+                  quality: "REAL_TIME_SINGLE_VENUE",
+                  observed_at: "2026-08-29T21:26:59Z",
+                },
+              ],
+            },
+          },
+        },
+        {
+          id: "incomplete",
+          source: "AI",
+          created_at: "2026-08-30T03:28:30Z",
+          structured_rationale: {
+            execution_mode: "PAPER",
+            decision: "ABSTAIN",
+            input_evidence: { provider: "coinbase" },
+          },
+        },
+      ],
+      "1000.0000000000",
+    );
+
+    expect(history.unavailableDecisionCount).toBe(1);
+    expect(history.points.map((point) => point.decisionId)).toEqual([
+      "earlier",
+      "later",
+    ]);
+    expect(history.points[1]).toMatchObject({
+      simulatedEquity: "999.8139560266",
+      investedExposure: "24.8139482347",
+      totalProfitLoss: "-0.1860439734",
+      totalReturnPercent: "-0.0186",
+      provider: "coinbase",
+      marketCount: 1,
+    });
   });
 });

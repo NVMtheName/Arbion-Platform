@@ -247,7 +247,7 @@ export default async function MandateReview({
     ? await Promise.all(
         [
           "history?limit=16",
-          "decisions?limit=24",
+          "decisions?limit=50",
           "executions?limit=16",
           "shadow-scorecard",
           "shadow-evidence-reviews?limit=8",
@@ -278,6 +278,9 @@ export default async function MandateReview({
       ? (decisions.decisions as Record<string, unknown>[])
       : [],
   );
+  const paperDecisions = Array.isArray(decisions.decisions)
+    ? (decisions.decisions as Record<string, unknown>[])
+    : [];
   const capitalReservation = capitalReservationResponse.capital_reservation as
     | Record<string, unknown>
     | undefined;
@@ -849,6 +852,7 @@ export default async function MandateReview({
           executionMode={read("execution_mode", "ExecutionMode")}
           fills={paperFills}
           markets={paperMarketSnapshots}
+          decisions={paperDecisions}
         />
       )}
       {read("execution_mode", "ExecutionMode") === "SHADOW" && (
