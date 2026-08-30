@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { AppPageHeader } from "../../app-page-header";
+import { formatExactMoney } from "../../exact-money";
 import {
   AccountCircuitBreakerControls,
   type AccountCircuitBreaker,
@@ -56,13 +57,7 @@ type Position = {
   open_profit_loss_percent?: string;
   price_basis?: string;
 };
-const show = (m?: Money) =>
-  m
-    ? new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: m.currency,
-      }).format(Number(m.amount))
-    : "Unavailable";
+const show = (money?: Money) => formatExactMoney(money);
 export default async function AccountPage({
   params,
 }: {

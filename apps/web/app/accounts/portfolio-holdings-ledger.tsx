@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import { formatExactMoney, sumExactMoney } from "../exact-money";
+
 export type HoldingMoney = { amount: string; currency: string };
 
 export type PortfolioHolding = {
@@ -34,16 +36,12 @@ function numeric(value?: string) {
 }
 
 function money(value?: HoldingMoney, signed = false) {
-  if (!value) return "—";
-  const parsed = numeric(value.amount);
-  if (parsed === undefined) return `${value.amount} ${value.currency}`;
-  const formatted = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: value.currency,
-    maximumFractionDigits: Math.abs(parsed) < 1 ? 6 : 2,
-  }).format(Math.abs(parsed));
-  if (!signed || parsed === 0) return parsed < 0 ? `-${formatted}` : formatted;
-  return `${parsed > 0 ? "+" : "−"}${formatted}`;
+  return formatExactMoney(value, {
+    maximumFractionDigits: 6,
+    signDisplay: signed ? "exceptZero" : "auto",
+    negativeSign: signed ? "−" : "-",
+    unavailable: "—",
+  });
 }
 
 function decimal(value: string) {
@@ -81,21 +79,13 @@ function sumMoney(
   holdings: PortfolioHolding[],
   select: (holding: PortfolioHolding) => HoldingMoney | undefined,
 ) {
-  let currency = "";
-  let amount = 0;
-  let coverage = 0;
-  for (const holding of holdings) {
-    const selected = select(holding);
-    const parsed = numeric(selected?.amount);
-    if (!selected || parsed === undefined) continue;
-    if (currency && selected.currency !== currency) continue;
-    currency = selected.currency;
-    amount += parsed;
-    coverage += 1;
-  }
-  return currency
-    ? { money: { amount: String(amount), currency }, coverage }
-    : { money: undefined, coverage: 0 };
+  const selected = holdings
+    .map(select)
+    .filter((value): value is HoldingMoney => Boolean(value));
+  return {
+    money: sumExactMoney(selected),
+    coverage: selected.length,
+  };
 }
 
 export function PortfolioHoldingsLedger({
