@@ -319,6 +319,7 @@ async def test_openai_shadow_decision_is_structured_tool_free_and_bounded() -> N
         assert body["model"] == "gpt-5.6-sol"
         assert body["store"] is False
         assert body["reasoning"] == {"effort": "high"}
+        assert body["max_output_tokens"] == 1200
         assert body["text"]["format"]["strict"] is True
         assert body["text"]["format"]["schema"]["additionalProperties"] is False
         assert "tools" not in body
@@ -404,7 +405,44 @@ async def test_openai_shadow_decision_rejects_symbol_outside_mandate() -> None:
     async with client(transport) as http:
         with pytest.raises(NeuralProviderError) as caught:
             await OpenAIProvider(http).propose_shadow("secret-value", "deep", context, "a" * 64)
-    assert caught.value.code == ErrorCode.INTERNAL_ERROR
+    assert caught.value.code == ErrorCode.DECISION_CONTRACT_INVALID
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        ({"status": "incomplete", "output": []}, ErrorCode.RESPONSE_INCOMPLETE),
+        (
+            {"status": "completed", "output": []},
+            ErrorCode.STRUCTURED_OUTPUT_MISSING,
+        ),
+        (
+            {
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "not-json"}],
+                    }
+                ],
+            },
+            ErrorCode.STRUCTURED_OUTPUT_INVALID,
+        ),
+    ],
+)
+async def test_openai_shadow_decision_classifies_safe_response_failure_stage(
+    response: dict[str, object], expected: ErrorCode
+) -> None:
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=response))
+    context: dict[str, object] = {
+        "allowed_symbols": ["BTC"],
+        "max_proposal_notional": "1",
+    }
+    async with client(transport) as http:
+        with pytest.raises(NeuralProviderError) as caught:
+            await OpenAIProvider(http).propose_shadow("secret-value", "deep", context, "a" * 64)
+    assert caught.value.code == expected
 
 
 @pytest.mark.asyncio
