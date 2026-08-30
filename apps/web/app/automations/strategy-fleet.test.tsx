@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   projectStrategyFleetAccountIsolation,
+  projectStrategyFleetAutomaticCycleSLOHistory,
   projectStrategyFleetDecisionEvidence,
   projectStrategyFleetEvidenceFreshnessBoard,
   projectStrategyFleetIdentityIsolation,
@@ -981,6 +982,139 @@ describe("StrategyFleet", () => {
     );
   });
 
+  it("measures exact automatic-cycle SLO history and preserves recovery", () => {
+    const history = projectStrategyFleetAutomaticCycleSLOHistory([
+      {
+        ...coinbaseEngine,
+        scheduleRecentRuns: [
+          ...coinbaseEngine.scheduleRecentRuns!,
+          {
+            id: "schedule-run-failed",
+            scheduledFor: "2026-08-26T15:17:00Z",
+            completedAt: "2026-08-26T15:17:05Z",
+            nextRunAt: "2026-08-26T16:17:00Z",
+            status: "FAILED",
+            errorCode: "AI_PROVIDER_UNAVAILABLE",
+            duplicateRecovered: false,
+            consecutiveFailures: 1,
+          },
+        ],
+      },
+    ]);
+
+    expect(history).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        engineCount: 1,
+        verifiedCount: 1,
+        recoveredCount: 1,
+        totalSampleCount: 2,
+        totalFailureCount: 1,
+        totalSafeWaitCount: 0,
+      }),
+    );
+    expect(history.engines[0]).toEqual(
+      expect.objectContaining({
+        state: "RECOVERED",
+        sampleCount: 2,
+        successCount: 1,
+        successRatePercent: 50,
+        sloAttainmentCount: 2,
+        sloAttainmentPercent: 100,
+        latestLatencySeconds: 39,
+        averageLatencySeconds: 22,
+        maximumLatencySeconds: 39,
+        latestBreachAt: "2026-08-26T15:17:05Z",
+        latestRecoveryAt: "2026-08-26T16:17:39Z",
+      }),
+    );
+  });
+
+  it("uses the exact five-minute completion boundary", () => {
+    const atBoundary: StrategyFleetItem = {
+      ...coinbaseEngine,
+      scheduleRecentRuns: [
+        {
+          ...coinbaseEngine.scheduleRecentRuns![0],
+          scheduledFor: "2026-08-26T16:12:39Z",
+        },
+      ],
+    };
+    const inside = projectStrategyFleetAutomaticCycleSLOHistory([atBoundary]);
+    expect(inside.engines[0]).toEqual(
+      expect.objectContaining({
+        state: "STABLE",
+        latestLatencySeconds: 300,
+        sloAttainmentPercent: 100,
+      }),
+    );
+
+    const breached = projectStrategyFleetAutomaticCycleSLOHistory([
+      {
+        ...atBoundary,
+        scheduleRecentRuns: [
+          {
+            ...atBoundary.scheduleRecentRuns![0],
+            scheduledFor: "2026-08-26T16:12:38.999Z",
+          },
+        ],
+      },
+    ]);
+    expect(breached).toEqual(
+      expect.objectContaining({ status: "ATTENTION", attentionCount: 1 }),
+    );
+    expect(breached.engines[0]).toEqual(
+      expect.objectContaining({
+        state: "ATTENTION",
+        latestLatencySeconds: 300.001,
+        sloAttainmentPercent: 0,
+      }),
+    );
+  });
+
+  it("classifies an exact session wait and fails future history closed", () => {
+    const safeWait = projectStrategyFleetAutomaticCycleSLOHistory([
+      {
+        ...coinbaseEngine,
+        scheduleStatus: "SKIPPED",
+        scheduleErrorCode: "OUTSIDE_SESSION",
+        scheduleRecentRuns: [
+          {
+            ...coinbaseEngine.scheduleRecentRuns![0],
+            status: "SKIPPED",
+            errorCode: "OUTSIDE_SESSION",
+          },
+        ],
+      },
+    ]);
+    expect(safeWait).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        totalSafeWaitCount: 1,
+      }),
+    );
+    expect(safeWait.engines[0]).toEqual(
+      expect.objectContaining({ state: "SAFE_WAIT", successRatePercent: 0 }),
+    );
+
+    const unavailable = projectStrategyFleetAutomaticCycleSLOHistory([
+      {
+        ...coinbaseEngine,
+        scheduleLastCompletedAt: "2026-08-26T16:30:00.001Z",
+        scheduleRecentRuns: [
+          {
+            ...coinbaseEngine.scheduleRecentRuns![0],
+            completedAt: "2026-08-26T16:30:00.001Z",
+          },
+        ],
+      },
+    ]);
+    expect(unavailable).toEqual(
+      expect.objectContaining({ status: "UNAVAILABLE", verifiedCount: 0 }),
+    );
+    expect(unavailable.engines[0].state).toBe("UNAVAILABLE");
+  });
+
   it("proves complete immutable trails for abstentions and linked non-live outcomes", () => {
     const paperFill: StrategyFleetItem = {
       ...coinbaseEngine,
@@ -1292,6 +1426,22 @@ describe("StrategyFleet", () => {
         name: /Decision journal/i,
       }),
     ).toHaveAttribute("href", "/activity");
+    const sloHistory = screen.getByRole("region", {
+      name: "1 active AI engine has verified cycle history.",
+    });
+    expect(sloHistory).toHaveTextContent("AUTOMATIC CYCLE SLO HISTORY");
+    expect(sloHistory).toHaveTextContent("Saved samples1");
+    expect(sloHistory).toHaveTextContent("Scheduler success100%");
+    expect(sloHistory).toHaveTextContent("Five-minute SLO100%");
+    expect(sloHistory).toHaveTextContent(
+      "Completion latency39sLatest · average 39s · maximum 39s",
+    );
+    expect(sloHistory).toHaveTextContent(
+      "no manual cycle · no model rerun · no provider refresh",
+    );
+    expect(
+      within(sloHistory).getByRole("link", { name: /Scheduler evidence/i }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
     expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(2);
     expect(screen.getAllByText("gpt-5.6-sol")).toHaveLength(2);
     expect(screen.getAllByText("BTC · ETH · XRP +1")).toHaveLength(2);

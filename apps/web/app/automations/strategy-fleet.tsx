@@ -535,6 +535,42 @@ export type StrategyFleetEvidenceFreshnessBoard = {
   }>;
 };
 
+export type StrategyFleetAutomaticCycleSLOHistory = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  engineCount: number;
+  verifiedCount: number;
+  attentionCount: number;
+  recoveredCount: number;
+  totalSampleCount: number;
+  totalFailureCount: number;
+  totalSafeWaitCount: number;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    state: "STABLE" | "RECOVERED" | "SAFE_WAIT" | "ATTENTION" | "UNAVAILABLE";
+    verified: boolean;
+    sampleCount: number;
+    successCount: number;
+    successRatePercent?: number;
+    sloAttainmentCount: number;
+    sloAttainmentPercent?: number;
+    failureCount: number;
+    safeWaitCount: number;
+    latestLatencySeconds?: number;
+    averageLatencySeconds?: number;
+    maximumLatencySeconds?: number;
+    latestBreachAt?: string;
+    latestRecoveryAt?: string;
+    windowStartedAt?: string;
+    windowEndedAt?: string;
+    followUp: string;
+    evidenceHref: string;
+  }>;
+};
+
 function providerLabel(provider: string) {
   if (provider === "coinbase") return "Coinbase";
   if (provider === "schwab") return "Charles Schwab";
@@ -2571,6 +2607,197 @@ export function projectStrategyFleetEvidenceFreshnessBoard(
   };
 }
 
+const automaticCycleSLOMilliseconds = 5 * 60 * 1000;
+
+function exactPercent(numerator: number, denominator: number) {
+  if (denominator <= 0) return undefined;
+  return Math.round((numerator / denominator) * 10_000) / 100;
+}
+
+export function projectStrategyFleetAutomaticCycleSLOHistory(
+  items: StrategyFleetItem[],
+): StrategyFleetAutomaticCycleSLOHistory {
+  const active = items.filter(
+    (item) =>
+      isAI(item) &&
+      item.instanceStatus === "ACTIVE" &&
+      item.runtimeScheduleEnabled === true,
+  );
+  const engines = active.map((item) => {
+    const observedAt = exactInstantMillis(item.freshnessObservedAt);
+    const recentRuns = item.scheduleRecentRuns ?? [];
+    const latest = recentRuns[0];
+    const parsed = recentRuns.map((run) => {
+      const scheduledFor = exactInstantMillis(run.scheduledFor);
+      const completedAt = exactInstantMillis(run.completedAt);
+      return {
+        run,
+        scheduledFor,
+        completedAt,
+        latency:
+          scheduledFor !== undefined && completedAt !== undefined
+            ? completedAt - scheduledFor
+            : undefined,
+      };
+    });
+    const verified = Boolean(
+      item.scheduleHistoryAvailable === true &&
+        observedAt !== undefined &&
+        recentRuns.length > 0 &&
+        recentRuns.length <= 12 &&
+        recentRuns.every(validScheduleRunEvidence) &&
+        parsed.every(
+          (sample) =>
+            sample.scheduledFor !== undefined &&
+            sample.completedAt !== undefined &&
+            sample.latency !== undefined &&
+            sample.latency >= 0 &&
+            sample.scheduledFor <= observedAt! &&
+            sample.completedAt <= observedAt!,
+        ) &&
+        latest?.status === item.scheduleStatus &&
+        latest?.consecutiveFailures === item.consecutiveFailures &&
+        sameInstant(latest?.completedAt, item.scheduleLastCompletedAt) &&
+        sameInstant(latest?.nextRunAt, item.nextRunAt),
+    );
+    const samples = verified
+      ? [...parsed].sort(
+          (left, right) => left.scheduledFor! - right.scheduledFor!,
+        )
+      : [];
+    const successCount = samples.filter(
+      (sample) => sample.run.status === "SUCCEEDED",
+    ).length;
+    const failureCount = samples.filter(
+      (sample) => sample.run.status === "FAILED",
+    ).length;
+    const safeWaitCount = samples.filter(
+      (sample) =>
+        sample.run.status === "SKIPPED" &&
+        sample.run.errorCode === "OUTSIDE_SESSION",
+    ).length;
+    const sloAttainmentCount = samples.filter(
+      (sample) => sample.latency! <= automaticCycleSLOMilliseconds,
+    ).length;
+    const breachIndexes = samples
+      .map((sample, index) =>
+        sample.run.status === "FAILED" ||
+        sample.latency! > automaticCycleSLOMilliseconds
+          ? index
+          : -1,
+      )
+      .filter((index) => index >= 0);
+    const latestBreachIndex = breachIndexes.at(-1);
+    const recovery =
+      latestBreachIndex === undefined
+        ? undefined
+        : samples
+            .slice(latestBreachIndex + 1)
+            .filter(
+              (sample) =>
+                sample.run.status !== "FAILED" &&
+                sample.latency! <= automaticCycleSLOMilliseconds,
+            )
+            .at(-1);
+    const latestSample = samples.at(-1);
+    const currentAttention = Boolean(
+      verified &&
+        latestSample &&
+        (latestSample.run.status === "FAILED" ||
+          latestSample.latency! > automaticCycleSLOMilliseconds ||
+          item.consecutiveFailures > 0),
+    );
+    const state = !verified
+      ? ("UNAVAILABLE" as const)
+      : currentAttention
+        ? ("ATTENTION" as const)
+        : latestSample?.run.status === "SKIPPED" &&
+            latestSample.run.errorCode === "OUTSIDE_SESSION"
+          ? ("SAFE_WAIT" as const)
+          : latestBreachIndex !== undefined && recovery
+            ? ("RECOVERED" as const)
+            : ("STABLE" as const);
+    const latencies = samples.map((sample) => sample.latency!);
+    const followUp =
+      state === "UNAVAILABLE"
+        ? "Review immutable scheduler evidence before relying on this SLO. Arbion will not trigger a manual cycle to fill a gap."
+        : state === "ATTENTION"
+          ? "Review the latest immutable scheduler result. Keep automatic recovery in control; do not rerun the model manually."
+          : state === "RECOVERED"
+            ? "No owner action is required. The breach remains saved and a later automatic cycle recovered inside the five-minute SLO."
+            : state === "SAFE_WAIT"
+              ? "No owner action is required. This is an exact market-session wait, not a scheduler failure."
+              : "No owner action is required. Every saved cycle in this window completed inside the five-minute SLO without a failure.";
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      state,
+      verified,
+      sampleCount: samples.length,
+      successCount,
+      successRatePercent: exactPercent(successCount, samples.length),
+      sloAttainmentCount,
+      sloAttainmentPercent: exactPercent(sloAttainmentCount, samples.length),
+      failureCount,
+      safeWaitCount,
+      latestLatencySeconds: latestSample
+        ? latestSample.latency! / 1000
+        : undefined,
+      averageLatencySeconds:
+        latencies.length > 0
+          ? latencies.reduce((sum, value) => sum + value, 0) /
+            latencies.length /
+            1000
+          : undefined,
+      maximumLatencySeconds:
+        latencies.length > 0 ? Math.max(...latencies) / 1000 : undefined,
+      latestBreachAt:
+        latestBreachIndex === undefined
+          ? undefined
+          : samples[latestBreachIndex]?.run.completedAt,
+      latestRecoveryAt: recovery?.run.completedAt,
+      windowStartedAt: samples[0]?.run.scheduledFor,
+      windowEndedAt: latestSample?.run.completedAt,
+      followUp,
+      evidenceHref: `/automations/${encodeURIComponent(item.id)}#schedule-controls`,
+    };
+  });
+  const verifiedCount = engines.filter((engine) => engine.verified).length;
+  const attentionCount = engines.filter(
+    (engine) => engine.state === "ATTENTION",
+  ).length;
+  const unavailable = engines.some((engine) => !engine.verified);
+  return {
+    status:
+      engines.length === 0 || unavailable
+        ? "UNAVAILABLE"
+        : attentionCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    engineCount: engines.length,
+    verifiedCount,
+    attentionCount,
+    recoveredCount: engines.filter((engine) => engine.state === "RECOVERED")
+      .length,
+    totalSampleCount: engines.reduce(
+      (sum, engine) => sum + engine.sampleCount,
+      0,
+    ),
+    totalFailureCount: engines.reduce(
+      (sum, engine) => sum + engine.failureCount,
+      0,
+    ),
+    totalSafeWaitCount: engines.reduce(
+      (sum, engine) => sum + engine.safeWaitCount,
+      0,
+    ),
+    engines,
+  };
+}
+
 function healthClass(item: StrategyFleetItem) {
   if (needsReview(item)) return "needs-review";
   return item.instanceStatus === "ACTIVE" ? "healthy" : "neutral";
@@ -3547,6 +3774,172 @@ function StrategyFleetEvidenceFreshnessBoardView({
       <footer>
         Saved timestamps only · no model rerun · no provider refresh · no manual
         cycle · no broker order · no live path
+      </footer>
+    </section>
+  );
+}
+
+function exactSecondsLabel(value?: number) {
+  if (value === undefined || !Number.isFinite(value)) return "Unavailable";
+  return `${Number.isInteger(value) ? value : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}s`;
+}
+
+function StrategyFleetAutomaticCycleSLOHistoryView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const history = projectStrategyFleetAutomaticCycleSLOHistory(items);
+  if (history.engineCount === 0) return null;
+  const verified = history.status === "VERIFIED";
+  return (
+    <section
+      className={`strategy-fleet-freshness strategy-fleet-slo-history ${verified ? "is-verified" : "needs-review"}`}
+      aria-labelledby="strategy-fleet-slo-history-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">AUTOMATIC CYCLE SLO HISTORY</p>
+          <h2 id="strategy-fleet-slo-history-heading">
+            {history.status === "UNAVAILABLE"
+              ? "An active engine has incomplete cycle-history evidence."
+              : history.status === "ATTENTION"
+                ? "An active engine needs automatic scheduler recovery."
+                : `${history.engineCount} active AI ${history.engineCount === 1 ? "engine has" : "engines have"} verified cycle history.`}
+          </h2>
+          <p>
+            Bounded immutable scheduler records measure exact completion time
+            from scheduled-for to completed-at against a five-minute SLO. Prior
+            failures remain visible after automatic recovery.
+          </p>
+        </div>
+        <span>{verified ? "SLO history verified" : "Review history"}</span>
+      </header>
+      <dl className="strategy-fleet-freshness-summary">
+        <div>
+          <dt>Saved samples</dt>
+          <dd>{history.totalSampleCount}</dd>
+        </div>
+        <div>
+          <dt>Verified engines</dt>
+          <dd>
+            {history.verifiedCount}/{history.engineCount}
+          </dd>
+        </div>
+        <div>
+          <dt>Failures preserved</dt>
+          <dd>{history.totalFailureCount}</dd>
+        </div>
+        <div>
+          <dt>Session-safe waits</dt>
+          <dd>{history.totalSafeWaitCount}</dd>
+        </div>
+      </dl>
+      <ol className="strategy-fleet-freshness-list">
+        {history.engines.map((engine) => (
+          <li
+            className={`is-${engine.state.toLowerCase().replaceAll("_", "-")}`}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{readable(engine.state)}</span>
+            </header>
+            <div className="strategy-fleet-freshness-policy">
+              <strong>{engine.sampleCount} immutable cycle samples</strong>
+              <span>
+                {readableTime(engine.windowStartedAt)} →{" "}
+                {readableTime(engine.windowEndedAt)}
+              </span>
+              <small>
+                {providerLabel(engine.provider)} ·{" "}
+                {readable(engine.executionMode)} only · five-minute SLO
+              </small>
+            </div>
+            <dl>
+              <div>
+                <dt>
+                  <span>Scheduler success</span>
+                  <strong>
+                    {engine.successRatePercent === undefined
+                      ? "Unavailable"
+                      : `${engine.successRatePercent}%`}
+                  </strong>
+                </dt>
+                <dd>
+                  {engine.successCount}/{engine.sampleCount} SUCCEEDED ·{" "}
+                  {engine.failureCount} failed · {engine.safeWaitCount} safe
+                  waits
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  <span>Five-minute SLO</span>
+                  <strong>
+                    {engine.sloAttainmentPercent === undefined
+                      ? "Unavailable"
+                      : `${engine.sloAttainmentPercent}%`}
+                  </strong>
+                </dt>
+                <dd>
+                  {engine.sloAttainmentCount}/{engine.sampleCount} completed
+                  inside 300s
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  <span>Completion latency</span>
+                  <strong>
+                    {exactSecondsLabel(engine.latestLatencySeconds)}
+                  </strong>
+                </dt>
+                <dd>
+                  Latest · average{" "}
+                  {exactSecondsLabel(engine.averageLatencySeconds)}
+                  {" · "}maximum{" "}
+                  {exactSecondsLabel(engine.maximumLatencySeconds)}
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  <span>Latest breach / recovery</span>
+                  <strong>
+                    {engine.latestBreachAt ? "Saved" : "No breach"}
+                  </strong>
+                </dt>
+                <dd>
+                  Breach {readableTime(engine.latestBreachAt)} · recovery{" "}
+                  {readableTime(engine.latestRecoveryAt)}
+                </dd>
+              </div>
+            </dl>
+            <footer>
+              <span>{engine.followUp}</span>
+              <div>
+                <Link href={engine.evidenceHref}>Scheduler evidence →</Link>
+                <Link href="/activity">Decision journal →</Link>
+              </div>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Up to 12 owner-scoped immutable runs per engine · saved scheduler
+        evidence only · no manual cycle · no model rerun · no provider refresh ·
+        no broker order · no live path
       </footer>
     </section>
   );
@@ -4774,6 +5167,10 @@ export function StrategyFleet({
 
       {inventoryAvailable && (
         <StrategyFleetEvidenceFreshnessBoardView items={items} />
+      )}
+
+      {inventoryAvailable && (
+        <StrategyFleetAutomaticCycleSLOHistoryView items={items} />
       )}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}
