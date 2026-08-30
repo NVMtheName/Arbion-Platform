@@ -78,6 +78,20 @@ describe("PaperPortfolioSummary", () => {
       <PaperPortfolioSummary
         portfolio={cryptoPortfolio}
         executionMode="PAPER"
+        markets={[
+          {
+            symbol: "BTC",
+            assetClass: "CRYPTO",
+            price: "78098.3100000000",
+            priceBasis: "MARK",
+            changePercent24H: "0.9599000000",
+            provider: "coinbase",
+            feed: "rest_ticker",
+            quality: "REAL_TIME_SINGLE_VENUE",
+            observedAt: "2026-08-29T21:26:55Z",
+            decisionAt: "2026-08-29T21:27:00Z",
+          },
+        ]}
         fills={[
           {
             id: "fill-1",
@@ -111,5 +125,62 @@ describe("PaperPortfolioSummary", () => {
       within(table).getByText(/coinbase · advanced_trade · BROKER_REALTIME/i),
     ).toBeInTheDocument();
     expect(screen.getByText(/not a broker order/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /simulated portfolio valuation/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/not a live quote/i)).toBeInTheDocument();
+    expect(screen.getByText("+0.9599%")).toBeInTheDocument();
+  });
+
+  it("shows exact production-like Paper performance from immutable evidence", () => {
+    render(
+      <PaperPortfolioSummary
+        executionMode="PAPER"
+        portfolio={{
+          strategy_instance_id: "instance-paper",
+          currency: "USD",
+          starting_cash: "1000.0000000000",
+          cash: "975.0000077919",
+          version: 2,
+          updated_at: "2026-08-29T21:27:00Z",
+          positions: [
+            {
+              symbol: "BTC",
+              instrument: "CRYPTO",
+              quantity: "0.0003177277",
+              average_price: "78683.7037126445",
+              is_open: true,
+              updated_at: "2026-08-29T21:27:00Z",
+            },
+          ],
+        }}
+        markets={[
+          {
+            symbol: "BTC",
+            assetClass: "CRYPTO",
+            price: "78098.3100000000",
+            priceBasis: "MARK",
+            changePercent24H: "0.9599000000",
+            provider: "coinbase",
+            feed: "rest_ticker",
+            quality: "REAL_TIME_SINGLE_VENUE",
+            observedAt: "2026-08-29T21:26:55Z",
+            decisionAt: "2026-08-29T21:27:00Z",
+          },
+        ]}
+      />,
+    );
+
+    const performance = screen.getByLabelText(
+      /point-in-time paper performance/i,
+    );
+    expect(within(performance).getByText("$999.814")).toBeInTheDocument();
+    expect(within(performance).getByText("-$0.186")).toBeInTheDocument();
+    expect(within(performance).getByText("-0.0186%")).toBeInTheDocument();
+    expect(
+      within(performance).getByText(
+        /coinbase · rest_ticker · REAL_TIME_SINGLE_VENUE/i,
+      ),
+    ).toBeInTheDocument();
   });
 });

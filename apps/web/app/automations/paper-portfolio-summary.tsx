@@ -1,3 +1,8 @@
+import {
+  calculatePaperPerformance,
+  type PaperMarketSnapshot,
+} from "./paper-performance";
+
 export type PaperPosition = {
   symbol: string;
   instrument: "EQUITY" | "OPTION" | "CRYPTO";
@@ -64,6 +69,32 @@ function quantity(value: string) {
   }).format(amount);
 }
 
+function signedMoney(value: string, currency: string) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount === 0) return money(value, currency);
+  return `${amount > 0 ? "+" : "-"}${money(String(Math.abs(amount)), currency)}`;
+}
+
+function signedPercent(value?: string) {
+  if (!value) return "Unavailable";
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return `${value}%`;
+  return `${amount > 0 ? "+" : ""}${new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(amount)}%`;
+}
+
+function performanceClass(value?: string) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount === 0) return "is-flat";
+  return amount > 0 ? "is-positive" : "is-negative";
+}
+
+function marketSource(market: PaperMarketSnapshot) {
+  return `${market.provider} · ${market.feed} · ${market.quality}`;
+}
+
 function contract(position: PaperPosition, currency: string) {
   if (position.instrument === "CRYPTO") return "Crypto spot";
   if (position.instrument !== "OPTION") return "Shares";
@@ -77,10 +108,12 @@ export function PaperPortfolioSummary({
   portfolio,
   executionMode,
   fills = [],
+  markets = [],
 }: {
   portfolio?: PaperPortfolio;
   executionMode: string;
   fills?: AIPaperSpotFill[];
+  markets?: PaperMarketSnapshot[];
 }) {
   if (executionMode !== "PAPER") {
     return (
@@ -110,6 +143,11 @@ export function PaperPortfolioSummary({
 
   const positions = portfolio.positions ?? [];
   const openPositions = positions.filter((position) => position.is_open);
+  const performance = calculatePaperPerformance(portfolio, markets);
+  const valuations = new Map(
+    performance.positions.map((position) => [position.key, position]),
+  );
+  const primaryMarket = performance.positions[0];
   return (
     <section className="paper-portfolio-card" aria-label="Paper portfolio">
       <p className="eyebrow">PAPER PORTFOLIO · SIMULATION ONLY</p>
@@ -118,6 +156,77 @@ export function PaperPortfolioSummary({
         This is Arbion&apos;s isolated simulation ledger. These amounts and
         positions are not connected-account balances or provider holdings.
       </p>
+      <div
+        className="paper-performance-card"
+        aria-label="Point-in-time Paper performance"
+      >
+        <header className="paper-performance-header">
+          <div>
+            <p className="eyebrow">PAPER PERFORMANCE · POINT IN TIME</p>
+            <h3>Simulated portfolio valuation</h3>
+          </div>
+          <span>Immutable AI snapshot</span>
+        </header>
+        {performance.status === "UNAVAILABLE" ? (
+          <div className="paper-performance-unavailable">
+            <strong>Valuation unavailable</strong>
+            <p>
+              Arbion does not have one complete, exact AI market snapshot for
+              every open simulated position. Current price, market value, and
+              profit or loss are left unavailable rather than inferred.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="paper-performance-grid">
+              <article>
+                <span>Simulated equity</span>
+                <strong>
+                  {money(
+                    performance.simulatedEquity ?? portfolio.cash,
+                    portfolio.currency,
+                  )}
+                </strong>
+              </article>
+              <article>
+                <span>Total simulated P&amp;L</span>
+                <strong
+                  className={performanceClass(performance.totalProfitLoss)}
+                >
+                  {signedMoney(
+                    performance.totalProfitLoss ?? "0",
+                    portfolio.currency,
+                  )}
+                </strong>
+              </article>
+              <article>
+                <span>Return since Paper launch</span>
+                <strong
+                  className={performanceClass(performance.totalReturnPercent)}
+                >
+                  {signedPercent(performance.totalReturnPercent)}
+                </strong>
+              </article>
+              <article>
+                <span>Invested exposure</span>
+                <strong>
+                  {money(
+                    performance.investedExposure ?? "0",
+                    portfolio.currency,
+                  )}
+                </strong>
+              </article>
+            </div>
+            <p className="paper-market-source">
+              {primaryMarket && performance.valuedAt
+                ? `${marketSource(primaryMarket)} · oldest required snapshot ${new Date(performance.valuedAt).toLocaleString()}`
+                : "Cash-only Paper ledger · no market valuation required"}
+              . This is the latest complete immutable AI market snapshot, not a
+              live quote or connected-account valuation.
+            </p>
+          </>
+        )}
+      </div>
       <div className="paper-portfolio-summary">
         <p>
           <strong>Starting cash</strong>
@@ -145,26 +254,85 @@ export function PaperPortfolioSummary({
                 <th>Position</th>
                 <th>Quantity</th>
                 <th>Average simulation price</th>
+                <th>Latest AI snapshot price</th>
+                <th>Simulated market value</th>
+                <th>Unrealized P&amp;L</th>
+                <th>24h market move</th>
               </tr>
             </thead>
             <tbody>
-              {positions.map((position, index) => (
-                <tr
-                  key={`${position.instrument}-${position.symbol}-${position.option_type ?? "equity"}-${position.expiration ?? "none"}-${index}`}
-                >
-                  <td>
-                    <span
-                      className={`paper-position-status ${position.is_open ? "is-open" : "is-closed"}`}
-                    >
-                      {position.is_open ? "Open" : "Closed"}
-                    </span>
-                  </td>
-                  <td>{position.symbol}</td>
-                  <td>{contract(position, portfolio.currency)}</td>
-                  <td>{quantity(position.quantity)}</td>
-                  <td>{money(position.average_price, portfolio.currency)}</td>
-                </tr>
-              ))}
+              {positions.map((position, index) => {
+                const valuation = valuations.get(
+                  `${position.instrument}:${position.symbol}`,
+                );
+                return (
+                  <tr
+                    key={`${position.instrument}-${position.symbol}-${position.option_type ?? "equity"}-${position.expiration ?? "none"}-${index}`}
+                  >
+                    <td>
+                      <span
+                        className={`paper-position-status ${position.is_open ? "is-open" : "is-closed"}`}
+                      >
+                        {position.is_open ? "Open" : "Closed"}
+                      </span>
+                    </td>
+                    <td>{position.symbol}</td>
+                    <td>{contract(position, portfolio.currency)}</td>
+                    <td>{quantity(position.quantity)}</td>
+                    <td>{money(position.average_price, portfolio.currency)}</td>
+                    <td>
+                      {valuation ? (
+                        <>
+                          {money(valuation.price, portfolio.currency)} ·{" "}
+                          {valuation.priceBasis.toLowerCase()}
+                          <small className="paper-position-source">
+                            {marketSource(valuation)} ·{" "}
+                            {new Date(valuation.observedAt).toLocaleString()}
+                          </small>
+                        </>
+                      ) : (
+                        "Unavailable"
+                      )}
+                    </td>
+                    <td>
+                      {valuation
+                        ? money(valuation.marketValue, portfolio.currency)
+                        : "Unavailable"}
+                    </td>
+                    <td>
+                      {valuation ? (
+                        <span
+                          className={performanceClass(
+                            valuation.unrealizedProfitLoss,
+                          )}
+                        >
+                          {signedMoney(
+                            valuation.unrealizedProfitLoss,
+                            portfolio.currency,
+                          )}{" "}
+                          ·{" "}
+                          {signedPercent(valuation.unrealizedProfitLossPercent)}
+                        </span>
+                      ) : (
+                        "Unavailable"
+                      )}
+                    </td>
+                    <td>
+                      {valuation ? (
+                        <span
+                          className={performanceClass(
+                            valuation.changePercent24H,
+                          )}
+                        >
+                          {signedPercent(valuation.changePercent24H)}
+                        </span>
+                      ) : (
+                        "Unavailable"
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
