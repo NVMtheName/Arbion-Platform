@@ -367,9 +367,39 @@ describe("StrategyFleet", () => {
     expect(digest.engines[0]).toEqual(
       expect.objectContaining({
         state: "CHANGED",
+        latestDecisionSymbol: "BTC",
+        latestDecisionSide: "BUY",
+        latestDecisionProposedNotional: "50.0000000000",
+        priorDecisionSymbol: "NONE",
+        priorDecisionSide: "NONE",
+        priorDecisionProposedNotional: "0.0000000000",
         followUp: expect.stringContaining("No action is required"),
       }),
     );
+  });
+
+  it("renders the exact saved action delta for a changed conclusion", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            latestDecisionType: "ALLOW_SIMULATED_FILLED",
+            latestDecisionSymbol: "BTC",
+            latestDecisionSide: "BUY",
+            latestDecisionProposedNotional: "50.0000000000",
+          },
+        ]}
+      />,
+    );
+
+    const digest = screen.getByRole("region", {
+      name: "1 current AI decision is fully attributable.",
+    });
+    expect(digest).toHaveTextContent("Conclusion changed");
+    expect(digest).toHaveTextContent("No action proposed · $0");
+    expect(digest).toHaveTextContent("Buy BTC · $50");
+    expect(digest).toHaveTextContent("no broker order");
   });
 
   it("fails the provenance digest closed on a financial-provider mismatch", () => {
@@ -610,6 +640,9 @@ describe("StrategyFleet", () => {
     });
     expect(provenanceDigest).toHaveTextContent("DECISION CHANGE + PROVENANCE");
     expect(provenanceDigest).toHaveTextContent("Held course");
+    expect(
+      within(provenanceDigest).getAllByText("No action proposed · $0"),
+    ).toHaveLength(2);
     expect(provenanceDigest).toHaveTextContent("OpenAI · gpt-5.6-sol · Deep");
     expect(provenanceDigest).toHaveTextContent("Financial sourceCoinbase");
     expect(provenanceDigest).toHaveTextContent("BTC · ETH · XRP · SOL");

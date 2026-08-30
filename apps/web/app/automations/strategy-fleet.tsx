@@ -294,6 +294,12 @@ export type StrategyFleetProvenanceDigest = {
     attributable: boolean;
     latestDecisionType?: string;
     priorDecisionType?: string;
+    latestDecisionSymbol?: string;
+    priorDecisionSymbol?: string;
+    latestDecisionSide?: string;
+    priorDecisionSide?: string;
+    latestDecisionProposedNotional?: string;
+    priorDecisionProposedNotional?: string;
     latestDecisionAt?: string;
     priorDecisionAt?: string;
     aiProvider?: string;
@@ -1591,6 +1597,12 @@ export function projectStrategyFleetProvenanceDigest(
       attributable,
       latestDecisionType: item.latestDecisionType,
       priorDecisionType: item.priorDecisionType,
+      latestDecisionSymbol: item.latestDecisionSymbol,
+      priorDecisionSymbol: item.priorDecisionSymbol,
+      latestDecisionSide: item.latestDecisionSide,
+      priorDecisionSide: item.priorDecisionSide,
+      latestDecisionProposedNotional: item.latestDecisionProposedNotional,
+      priorDecisionProposedNotional: item.priorDecisionProposedNotional,
       latestDecisionAt: item.latestDecisionAt,
       priorDecisionAt: item.priorDecisionAt,
       aiProvider: item.latestDecisionAIProvider,
@@ -1895,6 +1907,19 @@ function provenanceExactList(values: string[]) {
   return values.length > 0 ? values.join(" · ") : "Unavailable";
 }
 
+function provenanceDecisionAction(
+  decisionType?: string,
+  side?: string,
+  symbol?: string,
+  proposedNotional?: string,
+) {
+  if (decisionType === "ABSTAIN") return "No action proposed · $0";
+  const notional = capitalMoney("USD", proposedNotional);
+  if (!side || !symbol || notional === "Unavailable")
+    return "Exact action unavailable";
+  return `${readable(side)} ${symbol} · ${notional}`;
+}
+
 function StrategyFleetProvenanceDigestView({
   items,
 }: {
@@ -1977,6 +2002,16 @@ function StrategyFleetProvenanceDigestView({
                     ? latestDecisionLabel(engine.priorDecisionType)
                     : "No earlier decision"}
                 </strong>
+                <small>
+                  {engine.priorDecisionType
+                    ? provenanceDecisionAction(
+                        engine.priorDecisionType,
+                        engine.priorDecisionSide,
+                        engine.priorDecisionSymbol,
+                        engine.priorDecisionProposedNotional,
+                      )
+                    : "First saved comparison point"}
+                </small>
                 <time dateTime={engine.priorDecisionAt}>
                   {readableTime(engine.priorDecisionAt)}
                 </time>
@@ -1989,6 +2024,14 @@ function StrategyFleetProvenanceDigestView({
                     ? latestDecisionLabel(engine.latestDecisionType)
                     : "Unavailable"}
                 </strong>
+                <small>
+                  {provenanceDecisionAction(
+                    engine.latestDecisionType,
+                    engine.latestDecisionSide,
+                    engine.latestDecisionSymbol,
+                    engine.latestDecisionProposedNotional,
+                  )}
+                </small>
                 <time dateTime={engine.latestDecisionAt}>
                   {readableTime(engine.latestDecisionAt)}
                 </time>
