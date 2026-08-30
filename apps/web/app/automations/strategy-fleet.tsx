@@ -58,6 +58,8 @@ export type StrategyFleetItem = {
   scheduleTimingStatus?: "ON_SCHEDULE" | "OVERDUE" | "UNAVAILABLE";
   consecutiveFailures: number;
   nextRunAt?: string;
+  scheduleHistoryAvailable?: boolean;
+  scheduleRecentRuns?: StrategyFleetScheduleRunEvidence[];
   evidenceAvailable?: boolean;
   evidenceStatus?: string;
   oneHourSampleSize?: number;
@@ -157,6 +159,47 @@ export type StrategyFleetScheduleReliability = {
     nextRunAt?: string;
     timingStatus: "ON_SCHEDULE" | "OVERDUE" | "UNAVAILABLE";
     consecutiveFailures: number;
+  }>;
+};
+
+export type StrategyFleetScheduleRunEvidence = {
+  id?: string;
+  scheduledFor?: string;
+  completedAt?: string;
+  nextRunAt?: string;
+  status?: string;
+  errorCode?: string;
+  aiDecision?: string;
+  executionStatus?: string;
+  duplicateRecovered?: boolean;
+  consecutiveFailures?: number;
+};
+
+export type StrategyFleetScheduleRecovery = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  engineCount: number;
+  verifiedCount: number;
+  stableCount: number;
+  recoveredCount: number;
+  safeWaitCount: number;
+  attentionCount: number;
+  preservedRunCount: number;
+  preservedFailureCount: number;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    state: "STABLE" | "RECOVERED" | "SAFE_WAIT" | "ATTENTION" | "UNAVAILABLE";
+    verified: boolean;
+    recentRunCount: number;
+    preservedFailureCount: number;
+    latestStatus?: string;
+    latestErrorCode?: string;
+    latestCompletedAt?: string;
+    nextRunAt?: string;
+    recentStatuses: string[];
   }>;
 };
 
@@ -587,6 +630,117 @@ export function projectStrategyFleetScheduleReliability(
   };
 }
 
+function validScheduleRunEvidence(run: StrategyFleetScheduleRunEvidence) {
+  return Boolean(
+    run.id &&
+      run.scheduledFor &&
+      run.completedAt &&
+      run.nextRunAt &&
+      run.status &&
+      ["SUCCEEDED", "FAILED", "SKIPPED"].includes(run.status) &&
+      !Number.isNaN(new Date(run.scheduledFor).valueOf()) &&
+      !Number.isNaN(new Date(run.completedAt).valueOf()) &&
+      !Number.isNaN(new Date(run.nextRunAt).valueOf()) &&
+      typeof run.duplicateRecovered === "boolean" &&
+      Number.isInteger(run.consecutiveFailures) &&
+      (run.consecutiveFailures ?? -1) >= 0,
+  );
+}
+
+function sameInstant(left?: string, right?: string) {
+  if (!left || !right) return false;
+  const leftTime = new Date(left).valueOf();
+  const rightTime = new Date(right).valueOf();
+  return (
+    !Number.isNaN(leftTime) &&
+    !Number.isNaN(rightTime) &&
+    leftTime === rightTime
+  );
+}
+
+export function projectStrategyFleetScheduleRecovery(
+  items: StrategyFleetItem[],
+): StrategyFleetScheduleRecovery {
+  const scheduled = items.filter(
+    (item) =>
+      isAI(item) &&
+      item.instanceStatus === "ACTIVE" &&
+      item.runtimeScheduleEnabled === true,
+  );
+  const engines = scheduled.map((item) => {
+    const recentRuns = item.scheduleRecentRuns ?? [];
+    const latest = recentRuns[0];
+    const historyVerified = Boolean(
+      item.scheduleHistoryAvailable === true &&
+        recentRuns.length > 0 &&
+        recentRuns.length <= 12 &&
+        recentRuns.every(validScheduleRunEvidence) &&
+        latest?.status === item.scheduleStatus &&
+        latest?.consecutiveFailures === item.consecutiveFailures &&
+        sameInstant(latest?.completedAt, item.scheduleLastCompletedAt) &&
+        sameInstant(latest?.nextRunAt, item.nextRunAt),
+    );
+    const preservedFailureCount = recentRuns.filter(
+      (run) => run.status === "FAILED",
+    ).length;
+    const state = !historyVerified
+      ? ("UNAVAILABLE" as const)
+      : latest?.status === "FAILED" || item.consecutiveFailures > 0
+        ? ("ATTENTION" as const)
+        : latest?.status === "SKIPPED"
+          ? ("SAFE_WAIT" as const)
+          : preservedFailureCount > 0
+            ? ("RECOVERED" as const)
+            : ("STABLE" as const);
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      state,
+      verified: historyVerified,
+      recentRunCount: recentRuns.length,
+      preservedFailureCount,
+      latestStatus: latest?.status,
+      latestErrorCode: latest?.errorCode,
+      latestCompletedAt: latest?.completedAt,
+      nextRunAt: latest?.nextRunAt,
+      recentStatuses: recentRuns.map((run) => run.status ?? "UNAVAILABLE"),
+    };
+  });
+  const verifiedCount = engines.filter((engine) => engine.verified).length;
+  const attentionCount = engines.filter(
+    (engine) => engine.state === "ATTENTION",
+  ).length;
+  const unavailable = engines.some((engine) => !engine.verified);
+  return {
+    status:
+      scheduled.length === 0 || unavailable
+        ? "UNAVAILABLE"
+        : attentionCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    engineCount: scheduled.length,
+    verifiedCount,
+    stableCount: engines.filter((engine) => engine.state === "STABLE").length,
+    recoveredCount: engines.filter((engine) => engine.state === "RECOVERED")
+      .length,
+    safeWaitCount: engines.filter((engine) => engine.state === "SAFE_WAIT")
+      .length,
+    attentionCount,
+    preservedRunCount: engines.reduce(
+      (sum, engine) => sum + engine.recentRunCount,
+      0,
+    ),
+    preservedFailureCount: engines.reduce(
+      (sum, engine) => sum + engine.preservedFailureCount,
+      0,
+    ),
+    engines,
+  };
+}
+
 const linkedDecisionContracts: Record<
   string,
   { riskDecision: string; executionStatus: string }
@@ -781,6 +935,7 @@ function needsReview(item: StrategyFleetItem) {
     !financialConnectionHealthy(item) ||
     !reconciliationHealthy(item) ||
     item.scheduleAvailable === false ||
+    item.scheduleHistoryAvailable === false ||
     (requiresShadowEvidence(item) && item.evidenceAvailable === false) ||
     item.decisionAvailable === false ||
     item.scheduleStatus === "FAILED" ||
@@ -837,6 +992,8 @@ function healthLabel(item: StrategyFleetItem) {
     return "Portfolio evidence needs review";
   }
   if (item.scheduleAvailable === false) return "Schedule status unavailable";
+  if (item.scheduleHistoryAvailable === false)
+    return "Scheduler recovery evidence unavailable";
   if (item.scheduleTimingStatus === "UNAVAILABLE")
     return "Schedule timing unavailable";
   if (item.scheduleTimingStatus === "OVERDUE")
@@ -974,6 +1131,7 @@ export function selectStrategyFleetNextAction(
   }
   if (
     item.scheduleAvailable === false ||
+    item.scheduleHistoryAvailable === false ||
     item.scheduleStatus === "FAILED" ||
     item.scheduleTimingStatus === "OVERDUE" ||
     item.scheduleTimingStatus === "UNAVAILABLE" ||
@@ -988,11 +1146,13 @@ export function selectStrategyFleetNextAction(
       detail:
         item.scheduleAvailable === false
           ? "Arbion could not refresh the current schedule record and will not label this engine healthy."
-          : item.scheduleTimingStatus === "UNAVAILABLE"
-            ? "Arbion could not verify the exact next-cycle time and will not infer scheduler health."
-            : item.scheduleTimingStatus === "OVERDUE"
-              ? "The next guarded cycle is more than five minutes overdue. Arbion has not inferred a result and no broker order was sent."
-              : `${item.consecutiveFailures} consecutive ${item.consecutiveFailures === 1 ? "failure" : "failures"}. The scheduler failed closed without broker execution.`,
+          : item.scheduleHistoryAvailable === false
+            ? "Arbion could not verify the recent immutable scheduler history. The current schedule remains unchanged and no broker order was sent."
+            : item.scheduleTimingStatus === "UNAVAILABLE"
+              ? "Arbion could not verify the exact next-cycle time and will not infer scheduler health."
+              : item.scheduleTimingStatus === "OVERDUE"
+                ? "The next guarded cycle is more than five minutes overdue. Arbion has not inferred a result and no broker order was sent."
+                : `${item.consecutiveFailures} consecutive ${item.consecutiveFailures === 1 ? "failure" : "failures"}. The scheduler failed closed without broker execution.`,
       href: `${destination}#schedule-controls`,
       actionLabel: "Review schedule",
     };
@@ -1554,6 +1714,150 @@ function StrategyFleetScheduleWatchtower({
       </ol>
       <footer>
         Read-only schedule proof · Paper or Shadow only · no manual cycle · no
+        broker order
+      </footer>
+    </section>
+  );
+}
+
+function scheduleRecoveryLabel(
+  state: StrategyFleetScheduleRecovery["engines"][number]["state"],
+) {
+  if (state === "STABLE") return "Stable";
+  if (state === "RECOVERED") return "Recovered";
+  if (state === "SAFE_WAIT") return "Safe wait";
+  if (state === "ATTENTION") return "Review";
+  return "Unavailable";
+}
+
+function scheduleRecoveryGuidance(
+  engine: StrategyFleetScheduleRecovery["engines"][number],
+) {
+  if (engine.state === "RECOVERED")
+    return "No action needed. A later guarded cycle succeeded, while the earlier fail-closed result remains preserved for review.";
+  if (engine.state === "SAFE_WAIT")
+    return "No action needed. Arbion waited safely and will check again at the next eligible cycle.";
+  if (engine.state === "STABLE")
+    return "No action needed. Recent guarded cycles are preserved and the next automatic check remains scheduled.";
+  if (engine.state === "ATTENTION")
+    return "Review the evidence before intervening. The latest cycle failed closed and no broker order was sent.";
+  return "Arbion cannot prove the recent recovery path from complete immutable scheduler evidence.";
+}
+
+function scheduleRunStatusLabel(status: string) {
+  if (status === "SUCCEEDED") return "Completed";
+  if (status === "SKIPPED") return "Safe wait";
+  if (status === "FAILED") return "Failed closed";
+  return "Unavailable";
+}
+
+function StrategyFleetScheduleRecoveryProof({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const recovery = projectStrategyFleetScheduleRecovery(items);
+  if (recovery.engineCount === 0) return null;
+  const statusLabel =
+    recovery.status === "VERIFIED"
+      ? "Verified"
+      : recovery.status === "ATTENTION"
+        ? "Needs review"
+        : "Unavailable";
+  return (
+    <section
+      className={`strategy-fleet-recovery is-${recovery.status.toLowerCase()}`}
+      aria-labelledby="strategy-fleet-recovery-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">AUTOMATIC RECOVERY PROOF</p>
+          <h2 id="strategy-fleet-recovery-heading">
+            {recovery.status === "VERIFIED"
+              ? `${recovery.verifiedCount} guarded ${recovery.verifiedCount === 1 ? "engine has" : "engines have"} a verified recent path.`
+              : recovery.status === "ATTENTION"
+                ? "A guarded engine is waiting for a safe recovery."
+                : "Recent scheduler recovery cannot be verified."}
+          </h2>
+          <p>
+            Arbion keeps failures, safe waits, and later successes together so
+            you can see whether an engine recovered automatically without
+            replaying a model cycle.
+          </p>
+        </div>
+        <span>{statusLabel}</span>
+      </header>
+      <dl className="strategy-fleet-recovery-summary">
+        <div>
+          <dt>Verified engines</dt>
+          <dd>
+            {recovery.verifiedCount} / {recovery.engineCount}
+          </dd>
+        </div>
+        <div>
+          <dt>Recent records</dt>
+          <dd>{recovery.preservedRunCount}</dd>
+        </div>
+        <div>
+          <dt>Recovered paths</dt>
+          <dd>{recovery.recoveredCount}</dd>
+        </div>
+        <div>
+          <dt>Open failures</dt>
+          <dd>{recovery.attentionCount}</dd>
+        </div>
+      </dl>
+      <ol className="strategy-fleet-recovery-engines">
+        {recovery.engines.map((engine) => (
+          <li
+            className={`is-${engine.state.toLowerCase().replace("_", "-")}`}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{scheduleRecoveryLabel(engine.state)}</span>
+            </header>
+            <ol
+              aria-label={`${engine.title} recent immutable scheduler results`}
+            >
+              {engine.recentStatuses.map((status, index) => (
+                <li
+                  className={`is-${status.toLowerCase()}`}
+                  key={`${status}-${index}`}
+                >
+                  <span aria-hidden="true" />
+                  <small>{scheduleRunStatusLabel(status)}</small>
+                </li>
+              ))}
+            </ol>
+            <p>{scheduleRecoveryGuidance(engine)}</p>
+            <footer>
+              <span>Next automatic check</span>
+              <time dateTime={engine.nextRunAt}>
+                {readableTime(engine.nextRunAt)}
+              </time>
+              <Link href={`/automations/${engine.id}#schedule-controls`}>
+                Review evidence →
+              </Link>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Bounded immutable history · no automatic replay · no manual cycle · no
         broker order
       </footer>
     </section>
@@ -2330,6 +2634,10 @@ export function StrategyFleet({
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}
 
       {inventoryAvailable && <StrategyFleetScheduleWatchtower items={items} />}
+
+      {inventoryAvailable && (
+        <StrategyFleetScheduleRecoveryProof items={items} />
+      )}
 
       {inventoryAvailable && (
         <StrategyFleetDecisionEvidenceChain items={items} />

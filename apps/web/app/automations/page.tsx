@@ -30,6 +30,13 @@ type DecisionWindow = {
   live_execution_available?: boolean;
 };
 
+type ScheduleRunWindow = {
+  runs?: RecordValue[] | null;
+  history_semantics?: string;
+  broker_action_available?: boolean;
+  live_execution_available?: boolean;
+};
+
 type ReconciliationEnvelope = {
   reconciliation?: RecordValue;
   autonomy_enforcement_active?: boolean;
@@ -310,6 +317,7 @@ async function fleetItem(
   const [
     versionResult,
     scheduleResult,
+    scheduleHistoryResult,
     scorecardResult,
     decisionResult,
     reconciliationResult,
@@ -325,6 +333,12 @@ async function fleetItem(
     expectsSchedule || expectsPinnedRuntime
       ? fetchOptional<RecordValue>(
           `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/schedule`,
+          headers,
+        )
+      : Promise.resolve({ available: true as const, payload: undefined }),
+    expectsOperationalData && expectsSchedule
+      ? fetchOptional<ScheduleRunWindow>(
+          `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/schedule-runs?limit=12`,
           headers,
         )
       : Promise.resolve({ available: true as const, payload: undefined }),
@@ -351,6 +365,7 @@ async function fleetItem(
     [
       versionResult,
       scheduleResult,
+      scheduleHistoryResult,
       scorecardResult,
       decisionResult,
       reconciliationResult,
@@ -381,6 +396,36 @@ async function fleetItem(
     text(displayConfiguration, "automation_type", "AutomationType") ??
     mutableAutomationType;
   const schedule = record(scheduleResult.payload?.schedule);
+  const scheduleHistoryAvailable =
+    expectsOperationalData &&
+    scheduleHistoryResult.available &&
+    Array.isArray(scheduleHistoryResult.payload?.runs) &&
+    scheduleHistoryResult.payload?.history_semantics ===
+      "IMMUTABLE_NONLIVE_SCHEDULER_EVIDENCE" &&
+    scheduleHistoryResult.payload?.broker_action_available === false &&
+    scheduleHistoryResult.payload?.live_execution_available === false;
+  const scheduleRecentRuns = scheduleHistoryAvailable
+    ? asList(scheduleHistoryResult.payload?.runs).map((run) => ({
+        id: text(run, "id", "ID"),
+        scheduledFor: text(run, "scheduled_for", "ScheduledFor"),
+        completedAt: text(run, "completed_at", "CompletedAt"),
+        nextRunAt: text(run, "next_run_at", "NextRunAt"),
+        status: text(run, "status", "Status"),
+        errorCode: text(run, "error_code", "ErrorCode"),
+        aiDecision: text(run, "ai_decision", "AIDecision"),
+        executionStatus: text(run, "execution_status", "ExecutionStatus"),
+        duplicateRecovered: flag(
+          run,
+          "duplicate_recovered",
+          "DuplicateRecovered",
+        ),
+        consecutiveFailures: number(
+          run,
+          "consecutive_failures",
+          "ConsecutiveFailures",
+        ),
+      }))
+    : undefined;
   const scorecard = scorecardResult.payload?.scorecard;
   const evidenceGate = (scorecard?.evidence_gate ?? scorecard?.EvidenceGate) as
     | RecordValue
@@ -523,6 +568,10 @@ async function fleetItem(
         ? (number(schedule, "consecutive_failures", "ConsecutiveFailures") ?? 0)
         : 0,
     nextRunAt: scheduleNextRunAt,
+    scheduleHistoryAvailable: expectsOperationalData
+      ? scheduleHistoryAvailable
+      : undefined,
+    scheduleRecentRuns,
     evidenceAvailable: expectsShadowEvidence ? evidenceAvailable : undefined,
     evidenceStatus: text(evidenceGate, "status", "Status"),
     oneHourSampleSize: number(

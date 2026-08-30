@@ -5,6 +5,7 @@ import {
   projectStrategyFleetAccountIsolation,
   projectStrategyFleetDecisionEvidence,
   projectStrategyFleetIdentityIsolation,
+  projectStrategyFleetScheduleRecovery,
   projectStrategyFleetScheduleReliability,
   reconciliationFreshWithinTwentyFourHours,
   scheduledRunTimingStatus,
@@ -68,6 +69,20 @@ const coinbaseEngine: StrategyFleetItem = {
   scheduleTimingStatus: "ON_SCHEDULE",
   consecutiveFailures: 0,
   nextRunAt: "2026-08-26T17:17:39Z",
+  scheduleHistoryAvailable: true,
+  scheduleRecentRuns: [
+    {
+      id: "schedule-run-current",
+      scheduledFor: "2026-08-26T16:17:00Z",
+      completedAt: "2026-08-26T16:17:39Z",
+      nextRunAt: "2026-08-26T17:17:39Z",
+      status: "SUCCEEDED",
+      aiDecision: "ABSTAIN",
+      executionStatus: "CANCELED",
+      duplicateRecovered: false,
+      consecutiveFailures: 0,
+    },
+  ],
   evidenceAvailable: true,
   evidenceStatus: "COLLECTING_EVIDENCE",
   oneHourSampleSize: 12,
@@ -186,6 +201,66 @@ describe("StrategyFleet", () => {
         overdueCount: 1,
       }),
     );
+  });
+
+  it("proves automatic recovery while preserving earlier failed cycles", () => {
+    const recovered: StrategyFleetItem = {
+      ...coinbaseEngine,
+      scheduleHistoryAvailable: true,
+      scheduleRecentRuns: [
+        ...coinbaseEngine.scheduleRecentRuns!,
+        {
+          id: "schedule-run-failed",
+          scheduledFor: "2026-08-26T15:17:00Z",
+          completedAt: "2026-08-26T15:17:05Z",
+          nextRunAt: "2026-08-26T16:17:00Z",
+          status: "FAILED",
+          errorCode: "AI_PROVIDER_UNAVAILABLE",
+          duplicateRecovered: false,
+          consecutiveFailures: 1,
+        },
+      ],
+    };
+    const proof = projectStrategyFleetScheduleRecovery([recovered]);
+
+    expect(proof).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        engineCount: 1,
+        verifiedCount: 1,
+        recoveredCount: 1,
+        attentionCount: 0,
+        preservedRunCount: 2,
+        preservedFailureCount: 1,
+      }),
+    );
+    expect(proof.engines[0]).toEqual(
+      expect.objectContaining({
+        state: "RECOVERED",
+        recentStatuses: ["SUCCEEDED", "FAILED"],
+      }),
+    );
+  });
+
+  it("fails recovery proof closed when immutable history does not match the schedule", () => {
+    const proof = projectStrategyFleetScheduleRecovery([
+      {
+        ...coinbaseEngine,
+        scheduleHistoryAvailable: true,
+        scheduleRecentRuns: coinbaseEngine.scheduleRecentRuns?.map((run) => ({
+          ...run,
+          nextRunAt: "2026-08-26T18:17:39Z",
+        })),
+      },
+    ]);
+
+    expect(proof).toEqual(
+      expect.objectContaining({
+        status: "UNAVAILABLE",
+        verifiedCount: 0,
+      }),
+    );
+    expect(proof.engines[0].state).toBe("UNAVAILABLE");
   });
 
   it("proves complete immutable trails for abstentions and linked non-live outcomes", () => {
@@ -391,6 +466,24 @@ describe("StrategyFleet", () => {
     expect(watchtower).toHaveTextContent(
       "Paper or Shadow only · no manual cycle · no broker order",
     );
+    const recovery = screen.getByRole("region", {
+      name: "1 guarded engine has a verified recent path.",
+    });
+    expect(recovery).toHaveTextContent("Verified engines1 / 1");
+    expect(recovery).toHaveTextContent("Recent records1");
+    expect(recovery).toHaveTextContent("Recovered paths0");
+    expect(recovery).toHaveTextContent("Open failures0");
+    expect(recovery).toHaveTextContent("Stable");
+    expect(recovery).toHaveTextContent("Completed");
+    expect(recovery).toHaveTextContent(
+      "No action needed. Recent guarded cycles are preserved",
+    );
+    expect(recovery).toHaveTextContent(
+      "no automatic replay · no manual cycle · no broker order",
+    );
+    expect(
+      within(recovery).getByRole("link", { name: /Review evidence/i }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
     const decisionTrails = screen.getByRole("region", {
       name: "1 latest AI decision has a complete evidence trail.",
     });
