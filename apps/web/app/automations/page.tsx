@@ -16,6 +16,7 @@ import {
   reconciliationFreshWithinTwentyFourHours,
   scheduledRunTimingStatus,
   StrategyFleet,
+  type StrategyFleetDecisionInputCoverageSnapshot,
   type StrategyFleetItem,
 } from "./strategy-fleet";
 
@@ -607,6 +608,39 @@ async function fleetItem(
   const priorAIDecision = aiDecisions[1];
   const latestDecisionProvenance = decisionProvenance(latestAIDecision);
   const priorDecisionProvenance = decisionProvenance(priorAIDecision);
+  const recentDecisionInputCoverage: StrategyFleetDecisionInputCoverageSnapshot[] =
+    decisionAvailable
+      ? aiDecisions.slice(0, 6).map((decision) => {
+          const provenance = decisionProvenance(decision);
+          return {
+            decisionID: text(decision, "id", "ID"),
+            decisionAt: text(decision, "created_at", "CreatedAt"),
+            financialProvider: provenance.financialProvider,
+            financialContextComplete: provenance.financialContextComplete,
+            inputCoverageComplete: provenance.inputCoverageComplete,
+            historyLiquidityEvidenceComplete:
+              provenance.historyLiquidityEvidenceComplete,
+            marketSymbols: provenance.marketSymbols,
+            marketFeeds: provenance.marketFeeds,
+            marketQualities: provenance.marketQualities,
+            marketObservedAt: provenance.marketObservedAt,
+            historyStatuses: provenance.historyStatuses,
+            historyFeeds: provenance.historyFeeds,
+            historyQualities: provenance.historyQualities,
+            liquidityStatuses: provenance.liquidityStatuses,
+            positionEvidenceComplete: provenance.positionEvidenceComplete,
+            positionCount: provenance.positionCount,
+            positionPerformanceStatuses: provenance.positionPerformanceStatuses,
+            marketEventEvidenceComplete: provenance.marketEventEvidenceComplete,
+            marketEventCoverageCount: provenance.marketEventCoverageCount,
+            marketEventCoverageStatuses: provenance.marketEventCoverageStatuses,
+            marketEventProviders: provenance.marketEventProviders,
+            marketEventFeeds: provenance.marketEventFeeds,
+            marketEventQualities: provenance.marketEventQualities,
+            marketEventCount: provenance.marketEventCount,
+          };
+        })
+      : [];
   const decisionRationale = latestDecisionProvenance.rationale;
   const priorDecisionRationale = priorDecisionProvenance.rationale;
   const reconciliation = reconciliationResult.payload?.reconciliation;
@@ -917,6 +951,7 @@ async function fleetItem(
     priorDecisionMarketEventQualities:
       priorDecisionProvenance.marketEventQualities,
     priorDecisionMarketEventCount: priorDecisionProvenance.marketEventCount,
+    recentDecisionInputCoverage,
     reconciliationAvailable: expectsReconciliation
       ? reconciliationAvailable
       : undefined,
