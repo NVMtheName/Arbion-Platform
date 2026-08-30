@@ -100,6 +100,12 @@ function decisionProvenance(decision: RecordValue | undefined) {
     | null
     | undefined;
   const marketRecords = asList(rawMarkets);
+  const rawPositions = (inputEvidence?.positions ??
+    inputEvidence?.Positions) as RecordValue[] | null | undefined;
+  const positionRecords = asList(rawPositions);
+  const rawMarketEventCoverage = (inputEvidence?.market_event_coverage ??
+    inputEvidence?.MarketEventCoverage) as RecordValue[] | null | undefined;
+  const marketEventCoverageRecords = asList(rawMarketEventCoverage);
   const financialProvider = text(inputEvidence, "provider", "Provider");
   const marketObservedAt = text(
     rationale,
@@ -118,6 +124,36 @@ function decisionProvenance(decision: RecordValue | undefined) {
   const marketObservationTimes = marketRecords.map((market) =>
     text(market, "observed_at", "ObservedAt"),
   );
+  const historyStatuses = marketRecords.map((market) =>
+    text(market, "history_status", "HistoryStatus"),
+  );
+  const historyFeeds = marketRecords.map((market) =>
+    text(market, "history_feed", "HistoryFeed"),
+  );
+  const historyQualities = marketRecords.map((market) =>
+    text(market, "history_quality", "HistoryQuality"),
+  );
+  const liquidityStatuses = marketRecords.map((market) =>
+    text(market, "liquidity_status", "LiquidityStatus"),
+  );
+  const positionPerformanceStatuses = positionRecords.map((position) =>
+    text(position, "performance_status", "PerformanceStatus"),
+  );
+  const marketEventCoverageStatuses = marketEventCoverageRecords.map(
+    (coverage) => text(coverage, "status", "Status"),
+  );
+  const marketEventProviders = marketEventCoverageRecords.map((coverage) =>
+    text(coverage, "resolver_provider", "ResolverProvider"),
+  );
+  const marketEventFeeds = marketEventCoverageRecords.map((coverage) =>
+    text(coverage, "resolver_feed", "ResolverFeed"),
+  );
+  const marketEventQualities = marketEventCoverageRecords.map((coverage) =>
+    text(coverage, "resolver_quality", "ResolverQuality"),
+  );
+  const marketEventCounts = marketEventCoverageRecords.map((coverage) =>
+    number(coverage, "event_count", "EventCount"),
+  );
   const exactMarketRows = Boolean(
     Array.isArray(rawMarkets) &&
       rawMarkets.length > 0 &&
@@ -131,6 +167,42 @@ function decisionProvenance(decision: RecordValue | undefined) {
           !Number.isNaN(new Date(marketObservationTimes[index]!).valueOf()),
       ) &&
       new Set(marketSymbols).size === marketSymbols.length,
+  );
+  const exactHistoryAndLiquidity = marketRecords.every(
+    (_, index) =>
+      historyStatuses[index] &&
+      liquidityStatuses[index] &&
+      (!["AVAILABLE", "COMPLETE"].includes(historyStatuses[index]!) ||
+        (historyFeeds[index] && historyQualities[index])),
+  );
+  const exactPositionEvidence = Boolean(
+    Array.isArray(rawPositions) &&
+      positionRecords.length === rawPositions.length &&
+      positionRecords.every(
+        (position, index) =>
+          text(position, "symbol", "Symbol") &&
+          positionPerformanceStatuses[index],
+      ),
+  );
+  const exactMarketEventEvidence = Boolean(
+    Array.isArray(rawMarketEventCoverage) &&
+      marketEventCoverageRecords.length === rawMarketEventCoverage.length &&
+      marketEventCoverageRecords.every(
+        (coverage, index) =>
+          text(coverage, "symbol", "Symbol") &&
+          marketEventCoverageStatuses[index] &&
+          (marketEventCoverageStatuses[index] !== "AVAILABLE" ||
+            (marketEventProviders[index] &&
+              marketEventFeeds[index] &&
+              marketEventQualities[index] &&
+              marketEventCounts[index] !== undefined)),
+      ),
+  );
+  const exactInputCoverage = Boolean(
+    exactMarketRows &&
+      exactHistoryAndLiquidity &&
+      exactPositionEvidence &&
+      exactMarketEventEvidence,
   );
   return {
     rationale,
@@ -146,6 +218,26 @@ function decisionProvenance(decision: RecordValue | undefined) {
     marketFeeds: uniqueStrings(marketFeeds),
     marketQualities: uniqueStrings(marketQualities),
     marketObservedAt,
+    inputCoverageComplete: exactInputCoverage,
+    historyLiquidityEvidenceComplete: Boolean(
+      exactMarketRows && exactHistoryAndLiquidity,
+    ),
+    historyStatuses: uniqueStrings(historyStatuses),
+    historyFeeds: uniqueStrings(historyFeeds),
+    historyQualities: uniqueStrings(historyQualities),
+    liquidityStatuses: uniqueStrings(liquidityStatuses),
+    positionEvidenceComplete: exactPositionEvidence,
+    positionCount: positionRecords.length,
+    positionPerformanceStatuses: uniqueStrings(positionPerformanceStatuses),
+    marketEventEvidenceComplete: exactMarketEventEvidence,
+    marketEventCoverageCount: marketEventCoverageRecords.length,
+    marketEventCoverageStatuses: uniqueStrings(marketEventCoverageStatuses),
+    marketEventProviders: uniqueStrings(marketEventProviders),
+    marketEventFeeds: uniqueStrings(marketEventFeeds),
+    marketEventQualities: uniqueStrings(marketEventQualities),
+    marketEventCount: marketEventCounts.every((count) => count !== undefined)
+      ? marketEventCounts.reduce((total, count) => total + (count ?? 0), 0)
+      : undefined,
   };
 }
 
@@ -754,6 +846,31 @@ async function fleetItem(
     latestDecisionMarketFeeds: latestDecisionProvenance.marketFeeds,
     latestDecisionMarketQualities: latestDecisionProvenance.marketQualities,
     latestDecisionMarketObservedAt: latestDecisionProvenance.marketObservedAt,
+    latestDecisionInputCoverageComplete:
+      latestDecisionProvenance.inputCoverageComplete,
+    latestDecisionHistoryLiquidityEvidenceComplete:
+      latestDecisionProvenance.historyLiquidityEvidenceComplete,
+    latestDecisionHistoryStatuses: latestDecisionProvenance.historyStatuses,
+    latestDecisionHistoryFeeds: latestDecisionProvenance.historyFeeds,
+    latestDecisionHistoryQualities: latestDecisionProvenance.historyQualities,
+    latestDecisionLiquidityStatuses: latestDecisionProvenance.liquidityStatuses,
+    latestDecisionPositionEvidenceComplete:
+      latestDecisionProvenance.positionEvidenceComplete,
+    latestDecisionPositionCount: latestDecisionProvenance.positionCount,
+    latestDecisionPositionPerformanceStatuses:
+      latestDecisionProvenance.positionPerformanceStatuses,
+    latestDecisionMarketEventEvidenceComplete:
+      latestDecisionProvenance.marketEventEvidenceComplete,
+    latestDecisionMarketEventCoverageCount:
+      latestDecisionProvenance.marketEventCoverageCount,
+    latestDecisionMarketEventCoverageStatuses:
+      latestDecisionProvenance.marketEventCoverageStatuses,
+    latestDecisionMarketEventProviders:
+      latestDecisionProvenance.marketEventProviders,
+    latestDecisionMarketEventFeeds: latestDecisionProvenance.marketEventFeeds,
+    latestDecisionMarketEventQualities:
+      latestDecisionProvenance.marketEventQualities,
+    latestDecisionMarketEventCount: latestDecisionProvenance.marketEventCount,
     priorDecisionID: text(priorAIDecision, "id", "ID"),
     priorDecisionType: text(priorAIDecision, "decision_type", "DecisionType"),
     priorDecisionAt: text(priorAIDecision, "created_at", "CreatedAt"),
