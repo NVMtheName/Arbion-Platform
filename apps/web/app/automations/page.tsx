@@ -564,8 +564,24 @@ async function fleetItem(
       "CurrentEvidenceReviewed",
     ),
     decisionAvailable: expectsDecisionEvidence ? decisionAvailable : undefined,
+    latestDecisionID: text(latestAIDecision, "id", "ID"),
     latestDecisionType: text(latestAIDecision, "decision_type", "DecisionType"),
     latestDecisionAt: text(latestAIDecision, "created_at", "CreatedAt"),
+    latestDecisionProposedActionID: text(
+      latestAIDecision,
+      "proposed_action_id",
+      "ProposedActionID",
+    ),
+    latestDecisionRiskEvaluationID: text(
+      latestAIDecision,
+      "risk_evaluation_id",
+      "RiskEvaluationID",
+    ),
+    latestDecisionExecutionRecordID: text(
+      latestAIDecision,
+      "execution_record_id",
+      "ExecutionRecordID",
+    ),
     latestDecisionSymbol:
       text(latestAIDecision, "symbol", "Symbol") ??
       text(decisionRationale, "symbol", "Symbol"),
