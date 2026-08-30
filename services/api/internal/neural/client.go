@@ -13,13 +13,17 @@ import (
 type ErrorCode string
 
 const (
-	AuthenticationFailed ErrorCode = "AUTHENTICATION_FAILED"
-	RateLimited          ErrorCode = "RATE_LIMITED"
-	ProviderUnavailable  ErrorCode = "PROVIDER_UNAVAILABLE"
-	Timeout              ErrorCode = "TIMEOUT"
-	InvalidRequest       ErrorCode = "INVALID_REQUEST"
-	Unsupported          ErrorCode = "UNSUPPORTED"
-	InternalError        ErrorCode = "INTERNAL_ERROR"
+	AuthenticationFailed    ErrorCode = "AUTHENTICATION_FAILED"
+	RateLimited             ErrorCode = "RATE_LIMITED"
+	ProviderUnavailable     ErrorCode = "PROVIDER_UNAVAILABLE"
+	Timeout                 ErrorCode = "TIMEOUT"
+	InvalidRequest          ErrorCode = "INVALID_REQUEST"
+	Unsupported             ErrorCode = "UNSUPPORTED"
+	ResponseIncomplete      ErrorCode = "RESPONSE_INCOMPLETE"
+	StructuredOutputMissing ErrorCode = "STRUCTURED_OUTPUT_MISSING"
+	StructuredOutputInvalid ErrorCode = "STRUCTURED_OUTPUT_INVALID"
+	DecisionContractInvalid ErrorCode = "DECISION_CONTRACT_INVALID"
+	InternalError           ErrorCode = "INTERNAL_ERROR"
 )
 
 type ProviderError struct{ Code ErrorCode }

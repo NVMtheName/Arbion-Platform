@@ -203,7 +203,7 @@ def _normalize_shadow_value(
     except (InvalidOperation, KeyError) as exc:
         raise NeuralProviderError(ErrorCode.INTERNAL_ERROR) from exc
     if not isinstance(value, dict):
-        raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+        raise NeuralProviderError(ErrorCode.DECISION_CONTRACT_INVALID)
     decision, symbol, side = value.get("decision"), value.get("symbol"), value.get("side")
     notional, confidence, thesis = (
         value.get("proposed_notional"),
@@ -223,17 +223,17 @@ def _normalize_shadow_value(
         or len(thesis) > 1000
         or not isinstance(allowed, list)
     ):
-        raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+        raise NeuralProviderError(ErrorCode.DECISION_CONTRACT_INVALID)
     amount = Decimal(notional)
     if decision == "ABSTAIN":
         if symbol != "NONE" or side != "NONE" or amount != 0:
-            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+            raise NeuralProviderError(ErrorCode.DECISION_CONTRACT_INVALID)
         # JSON Schema guarantees an exact decimal string, but providers may
         # serialize numeric zero as 0.0 or 0.000. Preserve the semantic
         # fail-closed check and store one canonical zero downstream.
         notional = "0"
     elif symbol not in allowed or side not in {"BUY", "SELL"} or amount <= 0 or amount > maximum:
-        raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+        raise NeuralProviderError(ErrorCode.DECISION_CONTRACT_INVALID)
 
     def bounded_strings(raw: object) -> tuple[str, ...]:
         if (
@@ -244,7 +244,7 @@ def _normalize_shadow_value(
             )
             or len(set(raw)) != len(raw)
         ):
-            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+            raise NeuralProviderError(ErrorCode.DECISION_CONTRACT_INVALID)
         return tuple(raw)
 
     return ShadowDecision(
@@ -479,7 +479,7 @@ class OpenAIProvider(HTTPProvider):
                 "store": False,
                 "safety_identifier": safety_identifier,
                 "reasoning": {"effort": route.reasoning_effort},
-                "max_output_tokens": min(route.max_output_tokens, 900),
+                "max_output_tokens": route.max_output_tokens,
                 "text": {
                     "verbosity": "low",
                     "format": {
@@ -602,11 +602,15 @@ class OpenAIProvider(HTTPProvider):
         latency_ms: int,
     ) -> ShadowDecision:
         if payload.get("status") != "completed":
-            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+            raise NeuralProviderError(ErrorCode.RESPONSE_INCOMPLETE)
         try:
-            value = json.loads(self._output_text(payload.get("output")))
+            text = self._output_text(payload.get("output"))
+        except NeuralProviderError as exc:
+            raise NeuralProviderError(ErrorCode.STRUCTURED_OUTPUT_MISSING) from exc
+        try:
+            value = json.loads(text)
         except (TypeError, ValueError) as exc:
-            raise NeuralProviderError(ErrorCode.INTERNAL_ERROR) from exc
+            raise NeuralProviderError(ErrorCode.STRUCTURED_OUTPUT_INVALID) from exc
         usage = payload.get("usage")
         input_tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
         output_tokens = usage.get("output_tokens") if isinstance(usage, dict) else None

@@ -82,6 +82,23 @@ func TestValidationFailureIsClassifiedWithoutExposingResponseDetails(t *testing.
 	}
 }
 
+func TestProviderFailureStageIsPreservedWithoutExposingResponseDetails(t *testing.T) {
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header:     make(http.Header),
+			Body: io.NopCloser(strings.NewReader(
+				`{"detail":{"code":"STRUCTURED_OUTPUT_MISSING"}}`,
+			)),
+		}, nil
+	})
+	client := NewHTTPClient("http://ai.internal", "internal-token", &http.Client{Transport: transport})
+	err := client.Verify(context.Background(), "openai", []byte("secret-value"))
+	if Code(err) != StructuredOutputMissing {
+		t.Fatalf("provider failure code=%q want=%q", Code(err), StructuredOutputMissing)
+	}
+}
+
 func TestProposeTradeSendsOnlyBoundedNormalizedFacts(t *testing.T) {
 	const secret = "secret-value"
 	observedAt := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
