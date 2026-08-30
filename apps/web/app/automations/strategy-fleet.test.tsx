@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  projectStrategyFleetAccountIsolation,
   reconciliationFreshWithinTwentyFourHours,
   StrategyFleet,
   type StrategyFleetItem,
@@ -9,7 +10,10 @@ import {
 
 const coinbaseEngine: StrategyFleetItem = {
   id: "ai-mandate",
+  strategyInstanceID: "coinbase-shadow-instance",
   financialAccountID: "coinbase-account",
+  capitalBucketID: "coinbase-shadow-bucket",
+  capitalReservationID: "coinbase-shadow-reservation",
   title: "AI Shadow Engine",
   accountName: "Coinbase Portfolio ••••a5d0",
   provider: "coinbase",
@@ -114,6 +118,75 @@ describe("StrategyFleet", () => {
     );
   });
 
+  it("projects exact account-level isolation for compatible Paper and Shadow claims", () => {
+    const paperEngine: StrategyFleetItem = {
+      ...coinbaseEngine,
+      id: "paper-mandate",
+      strategyInstanceID: "coinbase-paper-instance",
+      capitalBucketID: "coinbase-paper-bucket",
+      capitalReservationID: "coinbase-paper-reservation",
+      title: "AI Paper Engine",
+      executionMode: "PAPER",
+      capitalReservationAmount: "1000.0000000000",
+      capitalReservationBasis: "PAPER_STARTING_CASH",
+      capitalReservationAccountLimit: "3000.0000000000",
+    };
+    const shadowEngine: StrategyFleetItem = {
+      ...coinbaseEngine,
+      capitalReservationAmount: "750.0000000000",
+      capitalReservationAccountLimit: "3000.0000000000",
+    };
+
+    expect(
+      projectStrategyFleetAccountIsolation([paperEngine, shadowEngine]),
+    ).toEqual([
+      expect.objectContaining({
+        accountID: "coinbase-account",
+        status: "VERIFIED",
+        engineCount: 2,
+        modes: ["PAPER", "SHADOW"],
+        currency: "USD",
+        claimedAmount: "1750",
+        accountLimit: "3000",
+      }),
+    ]);
+  });
+
+  it("fails the isolation projection closed for duplicate policy identities", () => {
+    const duplicate = {
+      ...coinbaseEngine,
+      id: "second-mandate",
+      capitalReservationAccountLimit: "3000.0000000000",
+    };
+    const first = {
+      ...coinbaseEngine,
+      capitalReservationAccountLimit: "3000.0000000000",
+    };
+
+    expect(projectStrategyFleetAccountIsolation([first, duplicate])).toEqual([
+      expect.objectContaining({
+        status: "UNAVAILABLE",
+        engineCount: 2,
+        claimedAmount: undefined,
+        accountLimit: undefined,
+      }),
+    ]);
+  });
+
+  it("renders the read-only account isolation map", () => {
+    render(<StrategyFleet items={[coinbaseEngine]} />);
+
+    const isolation = screen.getByRole("region", {
+      name: "Every engine stays inside its own policy claim.",
+    });
+    expect(isolation).toHaveTextContent("ACCOUNT ISOLATION MAP");
+    expect(isolation).toHaveTextContent("Coinbase Portfolio ••••a5d0");
+    expect(isolation).toHaveTextContent("Verified");
+    expect(isolation).toHaveTextContent("$1,000");
+    expect(isolation).toHaveTextContent("Account ceiling$1,000");
+    expect(isolation).toHaveTextContent("no broker hold · no order action");
+  });
+
   it("shows an owner-facing fleet summary with account and engine context", () => {
     render(
       <StrategyFleet
@@ -140,7 +213,7 @@ describe("StrategyFleet", () => {
     expect(summary).toHaveTextContent("Scheduled1healthy automatic cycles");
     expect(summary).toHaveTextContent("Attention0engine health signals");
     expect(summary).toHaveTextContent("Drafts1not initialized");
-    expect(screen.getByText("Coinbase Portfolio ••••a5d0")).toBeInTheDocument();
+    expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(2);
     expect(screen.getAllByText("gpt-5.6-sol")).toHaveLength(2);
     expect(screen.getAllByText("BTC · ETH · XRP +1")).toHaveLength(2);
     expect(screen.getByText("Healthy schedule")).toBeInTheDocument();

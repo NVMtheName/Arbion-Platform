@@ -416,7 +416,10 @@ async function fleetItem(
 
   return {
     id,
+    strategyInstanceID: instanceID,
     financialAccountID: accountID,
+    capitalBucketID: capitalBucketID || undefined,
+    capitalReservationID: text(capitalReservation, "id", "ID"),
     title: strategyTitle(displayConfiguration ?? mandate),
     accountName:
       text(account, "display_name", "DisplayName") ?? "Connected account",
