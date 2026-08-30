@@ -2170,6 +2170,213 @@ button:disabled {
 .strategy-fleet-watchtower > footer {
   margin-top: 12px;
 }
+.strategy-fleet-recovery {
+  margin-top: 20px;
+  padding: 24px;
+  border: 1px solid rgba(105, 160, 231, 0.24);
+  border-radius: 20px;
+  background:
+    radial-gradient(
+      circle at 100% 0%,
+      rgba(70, 137, 220, 0.11),
+      transparent 32rem
+    ),
+    rgba(4, 18, 14, 0.78);
+}
+.strategy-fleet-recovery.is-attention,
+.strategy-fleet-recovery.is-unavailable {
+  border-color: rgba(216, 169, 82, 0.32);
+  background: rgba(41, 29, 11, 0.24);
+}
+.strategy-fleet-recovery > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+}
+.strategy-fleet-recovery > header > div {
+  max-width: 780px;
+}
+.strategy-fleet-recovery h2 {
+  margin: 7px 0 8px;
+  color: #eefaf4;
+  font-size: clamp(1.35rem, 2.2vw, 2rem);
+}
+.strategy-fleet-recovery > header p:last-child,
+.strategy-fleet-recovery > footer {
+  color: #789087;
+  font-size: 0.73rem;
+  line-height: 1.6;
+}
+.strategy-fleet-recovery > header > span {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid rgba(105, 160, 231, 0.38);
+  border-radius: 999px;
+  color: #91baf0;
+  font-size: 0.64rem;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.strategy-fleet-recovery.is-attention > header > span,
+.strategy-fleet-recovery.is-unavailable > header > span {
+  border-color: rgba(216, 169, 82, 0.38);
+  color: #e1bd79;
+}
+.strategy-fleet-recovery-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 20px 0 14px;
+  overflow: hidden;
+  border: 1px solid rgba(139, 181, 163, 0.1);
+  border-radius: 12px;
+  background: rgba(139, 181, 163, 0.1);
+}
+.strategy-fleet-recovery-summary > div {
+  min-width: 0;
+  padding: 14px;
+  background: rgba(3, 15, 11, 0.84);
+}
+.strategy-fleet-recovery dt,
+.strategy-fleet-recovery dd {
+  margin: 0;
+}
+.strategy-fleet-recovery dt {
+  color: #6e847a;
+  font-size: 0.58rem;
+  font-weight: 760;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.strategy-fleet-recovery dd {
+  margin-top: 5px;
+  color: #dcebe4;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.strategy-fleet-recovery-engines {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-fleet-recovery-engines > li {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(105, 160, 231, 0.18);
+  border-radius: 14px;
+  background: rgba(3, 14, 11, 0.68);
+}
+.strategy-fleet-recovery-engines > li.is-attention,
+.strategy-fleet-recovery-engines > li.is-unavailable {
+  border-color: rgba(216, 169, 82, 0.3);
+}
+.strategy-fleet-recovery-engines > li > header,
+.strategy-fleet-recovery-engines > li > header > div,
+.strategy-fleet-recovery-engines > li > footer {
+  display: flex;
+  align-items: center;
+}
+.strategy-fleet-recovery-engines > li > header,
+.strategy-fleet-recovery-engines > li > footer {
+  justify-content: space-between;
+  gap: 12px;
+}
+.strategy-fleet-recovery-engines > li > header > div {
+  gap: 9px;
+  min-width: 0;
+}
+.strategy-fleet-recovery-engines > li > header p {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  margin: 0;
+}
+.strategy-fleet-recovery-engines > li > header small {
+  overflow: hidden;
+  color: #6e847a;
+  font-size: 0.6rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-fleet-recovery-engines > li > header strong {
+  color: #dcebe4;
+  font-size: 0.78rem;
+}
+.strategy-fleet-recovery-engines > li > header > span {
+  color: #91baf0;
+  font-size: 0.62rem;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+.strategy-fleet-recovery-engines > li.is-recovered > header > span,
+.strategy-fleet-recovery-engines > li.is-stable > header > span {
+  color: #70dbaf;
+}
+.strategy-fleet-recovery-engines > li.is-attention > header > span,
+.strategy-fleet-recovery-engines > li.is-unavailable > header > span {
+  color: #e1bd79;
+}
+.strategy-fleet-recovery-engines > li > ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 15px 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.strategy-fleet-recovery-engines > li > ol > li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #789087;
+  font-size: 0.58rem;
+}
+.strategy-fleet-recovery-engines > li > ol > li > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #70dbaf;
+  box-shadow: 0 0 0 3px rgba(92, 216, 168, 0.08);
+}
+.strategy-fleet-recovery-engines > li > ol > li.is-skipped > span {
+  background: #91baf0;
+  box-shadow: 0 0 0 3px rgba(105, 160, 231, 0.1);
+}
+.strategy-fleet-recovery-engines > li > ol > li.is-failed > span {
+  background: #e1bd79;
+  box-shadow: 0 0 0 3px rgba(216, 169, 82, 0.1);
+}
+.strategy-fleet-recovery-engines > li > p {
+  min-height: 4.3em;
+  margin: 0;
+  color: #91a79d;
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+.strategy-fleet-recovery-engines > li > footer {
+  align-items: end;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(139, 181, 163, 0.1);
+  color: #657a71;
+  font-size: 0.6rem;
+}
+.strategy-fleet-recovery-engines > li > footer time {
+  color: #b7cbc2;
+}
+.strategy-fleet-recovery-engines > li > footer a {
+  color: #91baf0;
+  font-weight: 720;
+  text-decoration: none;
+}
+.strategy-fleet-recovery > footer {
+  margin-top: 12px;
+}
 .strategy-fleet-evidence-chain {
   margin-top: 20px;
   padding: 24px;
@@ -3216,6 +3423,7 @@ button:disabled {
   .strategy-fleet-safety,
   .strategy-fleet-isolation > header,
   .strategy-fleet-watchtower > header,
+  .strategy-fleet-recovery > header,
   .strategy-fleet-evidence-chain > header,
   .strategy-fleet-identity-proof > header,
   .strategy-fleet-identity-proof > header > div,
@@ -3228,6 +3436,16 @@ button:disabled {
   }
   .strategy-fleet-watchtower-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .strategy-fleet-recovery-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .strategy-fleet-recovery-engines {
+    grid-template-columns: 1fr;
+  }
+  .strategy-fleet-recovery-engines > li > footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .strategy-fleet-evidence-chain-summary,
   .strategy-fleet-evidence-chain-list > li > dl {
