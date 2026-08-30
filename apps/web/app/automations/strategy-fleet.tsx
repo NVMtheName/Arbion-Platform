@@ -619,6 +619,59 @@ export type StrategyFleetAutomaticCycleFailureTaxonomy = {
   }>;
 };
 
+export type StrategyFleetAutomaticRecoveryRTO = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  engineCount: number;
+  verifiedCount: number;
+  recoveredFailureCount: number;
+  currentFailureCount: number;
+  safeWaitCount: number;
+  medianRecoverySeconds?: number;
+  maximumRecoverySeconds?: number;
+  maximumCurrentUnrecoveredAgeSeconds?: number;
+  latestRecoveryAt?: string;
+  codes: Array<{
+    code: string;
+    recoveredCount: number;
+    currentCount: number;
+    medianRecoverySeconds?: number;
+    maximumRecoverySeconds?: number;
+    maximumCurrentUnrecoveredAgeSeconds?: number;
+    latestRecoveryAt?: string;
+    affectedEngineCount: number;
+    executionModes: string[];
+    providers: string[];
+  }>;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    state: "CLEAR" | "RECOVERED" | "SAFE_WAIT" | "ATTENTION" | "UNAVAILABLE";
+    verified: boolean;
+    sampleCount: number;
+    recoveredFailureCount: number;
+    currentFailureCount: number;
+    safeWaitCount: number;
+    medianRecoverySeconds?: number;
+    maximumRecoverySeconds?: number;
+    maximumCurrentUnrecoveredAgeSeconds?: number;
+    latestRecoveryAt?: string;
+    codes: Array<{
+      code: string;
+      recoveredCount: number;
+      currentCount: number;
+      medianRecoverySeconds?: number;
+      maximumRecoverySeconds?: number;
+      maximumCurrentUnrecoveredAgeSeconds?: number;
+      latestRecoveryAt?: string;
+    }>;
+    followUp: string;
+    evidenceHref: string;
+  }>;
+};
+
 function providerLabel(provider: string) {
   if (provider === "coinbase") return "Coinbase";
   if (provider === "schwab") return "Charles Schwab";
@@ -3061,6 +3114,331 @@ export function projectStrategyFleetAutomaticCycleFailureTaxonomy(
   };
 }
 
+function exactMedian(values: number[]) {
+  if (values.length === 0) return undefined;
+  const ordered = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(ordered.length / 2);
+  return ordered.length % 2 === 1
+    ? ordered[middle]
+    : (ordered[middle - 1] + ordered[middle]) / 2;
+}
+
+export function projectStrategyFleetAutomaticRecoveryRTO(
+  items: StrategyFleetItem[],
+): StrategyFleetAutomaticRecoveryRTO {
+  const active = items.filter(
+    (item) =>
+      isAI(item) &&
+      item.instanceStatus === "ACTIVE" &&
+      item.runtimeScheduleEnabled === true,
+  );
+  const engines = active.map((item) => {
+    const observedAt = exactInstantMillis(item.freshnessObservedAt);
+    const recentRuns = item.scheduleRecentRuns ?? [];
+    const latest = recentRuns[0];
+    const samples = recentRuns
+      .map((run) => ({
+        run,
+        scheduledFor: exactInstantMillis(run.scheduledFor),
+        completedAt: exactInstantMillis(run.completedAt),
+      }))
+      .sort(
+        (left, right) =>
+          (left.scheduledFor ?? Number.POSITIVE_INFINITY) -
+          (right.scheduledFor ?? Number.POSITIVE_INFINITY),
+      );
+    const baseVerified = Boolean(
+      item.scheduleHistoryAvailable === true &&
+        observedAt !== undefined &&
+        recentRuns.length > 0 &&
+        recentRuns.length <= 12 &&
+        recentRuns.every(validScheduleRunEvidence) &&
+        samples.every(
+          (sample) =>
+            sample.scheduledFor !== undefined &&
+            sample.completedAt !== undefined &&
+            sample.scheduledFor <= sample.completedAt &&
+            sample.scheduledFor <= observedAt! &&
+            sample.completedAt <= observedAt! &&
+            (sample.run.status !== "FAILED" || Boolean(sample.run.errorCode)),
+        ) &&
+        latest?.status === item.scheduleStatus &&
+        latest?.consecutiveFailures === item.consecutiveFailures &&
+        sameInstant(latest?.completedAt, item.scheduleLastCompletedAt) &&
+        sameInstant(latest?.nextRunAt, item.nextRunAt),
+    );
+    const failures = baseVerified
+      ? samples
+          .map((sample, index) => ({
+            failure: sample,
+            recovery: samples
+              .slice(index + 1)
+              .find((later) => later.run.status === "SUCCEEDED"),
+          }))
+          .filter((pair) => pair.failure.run.status === "FAILED")
+      : [];
+    const verified = Boolean(
+      baseVerified &&
+        failures.every(
+          (pair) =>
+            !pair.recovery ||
+            (pair.failure.completedAt !== undefined &&
+              pair.recovery.completedAt !== undefined &&
+              pair.recovery.completedAt >= pair.failure.completedAt),
+        ),
+    );
+    const pairs = verified
+      ? failures.map((pair) => ({
+          ...pair,
+          recoverySeconds: pair.recovery
+            ? (pair.recovery.completedAt! - pair.failure.completedAt!) / 1000
+            : undefined,
+          currentAgeSeconds: pair.recovery
+            ? undefined
+            : (observedAt! - pair.failure.completedAt!) / 1000,
+        }))
+      : [];
+    const safeWaitCount = verified
+      ? samples.filter(
+          (sample) =>
+            sample.run.status === "SKIPPED" &&
+            sample.run.errorCode === "OUTSIDE_SESSION",
+        ).length
+      : 0;
+    const codeGroups = new Map<string, Array<(typeof pairs)[number]>>();
+    pairs.forEach((pair) => {
+      const code = pair.failure.run.errorCode!;
+      codeGroups.set(code, [...(codeGroups.get(code) ?? []), pair]);
+    });
+    const codes = [...codeGroups.entries()]
+      .map(([code, entries]) => {
+        const recoverySeconds = entries.flatMap((entry) =>
+          entry.recoverySeconds === undefined ? [] : [entry.recoverySeconds],
+        );
+        const currentAges = entries.flatMap((entry) =>
+          entry.currentAgeSeconds === undefined
+            ? []
+            : [entry.currentAgeSeconds],
+        );
+        const recoveries = entries.filter((entry) => entry.recovery);
+        return {
+          code,
+          recoveredCount: recoveries.length,
+          currentCount: entries.length - recoveries.length,
+          medianRecoverySeconds: exactMedian(recoverySeconds),
+          maximumRecoverySeconds:
+            recoverySeconds.length > 0
+              ? Math.max(...recoverySeconds)
+              : undefined,
+          maximumCurrentUnrecoveredAgeSeconds:
+            currentAges.length > 0 ? Math.max(...currentAges) : undefined,
+          latestRecoveryAt: recoveries
+            .sort(
+              (left, right) =>
+                left.recovery!.completedAt! - right.recovery!.completedAt!,
+            )
+            .at(-1)?.recovery?.run.completedAt,
+        };
+      })
+      .sort((left, right) => left.code.localeCompare(right.code));
+    const recovered = pairs.filter((pair) => pair.recovery);
+    const current = pairs.filter((pair) => !pair.recovery);
+    const recoverySeconds = recovered.map((pair) => pair.recoverySeconds!);
+    const currentAges = current.map((pair) => pair.currentAgeSeconds!);
+    const latestSample = verified ? samples.at(-1) : undefined;
+    const state = !verified
+      ? ("UNAVAILABLE" as const)
+      : current.length > 0 ||
+          latestSample?.run.status === "FAILED" ||
+          item.consecutiveFailures > 0
+        ? ("ATTENTION" as const)
+        : latestSample?.run.status === "SKIPPED" &&
+            latestSample.run.errorCode === "OUTSIDE_SESSION"
+          ? ("SAFE_WAIT" as const)
+          : recovered.length > 0
+            ? ("RECOVERED" as const)
+            : ("CLEAR" as const);
+    const followUp =
+      state === "UNAVAILABLE"
+        ? "Review immutable scheduler timestamps before relying on recovery timing. Arbion will not infer an incomplete failure/recovery pair."
+        : state === "ATTENTION"
+          ? "Review the current saved failure and let the next guarded cycle attempt automatic recovery. Do not rerun the model manually."
+          : state === "RECOVERED"
+            ? "No owner action is required. Exact failure-to-success recovery times remain saved for review."
+            : state === "SAFE_WAIT"
+              ? "No owner action is required. The latest result is an exact market-session wait, not a recovery event."
+              : "No owner action is required. This bounded window contains no failed cycle requiring recovery.";
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      state,
+      verified,
+      sampleCount: verified ? samples.length : 0,
+      recoveredFailureCount: recovered.length,
+      currentFailureCount: current.length,
+      safeWaitCount,
+      medianRecoverySeconds: exactMedian(recoverySeconds),
+      maximumRecoverySeconds:
+        recoverySeconds.length > 0 ? Math.max(...recoverySeconds) : undefined,
+      maximumCurrentUnrecoveredAgeSeconds:
+        currentAges.length > 0 ? Math.max(...currentAges) : undefined,
+      latestRecoveryAt: recovered
+        .sort(
+          (left, right) =>
+            left.recovery!.completedAt! - right.recovery!.completedAt!,
+        )
+        .at(-1)?.recovery?.run.completedAt,
+      codes,
+      followUp,
+      evidenceHref: `/automations/${encodeURIComponent(item.id)}#schedule-controls`,
+    };
+  });
+  const aggregate = new Map<
+    string,
+    {
+      recoveredSeconds: number[];
+      currentAges: number[];
+      latestRecoveryAt?: string;
+      latestRecoveryMillis?: number;
+      engineIDs: Set<string>;
+      executionModes: Set<string>;
+      providers: Set<string>;
+    }
+  >();
+  engines.forEach((engine) =>
+    engine.codes.forEach((code) => {
+      const current = aggregate.get(code.code) ?? {
+        recoveredSeconds: [],
+        currentAges: [],
+        engineIDs: new Set<string>(),
+        executionModes: new Set<string>(),
+        providers: new Set<string>(),
+      };
+      const timings = recentRecoveryTimingForCode(
+        items.find((item) => item.id === engine.id),
+        code.code,
+      );
+      current.recoveredSeconds.push(...timings.recoverySeconds);
+      current.currentAges.push(...timings.currentAges);
+      const recoveryMillis = exactInstantMillis(code.latestRecoveryAt);
+      if (
+        recoveryMillis !== undefined &&
+        (current.latestRecoveryMillis === undefined ||
+          recoveryMillis > current.latestRecoveryMillis)
+      ) {
+        current.latestRecoveryAt = code.latestRecoveryAt;
+        current.latestRecoveryMillis = recoveryMillis;
+      }
+      current.engineIDs.add(engine.id);
+      current.executionModes.add(engine.executionMode);
+      current.providers.add(engine.provider);
+      aggregate.set(code.code, current);
+    }),
+  );
+  const recoveredSeconds = [...aggregate.values()].flatMap(
+    (code) => code.recoveredSeconds,
+  );
+  const currentAges = [...aggregate.values()].flatMap(
+    (code) => code.currentAges,
+  );
+  const currentFailureCount = engines.reduce(
+    (sum, engine) => sum + engine.currentFailureCount,
+    0,
+  );
+  const unavailable = engines.some((engine) => !engine.verified);
+  return {
+    status:
+      engines.length === 0 || unavailable
+        ? "UNAVAILABLE"
+        : currentFailureCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    engineCount: engines.length,
+    verifiedCount: engines.filter((engine) => engine.verified).length,
+    recoveredFailureCount: engines.reduce(
+      (sum, engine) => sum + engine.recoveredFailureCount,
+      0,
+    ),
+    currentFailureCount,
+    safeWaitCount: engines.reduce(
+      (sum, engine) => sum + engine.safeWaitCount,
+      0,
+    ),
+    medianRecoverySeconds: exactMedian(recoveredSeconds),
+    maximumRecoverySeconds:
+      recoveredSeconds.length > 0 ? Math.max(...recoveredSeconds) : undefined,
+    maximumCurrentUnrecoveredAgeSeconds:
+      currentAges.length > 0 ? Math.max(...currentAges) : undefined,
+    latestRecoveryAt: [...aggregate.values()]
+      .filter((code) => code.latestRecoveryMillis !== undefined)
+      .sort(
+        (left, right) =>
+          left.latestRecoveryMillis! - right.latestRecoveryMillis!,
+      )
+      .at(-1)?.latestRecoveryAt,
+    codes: [...aggregate.entries()]
+      .map(([code, value]) => ({
+        code,
+        recoveredCount: value.recoveredSeconds.length,
+        currentCount: value.currentAges.length,
+        medianRecoverySeconds: exactMedian(value.recoveredSeconds),
+        maximumRecoverySeconds:
+          value.recoveredSeconds.length > 0
+            ? Math.max(...value.recoveredSeconds)
+            : undefined,
+        maximumCurrentUnrecoveredAgeSeconds:
+          value.currentAges.length > 0
+            ? Math.max(...value.currentAges)
+            : undefined,
+        latestRecoveryAt: value.latestRecoveryAt,
+        affectedEngineCount: value.engineIDs.size,
+        executionModes: [...value.executionModes].sort(),
+        providers: [...value.providers].sort(),
+      }))
+      .sort((left, right) => left.code.localeCompare(right.code)),
+    engines,
+  };
+}
+
+function recentRecoveryTimingForCode(
+  item: StrategyFleetItem | undefined,
+  code: string,
+) {
+  const observedAt = exactInstantMillis(item?.freshnessObservedAt);
+  if (!item || observedAt === undefined) {
+    return { recoverySeconds: [], currentAges: [] };
+  }
+  const samples = (item.scheduleRecentRuns ?? [])
+    .map((run) => ({
+      run,
+      scheduledFor: exactInstantMillis(run.scheduledFor),
+      completedAt: exactInstantMillis(run.completedAt),
+    }))
+    .sort(
+      (left, right) =>
+        (left.scheduledFor ?? Number.POSITIVE_INFINITY) -
+        (right.scheduledFor ?? Number.POSITIVE_INFINITY),
+    );
+  const recoverySeconds: number[] = [];
+  const currentAges: number[] = [];
+  samples.forEach((sample, index) => {
+    if (sample.run.status !== "FAILED" || sample.run.errorCode !== code) return;
+    const recovery = samples
+      .slice(index + 1)
+      .find((later) => later.run.status === "SUCCEEDED");
+    if (sample.completedAt === undefined) return;
+    if (recovery?.completedAt !== undefined) {
+      recoverySeconds.push((recovery.completedAt - sample.completedAt) / 1000);
+    } else {
+      currentAges.push((observedAt - sample.completedAt) / 1000);
+    }
+  });
+  return { recoverySeconds, currentAges };
+}
+
 function healthClass(item: StrategyFleetItem) {
   if (needsReview(item)) return "needs-review";
   return item.instanceStatus === "ACTIVE" ? "healthy" : "neutral";
@@ -4367,6 +4745,166 @@ function StrategyFleetAutomaticCycleFailureTaxonomyView({
   );
 }
 
+function StrategyFleetAutomaticRecoveryRTOView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const recovery = projectStrategyFleetAutomaticRecoveryRTO(items);
+  if (recovery.engineCount === 0) return null;
+  const verified = recovery.status === "VERIFIED";
+  return (
+    <section
+      className={`strategy-fleet-freshness strategy-fleet-recovery-rto ${verified ? "is-verified" : "needs-review"}`}
+      aria-labelledby="strategy-fleet-recovery-rto-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">AUTOMATIC RECOVERY TIME OBJECTIVE</p>
+          <h2 id="strategy-fleet-recovery-rto-heading">
+            {recovery.status === "UNAVAILABLE"
+              ? "An active engine has incomplete recovery-time evidence."
+              : recovery.status === "ATTENTION"
+                ? `${recovery.currentFailureCount} saved ${recovery.currentFailureCount === 1 ? "failure is" : "failures are"} still awaiting an automatic success.`
+                : recovery.recoveredFailureCount > 0
+                  ? `${recovery.recoveredFailureCount} saved ${recovery.recoveredFailureCount === 1 ? "failure has" : "failures have"} an exact automatic recovery time.`
+                  : "No saved failure requires a recovery measurement."}
+          </h2>
+          <p>
+            Each failed cycle is paired only with its first later saved success.
+            Missing, future, inconsistent, or incomplete timestamps fail closed.
+          </p>
+        </div>
+        <span>{verified ? "Recovery timing verified" : "Review timing"}</span>
+      </header>
+      <dl className="strategy-fleet-freshness-summary">
+        <div>
+          <dt>Recovered samples</dt>
+          <dd>{recovery.recoveredFailureCount}</dd>
+        </div>
+        <div>
+          <dt>Current failures</dt>
+          <dd>{recovery.currentFailureCount}</dd>
+        </div>
+        <div>
+          <dt>Median recovery</dt>
+          <dd>{exactSecondsLabel(recovery.medianRecoverySeconds)}</dd>
+        </div>
+        <div>
+          <dt>Maximum recovery</dt>
+          <dd>{exactSecondsLabel(recovery.maximumRecoverySeconds)}</dd>
+        </div>
+      </dl>
+      <div className="strategy-fleet-freshness-policy">
+        <strong>
+          {recovery.codes.length > 0
+            ? `${recovery.codes.length} exact recovery ${recovery.codes.length === 1 ? "classification" : "classifications"}`
+            : "No recovery classification in this bounded window"}
+        </strong>
+        <span>
+          {recovery.codes.length > 0
+            ? recovery.codes
+                .map(
+                  (code) =>
+                    `${readable(code.code)} · ${code.recoveredCount} recovered · ${code.currentCount} current · median ${exactSecondsLabel(code.medianRecoverySeconds)} · max ${exactSecondsLabel(code.maximumRecoverySeconds)}`,
+                )
+                .join(" | ")
+            : "All verified engine windows are free of saved failures."}
+        </span>
+        <small>
+          Latest automatic recovery {readableTime(recovery.latestRecoveryAt)} ·
+          longest current unrecovered age{" "}
+          {exactSecondsLabel(recovery.maximumCurrentUnrecoveredAgeSeconds)} ·{" "}
+          {recovery.safeWaitCount} session-safe waits kept separate
+        </small>
+      </div>
+      <ol className="strategy-fleet-freshness-list">
+        {recovery.engines.map((engine) => (
+          <li
+            className={`is-${engine.state.toLowerCase().replaceAll("_", "-")}`}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{readable(engine.state)}</span>
+            </header>
+            <div className="strategy-fleet-freshness-policy">
+              <strong>{engine.sampleCount} immutable cycle samples</strong>
+              <span>
+                {engine.recoveredFailureCount} recovered ·{" "}
+                {engine.currentFailureCount} current · {engine.safeWaitCount}{" "}
+                safe waits
+              </span>
+              <small>
+                Median {exactSecondsLabel(engine.medianRecoverySeconds)} ·
+                maximum {exactSecondsLabel(engine.maximumRecoverySeconds)} ·
+                latest {readableTime(engine.latestRecoveryAt)}
+              </small>
+            </div>
+            <dl>
+              {engine.codes.length > 0 ? (
+                engine.codes.map((code) => (
+                  <div key={code.code}>
+                    <dt>
+                      <span>{readable(code.code)}</span>
+                      <strong>{code.recoveredCount} recovered</strong>
+                    </dt>
+                    <dd>
+                      Median {exactSecondsLabel(code.medianRecoverySeconds)} ·
+                      max {exactSecondsLabel(code.maximumRecoverySeconds)} ·{" "}
+                      {code.currentCount} current
+                    </dd>
+                    <time dateTime={code.latestRecoveryAt}>
+                      Latest recovery {readableTime(code.latestRecoveryAt)} ·
+                      unrecovered age{" "}
+                      {exactSecondsLabel(
+                        code.maximumCurrentUnrecoveredAgeSeconds,
+                      )}
+                    </time>
+                  </div>
+                ))
+              ) : (
+                <div>
+                  <dt>
+                    <span>Failure-to-success pairs</span>
+                    <strong>Clear</strong>
+                  </dt>
+                  <dd>No failed cycle requires recovery timing.</dd>
+                </div>
+              )}
+            </dl>
+            <footer>
+              <span>{engine.followUp}</span>
+              <div>
+                <Link href={engine.evidenceHref}>Scheduler evidence →</Link>
+                <Link href="/activity">Decision journal →</Link>
+              </div>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        First later saved success only · safe-session waits stay separate · no
+        inferred causality or provider output · no manual cycle · no model rerun
+        · no provider refresh · no broker order · no live path
+      </footer>
+    </section>
+  );
+}
+
 function StrategyFleetAccountIsolationMap({
   items,
 }: {
@@ -5597,6 +6135,10 @@ export function StrategyFleet({
 
       {inventoryAvailable && (
         <StrategyFleetAutomaticCycleFailureTaxonomyView items={items} />
+      )}
+
+      {inventoryAvailable && (
+        <StrategyFleetAutomaticRecoveryRTOView items={items} />
       )}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}
