@@ -106,11 +106,26 @@ export type StrategyFleetAccountIsolation = {
   provider: string;
   status: "VERIFIED" | "UNAVAILABLE";
   engineCount: number;
+  paperEngineCount: number;
+  shadowEngineCount: number;
   modes: string[];
   currency?: string;
-  claimedAmount?: string;
+  paperClaimedAmount?: string;
+  shadowClaimedAmount?: string;
   accountLimit?: string;
   detail: string;
+};
+
+export type StrategyFleetIdentityIsolation = {
+  status: "VERIFIED" | "UNAVAILABLE";
+  engineCount: number;
+  accountCount: number;
+  paperEngineCount: number;
+  shadowEngineCount: number;
+  uniqueInstanceCount: number;
+  uniqueBucketCount: number;
+  uniqueReservationCount: number;
+  crossAccountCollisionCount: number;
 };
 
 export type StrategyFleetNextAction = {
@@ -170,6 +185,21 @@ export function projectStrategyFleetAccountIsolation(
     grouped.set(accountID, [...(grouped.get(accountID) ?? []), item]);
   }
 
+  const identityAccounts = new Map<string, Set<string>>();
+  for (const item of operational) {
+    for (const [kind, value] of [
+      ["instance", item.strategyInstanceID],
+      ["bucket", item.capitalBucketID],
+      ["reservation", item.capitalReservationID],
+    ]) {
+      if (!value) continue;
+      const key = `${kind}:${value}`;
+      const accounts = identityAccounts.get(key) ?? new Set<string>();
+      accounts.add(item.financialAccountID!);
+      identityAccounts.set(key, accounts);
+    }
+  }
+
   return [...grouped.entries()]
     .map(([accountID, accountItems]) => {
       const first = accountItems[0];
@@ -187,8 +217,23 @@ export function projectStrategyFleetAccountIsolation(
       const amounts = accountItems.map((item) =>
         capitalDecimalUnits(item.capitalReservationAmount),
       );
+      const paperItems = accountItems.filter(
+        (item) => item.executionMode === "PAPER",
+      );
+      const shadowItems = accountItems.filter(
+        (item) => item.executionMode === "SHADOW",
+      );
       const uniqueIdentity = (values: Array<string | undefined>) =>
         values.every(Boolean) && new Set(values).size === values.length;
+      const globallyBoundToOneAccount = (
+        kind: string,
+        values: Array<string | undefined>,
+      ) =>
+        values.every(
+          (value) =>
+            Boolean(value) &&
+            identityAccounts.get(`${kind}:${value}`)?.size === 1,
+        );
       const exactEvidence =
         accountItems.every(capitalBindingHealthy) &&
         accountItems.every(
@@ -204,18 +249,33 @@ export function projectStrategyFleetAccountIsolation(
         uniqueIdentity(reservationIDs) &&
         uniqueIdentity(bucketIDs) &&
         uniqueIdentity(instanceIDs) &&
+        globallyBoundToOneAccount("reservation", reservationIDs) &&
+        globallyBoundToOneAccount("bucket", bucketIDs) &&
+        globallyBoundToOneAccount("instance", instanceIDs) &&
+        paperItems.every(
+          (item) => item.capitalReservationBasis === "PAPER_STARTING_CASH",
+        ) &&
         modes.length > 0;
-      const total = exactEvidence
-        ? amounts.reduce<bigint>(
-            (sum, amount) => sum + (amount ?? BigInt(0)),
+      const amountFor = (item: StrategyFleetItem) =>
+        capitalDecimalUnits(item.capitalReservationAmount) ?? BigInt(0);
+      const paperTotal = exactEvidence
+        ? paperItems.reduce<bigint>(
+            (sum, item) => sum + amountFor(item),
             BigInt(0),
           )
         : undefined;
-      const rawLimits = accountItems.map(
+      const shadowTotal = exactEvidence
+        ? shadowItems.reduce<bigint>(
+            (sum, item) => sum + amountFor(item),
+            BigInt(0),
+          )
+        : undefined;
+      const rawLimits = shadowItems.map(
         (item) => item.capitalReservationAccountLimit,
       );
       const limits = rawLimits.map(capitalDecimalUnits);
       const sharedLimit =
+        rawLimits.length > 0 &&
         rawLimits.every(Boolean) &&
         new Set(rawLimits).size === 1 &&
         limits.every((limit) => limit !== undefined && limit > BigInt(0))
@@ -223,10 +283,10 @@ export function projectStrategyFleetAccountIsolation(
           : undefined;
       const compatible =
         exactEvidence &&
-        (accountItems.length === 1 ||
+        (shadowItems.length <= 1 ||
           (sharedLimit !== undefined &&
-            total !== undefined &&
-            total <= sharedLimit));
+            shadowTotal !== undefined &&
+            shadowTotal <= sharedLimit));
 
       return {
         accountID,
@@ -234,26 +294,100 @@ export function projectStrategyFleetAccountIsolation(
         provider: first.provider,
         status: compatible ? "VERIFIED" : "UNAVAILABLE",
         engineCount: accountItems.length,
+        paperEngineCount: paperItems.length,
+        shadowEngineCount: shadowItems.length,
         modes,
         currency: compatible
           ? accountItems[0].capitalReservationCurrency
           : undefined,
-        claimedAmount:
-          compatible && total !== undefined
-            ? capitalDecimalText(total)
+        paperClaimedAmount:
+          compatible && paperTotal !== undefined
+            ? capitalDecimalText(paperTotal)
+            : undefined,
+        shadowClaimedAmount:
+          compatible && shadowTotal !== undefined
+            ? capitalDecimalText(shadowTotal)
             : undefined,
         accountLimit:
           compatible && sharedLimit !== undefined
             ? capitalDecimalText(sharedLimit)
             : undefined,
         detail: compatible
-          ? accountItems.length === 1
-            ? "One unique strategy, bucket, and reservation identity is database-bound."
-            : "Every engine has a unique strategy, bucket, and reservation identity inside one compatible account ceiling."
+          ? paperItems.length > 0 && shadowItems.length > 0
+            ? "Paper simulation capital is isolated from the connected account; Shadow uses its own separate policy claim."
+            : paperItems.length > 0
+              ? "Every Paper engine has its own simulated capital, strategy, bucket, and reservation identity."
+              : "Every Shadow engine has a unique strategy, bucket, and reservation identity inside its account policy."
           : "Arbion cannot prove complete, compatible account-level isolation from the current fleet snapshot.",
       } satisfies StrategyFleetAccountIsolation;
     })
     .sort((left, right) => left.accountName.localeCompare(right.accountName));
+}
+
+export function projectStrategyFleetIdentityIsolation(
+  items: StrategyFleetItem[],
+): StrategyFleetIdentityIsolation {
+  const operational = items.filter(
+    (item) =>
+      isAI(item) &&
+      Boolean(item.financialAccountID) &&
+      Boolean(item.instanceStatus) &&
+      ["ACTIVE", "PAUSED"].includes(item.instanceStatus ?? ""),
+  );
+  const uniqueCount = (values: Array<string | undefined>) =>
+    new Set(values.filter((value): value is string => Boolean(value))).size;
+  const identityAccounts = new Map<string, Set<string>>();
+  for (const item of operational) {
+    for (const [kind, value] of [
+      ["instance", item.strategyInstanceID],
+      ["bucket", item.capitalBucketID],
+      ["reservation", item.capitalReservationID],
+    ]) {
+      if (!value) continue;
+      const key = `${kind}:${value}`;
+      const accounts = identityAccounts.get(key) ?? new Set<string>();
+      accounts.add(item.financialAccountID!);
+      identityAccounts.set(key, accounts);
+    }
+  }
+  const crossAccountCollisionCount = [...identityAccounts.values()].filter(
+    (accounts) => accounts.size > 1,
+  ).length;
+  const accounts = projectStrategyFleetAccountIsolation(operational);
+  const instanceCount = uniqueCount(
+    operational.map((item) => item.strategyInstanceID),
+  );
+  const bucketCount = uniqueCount(
+    operational.map((item) => item.capitalBucketID),
+  );
+  const reservationCount = uniqueCount(
+    operational.map((item) => item.capitalReservationID),
+  );
+  const complete =
+    operational.length > 0 &&
+    accounts.length > 0 &&
+    accounts.every((account) => account.status === "VERIFIED") &&
+    crossAccountCollisionCount === 0 &&
+    instanceCount === operational.length &&
+    bucketCount === operational.length &&
+    reservationCount === operational.length;
+  return {
+    status: complete ? "VERIFIED" : "UNAVAILABLE",
+    engineCount: operational.length,
+    accountCount: new Set(
+      operational.map((item) => item.financialAccountID).filter(Boolean),
+    ).size,
+    paperEngineCount: operational.filter(
+      (item) => item.executionMode === "PAPER",
+    ).length,
+    shadowEngineCount: operational.filter(
+      (item) => item.executionMode === "SHADOW",
+    ).length,
+    uniqueInstanceCount: instanceCount,
+    uniqueBucketCount: bucketCount,
+    uniqueReservationCount: reservationCount,
+    crossAccountCollisionCount,
+  };
 }
 
 function readable(value: string) {
@@ -885,6 +1019,7 @@ function StrategyFleetAccountIsolationMap({
   items: StrategyFleetItem[];
 }) {
   const accounts = projectStrategyFleetAccountIsolation(items);
+  const identity = projectStrategyFleetIdentityIsolation(items);
   if (accounts.length === 0) return null;
 
   return (
@@ -900,13 +1035,58 @@ function StrategyFleetAccountIsolationMap({
           </h2>
           <p>
             A read-only account view of non-live capital boundaries. Shared
-            accounts are verified only when exact reservations fit one explicit
-            ceiling.
+            Shadow claims require compatible account policy; Paper claims stay
+            in separate simulated ledgers and never consume broker cash.
           </p>
         </div>
         <Link href="/capital">Open capital center →</Link>
       </header>
-      <div>
+      <div
+        className={`strategy-fleet-identity-proof ${identity.status === "VERIFIED" ? "is-verified" : "needs-review"}`}
+        role="region"
+        aria-label="Fleet identity isolation proof"
+      >
+        <header>
+          <div>
+            <span>FLEET IDENTITY PROOF</span>
+            <strong>
+              {identity.status === "VERIFIED" ? "Verified" : "Review required"}
+            </strong>
+          </div>
+          <small>
+            {identity.paperEngineCount} Paper · {identity.shadowEngineCount}{" "}
+            Shadow
+          </small>
+        </header>
+        <dl>
+          <div>
+            <dt>Operational engines</dt>
+            <dd>{identity.engineCount}</dd>
+          </div>
+          <div>
+            <dt>Connected accounts</dt>
+            <dd>{identity.accountCount}</dd>
+          </div>
+          <div>
+            <dt>Unique identities</dt>
+            <dd>
+              {identity.uniqueInstanceCount} engines ·{" "}
+              {identity.uniqueBucketCount} budgets ·{" "}
+              {identity.uniqueReservationCount} claims
+            </dd>
+          </div>
+          <div>
+            <dt>Cross-account collisions</dt>
+            <dd>{identity.crossAccountCollisionCount}</dd>
+          </div>
+        </dl>
+        <p>
+          {identity.status === "VERIFIED"
+            ? "Every active or paused non-live engine, budget, and capital claim belongs to exactly one connected account."
+            : "Arbion cannot prove complete one-account ownership for every current non-live identity."}
+        </p>
+      </div>
+      <div className="strategy-fleet-isolation-accounts">
         {accounts.map((account) => (
           <article
             className={
@@ -945,27 +1125,49 @@ function StrategyFleetAccountIsolationMap({
                 </dd>
               </div>
               <div>
-                <dt>Exact policy claim</dt>
+                <dt>Paper simulation claim</dt>
                 <dd>
-                  {account.claimedAmount
-                    ? capitalMoney(account.currency, account.claimedAmount)
-                    : "Unavailable"}
+                  {account.paperEngineCount === 0
+                    ? "Not used"
+                    : account.paperClaimedAmount
+                      ? capitalMoney(
+                          account.currency,
+                          account.paperClaimedAmount,
+                        )
+                      : "Unavailable"}
                 </dd>
               </div>
               <div>
-                <dt>Account ceiling</dt>
+                <dt>Shadow policy claim</dt>
                 <dd>
-                  {account.accountLimit
-                    ? capitalMoney(account.currency, account.accountLimit)
-                    : account.status === "VERIFIED" && account.engineCount === 1
-                      ? "Exclusive claim"
+                  {account.shadowEngineCount === 0
+                    ? "Not used"
+                    : account.shadowClaimedAmount
+                      ? capitalMoney(
+                          account.currency,
+                          account.shadowClaimedAmount,
+                        )
                       : "Unavailable"}
+                </dd>
+              </div>
+              <div>
+                <dt>Shadow account ceiling</dt>
+                <dd>
+                  {account.shadowEngineCount === 0
+                    ? "Not used by Paper"
+                    : account.accountLimit
+                      ? capitalMoney(account.currency, account.accountLimit)
+                      : account.status === "VERIFIED" &&
+                          account.shadowEngineCount === 1
+                        ? "Exclusive Shadow claim"
+                        : "Unavailable"}
                 </dd>
               </div>
             </dl>
             <p>{account.detail}</p>
             <small>
-              Arbion policy accounting only · no broker hold · no order action
+              Paper claims never consume broker cash · no broker hold · no order
+              action
             </small>
           </article>
         ))}
