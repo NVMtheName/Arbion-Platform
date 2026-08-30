@@ -139,6 +139,25 @@ func TestSchedulerRecordsOnlyNonLiveEvaluationDisposition(t *testing.T) {
 	}
 }
 
+func TestSchedulerTreatsBoundedAIDecisionBudgetAsSafeSkip(t *testing.T) {
+	now := time.Date(2026, 8, 18, 15, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now.Add(-time.Minute))
+	run.ExecutionMode = Paper
+	run.Session = "CONTINUOUS"
+	store := &scheduleStoreFake{run: run}
+	evaluator := &scheduledEvaluatorFake{err: aiconnection.ErrRateLimit}
+	scheduler := NewScheduler(store, evaluator)
+	scheduler.now = func() time.Time { return now }
+
+	claimed, err := scheduler.RunOnce(context.Background())
+	if err != nil || !claimed || evaluator.calls != 1 {
+		t.Fatalf("bounded budget was not durably handled: claimed=%v calls=%d err=%v", claimed, evaluator.calls, err)
+	}
+	if store.completion.Status != "SKIPPED" || store.completion.ErrorCode != "AI_DECISION_BUDGET_EXHAUSTED" || !store.completion.NextRunAt.Equal(now.Add(time.Hour)) {
+		t.Fatalf("bounded budget was misclassified as scheduler failure: %#v", store.completion)
+	}
+}
+
 func TestSchedulerFailsClosedOutsideSessionAndWhileWaitingForLifecycle(t *testing.T) {
 	for name, testCase := range map[string]struct {
 		now   time.Time

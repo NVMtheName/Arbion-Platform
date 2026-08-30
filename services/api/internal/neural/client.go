@@ -174,6 +174,9 @@ type ShadowMarketEventFact struct {
 }
 
 type ShadowDecisionRequest struct {
+	// BudgetScope is an Arbion-only runtime boundary. It is never serialized to
+	// an AI provider or persisted as model evidence.
+	BudgetScope         string                      `json:"-"`
 	Profile             string                      `json:"profile"`
 	Objective           string                      `json:"objective"`
 	AllowedSymbols      []string                    `json:"allowed_symbols"`

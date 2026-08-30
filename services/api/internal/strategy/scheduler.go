@@ -127,6 +127,8 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 					completion.AIDecision = outcome.AIDecision
 					completion.ExecutionStatus = outcome.Execution.Status
 				}
+			} else if errors.Is(err, aiconnection.ErrRateLimit) {
+				completion.Status, completion.ErrorCode = "SKIPPED", classifyScheduleError(err)
 			} else {
 				completion.Status, completion.ErrorCode = "FAILED", classifyScheduleError(err)
 			}

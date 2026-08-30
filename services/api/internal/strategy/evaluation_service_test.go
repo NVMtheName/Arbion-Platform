@@ -405,7 +405,7 @@ func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testin
 	if err != nil || outcome.AIDecision != "PROPOSE" || outcome.Execution.Status != WouldHaveSubmitted || outcome.RiskDecision != risk.Allow {
 		t.Fatalf("unexpected Schwab AI shadow outcome: %#v %v", outcome, err)
 	}
-	if store.commits != 1 || store.abstains != 0 || finances.quoteCalls != 1 || ai.request.Markets[0].Feed != "schwab_market_data" || ai.request.Markets[0].HistoryStatus != "UNAVAILABLE" || len(ai.request.MarketEventCoverage) != 1 || ai.request.MarketEventCoverage[0].Status != "UNAVAILABLE" || len(ai.request.MarketEvents) != 0 || len(ai.request.Positions) != 1 {
+	if store.commits != 1 || store.abstains != 0 || finances.quoteCalls != 1 || ai.request.BudgetScope != "ai-instance" || ai.request.Markets[0].Feed != "schwab_market_data" || ai.request.Markets[0].HistoryStatus != "UNAVAILABLE" || len(ai.request.MarketEventCoverage) != 1 || ai.request.MarketEventCoverage[0].Status != "UNAVAILABLE" || len(ai.request.MarketEvents) != 0 || len(ai.request.Positions) != 1 {
 		t.Fatalf("unexpected Schwab boundaries: commits=%d abstains=%d quotes=%d request=%#v", store.commits, store.abstains, finances.quoteCalls, ai.request)
 	}
 	position := ai.request.Positions[0]
@@ -413,7 +413,7 @@ func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testin
 		t.Fatalf("Schwab position performance was not normalized: %#v", position)
 	}
 	encoded, err := json.Marshal(ai.request)
-	if err != nil || strings.Contains(string(encoded), "must-not-cross-neural-boundary") {
+	if err != nil || strings.Contains(string(encoded), "must-not-cross-neural-boundary") || strings.Contains(string(encoded), "ai-instance") {
 		t.Fatalf("provider instrument identifier crossed Neural boundary: %s err=%v", encoded, err)
 	}
 	assertAIInputEvidence(t, store.decision.Rationale, "schwab", "100", 1, 1, 0)

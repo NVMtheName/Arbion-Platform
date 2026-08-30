@@ -289,14 +289,18 @@ type fakeLimiter struct {
 	err     error
 	calls   *int
 	cost    *int
+	key     *string
 }
 
-func (f fakeLimiter) AllowWeighted(_ context.Context, _ string, cost, _ int, _ time.Duration) (bool, error) {
+func (f fakeLimiter) AllowWeighted(_ context.Context, key string, cost, _ int, _ time.Duration) (bool, error) {
 	if f.calls != nil {
 		(*f.calls)++
 	}
 	if f.cost != nil {
 		*f.cost = cost
+	}
+	if f.key != nil {
+		*f.key = key
 	}
 	return f.allowed, f.err
 }
@@ -766,10 +770,11 @@ func TestGenerateShadowDecisionUsesExactMandateConnectionAndModelWithoutPreferen
 	seenSecret := []byte{}
 	seenSafetyID := ""
 	s.neural = shadowNeural{decision: neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No edge", Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep", RequestID: "resp-shadow"}}, request: &seenRequest, seenSecret: &seenSecret, seenSafetyID: &seenSafetyID}
-	s.limiter = fakeLimiter{allowed: true}
-	input := neural.ShadowDecisionRequest{Objective: "private objective", AllowedSymbols: []string{"BTC"}, MaxProposalNotional: "1", AvailableCashUSD: "100", BuyingPowerUSD: "100", ObservedAt: time.Now().UTC()}
+	seenLimitKey := ""
+	s.limiter = fakeLimiter{allowed: true, key: &seenLimitKey}
+	input := neural.ShadowDecisionRequest{BudgetScope: "strategy-instance-1", Objective: "private objective", AllowedSymbols: []string{"BTC"}, MaxProposalNotional: "1", AvailableCashUSD: "100", BuyingPowerUSD: "100", ObservedAt: time.Now().UTC()}
 	decision, err := s.GenerateShadowDecision(context.Background(), p, connection.ID, "gpt-5.6-sol", input)
-	if err != nil || decision.Decision != "ABSTAIN" || seenRequest.Profile != "deep" || len(seenSafetyID) != 64 {
+	if err != nil || decision.Decision != "ABSTAIN" || seenRequest.Profile != "deep" || len(seenSafetyID) != 64 || seenLimitKey != "neural-shadow-decision:u:strategy-instance-1" {
 		t.Fatalf("shadow decision failed: decision=%#v request=%#v err=%v", decision, seenRequest, err)
 	}
 	for _, value := range seenSecret {
@@ -779,6 +784,10 @@ func TestGenerateShadowDecisionUsesExactMandateConnectionAndModelWithoutPreferen
 	}
 	if _, err = s.GenerateShadowDecision(context.Background(), p, connection.ID, "unapproved-model", input); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("unapproved mandate model was accepted: %v", err)
+	}
+	input.BudgetScope = ""
+	if _, err = s.GenerateShadowDecision(context.Background(), p, connection.ID, "gpt-5.6-sol", input); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unscoped decision budget was accepted: %v", err)
 	}
 }
 
@@ -796,7 +805,7 @@ func TestGenerateShadowDecisionRoutesExactClaudeMandateModel(t *testing.T) {
 	seenRequest := neural.ShadowDecisionRequest{}
 	s.neural = shadowNeural{decision: neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No edge", Metadata: neural.InsightMetadata{Provider: "anthropic", Model: "claude-sonnet-5", Profile: "core", RequestID: "msg-shadow"}}, request: &seenRequest}
 	s.limiter = fakeLimiter{allowed: true}
-	input := neural.ShadowDecisionRequest{Objective: "private objective", AllowedSymbols: []string{"BTC"}, MaxProposalNotional: "1", AvailableCashUSD: "100", BuyingPowerUSD: "100", ObservedAt: time.Now().UTC()}
+	input := neural.ShadowDecisionRequest{BudgetScope: "strategy-instance-1", Objective: "private objective", AllowedSymbols: []string{"BTC"}, MaxProposalNotional: "1", AvailableCashUSD: "100", BuyingPowerUSD: "100", ObservedAt: time.Now().UTC()}
 	decision, err := s.GenerateShadowDecision(context.Background(), p, connection.ID, "claude-sonnet-5", input)
 	if err != nil || decision.Decision != "ABSTAIN" || seenRequest.Profile != "core" {
 		t.Fatalf("Claude shadow decision failed: decision=%#v request=%#v err=%v", decision, seenRequest, err)
@@ -821,7 +830,7 @@ func TestGenerateShadowDecisionRoutesExactGeminiMandateModel(t *testing.T) {
 	seenRequest := neural.ShadowDecisionRequest{}
 	s.neural = shadowNeural{decision: neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No edge", Metadata: neural.InsightMetadata{Provider: "gemini", Model: "gemini-3.6-flash", Profile: "core", RequestID: "interaction-shadow"}}, request: &seenRequest}
 	s.limiter = fakeLimiter{allowed: true}
-	input := neural.ShadowDecisionRequest{Objective: "private objective", AllowedSymbols: []string{"BTC"}, MaxProposalNotional: "1", AvailableCashUSD: "100", BuyingPowerUSD: "100", ObservedAt: time.Now().UTC()}
+	input := neural.ShadowDecisionRequest{BudgetScope: "strategy-instance-1", Objective: "private objective", AllowedSymbols: []string{"BTC"}, MaxProposalNotional: "1", AvailableCashUSD: "100", BuyingPowerUSD: "100", ObservedAt: time.Now().UTC()}
 	decision, err := s.GenerateShadowDecision(context.Background(), p, connection.ID, "gemini-3.6-flash", input)
 	if err != nil || decision.Decision != "ABSTAIN" || seenRequest.Profile != "core" {
 		t.Fatalf("Gemini shadow decision failed: decision=%#v request=%#v err=%v", decision, seenRequest, err)
