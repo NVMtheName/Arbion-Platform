@@ -44,6 +44,7 @@ import {
   StrategyInitializationReadiness,
 } from "../strategy-initialization-readiness";
 import { AutonomyReadinessControlPlane } from "../autonomy-readiness-control-plane";
+import { PaperAutonomyReadinessControlPlane } from "../paper-autonomy-readiness-control-plane";
 import { AutonomyEvidenceReport } from "../autonomy-evidence-report";
 import {
   ShadowEvidenceReviewControls,
@@ -417,6 +418,27 @@ export default async function MandateReview({
         simulation, but never SHADOW, LIVE, or broker execution.
       </p>
       <AutomationNextActionPanel action={nextAction} />
+      {automationType === "AI_AUTONOMOUS" && executionMode === "PAPER" && (
+        <PaperAutonomyReadinessControlPlane
+          provider={financialProvider}
+          modelID={read("ai_model_id", "AIModelID")}
+          mandateStatus={read("status", "Status")}
+          currentVersion={currentVersion}
+          automationType={automationType}
+          autonomyLevel={read("autonomy_level", "AutonomyLevel")}
+          executionMode={executionMode}
+          financialAccount={financialAccount}
+          financialConnection={financialConnection}
+          aiConnection={aiConnection}
+          capitalBucket={capitalBucket}
+          capitalReservation={capitalReservation}
+          instance={instance}
+          schedule={scheduleResponse.schedule as Record<string, unknown>}
+          paperPortfolio={paperPortfolio}
+          automationBreaker={breaker as unknown as Record<string, unknown>}
+          schedulerEnabled={Boolean(scheduleResponse.scheduler_enabled)}
+        />
+      )}
       {automationType === "AI_AUTONOMOUS" && executionMode === "SHADOW" && (
         <AutonomyReadinessControlPlane
           provider={financialProvider}
