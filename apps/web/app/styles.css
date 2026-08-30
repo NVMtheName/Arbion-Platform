@@ -2227,9 +2227,16 @@ button:disabled {
   font-size: 0.72rem;
 }
 .strategy-fleet-provenance-comparison article > span,
+.strategy-fleet-provenance-comparison article > small,
 .strategy-fleet-provenance-comparison time {
   color: #647b82;
   font-size: 0.56rem;
+}
+.strategy-fleet-provenance-comparison article > small {
+  overflow: hidden;
+  color: #8ea4aa;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .strategy-fleet-provenance-comparison article > strong {
   overflow: hidden;
