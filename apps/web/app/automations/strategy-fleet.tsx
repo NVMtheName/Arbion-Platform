@@ -89,6 +89,19 @@ export type StrategyFleetItem = {
   latestDecisionLatencyMS?: number;
   latestDecisionInputUsage?: number;
   latestDecisionOutputUsage?: number;
+  latestDecisionProposedNotional?: string;
+  latestDecisionFinancialContextComplete?: boolean;
+  latestDecisionFinancialProvider?: string;
+  latestDecisionMarketSymbols?: string[];
+  latestDecisionMarketFeeds?: string[];
+  latestDecisionMarketQualities?: string[];
+  latestDecisionMarketObservedAt?: string;
+  priorDecisionID?: string;
+  priorDecisionType?: string;
+  priorDecisionAt?: string;
+  priorDecisionSymbol?: string;
+  priorDecisionSide?: string;
+  priorDecisionProposedNotional?: string;
   reconciliationAvailable?: boolean;
   reconciliationComparisonStatus?: string;
   reconciliationBalancesStatus?: string;
@@ -261,6 +274,37 @@ export type StrategyFleetOperatingBrief = {
     detailHref: string;
     reviewHref?: string;
     reviewLabel?: string;
+  }>;
+};
+
+export type StrategyFleetProvenanceDigest = {
+  status: "VERIFIED" | "UNAVAILABLE";
+  engineCount: number;
+  attributableCount: number;
+  changedCount: number;
+  heldCourseCount: number;
+  firstDecisionCount: number;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    state: "CHANGED" | "HELD_COURSE" | "FIRST_DECISION" | "UNAVAILABLE";
+    attributable: boolean;
+    latestDecisionType?: string;
+    priorDecisionType?: string;
+    latestDecisionAt?: string;
+    priorDecisionAt?: string;
+    aiProvider?: string;
+    modelID?: string;
+    profile?: string;
+    financialProvider?: string;
+    marketSymbols: string[];
+    marketFeeds: string[];
+    marketQualities: string[];
+    marketObservedAt?: string;
+    followUp: string;
   }>;
 };
 
@@ -1425,6 +1469,159 @@ export function projectStrategyFleetOperatingBrief(
   };
 }
 
+function exactDecisionNotional(
+  decisionType: string | undefined,
+  value: string | undefined,
+) {
+  const units = capitalDecimalUnits(value);
+  if (units === undefined) return undefined;
+  if (decisionType === "ABSTAIN")
+    return units === BigInt(0) ? units : undefined;
+  return units > BigInt(0) ? units : undefined;
+}
+
+function exactDecisionSignature(item: {
+  decisionType?: string;
+  symbol?: string;
+  side?: string;
+  proposedNotional?: string;
+}) {
+  const notional = exactDecisionNotional(
+    item.decisionType,
+    item.proposedNotional,
+  );
+  if (
+    !item.decisionType ||
+    !item.symbol ||
+    !item.side ||
+    notional === undefined
+  )
+    return undefined;
+  return [item.decisionType, item.symbol, item.side, notional.toString()].join(
+    "|",
+  );
+}
+
+function exactDecisionInstant(value?: string) {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.valueOf()) ? undefined : parsed;
+}
+
+export function projectStrategyFleetProvenanceDigest(
+  items: StrategyFleetItem[],
+): StrategyFleetProvenanceDigest {
+  const active = items.filter(
+    (item) => isAI(item) && item.instanceStatus === "ACTIVE",
+  );
+  const engines = active.map((item) => {
+    const decisionAt = exactDecisionInstant(item.latestDecisionAt);
+    const marketObservedAt = exactDecisionInstant(
+      item.latestDecisionMarketObservedAt,
+    );
+    const latestSignature = exactDecisionSignature({
+      decisionType: item.latestDecisionType,
+      symbol: item.latestDecisionSymbol,
+      side: item.latestDecisionSide,
+      proposedNotional: item.latestDecisionProposedNotional,
+    });
+    const hasPrior = Boolean(item.priorDecisionID);
+    const priorSignature = hasPrior
+      ? exactDecisionSignature({
+          decisionType: item.priorDecisionType,
+          symbol: item.priorDecisionSymbol,
+          side: item.priorDecisionSide,
+          proposedNotional: item.priorDecisionProposedNotional,
+        })
+      : undefined;
+    const priorAt = hasPrior
+      ? exactDecisionInstant(item.priorDecisionAt)
+      : undefined;
+    const marketSymbols = item.latestDecisionMarketSymbols ?? [];
+    const uniqueMarketSymbols = new Set(marketSymbols);
+    const routeAttributed = Boolean(
+      item.latestDecisionAIProvider &&
+        item.latestDecisionAIModelID &&
+        item.latestDecisionAIProfile,
+    );
+    const financialAttributed = Boolean(
+      item.latestDecisionFinancialContextComplete === true &&
+        item.latestDecisionFinancialProvider === item.provider &&
+        marketSymbols.length > 0 &&
+        uniqueMarketSymbols.size === marketSymbols.length &&
+        (item.latestDecisionMarketFeeds?.length ?? 0) > 0 &&
+        (item.latestDecisionMarketQualities?.length ?? 0) > 0 &&
+        decisionAt &&
+        marketObservedAt &&
+        marketObservedAt.valueOf() <= decisionAt.valueOf() + 5 * 60 * 1000,
+    );
+    const currentDecisionComplete = Boolean(
+      item.decisionAvailable === true &&
+        item.latestDecisionID &&
+        decisionAt &&
+        latestSignature,
+    );
+    const comparisonComplete = !hasPrior || Boolean(priorAt && priorSignature);
+    const attributable = Boolean(
+      currentDecisionComplete && routeAttributed && financialAttributed,
+    );
+    const state =
+      !attributable || !comparisonComplete
+        ? ("UNAVAILABLE" as const)
+        : !hasPrior
+          ? ("FIRST_DECISION" as const)
+          : latestSignature === priorSignature
+            ? ("HELD_COURSE" as const)
+            : ("CHANGED" as const);
+    const followUp =
+      state === "UNAVAILABLE"
+        ? "Review the saved evidence before relying on this comparison. This view will not rerun the model."
+        : state === "CHANGED"
+          ? "No action is required. Compare the two saved conclusions in the journal while the next guarded cycle remains automatic."
+          : state === "HELD_COURSE"
+            ? "No action is required. The engine held its exact conclusion and its next guarded cycle remains automatic."
+            : "No action is required. The next guarded cycle will add the first exact comparison point.";
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      state,
+      attributable,
+      latestDecisionType: item.latestDecisionType,
+      priorDecisionType: item.priorDecisionType,
+      latestDecisionAt: item.latestDecisionAt,
+      priorDecisionAt: item.priorDecisionAt,
+      aiProvider: item.latestDecisionAIProvider,
+      modelID: item.latestDecisionAIModelID,
+      profile: item.latestDecisionAIProfile,
+      financialProvider: item.latestDecisionFinancialProvider,
+      marketSymbols,
+      marketFeeds: item.latestDecisionMarketFeeds ?? [],
+      marketQualities: item.latestDecisionMarketQualities ?? [],
+      marketObservedAt: item.latestDecisionMarketObservedAt,
+      followUp,
+    };
+  });
+  const attributableCount = engines.filter(
+    (engine) => engine.attributable,
+  ).length;
+  const unavailable = engines.some((engine) => engine.state === "UNAVAILABLE");
+  return {
+    status: engines.length > 0 && !unavailable ? "VERIFIED" : "UNAVAILABLE",
+    engineCount: engines.length,
+    attributableCount,
+    changedCount: engines.filter((engine) => engine.state === "CHANGED").length,
+    heldCourseCount: engines.filter((engine) => engine.state === "HELD_COURSE")
+      .length,
+    firstDecisionCount: engines.filter(
+      (engine) => engine.state === "FIRST_DECISION",
+    ).length,
+    engines,
+  };
+}
+
 function healthClass(item: StrategyFleetItem) {
   if (needsReview(item)) return "needs-review";
   return item.instanceStatus === "ACTIVE" ? "healthy" : "neutral";
@@ -1676,6 +1873,174 @@ function StrategyFleetOperatingBrief({
       <footer>
         Read-only explanation from current owner-scoped records · no model rerun
         · no provider call
+      </footer>
+    </section>
+  );
+}
+
+function provenanceDigestStateLabel(
+  state: StrategyFleetProvenanceDigest["engines"][number]["state"],
+) {
+  if (state === "CHANGED") return "Conclusion changed";
+  if (state === "HELD_COURSE") return "Held course";
+  if (state === "FIRST_DECISION") return "First decision";
+  return "Evidence unavailable";
+}
+
+function provenanceReadableList(values: string[]) {
+  return values.length > 0 ? values.map(readable).join(" · ") : "Unavailable";
+}
+
+function provenanceExactList(values: string[]) {
+  return values.length > 0 ? values.join(" · ") : "Unavailable";
+}
+
+function StrategyFleetProvenanceDigestView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const digest = projectStrategyFleetProvenanceDigest(items);
+  if (digest.engineCount === 0) return null;
+  const verified = digest.status === "VERIFIED";
+  return (
+    <section
+      className={`strategy-fleet-provenance-digest ${verified ? "is-verified" : "needs-review"}`}
+      aria-labelledby="strategy-fleet-provenance-digest-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">DECISION CHANGE + PROVENANCE</p>
+          <h2 id="strategy-fleet-provenance-digest-heading">
+            {verified
+              ? `${digest.attributableCount} current AI ${digest.attributableCount === 1 ? "decision is" : "decisions are"} fully attributable.`
+              : "A current AI decision comparison is incomplete."}
+          </h2>
+          <p>
+            Compare each engine&apos;s two newest immutable conclusions and
+            verify the exact model route, financial provider, symbols, feed,
+            quality, and observation time behind the current one.
+          </p>
+        </div>
+        <span>{verified ? "Complete" : "Review evidence"}</span>
+      </header>
+      <dl className="strategy-fleet-provenance-digest-summary">
+        <div>
+          <dt>Attributable now</dt>
+          <dd>
+            {digest.attributableCount} / {digest.engineCount}
+          </dd>
+        </div>
+        <div>
+          <dt>Changed conclusion</dt>
+          <dd>{digest.changedCount}</dd>
+        </div>
+        <div>
+          <dt>Held course</dt>
+          <dd>{digest.heldCourseCount}</dd>
+        </div>
+        <div>
+          <dt>First decision</dt>
+          <dd>{digest.firstDecisionCount}</dd>
+        </div>
+      </dl>
+      <ol className="strategy-fleet-provenance-digest-list">
+        {digest.engines.map((engine) => (
+          <li
+            className={
+              engine.state === "UNAVAILABLE" ? "needs-review" : "is-verified"
+            }
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{provenanceDigestStateLabel(engine.state)}</span>
+            </header>
+            <div className="strategy-fleet-provenance-comparison">
+              <article>
+                <span>Previous</span>
+                <strong>
+                  {engine.priorDecisionType
+                    ? latestDecisionLabel(engine.priorDecisionType)
+                    : "No earlier decision"}
+                </strong>
+                <time dateTime={engine.priorDecisionAt}>
+                  {readableTime(engine.priorDecisionAt)}
+                </time>
+              </article>
+              <span aria-hidden="true">→</span>
+              <article>
+                <span>Current</span>
+                <strong>
+                  {engine.latestDecisionType
+                    ? latestDecisionLabel(engine.latestDecisionType)
+                    : "Unavailable"}
+                </strong>
+                <time dateTime={engine.latestDecisionAt}>
+                  {readableTime(engine.latestDecisionAt)}
+                </time>
+              </article>
+            </div>
+            <dl>
+              <div>
+                <dt>AI route</dt>
+                <dd>
+                  {engine.aiProvider && engine.modelID && engine.profile
+                    ? `${aiProviderLabel(engine.aiProvider)} · ${engine.modelID} · ${readable(engine.profile)}`
+                    : "Unavailable"}
+                </dd>
+              </div>
+              <div>
+                <dt>Financial source</dt>
+                <dd>
+                  {engine.financialProvider
+                    ? providerLabel(engine.financialProvider)
+                    : "Unavailable"}
+                </dd>
+              </div>
+              <div>
+                <dt>Exact markets</dt>
+                <dd>{provenanceExactList(engine.marketSymbols)}</dd>
+              </div>
+              <div>
+                <dt>Feed + quality</dt>
+                <dd>
+                  {provenanceReadableList(engine.marketFeeds)} ·{" "}
+                  {provenanceReadableList(engine.marketQualities)}
+                </dd>
+              </div>
+            </dl>
+            <footer>
+              <p>
+                <strong>Safe follow-up</strong>
+                <span>{engine.followUp}</span>
+              </p>
+              <div>
+                <time dateTime={engine.marketObservedAt}>
+                  Market observed {readableTime(engine.marketObservedAt)}
+                </time>
+                <Link href="/activity">Compare immutable records →</Link>
+              </div>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Owner-scoped saved evidence only · no model rerun · no provider refresh
+        · no broker order
       </footer>
     </section>
   );
@@ -2884,6 +3249,10 @@ export function StrategyFleet({
       )}
 
       {inventoryAvailable && <StrategyFleetOperatingBrief items={items} />}
+
+      {inventoryAvailable && (
+        <StrategyFleetProvenanceDigestView items={items} />
+      )}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}
 

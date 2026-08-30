@@ -2063,6 +2063,240 @@ button:disabled {
 .strategy-fleet-operating-brief > footer {
   margin-top: 13px;
 }
+.strategy-fleet-provenance-digest {
+  margin-top: 20px;
+  padding: 26px;
+  border: 1px solid rgba(121, 153, 246, 0.24);
+  border-radius: 22px;
+  background:
+    radial-gradient(
+      circle at 100% 0%,
+      rgba(121, 153, 246, 0.1),
+      transparent 30rem
+    ),
+    linear-gradient(145deg, rgba(6, 20, 30, 0.94), rgba(3, 14, 13, 0.92));
+}
+.strategy-fleet-provenance-digest.needs-review {
+  border-color: rgba(216, 169, 82, 0.34);
+  background: rgba(41, 29, 11, 0.24);
+}
+.strategy-fleet-provenance-digest > header,
+.strategy-fleet-provenance-digest-list > li > header,
+.strategy-fleet-provenance-digest-list > li > header > div,
+.strategy-fleet-provenance-digest-list > li > footer > div {
+  display: flex;
+  align-items: center;
+}
+.strategy-fleet-provenance-digest > header {
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+}
+.strategy-fleet-provenance-digest > header > div {
+  max-width: 820px;
+}
+.strategy-fleet-provenance-digest h2 {
+  margin: 7px 0 8px;
+  color: #f1f6ff;
+  font-size: clamp(1.45rem, 2.4vw, 2.15rem);
+}
+.strategy-fleet-provenance-digest > header p:last-child,
+.strategy-fleet-provenance-digest > footer {
+  color: #788f96;
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+.strategy-fleet-provenance-digest > header > span {
+  flex: 0 0 auto;
+  padding: 8px 11px;
+  border: 1px solid rgba(121, 153, 246, 0.35);
+  border-radius: 999px;
+  color: #a8c2ff;
+  font-size: 0.65rem;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.strategy-fleet-provenance-digest.needs-review > header > span {
+  border-color: rgba(216, 169, 82, 0.38);
+  color: #e1bd79;
+}
+.strategy-fleet-provenance-digest-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 20px 0 14px;
+  overflow: hidden;
+  border: 1px solid rgba(121, 153, 246, 0.12);
+  border-radius: 12px;
+  background: rgba(121, 153, 246, 0.1);
+}
+.strategy-fleet-provenance-digest-summary > div {
+  min-width: 0;
+  padding: 14px;
+  background: rgba(3, 14, 15, 0.86);
+}
+.strategy-fleet-provenance-digest dt,
+.strategy-fleet-provenance-digest dd {
+  margin: 0;
+}
+.strategy-fleet-provenance-digest dt {
+  color: #70858c;
+  font-size: 0.58rem;
+  font-weight: 760;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.strategy-fleet-provenance-digest dd {
+  margin-top: 5px;
+  color: #dce9ec;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.strategy-fleet-provenance-digest-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 11px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-fleet-provenance-digest-list > li {
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid rgba(121, 153, 246, 0.15);
+  border-radius: 15px;
+  background: rgba(2, 13, 14, 0.76);
+}
+.strategy-fleet-provenance-digest-list > li.needs-review {
+  border-color: rgba(216, 169, 82, 0.3);
+}
+.strategy-fleet-provenance-digest-list > li > header {
+  justify-content: space-between;
+  gap: 12px;
+}
+.strategy-fleet-provenance-digest-list > li > header > div {
+  gap: 9px;
+  min-width: 0;
+}
+.strategy-fleet-provenance-digest-list > li > header p {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  margin: 0;
+}
+.strategy-fleet-provenance-digest-list > li > header small {
+  overflow: hidden;
+  color: #6e8388;
+  font-size: 0.6rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-fleet-provenance-digest-list > li > header strong {
+  color: #dce9ec;
+  font-size: 0.8rem;
+}
+.strategy-fleet-provenance-digest-list > li > header > span {
+  color: #a8c2ff;
+  font-size: 0.61rem;
+  font-weight: 780;
+  text-align: right;
+  text-transform: uppercase;
+}
+.strategy-fleet-provenance-digest-list > li.needs-review > header > span {
+  color: #e1bd79;
+}
+.strategy-fleet-provenance-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin: 15px 0;
+}
+.strategy-fleet-provenance-comparison > article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(121, 153, 246, 0.12);
+  border-radius: 10px;
+  background: rgba(4, 17, 20, 0.82);
+}
+.strategy-fleet-provenance-comparison > span {
+  color: #617d88;
+  font-size: 0.72rem;
+}
+.strategy-fleet-provenance-comparison article > span,
+.strategy-fleet-provenance-comparison time {
+  color: #647b82;
+  font-size: 0.56rem;
+}
+.strategy-fleet-provenance-comparison article > strong {
+  overflow: hidden;
+  color: #cbdde2;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-fleet-provenance-digest-list > li > dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid rgba(121, 153, 246, 0.09);
+  border-radius: 10px;
+  background: rgba(121, 153, 246, 0.08);
+}
+.strategy-fleet-provenance-digest-list > li > dl > div {
+  min-width: 0;
+  padding: 11px;
+  background: rgba(3, 15, 16, 0.88);
+}
+.strategy-fleet-provenance-digest-list > li > dl dd {
+  overflow: hidden;
+  color: #b9cdd1;
+  font-size: 0.66rem;
+  font-weight: 640;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+}
+.strategy-fleet-provenance-digest-list > li > footer {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(121, 153, 246, 0.1);
+}
+.strategy-fleet-provenance-digest-list > li > footer p {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+.strategy-fleet-provenance-digest-list > li > footer p strong {
+  color: #8fa9b1;
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.strategy-fleet-provenance-digest-list > li > footer p span,
+.strategy-fleet-provenance-digest-list > li > footer time {
+  color: #6f858b;
+  font-size: 0.61rem;
+  line-height: 1.5;
+}
+.strategy-fleet-provenance-digest-list > li > footer > div {
+  justify-content: space-between;
+  gap: 12px;
+}
+.strategy-fleet-provenance-digest-list > li > footer a {
+  color: #9db8ff;
+  font-size: 0.61rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.strategy-fleet-provenance-digest > footer {
+  margin-top: 13px;
+}
 .strategy-fleet-isolation {
   margin-top: 20px;
   padding: 24px;
@@ -3617,6 +3851,7 @@ button:disabled {
   .strategy-fleet-grid footer,
   .strategy-fleet-safety,
   .strategy-fleet-operating-brief > header,
+  .strategy-fleet-provenance-digest > header,
   .strategy-fleet-isolation > header,
   .strategy-fleet-watchtower > header,
   .strategy-fleet-recovery > header,
@@ -3637,6 +3872,9 @@ button:disabled {
   .strategy-fleet-operating-brief > ol {
     grid-template-columns: 1fr;
   }
+  .strategy-fleet-provenance-digest-list {
+    grid-template-columns: 1fr;
+  }
   .strategy-fleet-operating-brief > ol > li > footer {
     align-items: flex-start;
     flex-direction: column;
@@ -3655,6 +3893,7 @@ button:disabled {
     flex-direction: column;
   }
   .strategy-fleet-evidence-chain-summary,
+  .strategy-fleet-provenance-digest-summary,
   .strategy-fleet-evidence-chain-list > li > dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
