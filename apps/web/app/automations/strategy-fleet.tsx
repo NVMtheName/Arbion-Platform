@@ -118,6 +118,28 @@ export type StrategyFleetItem = {
   priorDecisionSymbol?: string;
   priorDecisionSide?: string;
   priorDecisionProposedNotional?: string;
+  priorDecisionFinancialContextComplete?: boolean;
+  priorDecisionFinancialProvider?: string;
+  priorDecisionMarketSymbols?: string[];
+  priorDecisionMarketFeeds?: string[];
+  priorDecisionMarketQualities?: string[];
+  priorDecisionMarketObservedAt?: string;
+  priorDecisionInputCoverageComplete?: boolean;
+  priorDecisionHistoryLiquidityEvidenceComplete?: boolean;
+  priorDecisionHistoryStatuses?: string[];
+  priorDecisionHistoryFeeds?: string[];
+  priorDecisionHistoryQualities?: string[];
+  priorDecisionLiquidityStatuses?: string[];
+  priorDecisionPositionEvidenceComplete?: boolean;
+  priorDecisionPositionCount?: number;
+  priorDecisionPositionPerformanceStatuses?: string[];
+  priorDecisionMarketEventEvidenceComplete?: boolean;
+  priorDecisionMarketEventCoverageCount?: number;
+  priorDecisionMarketEventCoverageStatuses?: string[];
+  priorDecisionMarketEventProviders?: string[];
+  priorDecisionMarketEventFeeds?: string[];
+  priorDecisionMarketEventQualities?: string[];
+  priorDecisionMarketEventCount?: number;
   reconciliationAvailable?: boolean;
   reconciliationComparisonStatus?: string;
   reconciliationBalancesStatus?: string;
@@ -359,6 +381,46 @@ export type StrategyFleetInputCoverageMatrix = {
       status: StrategyFleetInputCoverageStatus;
       evidence: string;
       limitation?: string;
+    }>;
+  }>;
+};
+
+export type StrategyFleetInputCoverageChange =
+  | "IMPROVED"
+  | "REGRESSED"
+  | "UNCHANGED"
+  | "CONTEXT_CHANGED"
+  | "UNAVAILABLE";
+
+export type StrategyFleetInputCoverageChangeLedger = {
+  status: "VERIFIED" | "UNAVAILABLE";
+  engineCount: number;
+  comparableCount: number;
+  improvedCategoryCount: number;
+  regressedCategoryCount: number;
+  unchangedCategoryCount: number;
+  contextChangedCategoryCount: number;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    latestDecisionID?: string;
+    priorDecisionID?: string;
+    latestDecisionAt?: string;
+    priorDecisionAt?: string;
+    financialProvider?: string;
+    comparable: boolean;
+    followUp: string;
+    categories: Array<{
+      key: "MARKET_PRICE" | "HISTORY" | "LIQUIDITY" | "POSITION" | "EVENTS";
+      label: string;
+      priorStatus: StrategyFleetInputCoverageStatus;
+      currentStatus: StrategyFleetInputCoverageStatus;
+      change: StrategyFleetInputCoverageChange;
+      priorEvidence: string;
+      currentEvidence: string;
     }>;
   }>;
 };
@@ -1873,6 +1935,155 @@ export function projectStrategyFleetInputCoverageMatrix(
   };
 }
 
+function priorInputCoverageItem(item: StrategyFleetItem): StrategyFleetItem {
+  return {
+    ...item,
+    decisionAvailable: Boolean(item.priorDecisionID),
+    latestDecisionID: item.priorDecisionID,
+    latestDecisionAt: item.priorDecisionAt,
+    latestDecisionFinancialContextComplete:
+      item.priorDecisionFinancialContextComplete,
+    latestDecisionFinancialProvider: item.priorDecisionFinancialProvider,
+    latestDecisionMarketSymbols: item.priorDecisionMarketSymbols,
+    latestDecisionMarketFeeds: item.priorDecisionMarketFeeds,
+    latestDecisionMarketQualities: item.priorDecisionMarketQualities,
+    latestDecisionMarketObservedAt: item.priorDecisionMarketObservedAt,
+    latestDecisionInputCoverageComplete:
+      item.priorDecisionInputCoverageComplete,
+    latestDecisionHistoryLiquidityEvidenceComplete:
+      item.priorDecisionHistoryLiquidityEvidenceComplete,
+    latestDecisionHistoryStatuses: item.priorDecisionHistoryStatuses,
+    latestDecisionHistoryFeeds: item.priorDecisionHistoryFeeds,
+    latestDecisionHistoryQualities: item.priorDecisionHistoryQualities,
+    latestDecisionLiquidityStatuses: item.priorDecisionLiquidityStatuses,
+    latestDecisionPositionEvidenceComplete:
+      item.priorDecisionPositionEvidenceComplete,
+    latestDecisionPositionCount: item.priorDecisionPositionCount,
+    latestDecisionPositionPerformanceStatuses:
+      item.priorDecisionPositionPerformanceStatuses,
+    latestDecisionMarketEventEvidenceComplete:
+      item.priorDecisionMarketEventEvidenceComplete,
+    latestDecisionMarketEventCoverageCount:
+      item.priorDecisionMarketEventCoverageCount,
+    latestDecisionMarketEventCoverageStatuses:
+      item.priorDecisionMarketEventCoverageStatuses,
+    latestDecisionMarketEventProviders: item.priorDecisionMarketEventProviders,
+    latestDecisionMarketEventFeeds: item.priorDecisionMarketEventFeeds,
+    latestDecisionMarketEventQualities: item.priorDecisionMarketEventQualities,
+    latestDecisionMarketEventCount: item.priorDecisionMarketEventCount,
+  };
+}
+
+function inputCoverageChange(
+  priorStatus: StrategyFleetInputCoverageStatus,
+  currentStatus: StrategyFleetInputCoverageStatus,
+  comparable: boolean,
+): StrategyFleetInputCoverageChange {
+  if (!comparable) return "UNAVAILABLE";
+  if (priorStatus === currentStatus) return "UNCHANGED";
+  if (priorStatus === "NOT_APPLICABLE" || currentStatus === "NOT_APPLICABLE")
+    return "CONTEXT_CHANGED";
+  const rank: Record<
+    Exclude<StrategyFleetInputCoverageStatus, "NOT_APPLICABLE">,
+    number
+  > = {
+    UNAVAILABLE: 0,
+    PARTIAL: 1,
+    AVAILABLE: 2,
+  };
+  return rank[currentStatus] > rank[priorStatus] ? "IMPROVED" : "REGRESSED";
+}
+
+export function projectStrategyFleetInputCoverageChangeLedger(
+  items: StrategyFleetItem[],
+): StrategyFleetInputCoverageChangeLedger {
+  const active = items.filter(
+    (item) => isAI(item) && item.instanceStatus === "ACTIVE",
+  );
+  const engines = active.map((item) => {
+    const current = projectStrategyFleetInputCoverageMatrix([item]).engines[0];
+    const prior = projectStrategyFleetInputCoverageMatrix([
+      priorInputCoverageItem(item),
+    ]).engines[0];
+    const comparable = Boolean(
+      current?.attributable &&
+        prior?.attributable &&
+        item.latestDecisionFinancialProvider === item.provider &&
+        item.priorDecisionFinancialProvider === item.provider,
+    );
+    const categories = (current?.categories ?? []).map((currentCategory) => {
+      const priorCategory = prior?.categories.find(
+        (category) => category.key === currentCategory.key,
+      );
+      const priorStatus = priorCategory?.status ?? "UNAVAILABLE";
+      return {
+        key: currentCategory.key,
+        label: currentCategory.label,
+        priorStatus,
+        currentStatus: currentCategory.status,
+        change: inputCoverageChange(
+          priorStatus,
+          currentCategory.status,
+          comparable,
+        ),
+        priorEvidence: priorCategory?.evidence ?? "Unavailable",
+        currentEvidence: currentCategory.evidence,
+      };
+    });
+    const regressed = categories.filter(
+      (category) => category.change === "REGRESSED",
+    ).length;
+    const contextChanged = categories.filter(
+      (category) => category.change === "CONTEXT_CHANGED",
+    ).length;
+    const followUp = !comparable
+      ? "Review the two saved records before relying on this comparison. Arbion will not rerun the model to fill the gap."
+      : regressed > 0
+        ? "Review the exact regressed categories in the two immutable records. The next guarded cycle remains automatic."
+        : contextChanged > 0
+          ? "Review the saved position-context change without treating it as a quality improvement or regression."
+          : "No owner action is required. Input coverage held course or improved, and the next guarded cycle remains automatic.";
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      latestDecisionID: item.latestDecisionID,
+      priorDecisionID: item.priorDecisionID,
+      latestDecisionAt: item.latestDecisionAt,
+      priorDecisionAt: item.priorDecisionAt,
+      financialProvider: item.latestDecisionFinancialProvider,
+      comparable,
+      followUp,
+      categories,
+    };
+  });
+  const categories = engines.flatMap((engine) => engine.categories);
+  const comparableCount = engines.filter((engine) => engine.comparable).length;
+  return {
+    status:
+      engines.length > 0 && comparableCount === engines.length
+        ? "VERIFIED"
+        : "UNAVAILABLE",
+    engineCount: engines.length,
+    comparableCount,
+    improvedCategoryCount: categories.filter(
+      (category) => category.change === "IMPROVED",
+    ).length,
+    regressedCategoryCount: categories.filter(
+      (category) => category.change === "REGRESSED",
+    ).length,
+    unchangedCategoryCount: categories.filter(
+      (category) => category.change === "UNCHANGED",
+    ).length,
+    contextChangedCategoryCount: categories.filter(
+      (category) => category.change === "CONTEXT_CHANGED",
+    ).length,
+    engines,
+  };
+}
+
 function healthClass(item: StrategyFleetItem) {
   if (needsReview(item)) return "needs-review";
   return item.instanceStatus === "ACTIVE" ? "healthy" : "neutral";
@@ -2443,6 +2654,131 @@ function StrategyFleetInputCoverageMatrixView({
       </ol>
       <footer>
         Read-only current decision evidence · no model rerun · no provider
+        refresh · no broker order · no live path
+      </footer>
+    </section>
+  );
+}
+
+function inputCoverageChangeLabel(change: StrategyFleetInputCoverageChange) {
+  if (change === "CONTEXT_CHANGED") return "Context changed";
+  return readable(change);
+}
+
+function StrategyFleetInputCoverageChangeLedgerView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const ledger = projectStrategyFleetInputCoverageChangeLedger(items);
+  if (ledger.engineCount === 0) return null;
+  const verified = ledger.status === "VERIFIED";
+  return (
+    <section
+      className={`strategy-fleet-input-change ${verified ? "is-verified" : "needs-review"}`}
+      aria-labelledby="strategy-fleet-input-change-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">INPUT COVERAGE CHANGE LEDGER</p>
+          <h2 id="strategy-fleet-input-change-heading">
+            {verified
+              ? `${ledger.comparableCount} current AI ${ledger.comparableCount === 1 ? "engine has" : "engines have"} an exact input comparison.`
+              : "An AI input comparison is incomplete."}
+          </h2>
+          <p>
+            Compare the two newest immutable input snapshots without rerunning
+            the model. Improved, regressed, and unchanged describe evidence
+            coverage only—not decision quality or causality.
+          </p>
+        </div>
+        <span>{verified ? "Immutable comparison" : "Review evidence"}</span>
+      </header>
+      <dl className="strategy-fleet-input-change-summary">
+        <div>
+          <dt>Comparable engines</dt>
+          <dd>
+            {ledger.comparableCount} / {ledger.engineCount}
+          </dd>
+        </div>
+        <div>
+          <dt>Improved inputs</dt>
+          <dd>{ledger.improvedCategoryCount}</dd>
+        </div>
+        <div>
+          <dt>Regressed inputs</dt>
+          <dd>{ledger.regressedCategoryCount}</dd>
+        </div>
+        <div>
+          <dt>Unchanged inputs</dt>
+          <dd>{ledger.unchangedCategoryCount}</dd>
+        </div>
+      </dl>
+      <ol className="strategy-fleet-input-change-list">
+        {ledger.engines.map((engine) => (
+          <li
+            className={engine.comparable ? "is-verified" : "needs-review"}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{engine.comparable ? "Comparable" : "Unavailable"}</span>
+            </header>
+            <div className="strategy-fleet-input-change-source">
+              <strong>
+                {engine.financialProvider
+                  ? providerLabel(engine.financialProvider)
+                  : "Provider unavailable"}
+              </strong>
+              <span>
+                {readableTime(engine.priorDecisionAt)} →{" "}
+                {readableTime(engine.latestDecisionAt)}
+              </span>
+            </div>
+            <dl>
+              {engine.categories.map((category) => (
+                <div
+                  className={`is-${category.change.toLowerCase().replaceAll("_", "-")}`}
+                  key={category.key}
+                >
+                  <dt>
+                    <span>{category.label}</span>
+                    <strong>{inputCoverageChangeLabel(category.change)}</strong>
+                  </dt>
+                  <dd>
+                    {inputCoverageStatusLabel(category.priorStatus)} →{" "}
+                    {inputCoverageStatusLabel(category.currentStatus)}
+                  </dd>
+                  <small>
+                    Before: {category.priorEvidence}
+                    <br />
+                    Now: {category.currentEvidence}
+                  </small>
+                </div>
+              ))}
+            </dl>
+            <footer>
+              <span>{engine.followUp}</span>
+              <Link href="/activity">Compare immutable records →</Link>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Evidence coverage only · no causal claim · no model rerun · no provider
         refresh · no broker order · no live path
       </footer>
     </section>
@@ -3659,6 +3995,10 @@ export function StrategyFleet({
 
       {inventoryAvailable && (
         <StrategyFleetInputCoverageMatrixView items={items} />
+      )}
+
+      {inventoryAvailable && (
+        <StrategyFleetInputCoverageChangeLedgerView items={items} />
       )}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}

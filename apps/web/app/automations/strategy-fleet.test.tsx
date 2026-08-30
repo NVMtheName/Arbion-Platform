@@ -5,6 +5,7 @@ import {
   projectStrategyFleetAccountIsolation,
   projectStrategyFleetDecisionEvidence,
   projectStrategyFleetIdentityIsolation,
+  projectStrategyFleetInputCoverageChangeLedger,
   projectStrategyFleetInputCoverageMatrix,
   projectStrategyFleetOperatingBrief,
   projectStrategyFleetProvenanceDigest,
@@ -141,6 +142,28 @@ const coinbaseEngine: StrategyFleetItem = {
   priorDecisionSymbol: "NONE",
   priorDecisionSide: "NONE",
   priorDecisionProposedNotional: "0.0000000000",
+  priorDecisionFinancialContextComplete: true,
+  priorDecisionFinancialProvider: "coinbase",
+  priorDecisionMarketSymbols: ["BTC", "ETH", "XRP", "SOL"],
+  priorDecisionMarketFeeds: ["rest_ticker"],
+  priorDecisionMarketQualities: ["REAL_TIME_SINGLE_VENUE"],
+  priorDecisionMarketObservedAt: "2026-08-26T15:17:38Z",
+  priorDecisionInputCoverageComplete: true,
+  priorDecisionHistoryLiquidityEvidenceComplete: true,
+  priorDecisionHistoryStatuses: ["COMPLETE"],
+  priorDecisionHistoryFeeds: ["coinbase_candles"],
+  priorDecisionHistoryQualities: ["REAL_TIME_SINGLE_VENUE"],
+  priorDecisionLiquidityStatuses: ["AVAILABLE"],
+  priorDecisionPositionEvidenceComplete: true,
+  priorDecisionPositionCount: 2,
+  priorDecisionPositionPerformanceStatuses: ["UNAVAILABLE"],
+  priorDecisionMarketEventEvidenceComplete: true,
+  priorDecisionMarketEventCoverageCount: 0,
+  priorDecisionMarketEventCoverageStatuses: [],
+  priorDecisionMarketEventProviders: [],
+  priorDecisionMarketEventFeeds: [],
+  priorDecisionMarketEventQualities: [],
+  priorDecisionMarketEventCount: 0,
   reconciliationAvailable: true,
   reconciliationComparisonStatus: "MATCHED",
   reconciliationBalancesStatus: "READY",
@@ -514,6 +537,86 @@ describe("StrategyFleet", () => {
     );
   });
 
+  it("compares two immutable input snapshots without inferring causality", () => {
+    const ledger = projectStrategyFleetInputCoverageChangeLedger([
+      coinbaseEngine,
+    ]);
+
+    expect(ledger).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        engineCount: 1,
+        comparableCount: 1,
+        improvedCategoryCount: 0,
+        regressedCategoryCount: 0,
+        unchangedCategoryCount: 5,
+        contextChangedCategoryCount: 0,
+      }),
+    );
+    expect(ledger.engines[0]).toEqual(
+      expect.objectContaining({
+        comparable: true,
+        followUp: expect.stringContaining("No owner action is required"),
+      }),
+    );
+  });
+
+  it("reports exact improvements and regressions in saved input coverage", () => {
+    const ledger = projectStrategyFleetInputCoverageChangeLedger([
+      {
+        ...coinbaseEngine,
+        latestDecisionPositionPerformanceStatuses: ["AVAILABLE"],
+        latestDecisionMarketEventCoverageCount: 0,
+        latestDecisionMarketEventCoverageStatuses: [],
+        latestDecisionMarketEventProviders: [],
+        latestDecisionMarketEventFeeds: [],
+        latestDecisionMarketEventQualities: [],
+        priorDecisionMarketEventCoverageCount: 1,
+        priorDecisionMarketEventCoverageStatuses: ["AVAILABLE"],
+        priorDecisionMarketEventProviders: ["sec_edgar"],
+        priorDecisionMarketEventFeeds: ["company_tickers"],
+        priorDecisionMarketEventQualities: ["AGGREGATED_REFERENCE"],
+        priorDecisionMarketEventCount: 0,
+      },
+    ]);
+
+    expect(ledger).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        improvedCategoryCount: 1,
+        regressedCategoryCount: 1,
+        unchangedCategoryCount: 3,
+      }),
+    );
+    expect(ledger.engines[0].categories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "POSITION", change: "IMPROVED" }),
+        expect.objectContaining({ key: "EVENTS", change: "REGRESSED" }),
+      ]),
+    );
+    expect(ledger.engines[0].followUp).toContain(
+      "Review the exact regressed categories",
+    );
+  });
+
+  it("fails the change ledger closed when prior provider attribution differs", () => {
+    const ledger = projectStrategyFleetInputCoverageChangeLedger([
+      {
+        ...coinbaseEngine,
+        priorDecisionFinancialProvider: "schwab",
+      },
+    ]);
+
+    expect(ledger).toEqual(
+      expect.objectContaining({ status: "UNAVAILABLE", comparableCount: 0 }),
+    );
+    expect(ledger.engines[0].categories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ change: "UNAVAILABLE" }),
+      ]),
+    );
+  });
+
   it("proves complete immutable trails for abstentions and linked non-live outcomes", () => {
     const paperFill: StrategyFleetItem = {
       ...coinbaseEngine,
@@ -761,6 +864,23 @@ describe("StrategyFleet", () => {
     expect(
       within(inputMatrix).getByRole("link", {
         name: /Open immutable evidence/i,
+      }),
+    ).toHaveAttribute("href", "/activity");
+    const inputChangeLedger = screen.getByRole("region", {
+      name: "1 current AI engine has an exact input comparison.",
+    });
+    expect(inputChangeLedger).toHaveTextContent("INPUT COVERAGE CHANGE LEDGER");
+    expect(inputChangeLedger).toHaveTextContent("Comparable engines1 / 1");
+    expect(inputChangeLedger).toHaveTextContent("Improved inputs0");
+    expect(inputChangeLedger).toHaveTextContent("Regressed inputs0");
+    expect(inputChangeLedger).toHaveTextContent("Unchanged inputs5");
+    expect(inputChangeLedger).toHaveTextContent("Coinbase");
+    expect(inputChangeLedger).toHaveTextContent(
+      "describe evidence coverage only—not decision quality or causality",
+    );
+    expect(
+      within(inputChangeLedger).getByRole("link", {
+        name: /Compare immutable records/i,
       }),
     ).toHaveAttribute("href", "/activity");
     expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(2);
