@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 export type StrategyFleetDecisionInputCoverageSnapshot = {
   decisionID?: string;
@@ -4853,6 +4854,206 @@ function StrategyFleetEvidenceFreshnessBoardView({
   );
 }
 
+type StrategyFleetAIOperationsPanelState =
+  | "VERIFIED"
+  | "ATTENTION"
+  | "UNAVAILABLE";
+
+function aiOperationsPanelStateLabel(
+  state: StrategyFleetAIOperationsPanelState,
+) {
+  if (state === "VERIFIED") return "Verified";
+  if (state === "ATTENTION") return "Evidence visible";
+  return "Unavailable";
+}
+
+function StrategyFleetAIOperationsWorkspace({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const provenance = projectStrategyFleetProvenanceDigest(items);
+  if (provenance.engineCount === 0) return null;
+  const coverage = projectStrategyFleetInputCoverageMatrix(items);
+  const changes = projectStrategyFleetInputCoverageChangeLedger(items);
+  const gaps = projectStrategyFleetPersistentInputGapRegister(items);
+  const freshness = projectStrategyFleetEvidenceFreshnessBoard(items);
+  const currentGapCount =
+    coverage.partialCategoryCount + coverage.unavailableCategoryCount;
+  const repeatedGapCount =
+    gaps.persistentCount + gaps.intermittentCount + gaps.newlyMissingCount;
+  const panels: Array<{
+    key: string;
+    title: string;
+    description: string;
+    state: StrategyFleetAIOperationsPanelState;
+    content: ReactNode;
+  }> = [
+    {
+      key: "decision",
+      title: "Decision route + conclusion",
+      description:
+        "Current and prior conclusions with exact AI and financial provenance",
+      state: provenance.status === "VERIFIED" ? "VERIFIED" : "UNAVAILABLE",
+      content: <StrategyFleetProvenanceDigestView items={items} />,
+    },
+    {
+      key: "coverage",
+      title: "Current AI input coverage",
+      description:
+        "Saved market, history, liquidity, position, and event evidence",
+      state:
+        coverage.status === "UNAVAILABLE"
+          ? "UNAVAILABLE"
+          : currentGapCount > 0
+            ? "ATTENTION"
+            : "VERIFIED",
+      content: <StrategyFleetInputCoverageMatrixView items={items} />,
+    },
+    {
+      key: "changes",
+      title: "Input coverage changes",
+      description:
+        "Exact improvements, regressions, and context changes between decisions",
+      state:
+        changes.status === "UNAVAILABLE"
+          ? "UNAVAILABLE"
+          : changes.regressedCategoryCount > 0
+            ? "ATTENTION"
+            : "VERIFIED",
+      content: <StrategyFleetInputCoverageChangeLedgerView items={items} />,
+    },
+    {
+      key: "gaps",
+      title: "Persistent input gaps",
+      description:
+        "Repeated unavailable evidence across the bounded immutable window",
+      state:
+        gaps.status === "UNAVAILABLE"
+          ? "UNAVAILABLE"
+          : repeatedGapCount > 0
+            ? "ATTENTION"
+            : "VERIFIED",
+      content: <StrategyFleetPersistentInputGapRegisterView items={items} />,
+    },
+    {
+      key: "freshness",
+      title: "Evidence freshness",
+      description:
+        "Decision, market, scheduler, and next-cycle timing against the saved SLA",
+      state: freshness.status,
+      content: <StrategyFleetEvidenceFreshnessBoardView items={items} />,
+    },
+  ];
+  const attentionCount = panels.filter(
+    (panel) => panel.state === "ATTENTION",
+  ).length;
+  const unavailableCount = panels.filter(
+    (panel) => panel.state === "UNAVAILABLE",
+  ).length;
+  const overallState: StrategyFleetAIOperationsPanelState =
+    unavailableCount > 0
+      ? "UNAVAILABLE"
+      : attentionCount > 0
+        ? "ATTENTION"
+        : "VERIFIED";
+  const paperCount = provenance.engines.filter(
+    (engine) => engine.executionMode === "PAPER",
+  ).length;
+  const shadowCount = provenance.engines.filter(
+    (engine) => engine.executionMode === "SHADOW",
+  ).length;
+  return (
+    <section
+      className={`strategy-fleet-ai-operations is-${overallState.toLowerCase()}`}
+      aria-labelledby="strategy-fleet-ai-operations-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">AI OPERATIONS</p>
+          <h2 id="strategy-fleet-ai-operations-heading">
+            {overallState === "UNAVAILABLE"
+              ? "Some current AI evidence is unavailable."
+              : overallState === "ATTENTION"
+                ? "Your AI engines are operating with visible evidence limits."
+                : "Your AI evidence is attributable, current, and ready to review."}
+          </h2>
+          <p>
+            One read-only owner workspace for conclusions, model and financial
+            provenance, input quality, evidence changes, recurring gaps, and
+            freshness. Paper and Shadow remain visibly separate.
+          </p>
+        </div>
+        <span>{aiOperationsPanelStateLabel(overallState)}</span>
+      </header>
+      <dl className="strategy-fleet-ai-operations-summary">
+        <div>
+          <dt>Active engines</dt>
+          <dd>
+            {provenance.engineCount} total · {paperCount} Paper · {shadowCount}{" "}
+            Shadow
+          </dd>
+        </div>
+        <div>
+          <dt>Exact attribution</dt>
+          <dd>
+            {provenance.attributableCount}/{provenance.engineCount} current
+            routes
+          </dd>
+        </div>
+        <div>
+          <dt>Input evidence</dt>
+          <dd>
+            {coverage.availableCategoryCount} available · {currentGapCount}{" "}
+            limited
+          </dd>
+        </div>
+        <div>
+          <dt>Current timing</dt>
+          <dd>
+            {freshness.currentCount} current · {freshness.safeWaitCount} safe
+            wait · {freshness.staleCount + freshness.unavailableCount} review
+          </dd>
+        </div>
+      </dl>
+      <div className="strategy-fleet-ai-operations-panels">
+        <header>
+          <div>
+            <strong>Immutable evidence views</strong>
+            <span>
+              Healthy views stay compact. Evidence limits, regressions, stale
+              timing, and unavailable records open automatically.
+            </span>
+          </div>
+          <span>
+            {attentionCount} visible · {unavailableCount} unavailable
+          </span>
+        </header>
+        {panels.map((panel) => (
+          <details
+            data-status={panel.state.toLowerCase()}
+            key={panel.key}
+            open={panel.state !== "VERIFIED"}
+          >
+            <summary>
+              <span>
+                <strong>{panel.title}</strong>
+                <small>{panel.description}</small>
+              </span>
+              <span>{aiOperationsPanelStateLabel(panel.state)}</span>
+            </summary>
+            <div>{panel.content}</div>
+          </details>
+        ))}
+      </div>
+      <footer>
+        Owner-scoped saved evidence only · no model rerun · no provider refresh
+        · no manual cycle · no broker order · no account mutation · no live path
+      </footer>
+    </section>
+  );
+}
+
 function exactSecondsLabel(value?: number) {
   if (value === undefined || !Number.isFinite(value)) return "Unavailable";
   return `${Number.isInteger(value) ? value : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}s`;
@@ -6886,23 +7087,7 @@ export function StrategyFleet({
       {inventoryAvailable && <StrategyFleetOperatingBrief items={items} />}
 
       {inventoryAvailable && (
-        <StrategyFleetProvenanceDigestView items={items} />
-      )}
-
-      {inventoryAvailable && (
-        <StrategyFleetInputCoverageMatrixView items={items} />
-      )}
-
-      {inventoryAvailable && (
-        <StrategyFleetInputCoverageChangeLedgerView items={items} />
-      )}
-
-      {inventoryAvailable && (
-        <StrategyFleetPersistentInputGapRegisterView items={items} />
-      )}
-
-      {inventoryAvailable && (
-        <StrategyFleetEvidenceFreshnessBoardView items={items} />
+        <StrategyFleetAIOperationsWorkspace items={items} />
       )}
 
       {inventoryAvailable && (
