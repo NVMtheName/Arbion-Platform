@@ -633,6 +633,74 @@ select {
   font-size: 1.03rem;
   font-weight: 760;
 }
+.paper-capital-headroom {
+  margin: 24px 0;
+  padding: 18px;
+  border: 1px solid rgba(139, 181, 163, 0.2);
+  border-radius: 14px;
+  background: rgba(2, 11, 8, 0.56);
+}
+.paper-capital-headroom.is-within {
+  border-color: rgba(94, 224, 160, 0.32);
+}
+.paper-capital-headroom.is-breached {
+  border-color: rgba(255, 121, 121, 0.5);
+}
+.paper-capital-headroom > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.paper-capital-headroom h3 {
+  margin: 3px 0 0;
+}
+.paper-capital-headroom > header > span {
+  padding: 6px 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--brand-mint);
+  font-size: 0.66rem;
+  font-weight: 820;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+.paper-capital-headroom.is-breached > header > span {
+  color: #ff8f8f;
+}
+.paper-capital-headroom.is-unavailable > header > span {
+  color: var(--brand-muted);
+}
+.paper-capital-headroom-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+.paper-capital-headroom-grid article {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(139, 181, 163, 0.16);
+  border-radius: 11px;
+  background: rgba(6, 21, 15, 0.62);
+}
+.paper-capital-headroom-grid article.is-blocked {
+  border-color: rgba(255, 121, 121, 0.45);
+}
+.paper-capital-headroom-grid span,
+.paper-capital-headroom-grid small,
+.paper-capital-headroom > p {
+  color: var(--brand-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.paper-capital-headroom-grid strong {
+  color: #effbf4;
+  font-size: 1rem;
+}
 .automation-next-action {
   position: relative;
   display: grid;
@@ -10976,10 +11044,12 @@ h1 {
   .strategy-budget-create {
     grid-template-columns: 1fr;
   }
-  .autonomy-guardrail-summary dl {
+  .autonomy-guardrail-summary dl,
+  .paper-capital-headroom-grid {
     grid-template-columns: 1fr;
   }
-  .autonomy-guardrail-summary > header {
+  .autonomy-guardrail-summary > header,
+  .paper-capital-headroom > header {
     align-items: flex-start;
     flex-direction: column;
   }
