@@ -46,4 +46,109 @@ describe("autonomy guardrail summary", () => {
       screen.getByText(/isolated simulated cash and position ledger/i),
     ).toBeInTheDocument();
   });
+
+  it("shows exact current Paper cash and exposure headroom", () => {
+    render(
+      <AutonomyGuardrailSummary
+        executionMode="PAPER"
+        riskPolicy={{
+          minimum_cash_reserve: "200",
+          max_capital_deployed: "800",
+          max_single_position_amount: "300",
+        }}
+        strategyPolicy={{ max_proposal_notional: "100" }}
+        paperPortfolio={{
+          strategy_instance_id: "paper-1",
+          currency: "USD",
+          starting_cash: "1000.0000000000",
+          cash: "975.0000077919",
+          version: 2,
+          updated_at: "2026-08-30T05:29:22Z",
+          positions: [
+            {
+              symbol: "BTC",
+              instrument: "CRYPTO",
+              quantity: "0.0003177277",
+              average_price: "78683.7037126445",
+              is_open: true,
+              updated_at: "2026-08-29T21:27:00Z",
+            },
+          ],
+        }}
+        paperMarkets={[
+          {
+            symbol: "BTC",
+            assetClass: "CRYPTO",
+            price: "78143.3200000000",
+            priceBasis: "MARK",
+            changePercent24H: "0.5",
+            provider: "coinbase",
+            feed: "rest_ticker",
+            quality: "REAL_TIME_SINGLE_VENUE",
+            observedAt: "2026-08-30T05:29:21Z",
+            decisionAt: "2026-08-30T05:29:22Z",
+          },
+        ]}
+      />,
+    );
+
+    const envelope = screen.getByLabelText(/current paper capital headroom/i);
+    expect(envelope).toHaveTextContent("WITHIN LIMITS");
+    expect(envelope).toHaveTextContent("$975.00");
+    expect(envelope).toHaveTextContent(
+      "$775.00 floor headroom · $200.00 reserve",
+    );
+    expect(envelope).toHaveTextContent("BTC · $24.8283");
+    expect(envelope).toHaveTextContent("$100.00");
+    expect(envelope).toHaveTextContent(/not broker balances or live quotes/i);
+  });
+
+  it("fails closed when exact Paper usage breaches a deterministic limit", () => {
+    render(
+      <AutonomyGuardrailSummary
+        executionMode="PAPER"
+        riskPolicy={{
+          minimum_cash_reserve: "200",
+          max_capital_deployed: "800",
+          max_single_position_amount: "20",
+        }}
+        strategyPolicy={{ max_proposal_notional: "100" }}
+        paperPortfolio={{
+          strategy_instance_id: "paper-1",
+          currency: "USD",
+          starting_cash: "1000",
+          cash: "975",
+          version: 2,
+          updated_at: "2026-08-30T05:29:22Z",
+          positions: [
+            {
+              symbol: "BTC",
+              instrument: "CRYPTO",
+              quantity: "0.0003177277",
+              average_price: "78683.7037126445",
+              is_open: true,
+              updated_at: "2026-08-29T21:27:00Z",
+            },
+          ],
+        }}
+        paperMarkets={[
+          {
+            symbol: "BTC",
+            assetClass: "CRYPTO",
+            price: "78143.32",
+            priceBasis: "MARK",
+            provider: "coinbase",
+            feed: "rest_ticker",
+            quality: "REAL_TIME_SINGLE_VENUE",
+            observedAt: "2026-08-30T05:29:21Z",
+            decisionAt: "2026-08-30T05:29:22Z",
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByLabelText(/current paper capital headroom/i),
+    ).toHaveTextContent("LIMIT BREACH");
+  });
 });

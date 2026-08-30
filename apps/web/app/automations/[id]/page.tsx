@@ -691,6 +691,14 @@ export default async function MandateReview({
             riskPolicy={
               (m.risk_parameters ?? m.Risk ?? {}) as Record<string, unknown>
             }
+            strategyPolicy={
+              (m.strategy_parameters ?? m.StrategyParameters ?? {}) as Record<
+                string,
+                unknown
+              >
+            }
+            paperPortfolio={paperPortfolio}
+            paperMarkets={paperMarketSnapshots}
           />
           <AIShadowParameterControls
             automationId={id}
