@@ -571,6 +571,54 @@ export type StrategyFleetAutomaticCycleSLOHistory = {
   }>;
 };
 
+export type StrategyFleetAutomaticCycleFailureTaxonomy = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  engineCount: number;
+  verifiedCount: number;
+  totalFailureCount: number;
+  recoveredFailureCount: number;
+  currentFailureCount: number;
+  safeWaitCount: number;
+  codes: Array<{
+    code: string;
+    count: number;
+    recoveredCount: number;
+    currentCount: number;
+    affectedEngineCount: number;
+    firstFailureAt: string;
+    latestFailureAt: string;
+    executionModes: string[];
+    providers: string[];
+  }>;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    state: "CLEAR" | "RECOVERED" | "SAFE_WAIT" | "ATTENTION" | "UNAVAILABLE";
+    verified: boolean;
+    sampleCount: number;
+    failureCount: number;
+    recoveredFailureCount: number;
+    currentFailureCount: number;
+    safeWaitCount: number;
+    firstFailureAt?: string;
+    latestFailureAt?: string;
+    currentErrorCode?: string;
+    codes: Array<{
+      code: string;
+      count: number;
+      recoveredCount: number;
+      currentCount: number;
+      firstFailureAt: string;
+      latestFailureAt: string;
+    }>;
+    followUp: string;
+    evidenceHref: string;
+  }>;
+};
+
 function providerLabel(provider: string) {
   if (provider === "coinbase") return "Coinbase";
   if (provider === "schwab") return "Charles Schwab";
@@ -2798,6 +2846,221 @@ export function projectStrategyFleetAutomaticCycleSLOHistory(
   };
 }
 
+export function projectStrategyFleetAutomaticCycleFailureTaxonomy(
+  items: StrategyFleetItem[],
+): StrategyFleetAutomaticCycleFailureTaxonomy {
+  const active = items.filter(
+    (item) =>
+      isAI(item) &&
+      item.instanceStatus === "ACTIVE" &&
+      item.runtimeScheduleEnabled === true,
+  );
+  const engines = active.map((item) => {
+    const observedAt = exactInstantMillis(item.freshnessObservedAt);
+    const recentRuns = item.scheduleRecentRuns ?? [];
+    const latest = recentRuns[0];
+    const samples = recentRuns
+      .map((run) => ({
+        run,
+        scheduledFor: exactInstantMillis(run.scheduledFor),
+        completedAt: exactInstantMillis(run.completedAt),
+      }))
+      .sort(
+        (left, right) =>
+          (left.scheduledFor ?? Number.POSITIVE_INFINITY) -
+          (right.scheduledFor ?? Number.POSITIVE_INFINITY),
+      );
+    const verified = Boolean(
+      item.scheduleHistoryAvailable === true &&
+        observedAt !== undefined &&
+        recentRuns.length > 0 &&
+        recentRuns.length <= 12 &&
+        recentRuns.every(validScheduleRunEvidence) &&
+        samples.every(
+          (sample) =>
+            sample.scheduledFor !== undefined &&
+            sample.completedAt !== undefined &&
+            sample.scheduledFor <= sample.completedAt &&
+            sample.scheduledFor <= observedAt! &&
+            sample.completedAt <= observedAt! &&
+            (sample.run.status !== "FAILED" || Boolean(sample.run.errorCode)),
+        ) &&
+        latest?.status === item.scheduleStatus &&
+        latest?.consecutiveFailures === item.consecutiveFailures &&
+        sameInstant(latest?.completedAt, item.scheduleLastCompletedAt) &&
+        sameInstant(latest?.nextRunAt, item.nextRunAt),
+    );
+    const failures = verified
+      ? samples
+          .map((sample, index) => ({
+            ...sample,
+            recovered: samples
+              .slice(index + 1)
+              .some((later) => later.run.status === "SUCCEEDED"),
+          }))
+          .filter((sample) => sample.run.status === "FAILED")
+      : [];
+    const safeWaitCount = verified
+      ? samples.filter(
+          (sample) =>
+            sample.run.status === "SKIPPED" &&
+            sample.run.errorCode === "OUTSIDE_SESSION",
+        ).length
+      : 0;
+    const codeMap = new Map<
+      string,
+      StrategyFleetAutomaticCycleFailureTaxonomy["engines"][number]["codes"][number]
+    >();
+    failures.forEach((failure) => {
+      const code = failure.run.errorCode!;
+      const at = failure.run.completedAt!;
+      const current = codeMap.get(code);
+      codeMap.set(code, {
+        code,
+        count: (current?.count ?? 0) + 1,
+        recoveredCount:
+          (current?.recoveredCount ?? 0) + Number(failure.recovered),
+        currentCount: (current?.currentCount ?? 0) + Number(!failure.recovered),
+        firstFailureAt:
+          !current || at < current.firstFailureAt ? at : current.firstFailureAt,
+        latestFailureAt:
+          !current || at > current.latestFailureAt
+            ? at
+            : current.latestFailureAt,
+      });
+    });
+    const codes = [...codeMap.values()].sort((left, right) =>
+      left.code.localeCompare(right.code),
+    );
+    const recoveredFailureCount = failures.filter(
+      (failure) => failure.recovered,
+    ).length;
+    const currentFailureCount = failures.length - recoveredFailureCount;
+    const latestSample = verified ? samples.at(-1) : undefined;
+    const state = !verified
+      ? ("UNAVAILABLE" as const)
+      : currentFailureCount > 0 ||
+          latestSample?.run.status === "FAILED" ||
+          item.consecutiveFailures > 0
+        ? ("ATTENTION" as const)
+        : latestSample?.run.status === "SKIPPED" &&
+            latestSample.run.errorCode === "OUTSIDE_SESSION"
+          ? ("SAFE_WAIT" as const)
+          : recoveredFailureCount > 0
+            ? ("RECOVERED" as const)
+            : ("CLEAR" as const);
+    const followUp =
+      state === "UNAVAILABLE"
+        ? "Review immutable scheduler history before relying on this taxonomy. Arbion will not infer a missing failure code."
+        : state === "ATTENTION"
+          ? "Review the current credential-free scheduler classification and let the next guarded cycle attempt automatic recovery. Do not rerun the model manually."
+          : state === "RECOVERED"
+            ? "No owner action is required. Earlier failures remain saved and a later automatic cycle recovered successfully."
+            : state === "SAFE_WAIT"
+              ? "No owner action is required. The latest saved result is an exact market-session wait, not a failure."
+              : "No owner action is required. This bounded scheduler window contains no failed cycles.";
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      state,
+      verified,
+      sampleCount: verified ? samples.length : 0,
+      failureCount: failures.length,
+      recoveredFailureCount,
+      currentFailureCount,
+      safeWaitCount,
+      firstFailureAt: failures[0]?.run.completedAt,
+      latestFailureAt: failures.at(-1)?.run.completedAt,
+      currentErrorCode:
+        state === "ATTENTION" ? latestSample?.run.errorCode : undefined,
+      codes,
+      followUp,
+      evidenceHref: `/automations/${encodeURIComponent(item.id)}#schedule-controls`,
+    };
+  });
+  const verifiedCount = engines.filter((engine) => engine.verified).length;
+  const aggregate = new Map<
+    string,
+    StrategyFleetAutomaticCycleFailureTaxonomy["codes"][number] & {
+      engineIDs: Set<string>;
+    }
+  >();
+  engines.forEach((engine) =>
+    engine.codes.forEach((code) => {
+      const current = aggregate.get(code.code);
+      const engineIDs = current?.engineIDs ?? new Set<string>();
+      engineIDs.add(engine.id);
+      aggregate.set(code.code, {
+        code: code.code,
+        count: (current?.count ?? 0) + code.count,
+        recoveredCount: (current?.recoveredCount ?? 0) + code.recoveredCount,
+        currentCount: (current?.currentCount ?? 0) + code.currentCount,
+        affectedEngineCount: engineIDs.size,
+        firstFailureAt:
+          !current || code.firstFailureAt < current.firstFailureAt
+            ? code.firstFailureAt
+            : current.firstFailureAt,
+        latestFailureAt:
+          !current || code.latestFailureAt > current.latestFailureAt
+            ? code.latestFailureAt
+            : current.latestFailureAt,
+        executionModes: Array.from(
+          new Set([...(current?.executionModes ?? []), engine.executionMode]),
+        ).sort(),
+        providers: Array.from(
+          new Set([...(current?.providers ?? []), engine.provider]),
+        ).sort(),
+        engineIDs,
+      });
+    }),
+  );
+  const currentFailureCount = engines.reduce(
+    (sum, engine) => sum + engine.currentFailureCount,
+    0,
+  );
+  const unavailable = engines.some((engine) => !engine.verified);
+  return {
+    status:
+      engines.length === 0 || unavailable
+        ? "UNAVAILABLE"
+        : currentFailureCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    engineCount: engines.length,
+    verifiedCount,
+    totalFailureCount: engines.reduce(
+      (sum, engine) => sum + engine.failureCount,
+      0,
+    ),
+    recoveredFailureCount: engines.reduce(
+      (sum, engine) => sum + engine.recoveredFailureCount,
+      0,
+    ),
+    currentFailureCount,
+    safeWaitCount: engines.reduce(
+      (sum, engine) => sum + engine.safeWaitCount,
+      0,
+    ),
+    codes: [...aggregate.values()]
+      .map((value) => ({
+        code: value.code,
+        count: value.count,
+        recoveredCount: value.recoveredCount,
+        currentCount: value.currentCount,
+        affectedEngineCount: value.affectedEngineCount,
+        firstFailureAt: value.firstFailureAt,
+        latestFailureAt: value.latestFailureAt,
+        executionModes: value.executionModes,
+        providers: value.providers,
+      }))
+      .sort((left, right) => left.code.localeCompare(right.code)),
+    engines,
+  };
+}
+
 function healthClass(item: StrategyFleetItem) {
   if (needsReview(item)) return "needs-review";
   return item.instanceStatus === "ACTIVE" ? "healthy" : "neutral";
@@ -3940,6 +4203,165 @@ function StrategyFleetAutomaticCycleSLOHistoryView({
         Up to 12 owner-scoped immutable runs per engine · saved scheduler
         evidence only · no manual cycle · no model rerun · no provider refresh ·
         no broker order · no live path
+      </footer>
+    </section>
+  );
+}
+
+function StrategyFleetAutomaticCycleFailureTaxonomyView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const taxonomy = projectStrategyFleetAutomaticCycleFailureTaxonomy(items);
+  if (taxonomy.engineCount === 0) return null;
+  const verified = taxonomy.status === "VERIFIED";
+  return (
+    <section
+      className={`strategy-fleet-freshness strategy-fleet-failure-taxonomy ${verified ? "is-verified" : "needs-review"}`}
+      aria-labelledby="strategy-fleet-failure-taxonomy-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">AUTOMATIC CYCLE FAILURE TAXONOMY</p>
+          <h2 id="strategy-fleet-failure-taxonomy-heading">
+            {taxonomy.status === "UNAVAILABLE"
+              ? "An active engine has incomplete failure-history evidence."
+              : taxonomy.status === "ATTENTION"
+                ? `${taxonomy.currentFailureCount} saved ${taxonomy.currentFailureCount === 1 ? "failure is" : "failures are"} awaiting automatic recovery.`
+                : `${taxonomy.recoveredFailureCount} saved ${taxonomy.recoveredFailureCount === 1 ? "failure remains" : "failures remain"} visible after recovery.`}
+          </h2>
+          <p>
+            Credential-free scheduler classifications are counted exactly from
+            bounded immutable history. They identify the safe failure stage,
+            never raw provider output or the cause of a model conclusion.
+          </p>
+        </div>
+        <span>{verified ? "Taxonomy verified" : "Review history"}</span>
+      </header>
+      <dl className="strategy-fleet-freshness-summary">
+        <div>
+          <dt>Total failures</dt>
+          <dd>{taxonomy.totalFailureCount}</dd>
+        </div>
+        <div>
+          <dt>Recovered</dt>
+          <dd>{taxonomy.recoveredFailureCount}</dd>
+        </div>
+        <div>
+          <dt>Current</dt>
+          <dd>{taxonomy.currentFailureCount}</dd>
+        </div>
+        <div>
+          <dt>Session-safe waits</dt>
+          <dd>{taxonomy.safeWaitCount}</dd>
+        </div>
+      </dl>
+      <div className="strategy-fleet-freshness-policy">
+        <strong>
+          {taxonomy.codes.length > 0
+            ? `${taxonomy.codes.length} exact saved failure ${taxonomy.codes.length === 1 ? "classification" : "classifications"}`
+            : "No saved failure classification in this bounded window"}
+        </strong>
+        <span>
+          {taxonomy.codes.length > 0
+            ? taxonomy.codes
+                .map(
+                  (code) =>
+                    `${readable(code.code)} ${code.count} · ${code.recoveredCount} recovered · ${code.currentCount} current`,
+                )
+                .join(" | ")
+            : "All verified engine windows are clear."}
+        </span>
+        <small>
+          {taxonomy.codes.length > 0
+            ? taxonomy.codes
+                .map(
+                  (code) =>
+                    `${code.affectedEngineCount} engine${code.affectedEngineCount === 1 ? "" : "s"} · ${code.providers.map(providerLabel).join(" / ")} · ${code.executionModes.map(readable).join(" / ")} · ${readableTime(code.firstFailureAt)} → ${readableTime(code.latestFailureAt)}`,
+                )
+                .join(" | ")
+            : "Safe-session waits are counted separately and never labeled as failures."}
+        </small>
+      </div>
+      <ol className="strategy-fleet-freshness-list">
+        {taxonomy.engines.map((engine) => (
+          <li
+            className={`is-${engine.state.toLowerCase().replaceAll("_", "-")}`}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{readable(engine.state)}</span>
+            </header>
+            <div className="strategy-fleet-freshness-policy">
+              <strong>{engine.sampleCount} immutable cycle samples</strong>
+              <span>
+                {engine.failureCount} failed · {engine.recoveredFailureCount}{" "}
+                recovered · {engine.currentFailureCount} current ·{" "}
+                {engine.safeWaitCount} safe waits
+              </span>
+              <small>
+                {engine.currentErrorCode
+                  ? `Current classification: ${readable(engine.currentErrorCode)}`
+                  : "No current failure classification"}
+              </small>
+            </div>
+            <dl>
+              {engine.codes.length > 0 ? (
+                engine.codes.map((code) => (
+                  <div key={code.code}>
+                    <dt>
+                      <span>{readable(code.code)}</span>
+                      <strong>{code.count}</strong>
+                    </dt>
+                    <dd>
+                      {code.recoveredCount} recovered · {code.currentCount}{" "}
+                      current
+                    </dd>
+                    <time dateTime={code.latestFailureAt}>
+                      {readableTime(code.firstFailureAt)} →{" "}
+                      {readableTime(code.latestFailureAt)}
+                    </time>
+                  </div>
+                ))
+              ) : (
+                <div>
+                  <dt>
+                    <span>Saved failure classifications</span>
+                    <strong>Clear</strong>
+                  </dt>
+                  <dd>No failed cycle is present in this bounded window.</dd>
+                </div>
+              )}
+            </dl>
+            <footer>
+              <span>{engine.followUp}</span>
+              <div>
+                <Link href={engine.evidenceHref}>Scheduler evidence →</Link>
+                <Link href="/activity">Decision journal →</Link>
+              </div>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Credential-free classifications only · safe waits stay separate · no
+        inferred provider output or causality · no manual cycle · no model rerun
+        · no provider refresh · no broker order · no live path
       </footer>
     </section>
   );
@@ -5171,6 +5593,10 @@ export function StrategyFleet({
 
       {inventoryAvailable && (
         <StrategyFleetAutomaticCycleSLOHistoryView items={items} />
+      )}
+
+      {inventoryAvailable && (
+        <StrategyFleetAutomaticCycleFailureTaxonomyView items={items} />
       )}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   projectStrategyFleetAccountIsolation,
+  projectStrategyFleetAutomaticCycleFailureTaxonomy,
   projectStrategyFleetAutomaticCycleSLOHistory,
   projectStrategyFleetDecisionEvidence,
   projectStrategyFleetEvidenceFreshnessBoard,
@@ -1115,6 +1116,163 @@ describe("StrategyFleet", () => {
     expect(unavailable.engines[0].state).toBe("UNAVAILABLE");
   });
 
+  it("counts exact saved failure codes and automatic recovery", () => {
+    const taxonomy = projectStrategyFleetAutomaticCycleFailureTaxonomy([
+      {
+        ...coinbaseEngine,
+        scheduleRecentRuns: [
+          ...coinbaseEngine.scheduleRecentRuns!,
+          {
+            id: "schedule-run-internal-latest",
+            scheduledFor: "2026-08-26T15:17:00Z",
+            completedAt: "2026-08-26T15:17:05Z",
+            nextRunAt: "2026-08-26T16:17:00Z",
+            status: "FAILED",
+            errorCode: "INTERNAL",
+            duplicateRecovered: false,
+            consecutiveFailures: 2,
+          },
+          {
+            id: "schedule-run-internal-first",
+            scheduledFor: "2026-08-26T14:17:00Z",
+            completedAt: "2026-08-26T14:17:04Z",
+            nextRunAt: "2026-08-26T15:17:00Z",
+            status: "FAILED",
+            errorCode: "INTERNAL",
+            duplicateRecovered: false,
+            consecutiveFailures: 1,
+          },
+        ],
+      },
+    ]);
+
+    expect(taxonomy).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        engineCount: 1,
+        verifiedCount: 1,
+        totalFailureCount: 2,
+        recoveredFailureCount: 2,
+        currentFailureCount: 0,
+        safeWaitCount: 0,
+      }),
+    );
+    expect(taxonomy.codes).toEqual([
+      expect.objectContaining({
+        code: "INTERNAL",
+        count: 2,
+        recoveredCount: 2,
+        currentCount: 0,
+        affectedEngineCount: 1,
+        firstFailureAt: "2026-08-26T14:17:04Z",
+        latestFailureAt: "2026-08-26T15:17:05Z",
+        executionModes: ["SHADOW"],
+        providers: ["coinbase"],
+      }),
+    ]);
+    expect(taxonomy.engines[0]).toEqual(
+      expect.objectContaining({
+        state: "RECOVERED",
+        failureCount: 2,
+        recoveredFailureCount: 2,
+        currentFailureCount: 0,
+      }),
+    );
+  });
+
+  it("separates a current failure and exact session wait", () => {
+    const currentFailure: StrategyFleetItem = {
+      ...coinbaseEngine,
+      scheduleStatus: "FAILED",
+      scheduleErrorCode: "AI_STRUCTURED_OUTPUT_MISSING",
+      scheduleLastCompletedAt: "2026-08-26T16:17:39Z",
+      consecutiveFailures: 1,
+      scheduleRecentRuns: [
+        {
+          ...coinbaseEngine.scheduleRecentRuns![0],
+          status: "FAILED",
+          errorCode: "AI_STRUCTURED_OUTPUT_MISSING",
+          consecutiveFailures: 1,
+        },
+      ],
+    };
+    const safeWait: StrategyFleetItem = {
+      ...coinbaseEngine,
+      id: "schwab-shadow",
+      strategyInstanceID: "schwab-shadow-instance",
+      capitalBucketID: "schwab-shadow-bucket",
+      capitalReservationID: "schwab-shadow-reservation",
+      provider: "schwab",
+      accountName: "Schwab Brokerage ••••1000",
+      scheduleStatus: "SKIPPED",
+      scheduleErrorCode: "OUTSIDE_SESSION",
+      scheduleRecentRuns: [
+        {
+          ...coinbaseEngine.scheduleRecentRuns![0],
+          status: "SKIPPED",
+          errorCode: "OUTSIDE_SESSION",
+        },
+      ],
+    };
+    const taxonomy = projectStrategyFleetAutomaticCycleFailureTaxonomy([
+      currentFailure,
+      safeWait,
+    ]);
+
+    expect(taxonomy).toEqual(
+      expect.objectContaining({
+        status: "ATTENTION",
+        currentFailureCount: 1,
+        recoveredFailureCount: 0,
+        safeWaitCount: 1,
+      }),
+    );
+    expect(taxonomy.engines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "ai-mandate",
+          state: "ATTENTION",
+          currentErrorCode: "AI_STRUCTURED_OUTPUT_MISSING",
+        }),
+        expect.objectContaining({
+          id: "schwab-shadow",
+          state: "SAFE_WAIT",
+          failureCount: 0,
+          safeWaitCount: 1,
+        }),
+      ]),
+    );
+  });
+
+  it("fails the taxonomy closed when a failed run has no classification", () => {
+    const taxonomy = projectStrategyFleetAutomaticCycleFailureTaxonomy([
+      {
+        ...coinbaseEngine,
+        scheduleStatus: "FAILED",
+        consecutiveFailures: 1,
+        scheduleRecentRuns: [
+          {
+            ...coinbaseEngine.scheduleRecentRuns![0],
+            status: "FAILED",
+            errorCode: undefined,
+            consecutiveFailures: 1,
+          },
+        ],
+      },
+    ]);
+
+    expect(taxonomy).toEqual(
+      expect.objectContaining({
+        status: "UNAVAILABLE",
+        verifiedCount: 0,
+        totalFailureCount: 0,
+      }),
+    );
+    expect(taxonomy.engines[0]).toEqual(
+      expect.objectContaining({ state: "UNAVAILABLE", verified: false }),
+    );
+  });
+
   it("proves complete immutable trails for abstentions and linked non-live outcomes", () => {
     const paperFill: StrategyFleetItem = {
       ...coinbaseEngine,
@@ -1441,6 +1599,25 @@ describe("StrategyFleet", () => {
     );
     expect(
       within(sloHistory).getByRole("link", { name: /Scheduler evidence/i }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
+    const failureTaxonomy = screen.getByRole("region", {
+      name: "0 saved failures remain visible after recovery.",
+    });
+    expect(failureTaxonomy).toHaveTextContent(
+      "AUTOMATIC CYCLE FAILURE TAXONOMY",
+    );
+    expect(failureTaxonomy).toHaveTextContent("Total failures0");
+    expect(failureTaxonomy).toHaveTextContent("Session-safe waits0");
+    expect(failureTaxonomy).toHaveTextContent(
+      "No saved failure classification in this bounded window",
+    );
+    expect(failureTaxonomy).toHaveTextContent(
+      "safe waits stay separate · no inferred provider output or causality",
+    );
+    expect(
+      within(failureTaxonomy).getByRole("link", {
+        name: /Scheduler evidence/i,
+      }),
     ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
     expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(2);
     expect(screen.getAllByText("gpt-5.6-sol")).toHaveLength(2);
