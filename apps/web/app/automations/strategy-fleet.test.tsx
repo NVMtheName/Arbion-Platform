@@ -523,6 +523,7 @@ describe("StrategyFleet", () => {
 
     const digest = screen.getByRole("region", {
       name: "1 current AI decision is fully attributable.",
+      hidden: true,
     });
     expect(digest).toHaveTextContent("Conclusion changed");
     expect(digest).toHaveTextContent("No action proposed · $0");
@@ -1916,6 +1917,37 @@ describe("StrategyFleet", () => {
     ).toHaveAttribute("open");
   });
 
+  it("automatically exposes unavailable AI operations evidence", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            latestDecisionFinancialProvider: "schwab",
+          },
+        ]}
+      />,
+    );
+
+    const workspace = screen.getByRole("region", {
+      name: "Some current AI evidence is unavailable.",
+    });
+    expect(workspace).toHaveTextContent("1 visible · 3 unavailable");
+    expect(
+      within(workspace)
+        .getByText("Decision route + conclusion")
+        .closest("details"),
+    ).toHaveAttribute("open");
+    expect(
+      within(workspace)
+        .getByText("Current AI input coverage")
+        .closest("details"),
+    ).toHaveAttribute("open");
+    expect(
+      within(workspace).getByText("Input coverage changes").closest("details"),
+    ).toHaveAttribute("open");
+  });
+
   it("shows an owner-facing fleet summary with account and engine context", () => {
     render(
       <StrategyFleet
@@ -1965,8 +1997,43 @@ describe("StrategyFleet", () => {
         name: /Open decision journal/i,
       }),
     ).toHaveAttribute("href", "/activity");
+    const aiOperations = screen.getByRole("region", {
+      name: "Your AI engines are operating with visible evidence limits.",
+    });
+    expect(aiOperations).toHaveTextContent("AI OPERATIONS");
+    expect(aiOperations).toHaveTextContent("1 total · 0 Paper · 1 Shadow");
+    expect(aiOperations).toHaveTextContent("1/1 current routes");
+    expect(aiOperations).toHaveTextContent("3 available · 2 limited");
+    expect(aiOperations).toHaveTextContent(
+      "1 current · 0 safe wait · 0 review",
+    );
+    expect(aiOperations).toHaveTextContent("2 visible · 0 unavailable");
+    expect(
+      within(aiOperations)
+        .getByText("Decision route + conclusion")
+        .closest("details"),
+    ).not.toHaveAttribute("open");
+    expect(
+      within(aiOperations)
+        .getByText("Current AI input coverage")
+        .closest("details"),
+    ).toHaveAttribute("open");
+    expect(
+      within(aiOperations)
+        .getByText("Input coverage changes")
+        .closest("details"),
+    ).not.toHaveAttribute("open");
+    expect(
+      within(aiOperations)
+        .getByText("Persistent input gaps")
+        .closest("details"),
+    ).toHaveAttribute("open");
+    expect(
+      within(aiOperations).getByText("Evidence freshness").closest("details"),
+    ).not.toHaveAttribute("open");
     const provenanceDigest = screen.getByRole("region", {
       name: "1 current AI decision is fully attributable.",
+      hidden: true,
     });
     expect(provenanceDigest).toHaveTextContent("DECISION CHANGE + PROVENANCE");
     expect(provenanceDigest).toHaveTextContent("Held course");
@@ -1983,6 +2050,7 @@ describe("StrategyFleet", () => {
     expect(
       within(provenanceDigest).getByRole("link", {
         name: /Compare immutable records/i,
+        hidden: true,
       }),
     ).toHaveAttribute("href", "/activity");
     const inputMatrix = screen.getByRole("region", {
@@ -2005,6 +2073,7 @@ describe("StrategyFleet", () => {
     ).toHaveAttribute("href", "/activity");
     const inputChangeLedger = screen.getByRole("region", {
       name: "1 current AI engine has an exact input comparison.",
+      hidden: true,
     });
     expect(inputChangeLedger).toHaveTextContent("INPUT COVERAGE CHANGE LEDGER");
     expect(inputChangeLedger).toHaveTextContent("Comparable engines1 / 1");
@@ -2018,6 +2087,7 @@ describe("StrategyFleet", () => {
     expect(
       within(inputChangeLedger).getByRole("link", {
         name: /Compare immutable records/i,
+        hidden: true,
       }),
     ).toHaveAttribute("href", "/activity");
     const inputGapRegister = screen.getByRole("region", {
@@ -2041,6 +2111,7 @@ describe("StrategyFleet", () => {
     ).toHaveAttribute("href", "/activity");
     const freshnessBoard = screen.getByRole("region", {
       name: "1 active AI engine is current or safely waiting.",
+      hidden: true,
     });
     expect(freshnessBoard).toHaveTextContent("AI EVIDENCE FRESHNESS SLA");
     expect(freshnessBoard).toHaveTextContent("Current1");
@@ -2058,11 +2129,13 @@ describe("StrategyFleet", () => {
     expect(
       within(freshnessBoard).getByRole("link", {
         name: /Open engine evidence/i,
+        hidden: true,
       }),
     ).toHaveAttribute("href", "/automations/ai-mandate#runtime-evidence");
     expect(
       within(freshnessBoard).getByRole("link", {
         name: /Decision journal/i,
+        hidden: true,
       }),
     ).toHaveAttribute("href", "/activity");
     const reliabilityCenter = screen.getByRole("region", {
