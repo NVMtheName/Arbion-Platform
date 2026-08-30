@@ -318,6 +318,10 @@ func (s *Service) GenerateShadowDecision(ctx context.Context, p authorization.Pr
 	if !s.allowed(ctx, p, "neural_shadow_decision.rejected", connectionID, "") {
 		return neural.ShadowDecision{}, ErrForbidden
 	}
+	budgetScope := strings.TrimSpace(input.BudgetScope)
+	if budgetScope == "" || len([]byte(budgetScope)) > 128 {
+		return neural.ShadowDecision{}, ErrInvalid
+	}
 	route, err := resolveModelRoute(modelID)
 	if err != nil {
 		return neural.ShadowDecision{}, ErrInvalid
@@ -336,7 +340,7 @@ func (s *Service) GenerateShadowDecision(ctx context.Context, p authorization.Pr
 	if !ok {
 		return neural.ShadowDecision{}, ErrProvider
 	}
-	allowed, err := s.limiter.AllowWeighted(ctx, "neural-shadow-decision:"+p.UserID, route.CreditUnits, ProposalCreditLimit, ProposalWindow)
+	allowed, err := s.limiter.AllowWeighted(ctx, "neural-shadow-decision:"+p.UserID+":"+budgetScope, route.CreditUnits, ProposalCreditLimit, ProposalWindow)
 	if err != nil {
 		s.record(ctx, p.UserID, "neural_shadow_decision.failed", connection, routeAudit(route, "RATE_LIMITER_UNAVAILABLE"))
 		return neural.ShadowDecision{}, ErrProvider

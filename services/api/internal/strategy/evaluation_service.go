@@ -434,6 +434,7 @@ func (s *EvaluationService) evaluateAIAutonomous(ctx context.Context, principal 
 		return EvaluationOutcome{}, err
 	}
 	request.Profile = ""
+	request.BudgetScope = instance.ID
 	request.Objective = parameters.Objective
 	request.AllowedSymbols = append([]string(nil), mandate.AllowedUniverse.Symbols...)
 	request.MaxProposalNotional = parameters.MaxProposalNotional
