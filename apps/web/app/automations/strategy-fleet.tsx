@@ -53,6 +53,9 @@ export type StrategyFleetItem = {
   scheduleAvailable?: boolean;
   scheduleEnabled?: boolean;
   scheduleStatus?: string;
+  scheduleErrorCode?: string;
+  scheduleLastCompletedAt?: string;
+  scheduleTimingStatus?: "ON_SCHEDULE" | "OVERDUE" | "UNAVAILABLE";
   consecutiveFailures: number;
   nextRunAt?: string;
   evidenceAvailable?: boolean;
@@ -126,6 +129,31 @@ export type StrategyFleetIdentityIsolation = {
   uniqueBucketCount: number;
   uniqueReservationCount: number;
   crossAccountCollisionCount: number;
+};
+
+export type StrategyFleetScheduleReliability = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  engineCount: number;
+  healthyCount: number;
+  succeededCount: number;
+  safelySkippedCount: number;
+  failureCount: number;
+  overdueCount: number;
+  consecutiveFailures: number;
+  nextRunAt?: string;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    lastStatus: string;
+    errorCode?: string;
+    lastCompletedAt?: string;
+    nextRunAt?: string;
+    timingStatus: "ON_SCHEDULE" | "OVERDUE" | "UNAVAILABLE";
+    consecutiveFailures: number;
+  }>;
 };
 
 export type StrategyFleetNextAction = {
@@ -434,6 +462,102 @@ export function reconciliationFreshWithinTwentyFourHours(
   return now.valueOf() - observedAt.valueOf() <= 24 * 60 * 60 * 1000;
 }
 
+export function scheduledRunTimingStatus(
+  nextRunAt: string | undefined,
+  observedAt: Date,
+) {
+  if (!nextRunAt || Number.isNaN(observedAt.valueOf())) return "UNAVAILABLE";
+  const nextRun = new Date(nextRunAt);
+  if (Number.isNaN(nextRun.valueOf())) return "UNAVAILABLE";
+  const graceMilliseconds = 5 * 60 * 1000;
+  return nextRun.valueOf() < observedAt.valueOf() - graceMilliseconds
+    ? "OVERDUE"
+    : "ON_SCHEDULE";
+}
+
+export function projectStrategyFleetScheduleReliability(
+  items: StrategyFleetItem[],
+): StrategyFleetScheduleReliability {
+  const scheduled = items.filter(
+    (item) =>
+      isAI(item) &&
+      item.instanceStatus === "ACTIVE" &&
+      item.runtimeScheduleEnabled === true,
+  );
+  const engines = scheduled.map((item) => ({
+    id: item.id,
+    title: item.title,
+    accountName: item.accountName,
+    provider: item.provider,
+    executionMode: item.executionMode,
+    lastStatus: item.scheduleStatus ?? "UNAVAILABLE",
+    errorCode: item.scheduleErrorCode,
+    lastCompletedAt: item.scheduleLastCompletedAt,
+    nextRunAt: item.nextRunAt,
+    timingStatus: item.scheduleTimingStatus ?? ("UNAVAILABLE" as const),
+    consecutiveFailures: item.consecutiveFailures,
+  }));
+  const unavailable = scheduled.some(
+    (item) =>
+      item.scheduleAvailable !== true ||
+      item.scheduleEnabled !== true ||
+      item.runtimeScheduleBindingValid !== true ||
+      !item.scheduleStatus ||
+      !item.scheduleLastCompletedAt ||
+      !item.nextRunAt ||
+      item.scheduleTimingStatus === "UNAVAILABLE" ||
+      item.scheduleTimingStatus === undefined ||
+      !Number.isInteger(item.consecutiveFailures) ||
+      item.consecutiveFailures < 0,
+  );
+  const overdueCount = engines.filter(
+    (engine) => engine.timingStatus === "OVERDUE",
+  ).length;
+  const failureCount = engines.filter(
+    (engine) =>
+      engine.lastStatus === "FAILED" || engine.consecutiveFailures > 0,
+  ).length;
+  const healthyCount = engines.filter(
+    (engine) =>
+      ["SUCCEEDED", "SKIPPED"].includes(engine.lastStatus) &&
+      engine.consecutiveFailures === 0 &&
+      engine.timingStatus === "ON_SCHEDULE",
+  ).length;
+  const nextRunAt = engines
+    .map((engine) => engine.nextRunAt)
+    .filter((value): value is string => Boolean(value))
+    .sort(
+      (left, right) => new Date(left).valueOf() - new Date(right).valueOf(),
+    )[0];
+  const status =
+    scheduled.length === 0 || unavailable
+      ? "UNAVAILABLE"
+      : overdueCount > 0 ||
+          failureCount > 0 ||
+          healthyCount !== scheduled.length
+        ? "ATTENTION"
+        : "VERIFIED";
+  return {
+    status,
+    engineCount: scheduled.length,
+    healthyCount,
+    succeededCount: engines.filter(
+      (engine) => engine.lastStatus === "SUCCEEDED",
+    ).length,
+    safelySkippedCount: engines.filter(
+      (engine) => engine.lastStatus === "SKIPPED",
+    ).length,
+    failureCount,
+    overdueCount,
+    consecutiveFailures: engines.reduce(
+      (sum, engine) => sum + engine.consecutiveFailures,
+      0,
+    ),
+    nextRunAt,
+    engines,
+  };
+}
+
 function isAI(item: StrategyFleetItem) {
   return item.automationType === "AI_AUTONOMOUS";
 }
@@ -540,6 +664,8 @@ function needsReview(item: StrategyFleetItem) {
     (requiresShadowEvidence(item) && item.evidenceAvailable === false) ||
     item.decisionAvailable === false ||
     item.scheduleStatus === "FAILED" ||
+    item.scheduleTimingStatus === "OVERDUE" ||
+    item.scheduleTimingStatus === "UNAVAILABLE" ||
     item.consecutiveFailures > 0
   );
 }
@@ -591,6 +717,10 @@ function healthLabel(item: StrategyFleetItem) {
     return "Portfolio evidence needs review";
   }
   if (item.scheduleAvailable === false) return "Schedule status unavailable";
+  if (item.scheduleTimingStatus === "UNAVAILABLE")
+    return "Schedule timing unavailable";
+  if (item.scheduleTimingStatus === "OVERDUE")
+    return "Scheduled cycle is overdue";
   if (requiresShadowEvidence(item) && item.evidenceAvailable === false)
     return "Evidence status unavailable";
   if (item.decisionAvailable === false) return "Decision status unavailable";
@@ -725,6 +855,8 @@ export function selectStrategyFleetNextAction(
   if (
     item.scheduleAvailable === false ||
     item.scheduleStatus === "FAILED" ||
+    item.scheduleTimingStatus === "OVERDUE" ||
+    item.scheduleTimingStatus === "UNAVAILABLE" ||
     item.consecutiveFailures > 0
   ) {
     return {
@@ -736,7 +868,11 @@ export function selectStrategyFleetNextAction(
       detail:
         item.scheduleAvailable === false
           ? "Arbion could not refresh the current schedule record and will not label this engine healthy."
-          : `${item.consecutiveFailures} consecutive ${item.consecutiveFailures === 1 ? "failure" : "failures"}. The scheduler failed closed without broker execution.`,
+          : item.scheduleTimingStatus === "UNAVAILABLE"
+            ? "Arbion could not verify the exact next-cycle time and will not infer scheduler health."
+            : item.scheduleTimingStatus === "OVERDUE"
+              ? "The next guarded cycle is more than five minutes overdue. Arbion has not inferred a result and no broker order was sent."
+              : `${item.consecutiveFailures} consecutive ${item.consecutiveFailures === 1 ? "failure" : "failures"}. The scheduler failed closed without broker execution.`,
       href: `${destination}#schedule-controls`,
       actionLabel: "Review schedule",
     };
@@ -1172,6 +1308,134 @@ function StrategyFleetAccountIsolationMap({
           </article>
         ))}
       </div>
+    </section>
+  );
+}
+
+function scheduleResultLabel(
+  engine: StrategyFleetScheduleReliability["engines"][number],
+) {
+  if (engine.lastStatus === "SUCCEEDED") return "Completed safely";
+  if (engine.lastStatus === "SKIPPED")
+    return engine.errorCode === "OUTSIDE_SESSION"
+      ? "Waiting for market session"
+      : "Skipped safely";
+  if (engine.lastStatus === "FAILED") return "Failed closed";
+  return "Result unavailable";
+}
+
+function StrategyFleetScheduleWatchtower({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const reliability = projectStrategyFleetScheduleReliability(items);
+  if (reliability.engineCount === 0) return null;
+  const statusLabel =
+    reliability.status === "VERIFIED"
+      ? "Verified"
+      : reliability.status === "ATTENTION"
+        ? "Needs review"
+        : "Unavailable";
+  const title =
+    reliability.status === "VERIFIED"
+      ? `${reliability.healthyCount} guarded ${reliability.healthyCount === 1 ? "schedule is" : "schedules are"} on course.`
+      : reliability.status === "ATTENTION"
+        ? "A guarded schedule needs review."
+        : "Schedule reliability cannot be verified.";
+
+  return (
+    <section
+      className={`strategy-fleet-watchtower is-${reliability.status.toLowerCase()}`}
+      aria-labelledby="strategy-fleet-watchtower-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">SCHEDULER RELIABILITY</p>
+          <h2 id="strategy-fleet-watchtower-heading">{title}</h2>
+          <p>
+            Arbion verifies each active AI engine&apos;s pinned schedule, latest
+            completed result, failure streak, and next due time. A cycle more
+            than five minutes late is never labeled healthy.
+          </p>
+        </div>
+        <span>{statusLabel}</span>
+      </header>
+      <dl className="strategy-fleet-watchtower-summary">
+        <div>
+          <dt>Healthy schedules</dt>
+          <dd>
+            {reliability.healthyCount} / {reliability.engineCount}
+          </dd>
+        </div>
+        <div>
+          <dt>Latest results</dt>
+          <dd>
+            {reliability.succeededCount} completed ·{" "}
+            {reliability.safelySkippedCount} safe wait
+          </dd>
+        </div>
+        <div>
+          <dt>Failure streaks</dt>
+          <dd>{reliability.consecutiveFailures}</dd>
+        </div>
+        <div>
+          <dt>Next fleet cycle</dt>
+          <dd>{readableTime(reliability.nextRunAt)}</dd>
+        </div>
+      </dl>
+      <ol className="strategy-fleet-watchtower-engines">
+        {reliability.engines.map((engine) => (
+          <li
+            className={
+              engine.timingStatus === "ON_SCHEDULE" &&
+              engine.consecutiveFailures === 0 &&
+              ["SUCCEEDED", "SKIPPED"].includes(engine.lastStatus)
+                ? "is-healthy"
+                : "needs-review"
+            }
+            key={engine.id}
+          >
+            <span
+              className={`provider-mark provider-${engine.provider}`}
+              aria-hidden="true"
+            >
+              {providerInitial(engine.provider)}
+            </span>
+            <div>
+              <small>
+                {engine.accountName} · {readable(engine.executionMode)}
+              </small>
+              <strong>{engine.title}</strong>
+            </div>
+            <dl>
+              <div>
+                <dt>Last completed</dt>
+                <dd>{readableTime(engine.lastCompletedAt)}</dd>
+              </div>
+              <div>
+                <dt>Last result</dt>
+                <dd>{scheduleResultLabel(engine)}</dd>
+              </div>
+              <div>
+                <dt>Next due</dt>
+                <dd>{readableTime(engine.nextRunAt)}</dd>
+              </div>
+            </dl>
+            <span>
+              {engine.timingStatus === "ON_SCHEDULE"
+                ? "On schedule"
+                : engine.timingStatus === "OVERDUE"
+                  ? "Overdue"
+                  : "Timing unavailable"}
+            </span>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Read-only schedule proof · Paper or Shadow only · no manual cycle · no
+        broker order
+      </footer>
     </section>
   );
 }
@@ -1796,6 +2060,8 @@ export function StrategyFleet({
       )}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}
+
+      {inventoryAvailable && <StrategyFleetScheduleWatchtower items={items} />}
 
       {inventoryAvailable && ordered.length > 0 && (
         <section
