@@ -3,6 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import {
+  compareExactDecimals,
+  divideExactDecimals,
+  formatExactDecimal,
+  formatExactMoney,
+  multiplyExactDecimals,
+  subtractExactDecimals,
+} from "../exact-money";
+
 type RawRecord = Record<string, unknown>;
 
 type ComparisonField = {
@@ -30,6 +39,20 @@ function number(entry: RawRecord | undefined, key: string, legacy = key) {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
+}
+
+function exactValue(entry: RawRecord | undefined, key: string, legacy = key) {
+  const value = read(entry, key, legacy);
+  const candidate =
+    typeof value === "string"
+      ? value.trim()
+      : typeof value === "number" && Number.isFinite(value)
+        ? String(value)
+        : undefined;
+  return candidate !== undefined &&
+    compareExactDecimals(candidate, candidate) === 0
+    ? candidate
+    : undefined;
 }
 
 function object(entry: RawRecord | undefined, key: string, legacy = key) {
@@ -63,20 +86,10 @@ function label(value: string | undefined) {
     .join(" ");
 }
 
-function decimal(value: number | undefined, maximumFractionDigits = 2) {
-  if (value === undefined || !Number.isFinite(value)) return "Unavailable";
-  return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits,
-  }).format(value);
-}
-
-function dollars(value: number | undefined) {
-  if (value === undefined || !Number.isFinite(value)) return "Unavailable";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
+function dollars(value: string | undefined) {
+  return formatExactMoney(
+    value === undefined ? undefined : { amount: value, currency: "USD" },
+  );
 }
 
 function timestamp(value: unknown) {
@@ -126,7 +139,7 @@ function symbols(value: RawRecord) {
 }
 
 function proposalCeiling(value: RawRecord) {
-  return number(strategyParameters(value), "max_proposal_notional");
+  return exactValue(strategyParameters(value), "max_proposal_notional");
 }
 
 function tradesPerDay(value: RawRecord) {
@@ -193,8 +206,8 @@ function compareSnapshots(previous: RawRecord, current: RawRecord) {
     ),
     field(
       "Maximum decisions per day",
-      decimal(tradesPerDay(previous), 0),
-      decimal(tradesPerDay(current), 0),
+      String(tradesPerDay(previous)),
+      String(tradesPerDay(current)),
     ),
     field("Schedule", scheduleLabel(previous), scheduleLabel(current)),
     field(
@@ -208,21 +221,34 @@ function compareSnapshots(previous: RawRecord, current: RawRecord) {
 function bucketCapacity(bucket: RawRecord | undefined) {
   if (!bucket) return undefined;
   const allocationType = text(bucket, "allocation_type", "AllocationType");
-  const allocationValue = number(bucket, "allocation_value", "AllocationValue");
-  const allocationLimit = number(bucket, "allocation_limit", "AllocationLimit");
+  const allocationValue = exactValue(
+    bucket,
+    "allocation_value",
+    "AllocationValue",
+  );
+  const allocationLimit = exactValue(
+    bucket,
+    "allocation_limit",
+    "AllocationLimit",
+  );
   const protectedAmount =
-    number(bucket, "protected_amount", "ProtectedAmount") ?? 0;
+    exactValue(bucket, "protected_amount", "ProtectedAmount") ?? "0";
+  let grossCapacity: string | undefined;
   if (allocationType === "FIXED_AMOUNT" && allocationValue !== undefined) {
-    return Math.max(
-      0,
-      Math.min(allocationValue, allocationLimit ?? allocationValue) -
-        protectedAmount,
-    );
+    grossCapacity =
+      allocationLimit !== undefined &&
+      compareExactDecimals(allocationLimit, allocationValue) === -1
+        ? allocationLimit
+        : allocationValue;
+  } else if (allocationLimit !== undefined) {
+    grossCapacity = allocationLimit;
   }
-  if (allocationLimit !== undefined) {
-    return Math.max(0, allocationLimit - protectedAmount);
-  }
-  return undefined;
+  if (grossCapacity === undefined) return;
+  const capacity = subtractExactDecimals(grossCapacity, protectedAmount);
+  const capacitySign =
+    capacity === undefined ? undefined : compareExactDecimals(capacity, "0");
+  if (capacitySign === undefined) return;
+  return capacitySign < 0 ? "0" : capacity;
 }
 
 function marketAnchor(decisions: RawRecord[], selectedSymbol: string) {
@@ -240,8 +266,11 @@ function marketAnchor(decisions: RawRecord[], selectedSymbol: string) {
     );
     if (!market) continue;
     const price = ["mark", "last", "bid", "ask"]
-      .map((key) => number(market, key))
-      .find((candidate) => candidate !== undefined && candidate > 0);
+      .map((key) => exactValue(market, key))
+      .find(
+        (candidate) =>
+          candidate !== undefined && compareExactDecimals(candidate, "0") === 1,
+      );
     if (price === undefined) continue;
     return {
       price,
@@ -304,36 +333,53 @@ export function StrategySimulationWorkbench({
   const [busy, setBusy] = useState(false);
   const [draftMessage, setDraftMessage] = useState("");
 
-  const parsedCeiling = Number(scenarioCeiling);
-  const parsedTrades = Number(scenarioTrades);
+  const exactCeiling = scenarioCeiling.trim();
+  const parsedTrades = /^(0|[1-9][0-9]*)$/.test(scenarioTrades)
+    ? Number(scenarioTrades)
+    : Number.NaN;
   const scenarioValid =
-    Number.isFinite(parsedCeiling) &&
-    parsedCeiling > 0 &&
+    compareExactDecimals(exactCeiling, "0") === 1 &&
     Number.isInteger(parsedTrades) &&
     parsedTrades >= 1 &&
     parsedTrades <= 48;
   const dailyResearchNotional = scenarioValid
-    ? parsedCeiling * parsedTrades
+    ? multiplyExactDecimals(exactCeiling, String(parsedTrades))
     : undefined;
   const capacity = bucketCapacity(capitalBucket);
   const pressure =
     dailyResearchNotional !== undefined &&
     capacity !== undefined &&
-    capacity > 0
-      ? (dailyResearchNotional / capacity) * 100
+    compareExactDecimals(capacity, "0") === 1
+      ? divideExactDecimals(
+          multiplyExactDecimals(dailyResearchNotional, "100") ?? "",
+          capacity,
+          1,
+        )
       : undefined;
+  const withinCapacity =
+    dailyResearchNotional !== undefined && capacity !== undefined
+      ? compareExactDecimals(dailyResearchNotional, capacity)
+      : undefined;
+  const pressureVisual =
+    pressure === undefined
+      ? undefined
+      : Math.max(0, Math.min(Number(pressure), 100));
   const anchor = marketAnchor(decisions, scenarioSymbol);
   const hypotheticalUnits =
-    scenarioValid && anchor ? parsedCeiling / anchor.price : undefined;
+    scenarioValid && anchor
+      ? divideExactDecimals(exactCeiling, anchor.price, 8)
+      : undefined;
   const comparisons = compareSnapshots(baselineSnapshot, currentSnapshot);
   const changedFields = comparisons.filter((item) => item.changed);
   const scenarioChanges = [
-    currentCeiling !== undefined && parsedCeiling !== currentCeiling,
+    currentCeiling !== undefined &&
+      compareExactDecimals(exactCeiling, currentCeiling) !== 0,
     parsedTrades !== currentTrades,
     scenarioSymbol !== (currentSymbols[0] ?? ""),
   ].filter(Boolean).length;
   const draftChanges = [
-    currentCeiling !== undefined && parsedCeiling !== currentCeiling,
+    currentCeiling !== undefined &&
+      compareExactDecimals(exactCeiling, currentCeiling) !== 0,
     parsedTrades !== currentTrades,
   ].filter(Boolean).length;
 
@@ -561,7 +607,7 @@ export function StrategySimulationWorkbench({
               <article>
                 <span>PER-DECISION ENVELOPE</span>
                 <strong>
-                  {dollars(scenarioValid ? parsedCeiling : undefined)}
+                  {dollars(scenarioValid ? exactCeiling : undefined)}
                 </strong>
                 <small>
                   {scenarioChanges} local change
@@ -593,7 +639,10 @@ export function StrategySimulationWorkbench({
                 <strong>
                   {hypotheticalUnits === undefined
                     ? "Unavailable"
-                    : `${decimal(hypotheticalUnits, 8)} ${scenarioSymbol}`}
+                    : `${formatExactDecimal(hypotheticalUnits, {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 8,
+                      })} ${scenarioSymbol}`}
                 </strong>
                 <small>
                   {anchor
@@ -610,13 +659,16 @@ export function StrategySimulationWorkbench({
                   <strong>
                     {pressure === undefined
                       ? "Cannot calculate an absolute ratio"
-                      : `${decimal(pressure, 1)}% of current capacity`}
+                      : `${formatExactDecimal(pressure, {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 1,
+                        })}% of current capacity`}
                   </strong>
                 </div>
                 <span>
                   {pressure === undefined
                     ? "PROVIDER FACTS REQUIRED"
-                    : pressure <= 100
+                    : withinCapacity !== undefined && withinCapacity <= 0
                       ? "WITHIN STATIC CAPACITY"
                       : "EXCEEDS STATIC CAPACITY"}
                 </span>
@@ -624,7 +676,7 @@ export function StrategySimulationWorkbench({
               <div aria-hidden="true">
                 <i
                   style={{
-                    width: `${Math.max(0, Math.min(pressure ?? 0, 100))}%`,
+                    width: `${pressureVisual ?? 0}%`,
                   }}
                 />
               </div>
@@ -691,7 +743,7 @@ export function StrategySimulationWorkbench({
                       <div role="row">
                         <strong role="cell">Per-decision ceiling</strong>
                         <span role="cell">{dollars(currentCeiling)}</span>
-                        <span role="cell">{dollars(parsedCeiling)}</span>
+                        <span role="cell">{dollars(exactCeiling)}</span>
                       </div>
                       <div role="row">
                         <strong role="cell">Maximum decisions per day</strong>
