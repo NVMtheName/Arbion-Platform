@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   projectStrategyFleetAccountIsolation,
+  projectStrategyFleetIdentityIsolation,
   reconciliationFreshWithinTwentyFourHours,
   StrategyFleet,
   type StrategyFleetItem,
@@ -146,7 +147,8 @@ describe("StrategyFleet", () => {
         engineCount: 2,
         modes: ["PAPER", "SHADOW"],
         currency: "USD",
-        claimedAmount: "1750",
+        paperClaimedAmount: "1000",
+        shadowClaimedAmount: "750",
         accountLimit: "3000",
       }),
     ]);
@@ -167,9 +169,40 @@ describe("StrategyFleet", () => {
       expect.objectContaining({
         status: "UNAVAILABLE",
         engineCount: 2,
-        claimedAmount: undefined,
+        paperClaimedAmount: undefined,
+        shadowClaimedAmount: undefined,
         accountLimit: undefined,
       }),
+    ]);
+  });
+
+  it("fails the fleet identity proof closed for a cross-account identity collision", () => {
+    const schwabCollision: StrategyFleetItem = {
+      ...coinbaseEngine,
+      id: "schwab-mandate",
+      financialAccountID: "schwab-account",
+      accountName: "Schwab Brokerage ••9555",
+      provider: "schwab",
+      capitalBucketID: "schwab-bucket",
+      capitalReservationID: "schwab-reservation",
+    };
+
+    expect(
+      projectStrategyFleetIdentityIsolation([coinbaseEngine, schwabCollision]),
+    ).toEqual(
+      expect.objectContaining({
+        status: "UNAVAILABLE",
+        engineCount: 2,
+        accountCount: 2,
+        uniqueInstanceCount: 1,
+        crossAccountCollisionCount: 1,
+      }),
+    );
+    expect(
+      projectStrategyFleetAccountIsolation([coinbaseEngine, schwabCollision]),
+    ).toEqual([
+      expect.objectContaining({ status: "UNAVAILABLE" }),
+      expect.objectContaining({ status: "UNAVAILABLE" }),
     ]);
   });
 
@@ -183,8 +216,16 @@ describe("StrategyFleet", () => {
     expect(isolation).toHaveTextContent("Coinbase Portfolio ••••a5d0");
     expect(isolation).toHaveTextContent("Verified");
     expect(isolation).toHaveTextContent("$1,000");
-    expect(isolation).toHaveTextContent("Account ceiling$1,000");
-    expect(isolation).toHaveTextContent("no broker hold · no order action");
+    expect(isolation).toHaveTextContent("Shadow account ceiling$1,000");
+    expect(isolation).toHaveTextContent(
+      "Paper claims never consume broker cash · no broker hold · no order action",
+    );
+    const identity = screen.getByRole("region", {
+      name: /Fleet identity isolation proof/i,
+    });
+    expect(identity).toHaveTextContent("Verified");
+    expect(identity).toHaveTextContent("1 engines · 1 budgets · 1 claims");
+    expect(identity).toHaveTextContent("Cross-account collisions0");
   });
 
   it("shows an owner-facing fleet summary with account and engine context", () => {
