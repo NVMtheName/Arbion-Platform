@@ -127,6 +127,50 @@ describe("Portfolio-first command center", () => {
     expect(screen.queryByText(/35-day activity/i)).not.toBeInTheDocument();
   });
 
+  it("shows an exact aggregate beyond browser floating-point precision", () => {
+    render(
+      <CommandCenterDashboard
+        accounts={[
+          {
+            id: "large-account",
+            provider: "schwab",
+            displayName: "Large exact account",
+            status: "active",
+            observedValue: {
+              amount: "9007199254740993.005",
+              currency: "USD",
+            },
+            cash: { amount: "0.1", currency: "USD" },
+            positionCount: 1,
+            availability: "ready",
+          },
+          {
+            id: "fractional-account",
+            provider: "coinbase",
+            displayName: "Fractional exact account",
+            status: "active",
+            observedValue: { amount: "0.005", currency: "USD" },
+            cash: { amount: "0.2", currency: "USD" },
+            positionCount: 1,
+            availability: "ready",
+          },
+        ]}
+        connectionCount={1}
+        modelConfigured
+        user={{
+          email: "owner@example.com",
+          display_name: "Nick Maya",
+          entitlement: "founder",
+          role: "superadmin",
+        }}
+      />,
+    );
+
+    expect(screen.getAllByText("$9,007,199,254,740,993.01")).toHaveLength(2);
+    expect(screen.getByText("$0.10")).toBeInTheDocument();
+    expect(screen.getByText("$0.20")).toBeInTheDocument();
+  });
+
   it("keeps the next missing connection in the primary path", () => {
     render(
       <CommandCenterDashboard
