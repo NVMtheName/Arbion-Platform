@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { formatExactMoney, sumExactMoney } from "../exact-money";
+import {
+  exactDecimalSign,
+  formatExactDecimal,
+  formatExactMoney,
+  projectExactDecimalRange,
+  sumExactMoney,
+} from "../exact-money";
 
 describe("exact dashboard money", () => {
   it("adds decimal account values without binary floating-point drift", () => {
@@ -69,5 +75,25 @@ describe("exact dashboard money", () => {
     expect(
       sumExactMoney([{ amount: `1.${"1".repeat(31)}`, currency: "USD" }]),
     ).toBeUndefined();
+  });
+
+  it("formats signs and projects only bounded visual ratios", () => {
+    expect(
+      formatExactDecimal("9007199254740993.12345", {
+        maximumFractionDigits: 4,
+        signDisplay: "exceptZero",
+        suffix: "%",
+      }),
+    ).toBe("+9,007,199,254,740,993.1235%");
+    expect(exactDecimalSign("-0.00000000000000000001")).toBe(-1);
+    expect(exactDecimalSign("malformed")).toBeUndefined();
+    expect(
+      projectExactDecimalRange([
+        "900719925474099300000000000000.005",
+        "900719925474099300000000000000.010",
+        "900719925474099300000000000000.015",
+      ]),
+    ).toEqual([0, 0.5, 1]);
+    expect(projectExactDecimalRange(["1", "malformed"])).toBeUndefined();
   });
 });

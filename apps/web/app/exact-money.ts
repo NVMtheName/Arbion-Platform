@@ -11,6 +11,10 @@ export type ExactMoneyFormatOptions = {
   unavailable?: string;
 };
 
+export type ExactDecimalFormatOptions = ExactMoneyFormatOptions & {
+  suffix?: string;
+};
+
 type ExactDecimal = {
   units: bigint;
   scale: number;
@@ -74,6 +78,50 @@ function roundedMinorUnits(value: ExactDecimal, fractionDigits: number) {
   return quotient;
 }
 
+function fractionDigits(
+  options: ExactMoneyFormatOptions,
+): { minimum: number; maximum: number } | undefined {
+  const minimum = options.minimumFractionDigits ?? 2;
+  const maximum = options.maximumFractionDigits ?? 2;
+  if (
+    !Number.isInteger(minimum) ||
+    !Number.isInteger(maximum) ||
+    minimum < 0 ||
+    maximum < minimum ||
+    maximum > 12
+  ) {
+    return;
+  }
+  return { minimum, maximum };
+}
+
+function formatDecimal(amount: ExactDecimal, options: ExactMoneyFormatOptions) {
+  const digits = fractionDigits(options);
+  if (!digits) return;
+  const minorUnits = roundedMinorUnits(amount, digits.maximum);
+  const negative = minorUnits < BigInt(0);
+  const absolute = negative ? -minorUnits : minorUnits;
+  const scale = power10(digits.maximum);
+  const whole = (absolute / scale)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  let fraction =
+    digits.maximum === 0
+      ? ""
+      : String(absolute % scale).padStart(digits.maximum, "0");
+  while (fraction.length > digits.minimum && fraction.endsWith("0")) {
+    fraction = fraction.slice(0, -1);
+  }
+  const formatted = fraction ? `${whole}.${fraction}` : whole;
+  const positive = minorUnits > BigInt(0);
+  const sign = negative
+    ? (options.negativeSign ?? "-")
+    : options.signDisplay === "exceptZero" && positive
+      ? "+"
+      : "";
+  return { formatted, sign };
+}
+
 export function sumExactMoney(values: ExactMoney[]): ExactMoney | undefined {
   if (values.length === 0) return;
   const currency = values[0].currency.trim().toUpperCase();
@@ -100,40 +148,55 @@ export function formatExactMoney(
     return unavailable;
   }
 
-  const minimumFractionDigits = options.minimumFractionDigits ?? 2;
-  const maximumFractionDigits = options.maximumFractionDigits ?? 2;
-  if (
-    !Number.isInteger(minimumFractionDigits) ||
-    !Number.isInteger(maximumFractionDigits) ||
-    minimumFractionDigits < 0 ||
-    maximumFractionDigits < minimumFractionDigits ||
-    maximumFractionDigits > 12
-  ) {
-    return unavailable;
-  }
-
-  const minorUnits = roundedMinorUnits(amount, maximumFractionDigits);
-  const negative = minorUnits < BigInt(0);
-  const absolute = negative ? -minorUnits : minorUnits;
-  const scale = power10(maximumFractionDigits);
-  const whole = (absolute / scale)
-    .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  let fraction =
-    maximumFractionDigits === 0
-      ? ""
-      : String(absolute % scale).padStart(maximumFractionDigits, "0");
-  while (fraction.length > minimumFractionDigits && fraction.endsWith("0")) {
-    fraction = fraction.slice(0, -1);
-  }
-  const formatted = fraction ? `${whole}.${fraction}` : whole;
-  const positive = minorUnits > BigInt(0);
-  const sign = negative
-    ? (options.negativeSign ?? "-")
-    : options.signDisplay === "exceptZero" && positive
-      ? "+"
-      : "";
+  const formatted = formatDecimal(amount, options);
+  if (!formatted) return unavailable;
   return currency === "USD"
-    ? `${sign}$${formatted}`
-    : `${sign}${currency} ${formatted}`;
+    ? `${formatted.sign}$${formatted.formatted}`
+    : `${formatted.sign}${currency} ${formatted.formatted}`;
+}
+
+export function formatExactDecimal(
+  value: string | undefined,
+  options: ExactDecimalFormatOptions = {},
+) {
+  const unavailable = options.unavailable ?? "Unavailable";
+  const amount = value === undefined ? undefined : parseExactDecimal(value);
+  if (!amount) return unavailable;
+  const formatted = formatDecimal(amount, options);
+  if (!formatted) return unavailable;
+  return `${formatted.sign}${formatted.formatted}${options.suffix ?? ""}`;
+}
+
+export function exactDecimalSign(value: string | undefined) {
+  const amount = value === undefined ? undefined : parseExactDecimal(value);
+  if (!amount) return;
+  if (amount.units === BigInt(0)) return 0;
+  return amount.units > BigInt(0) ? 1 : -1;
+}
+
+// Projects exact decimal values onto a bounded 0..1 visual range. BigInt does
+// every financial comparison; Number receives only a nine-digit screen ratio.
+export function projectExactDecimalRange(values: string[]) {
+  if (values.length === 0) return;
+  const parsed = values.map(parseExactDecimal);
+  if (parsed.some((value) => !value)) return;
+  const decimals = parsed as ExactDecimal[];
+  const scale = Math.max(...decimals.map((value) => value.scale));
+  const units = decimals.map(
+    (value) => value.units * power10(scale - value.scale),
+  );
+  let low = units[0];
+  let high = units[0];
+  for (const value of units.slice(1)) {
+    if (value < low) low = value;
+    if (value > high) high = value;
+  }
+  const spread = high - low;
+  if (spread === BigInt(0)) return units.map(() => 0.5);
+  const visualPrecision = BigInt(1_000_000_000);
+  return units.map(
+    (value) =>
+      Number(((value - low) * visualPrecision) / spread) /
+      Number(visualPrecision),
+  );
 }

@@ -2,73 +2,64 @@ import {
   extractPaperPerformanceHistory,
   type PaperPerformanceHistoryPoint,
 } from "./paper-performance";
+import {
+  exactDecimalSign,
+  formatExactDecimal,
+  formatExactMoney,
+  projectExactDecimalRange,
+} from "../exact-money";
 
 function money(value: string, currency: string) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return `${value} ${currency}`;
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
-    }).format(amount);
-  } catch {
-    return `${value} ${currency}`;
-  }
+  return formatExactMoney(
+    { amount: value, currency },
+    { maximumFractionDigits: 4 },
+  );
 }
 
 function signedMoney(value: string, currency: string) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount) || amount === 0) return money(value, currency);
-  return `${amount > 0 ? "+" : "-"}${money(String(Math.abs(amount)), currency)}`;
+  return formatExactMoney(
+    { amount: value, currency },
+    { maximumFractionDigits: 4, signDisplay: "exceptZero" },
+  );
 }
 
 function signedPercent(value: string) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return `${value}%`;
-  return `${amount > 0 ? "+" : ""}${new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
+  return formatExactDecimal(value, {
     maximumFractionDigits: 4,
-  }).format(amount)}%`;
+    signDisplay: "exceptZero",
+    suffix: "%",
+  });
 }
 
 function performanceClass(value: string) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount) || amount === 0) return "is-flat";
-  return amount > 0 ? "is-positive" : "is-negative";
+  const sign = exactDecimalSign(value);
+  if (sign === undefined || sign === 0) return "is-flat";
+  return sign > 0 ? "is-positive" : "is-negative";
 }
 
 function chart(points: PaperPerformanceHistoryPoint[], startingCash: string) {
   const width = 760;
   const height = 190;
   const padding = 18;
-  const values = points.map((point) => Number(point.simulatedEquity));
-  const baseline = Number(startingCash);
-  if (
-    values.length === 0 ||
-    values.some((value) => !Number.isFinite(value)) ||
-    !Number.isFinite(baseline)
-  ) {
-    return;
-  }
-  const low = Math.min(...values, baseline);
-  const high = Math.max(...values, baseline);
-  const spread = high - low || Math.max(Math.abs(high) * 0.002, 1);
+  const values = points.map((point) => point.simulatedEquity);
+  const projection = projectExactDecimalRange([...values, startingCash]);
+  if (!projection) return;
+  const baselineRatio = projection.at(-1);
+  if (baselineRatio === undefined) return;
+  const ratios = projection.slice(0, -1);
   const x = (index: number) =>
     points.length === 1
       ? width / 2
       : padding + (index * (width - padding * 2)) / (points.length - 1);
-  const y = (value: number) =>
-    padding + ((high - value) * (height - padding * 2)) / spread;
+  const y = (ratio: number) => padding + (1 - ratio) * (height - padding * 2);
   return {
     width,
     height,
-    baselineY: y(baseline),
-    line: values.map((value, index) => `${x(index)},${y(value)}`).join(" "),
-    dots: values.map((value, index) => ({
+    baselineY: y(baselineRatio),
+    line: ratios.map((ratio, index) => `${x(index)},${y(ratio)}`).join(" "),
+    dots: ratios.map((ratio, index) => ({
       x: x(index),
-      y: y(value),
+      y: y(ratio),
       point: points[index],
     })),
   };
