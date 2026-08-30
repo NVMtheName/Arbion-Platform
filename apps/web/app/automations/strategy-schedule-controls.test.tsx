@@ -23,6 +23,7 @@ const base = {
   instanceId: "",
   schedulerEnabled: false,
   emailDeliveryAvailable: true,
+  financialProvider: "schwab",
   conditions: {},
 };
 
@@ -184,13 +185,15 @@ describe("StrategyScheduleControls", () => {
   });
 
   it.each([
-    ["MARKET_DATA_STALE", /market data refreshes/i],
+    ["MARKET_DATA_STALE", /after the data refreshes/i],
     ["NO_ELIGIBLE_OPTION_CONTRACTS", /review those filters/i],
     ["STRATEGY_CONFIGURATION_CHANGED", /review the automation/i],
     ["WAITING_FOR_LIFECYCLE", /record the explicit paper option lifecycle/i],
-    ["OUTSIDE_SESSION", /no action is needed/i],
+    ["OUTSIDE_SESSION", /no action needed/i],
     ["SESSION_CALENDAR_UNAVAILABLE", /operator must extend it/i],
-    ["INTERNAL", /failed closed/i],
+    ["AI_PROVIDER_RATE_LIMITED", /retry at the next scheduled cycle/i],
+    ["AI_REQUEST_INVALID", /strict schema contract/i],
+    ["INTERNAL", /operator review/i],
   ])("explains the safe scheduled result %s", (code, guidance) => {
     render(
       <StrategyScheduleControls
@@ -209,5 +212,29 @@ describe("StrategyScheduleControls", () => {
 
     expect(screen.getByText(guidance)).toBeInTheDocument();
     expect(screen.getByText(/no broker order was sent/i)).toBeInTheDocument();
+  });
+
+  it("uses the selected financial provider in safe recovery guidance", () => {
+    render(
+      <StrategyScheduleControls
+        {...base}
+        automationType="AI_AUTONOMOUS"
+        autonomyLevel="FULL_AUTONOMOUS"
+        financialProvider="coinbase"
+        conditions={{ enabled: true }}
+        instanceId="instance-1"
+        schedulerEnabled
+        runtime={{
+          enabled: true,
+          last_status: "FAILED",
+          last_error_code: "PROVIDER",
+          consecutive_failures: 1,
+        }}
+      />,
+    );
+    expect(
+      screen.getByText(/Coinbase read data was unavailable/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Schwab market data/i)).not.toBeInTheDocument();
   });
 });

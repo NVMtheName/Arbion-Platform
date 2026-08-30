@@ -40,6 +40,7 @@ describe("ScheduleRunHistory", () => {
     render(
       <ScheduleRunHistory
         instanceId="instance-1"
+        financialProvider="coinbase"
         initialRuns={[
           base,
           {
@@ -73,6 +74,11 @@ describe("ScheduleRunHistory", () => {
     expect(screen.getByText("AI abstained safely")).toBeInTheDocument();
     expect(screen.getByText("Skipped safely")).toBeInTheDocument();
     expect(screen.getByText("Failed closed")).toBeInTheDocument();
+    expect(screen.getByText("No action needed")).toBeInTheDocument();
+    expect(screen.getByText("Automatic retry")).toBeInTheDocument();
+    expect(
+      screen.getByText(/selected AI provider was unavailable/i),
+    ).toBeInTheDocument();
     expect(
       screen.getByText("Portfolio inventory review required"),
     ).toBeInTheDocument();
@@ -123,5 +129,29 @@ describe("ScheduleRunHistory", () => {
     expect(
       screen.getByText(/records begin with this production release/i),
     ).toBeInTheDocument();
+  });
+
+  it("distinguishes operator schema failures from owner actions", () => {
+    render(
+      <ScheduleRunHistory
+        instanceId="instance-1"
+        financialProvider="coinbase"
+        initialRuns={[
+          {
+            ...base,
+            id: "55555555-5555-4555-8555-555555555555",
+            status: "FAILED",
+            error_code: "AI_REQUEST_INVALID",
+            ai_decision: undefined,
+            execution_status: undefined,
+            consecutive_failures: 4,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText("Operator correction")).toBeInTheDocument();
+    expect(screen.getByText(/strict schema contract/i)).toBeInTheDocument();
+    expect(screen.getByText("AI_REQUEST_INVALID")).toBeInTheDocument();
+    expect(screen.getByText(/no broker order was sent/i)).toBeInTheDocument();
   });
 });

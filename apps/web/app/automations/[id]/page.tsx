@@ -619,6 +619,7 @@ export default async function MandateReview({
           {instance && (
             <ScheduleRunHistory
               instanceId={instanceID}
+              financialProvider={financialProvider}
               initialRuns={
                 Array.isArray(scheduleRunsResponse.runs)
                   ? (scheduleRunsResponse.runs as ScheduleRunRecord[])
@@ -716,6 +717,7 @@ export default async function MandateReview({
           {instance && (
             <ScheduleRunHistory
               instanceId={instanceID}
+              financialProvider={financialProvider}
               initialRuns={
                 Array.isArray(scheduleRunsResponse.runs)
                   ? (scheduleRunsResponse.runs as ScheduleRunRecord[])
