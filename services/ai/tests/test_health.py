@@ -448,6 +448,54 @@ def test_shadow_request_rejects_decision_memory_older_than_six_hours() -> None:
         )
 
 
+@pytest.mark.parametrize("disposition", ["SIMULATED_FILLED", "SIMULATED_REJECTED"])
+def test_shadow_request_accepts_bounded_paper_decision_memory(
+    disposition: str,
+) -> None:
+    payload = equity_shadow_request_payload()
+    payload["allowed_symbols"] = ["BTC"]
+    payload["markets"] = [
+        {
+            "symbol": "BTC",
+            "asset_class": "CRYPTO",
+            "currency": "USD",
+            "bid": "99",
+            "ask": "101",
+            "mark": "100",
+            "last": "100",
+            "change_percent_1h": "",
+            "change_percent_6h": "",
+            "change_percent_24h": "",
+            "volume_24h": "",
+            "feed": "exchange",
+            "quality": "REAL_TIME_SINGLE_VENUE",
+            "observed_at": "2026-08-25T14:00:00Z",
+            "history_status": "UNAVAILABLE",
+            "history_granularity_seconds": 900,
+            "history_contiguous_intervals": 0,
+            "history_expected_intervals": 96,
+            "history_feed": "",
+            "history_quality": "",
+            "history_observed_at": None,
+        }
+    ]
+    payload["market_event_coverage"] = []
+    payload["market_events"] = []
+    payload["recent_decisions"] = [
+        {
+            "decision": "PROPOSE",
+            "symbol": "BTC",
+            "side": "BUY",
+            "disposition": disposition,
+            "occurred_at": "2026-08-25T13:30:00Z",
+        }
+    ]
+
+    request = ShadowDecisionRequest.model_validate(payload)
+
+    assert request.recent_decisions[0].disposition == disposition
+
+
 def test_internal_insight_rejects_unknown_profile_before_provider_call() -> None:
     os.environ["INTERNAL_SERVICE_TOKEN"] = "internal-test-token"
     response = client.post(

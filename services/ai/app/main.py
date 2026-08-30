@@ -208,7 +208,13 @@ class ShadowRecentDecision(BaseModel):
     decision: Literal["ABSTAIN", "PROPOSE"]
     symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Z][A-Z0-9.-]{0,15}$")
     side: Literal["BUY", "SELL", "NONE"]
-    disposition: Literal["ABSTAINED", "WOULD_HAVE_SUBMITTED", "HELD_BY_CONTROLS"]
+    disposition: Literal[
+        "ABSTAINED",
+        "WOULD_HAVE_SUBMITTED",
+        "SIMULATED_FILLED",
+        "SIMULATED_REJECTED",
+        "HELD_BY_CONTROLS",
+    ]
     occurred_at: datetime
 
     @model_validator(mode="after")
