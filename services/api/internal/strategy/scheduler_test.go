@@ -281,6 +281,7 @@ func TestScheduleErrorClassificationPreservesSafeEvaluationDiagnostics(t *testin
 		"NO_ELIGIBLE_OPTION_CONTRACTS":   ErrEvaluationNoEligibleContracts,
 		"AI_DECISION_BUDGET_EXHAUSTED":   aiconnection.ErrRateLimit,
 		"AI_PROVIDER_RATE_LIMITED":       &neural.ProviderError{Code: neural.RateLimited},
+		"AI_REQUEST_INVALID":             &neural.ProviderError{Code: neural.InvalidRequest},
 	}
 	for want, err := range tests {
 		if got := classifyScheduleError(err); got != want {

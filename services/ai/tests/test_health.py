@@ -52,6 +52,27 @@ def test_shadow_position_performance_requires_complete_exact_provenance() -> Non
         ShadowPositionFact.model_validate(payload)
 
 
+def test_paper_position_accepts_exact_market_reference_provenance() -> None:
+    position = ShadowPositionFact.model_validate(
+        {
+            "symbol": "BTC",
+            "instrument": "CRYPTO",
+            "quantity": "0.0003177277",
+            "available_quantity": "0.0003177277",
+            "market_value_usd": "24.8139964102",
+            "performance_status": "PARTIAL",
+            "average_price_usd": "78683.7037126445",
+            "current_price_usd": "78098.31",
+            "open_profit_loss_usd": "-0.1859957979",
+            "open_profit_loss_percent": "-0.7439842615",
+            "price_basis": "PROVIDER_MARKET_REFERENCE",
+        }
+    )
+
+    assert position.price_basis == "PROVIDER_MARKET_REFERENCE"
+    assert position.performance_status == "PARTIAL"
+
+
 def test_health() -> None:
     response = client.get("/healthz")
 

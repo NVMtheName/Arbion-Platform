@@ -307,6 +307,9 @@ func (c *HTTPClient) call(ctx context.Context, path string, request, out any) er
 		if json.Unmarshal(payload, &failure) == nil && failure.Detail.Code != "" {
 			return &ProviderError{Code: failure.Detail.Code}
 		}
+		if res.StatusCode == http.StatusUnprocessableEntity {
+			return &ProviderError{Code: InvalidRequest}
+		}
 		return &ProviderError{Code: InternalError}
 	}
 	if json.Unmarshal(payload, out) != nil {
