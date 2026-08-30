@@ -2,7 +2,10 @@ import Link from "next/link";
 
 export type StrategyFleetItem = {
   id: string;
+  strategyInstanceID?: string;
   financialAccountID?: string;
+  capitalBucketID?: string;
+  capitalReservationID?: string;
   title: string;
   accountName: string;
   provider: string;
@@ -97,6 +100,19 @@ type StrategyFleetProps = {
   contextWarnings?: string[];
 };
 
+export type StrategyFleetAccountIsolation = {
+  accountID: string;
+  accountName: string;
+  provider: string;
+  status: "VERIFIED" | "UNAVAILABLE";
+  engineCount: number;
+  modes: string[];
+  currency?: string;
+  claimedAmount?: string;
+  accountLimit?: string;
+  detail: string;
+};
+
 export type StrategyFleetNextAction = {
   key: string;
   priority: number;
@@ -120,6 +136,124 @@ function providerInitial(provider: string) {
   if (provider === "coinbase") return "C";
   if (provider === "schwab") return "S";
   return provider.slice(0, 1).toUpperCase() || "A";
+}
+
+const capitalDecimalScale = BigInt("10000000000");
+
+function capitalDecimalUnits(value: string | undefined) {
+  if (!value || !/^\d+(\.\d{1,10})?$/.test(value)) return undefined;
+  const [whole, fraction = ""] = value.split(".");
+  return BigInt(whole) * capitalDecimalScale + BigInt(fraction.padEnd(10, "0"));
+}
+
+function capitalDecimalText(value: bigint) {
+  const whole = value / capitalDecimalScale;
+  const fraction = String(value % capitalDecimalScale)
+    .padStart(10, "0")
+    .replace(/0+$/, "");
+  return `${whole}${fraction ? `.${fraction}` : ""}`;
+}
+
+export function projectStrategyFleetAccountIsolation(
+  items: StrategyFleetItem[],
+): StrategyFleetAccountIsolation[] {
+  const operational = items.filter(
+    (item) =>
+      isAI(item) &&
+      Boolean(item.financialAccountID) &&
+      Boolean(item.instanceStatus) &&
+      ["ACTIVE", "PAUSED"].includes(item.instanceStatus ?? ""),
+  );
+  const grouped = new Map<string, StrategyFleetItem[]>();
+  for (const item of operational) {
+    const accountID = item.financialAccountID!;
+    grouped.set(accountID, [...(grouped.get(accountID) ?? []), item]);
+  }
+
+  return [...grouped.entries()]
+    .map(([accountID, accountItems]) => {
+      const first = accountItems[0];
+      const modes = [...new Set(accountItems.map((item) => item.executionMode))]
+        .filter((mode) => mode === "PAPER" || mode === "SHADOW")
+        .sort();
+      const currencies = new Set(
+        accountItems.map((item) => item.capitalReservationCurrency),
+      );
+      const reservationIDs = accountItems.map(
+        (item) => item.capitalReservationID,
+      );
+      const bucketIDs = accountItems.map((item) => item.capitalBucketID);
+      const instanceIDs = accountItems.map((item) => item.strategyInstanceID);
+      const amounts = accountItems.map((item) =>
+        capitalDecimalUnits(item.capitalReservationAmount),
+      );
+      const uniqueIdentity = (values: Array<string | undefined>) =>
+        values.every(Boolean) && new Set(values).size === values.length;
+      const exactEvidence =
+        accountItems.every(capitalBindingHealthy) &&
+        accountItems.every(
+          (item) =>
+            item.accountContextAvailable !== false &&
+            item.instanceContextAvailable !== false &&
+            item.provider === first.provider &&
+            item.accountName === first.accountName,
+        ) &&
+        currencies.size === 1 &&
+        !currencies.has(undefined) &&
+        amounts.every((amount) => amount !== undefined && amount > BigInt(0)) &&
+        uniqueIdentity(reservationIDs) &&
+        uniqueIdentity(bucketIDs) &&
+        uniqueIdentity(instanceIDs) &&
+        modes.length > 0;
+      const total = exactEvidence
+        ? amounts.reduce<bigint>(
+            (sum, amount) => sum + (amount ?? BigInt(0)),
+            BigInt(0),
+          )
+        : undefined;
+      const rawLimits = accountItems.map(
+        (item) => item.capitalReservationAccountLimit,
+      );
+      const limits = rawLimits.map(capitalDecimalUnits);
+      const sharedLimit =
+        rawLimits.every(Boolean) &&
+        new Set(rawLimits).size === 1 &&
+        limits.every((limit) => limit !== undefined && limit > BigInt(0))
+          ? limits[0]
+          : undefined;
+      const compatible =
+        exactEvidence &&
+        (accountItems.length === 1 ||
+          (sharedLimit !== undefined &&
+            total !== undefined &&
+            total <= sharedLimit));
+
+      return {
+        accountID,
+        accountName: first.accountName,
+        provider: first.provider,
+        status: compatible ? "VERIFIED" : "UNAVAILABLE",
+        engineCount: accountItems.length,
+        modes,
+        currency: compatible
+          ? accountItems[0].capitalReservationCurrency
+          : undefined,
+        claimedAmount:
+          compatible && total !== undefined
+            ? capitalDecimalText(total)
+            : undefined,
+        accountLimit:
+          compatible && sharedLimit !== undefined
+            ? capitalDecimalText(sharedLimit)
+            : undefined,
+        detail: compatible
+          ? accountItems.length === 1
+            ? "One unique strategy, bucket, and reservation identity is database-bound."
+            : "Every engine has a unique strategy, bucket, and reservation identity inside one compatible account ceiling."
+          : "Arbion cannot prove complete, compatible account-level isolation from the current fleet snapshot.",
+      } satisfies StrategyFleetAccountIsolation;
+    })
+    .sort((left, right) => left.accountName.localeCompare(right.accountName));
 }
 
 function readable(value: string) {
@@ -745,6 +879,101 @@ function capitalMoney(currency?: string, value?: string) {
   return currency === "USD" ? `$${amount}` : `${currency} ${amount}`;
 }
 
+function StrategyFleetAccountIsolationMap({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const accounts = projectStrategyFleetAccountIsolation(items);
+  if (accounts.length === 0) return null;
+
+  return (
+    <section
+      className="strategy-fleet-isolation"
+      aria-labelledby="strategy-fleet-isolation-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">ACCOUNT ISOLATION MAP</p>
+          <h2 id="strategy-fleet-isolation-heading">
+            Every engine stays inside its own policy claim.
+          </h2>
+          <p>
+            A read-only account view of non-live capital boundaries. Shared
+            accounts are verified only when exact reservations fit one explicit
+            ceiling.
+          </p>
+        </div>
+        <Link href="/capital">Open capital center →</Link>
+      </header>
+      <div>
+        {accounts.map((account) => (
+          <article
+            className={
+              account.status === "VERIFIED" ? "is-verified" : "needs-review"
+            }
+            key={account.accountID}
+          >
+            <header>
+              <div className="strategy-fleet-account">
+                <span
+                  className={`provider-mark provider-${account.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(account.provider)}
+                </span>
+                <div>
+                  <small>{providerLabel(account.provider)}</small>
+                  <strong>{account.accountName}</strong>
+                </div>
+              </div>
+              <span>
+                {account.status === "VERIFIED" ? "Verified" : "Review"}
+              </span>
+            </header>
+            <dl>
+              <div>
+                <dt>Non-live engines</dt>
+                <dd>{account.engineCount}</dd>
+              </div>
+              <div>
+                <dt>Modes</dt>
+                <dd>
+                  {account.modes.length > 0
+                    ? account.modes.map(readable).join(" + ")
+                    : "Unavailable"}
+                </dd>
+              </div>
+              <div>
+                <dt>Exact policy claim</dt>
+                <dd>
+                  {account.claimedAmount
+                    ? capitalMoney(account.currency, account.claimedAmount)
+                    : "Unavailable"}
+                </dd>
+              </div>
+              <div>
+                <dt>Account ceiling</dt>
+                <dd>
+                  {account.accountLimit
+                    ? capitalMoney(account.currency, account.accountLimit)
+                    : account.status === "VERIFIED" && account.engineCount === 1
+                      ? "Exclusive claim"
+                      : "Unavailable"}
+                </dd>
+              </div>
+            </dl>
+            <p>{account.detail}</p>
+            <small>
+              Arbion policy accounting only · no broker hold · no order action
+            </small>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function capitalPolicyLabel(item: StrategyFleetItem) {
   if (item.capitalAllocationType === "PERCENT_OF_AVAILABLE_CASH")
     return `${conciseCapitalDecimal(item.capitalAllocationValue) ?? "Unavailable"}% of available cash`;
@@ -1363,6 +1592,8 @@ export function StrategyFleet({
           <p>{contextWarnings.join(" ")}</p>
         </section>
       )}
+
+      {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}
 
       {inventoryAvailable && ordered.length > 0 && (
         <section
