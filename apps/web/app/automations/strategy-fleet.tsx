@@ -143,10 +143,7 @@ const capitalDecimalScale = BigInt("10000000000");
 function capitalDecimalUnits(value: string | undefined) {
   if (!value || !/^\d+(\.\d{1,10})?$/.test(value)) return undefined;
   const [whole, fraction = ""] = value.split(".");
-  return (
-    BigInt(whole) * capitalDecimalScale +
-    BigInt(fraction.padEnd(10, "0"))
-  );
+  return BigInt(whole) * capitalDecimalScale + BigInt(fraction.padEnd(10, "0"));
 }
 
 function capitalDecimalText(value: bigint) {
@@ -960,8 +957,7 @@ function StrategyFleetAccountIsolationMap({
                 <dd>
                   {account.accountLimit
                     ? capitalMoney(account.currency, account.accountLimit)
-                    : account.status === "VERIFIED" &&
-                        account.engineCount === 1
+                    : account.status === "VERIFIED" && account.engineCount === 1
                       ? "Exclusive claim"
                       : "Unavailable"}
                 </dd>
