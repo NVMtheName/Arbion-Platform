@@ -21,6 +21,7 @@ import {
   PaperPortfolioSummary,
   type PaperPortfolio,
 } from "../paper-portfolio-summary";
+import { extractLatestPaperMarketSnapshots } from "../paper-performance";
 import {
   AutomationCircuitBreakerControls,
   type AutomationCircuitBreaker,
@@ -272,6 +273,11 @@ export default async function MandateReview({
   const paperFills = Array.isArray(paperFillsResponse.fills)
     ? (paperFillsResponse.fills as AIPaperSpotFill[])
     : [];
+  const paperMarketSnapshots = extractLatestPaperMarketSnapshots(
+    Array.isArray(decisions.decisions)
+      ? (decisions.decisions as Record<string, unknown>[])
+      : [],
+  );
   const capitalReservation = capitalReservationResponse.capital_reservation as
     | Record<string, unknown>
     | undefined;
@@ -842,6 +848,7 @@ export default async function MandateReview({
           portfolio={paperPortfolio}
           executionMode={read("execution_mode", "ExecutionMode")}
           fills={paperFills}
+          markets={paperMarketSnapshots}
         />
       )}
       {read("execution_mode", "ExecutionMode") === "SHADOW" && (

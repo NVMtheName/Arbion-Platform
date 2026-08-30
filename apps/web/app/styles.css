@@ -1347,6 +1347,85 @@ select {
   border: 1px solid #244237;
   border-radius: 10px;
 }
+.paper-performance-card {
+  margin: 22px 0;
+  padding: 18px;
+  border: 1px solid #2c5f4b;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at top right, rgb(48 126 94 / 18%), transparent 38%),
+    #091712;
+}
+.paper-performance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+}
+.paper-performance-header h3 {
+  margin: 4px 0 0;
+}
+.paper-performance-header > span {
+  padding: 6px 10px;
+  border: 1px solid #39735c;
+  border-radius: 999px;
+  color: #8ff2bd;
+  font-size: 0.76rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.paper-performance-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0 12px;
+}
+.paper-performance-grid article {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #244237;
+  border-radius: 10px;
+  background: rgb(4 13 10 / 65%);
+}
+.paper-performance-grid span {
+  color: var(--brand-muted);
+  font-size: 0.78rem;
+}
+.paper-performance-grid strong {
+  color: var(--brand-ivory);
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.22rem;
+}
+.paper-performance-unavailable {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid #675c2f;
+  border-radius: 10px;
+  background: rgb(103 92 47 / 13%);
+}
+.paper-performance-unavailable p,
+.paper-market-source {
+  margin-bottom: 0;
+  color: var(--brand-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.paper-position-source {
+  display: block;
+  margin-top: 4px;
+  color: var(--brand-muted);
+  font-size: 0.72rem;
+}
+.is-positive {
+  color: #8ff2bd !important;
+}
+.is-negative {
+  color: #ff9c9c !important;
+}
+.is-flat {
+  color: var(--brand-ivory) !important;
+}
 .paper-contract-facts {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -8085,8 +8164,12 @@ button:disabled {
   .shadow-route-grid,
   .shadow-scorecard-grid,
   .paper-portfolio-summary,
+  .paper-performance-grid,
   .paper-contract-facts {
     grid-template-columns: 1fr;
+  }
+  .paper-performance-header {
+    flex-direction: column;
   }
   .shadow-evidence-gate > header {
     flex-direction: column;
