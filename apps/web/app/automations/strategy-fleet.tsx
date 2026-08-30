@@ -712,6 +712,49 @@ export type StrategyFleetAutomaticCycleIncidents = {
   }>;
 };
 
+export type StrategyFleetReliabilityCenter = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  engineCount: number;
+  stableCount: number;
+  recoveredCount: number;
+  safeWaitCount: number;
+  attentionCount: number;
+  unavailableCount: number;
+  savedFailureCount: number;
+  recoveredFailureCount: number;
+  currentFailureCount: number;
+  recoveredIncidentCount: number;
+  currentIncidentCount: number;
+  medianRecoverySeconds?: number;
+  maximumRecoverySeconds?: number;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    state: "STABLE" | "RECOVERED" | "SAFE_WAIT" | "ATTENTION" | "UNAVAILABLE";
+    sampleCount: number;
+    successCount: number;
+    failureCount: number;
+    recoveredFailureCount: number;
+    currentFailureCount: number;
+    incidentCount: number;
+    recoveredIncidentCount: number;
+    currentIncidentCount: number;
+    safeWaitCount: number;
+    latestRecoveryAt?: string;
+    followUp: string;
+    evidenceHref: string;
+  }>;
+  diagnostics: {
+    slo: StrategyFleetAutomaticCycleSLOHistory;
+    taxonomy: StrategyFleetAutomaticCycleFailureTaxonomy;
+    recovery: StrategyFleetAutomaticRecoveryRTO;
+    incidents: StrategyFleetAutomaticCycleIncidents;
+  };
+};
+
 function providerLabel(provider: string) {
   if (provider === "coinbase") return "Coinbase";
   if (provider === "schwab") return "Charles Schwab";
@@ -3695,6 +3738,140 @@ export function projectStrategyFleetAutomaticCycleIncidents(
   };
 }
 
+export function projectStrategyFleetReliabilityCenter(
+  items: StrategyFleetItem[],
+): StrategyFleetReliabilityCenter {
+  const slo = projectStrategyFleetAutomaticCycleSLOHistory(items);
+  const taxonomy = projectStrategyFleetAutomaticCycleFailureTaxonomy(items);
+  const recovery = projectStrategyFleetAutomaticRecoveryRTO(items);
+  const incidents = projectStrategyFleetAutomaticCycleIncidents(items);
+  const diagnostics = { slo, taxonomy, recovery, incidents };
+  const engineIDSets = [
+    slo.engines.map((engine) => engine.id),
+    taxonomy.engines.map((engine) => engine.id),
+    recovery.engines.map((engine) => engine.id),
+    incidents.engines.map((engine) => engine.id),
+  ].map((ids) => [...ids].sort().join("|"));
+  const identitiesMatch = engineIDSets.every(
+    (identity) => identity === engineIDSets[0],
+  );
+  const taxonomyByID = new Map(
+    taxonomy.engines.map((engine) => [engine.id, engine]),
+  );
+  const recoveryByID = new Map(
+    recovery.engines.map((engine) => [engine.id, engine]),
+  );
+  const incidentsByID = new Map(
+    incidents.engines.map((engine) => [engine.id, engine]),
+  );
+  const engines = slo.engines.map((sloEngine) => {
+    const taxonomyEngine = taxonomyByID.get(sloEngine.id);
+    const recoveryEngine = recoveryByID.get(sloEngine.id);
+    const incidentEngine = incidentsByID.get(sloEngine.id);
+    const unavailable =
+      !identitiesMatch ||
+      !taxonomyEngine ||
+      !recoveryEngine ||
+      !incidentEngine ||
+      sloEngine.state === "UNAVAILABLE" ||
+      taxonomyEngine.state === "UNAVAILABLE" ||
+      recoveryEngine.state === "UNAVAILABLE" ||
+      incidentEngine.state === "UNAVAILABLE";
+    const attention =
+      !unavailable &&
+      (sloEngine.state === "ATTENTION" ||
+        taxonomyEngine.state === "ATTENTION" ||
+        recoveryEngine.state === "ATTENTION" ||
+        incidentEngine.state === "ATTENTION");
+    const safeWait =
+      !unavailable &&
+      !attention &&
+      (sloEngine.state === "SAFE_WAIT" ||
+        taxonomyEngine.state === "SAFE_WAIT" ||
+        recoveryEngine.state === "SAFE_WAIT" ||
+        incidentEngine.state === "SAFE_WAIT");
+    const recovered =
+      !unavailable &&
+      !attention &&
+      !safeWait &&
+      (sloEngine.state === "RECOVERED" ||
+        taxonomyEngine.state === "RECOVERED" ||
+        recoveryEngine.state === "RECOVERED" ||
+        incidentEngine.state === "RECOVERED");
+    const state = unavailable
+      ? ("UNAVAILABLE" as const)
+      : attention
+        ? ("ATTENTION" as const)
+        : safeWait
+          ? ("SAFE_WAIT" as const)
+          : recovered
+            ? ("RECOVERED" as const)
+            : ("STABLE" as const);
+    const followUp =
+      state === "UNAVAILABLE"
+        ? "Review the automatically opened diagnostic evidence. Arbion will not infer a missing scheduler fact or rerun the model to fill it."
+        : state === "ATTENTION"
+          ? "Review the automatically opened diagnostic evidence and let the next guarded cycle attempt recovery. Do not rerun the model manually."
+          : state === "SAFE_WAIT"
+            ? "No owner action is required. The latest exact result is a market-session wait, not a failure."
+            : state === "RECOVERED"
+              ? "No owner action is required. Earlier failures remain immutable and a later automatic cycle recovered successfully."
+              : "No owner action is required. The bounded automatic-cycle evidence is stable.";
+    return {
+      id: sloEngine.id,
+      title: sloEngine.title,
+      accountName: sloEngine.accountName,
+      provider: sloEngine.provider,
+      executionMode: sloEngine.executionMode,
+      state,
+      sampleCount: sloEngine.sampleCount,
+      successCount: sloEngine.successCount,
+      failureCount: taxonomyEngine?.failureCount ?? 0,
+      recoveredFailureCount: taxonomyEngine?.recoveredFailureCount ?? 0,
+      currentFailureCount: taxonomyEngine?.currentFailureCount ?? 0,
+      incidentCount: incidentEngine?.incidentCount ?? 0,
+      recoveredIncidentCount: incidentEngine?.recoveredIncidentCount ?? 0,
+      currentIncidentCount: incidentEngine?.currentIncidentCount ?? 0,
+      safeWaitCount: sloEngine.safeWaitCount,
+      latestRecoveryAt:
+        incidentEngine?.latestRecoveryAt ?? recoveryEngine?.latestRecoveryAt,
+      followUp,
+      evidenceHref: sloEngine.evidenceHref,
+    };
+  });
+  const unavailableCount = engines.filter(
+    (engine) => engine.state === "UNAVAILABLE",
+  ).length;
+  const attentionCount = engines.filter(
+    (engine) => engine.state === "ATTENTION",
+  ).length;
+  return {
+    status:
+      engines.length === 0 || unavailableCount > 0
+        ? "UNAVAILABLE"
+        : attentionCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    engineCount: engines.length,
+    stableCount: engines.filter((engine) => engine.state === "STABLE").length,
+    recoveredCount: engines.filter((engine) => engine.state === "RECOVERED")
+      .length,
+    safeWaitCount: engines.filter((engine) => engine.state === "SAFE_WAIT")
+      .length,
+    attentionCount,
+    unavailableCount,
+    savedFailureCount: taxonomy.totalFailureCount,
+    recoveredFailureCount: taxonomy.recoveredFailureCount,
+    currentFailureCount: taxonomy.currentFailureCount,
+    recoveredIncidentCount: incidents.recoveredIncidentCount,
+    currentIncidentCount: incidents.currentIncidentCount,
+    medianRecoverySeconds: recovery.medianRecoverySeconds,
+    maximumRecoverySeconds: recovery.maximumRecoverySeconds,
+    engines,
+    diagnostics,
+  };
+}
+
 function healthClass(item: StrategyFleetItem) {
   if (needsReview(item)) return "needs-review";
   return item.instanceStatus === "ACTIVE" ? "healthy" : "neutral";
@@ -4679,6 +4856,193 @@ function StrategyFleetEvidenceFreshnessBoardView({
 function exactSecondsLabel(value?: number) {
   if (value === undefined || !Number.isFinite(value)) return "Unavailable";
   return `${Number.isInteger(value) ? value : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}s`;
+}
+
+function StrategyFleetReliabilityCenterView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const center = projectStrategyFleetReliabilityCenter(items);
+  if (center.engineCount === 0) return null;
+  const verified = center.status === "VERIFIED";
+  const diagnosticPanels = [
+    {
+      key: "slo",
+      title: "Scheduler SLO History",
+      description: "Saved completion timing and five-minute SLO attainment",
+      status: center.diagnostics.slo.status,
+      content: <StrategyFleetAutomaticCycleSLOHistoryView items={items} />,
+    },
+    {
+      key: "taxonomy",
+      title: "Failure Taxonomy",
+      description: "Credential-free classifications and automatic recovery",
+      status: center.diagnostics.taxonomy.status,
+      content: <StrategyFleetAutomaticCycleFailureTaxonomyView items={items} />,
+    },
+    {
+      key: "recovery",
+      title: "Recovery Time Objective",
+      description: "Exact failure-to-first-success recovery measurements",
+      status: center.diagnostics.recovery.status,
+      content: <StrategyFleetAutomaticRecoveryRTOView items={items} />,
+    },
+    {
+      key: "incidents",
+      title: "Incident Timeline",
+      description: "Consecutive failure sequences and exact incident closure",
+      status: center.diagnostics.incidents.status,
+      content: (
+        <StrategyFleetAutomaticCycleIncidentTimelineView items={items} />
+      ),
+    },
+  ];
+  return (
+    <section
+      className={`strategy-fleet-reliability-center ${verified ? "is-verified" : "needs-review"}`}
+      aria-labelledby="strategy-fleet-reliability-center-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">FLEET RELIABILITY CENTER</p>
+          <h2 id="strategy-fleet-reliability-center-heading">
+            {center.status === "UNAVAILABLE"
+              ? "Some fleet reliability evidence is unavailable."
+              : center.status === "ATTENTION"
+                ? `${center.attentionCount} ${center.attentionCount === 1 ? "engine needs" : "engines need"} review while automatic recovery stays in control.`
+                : "Every active AI engine is stable, recovered, or safely waiting."}
+          </h2>
+          <p>
+            One owner view of saved scheduler health, failures, recovery time,
+            and incidents. Detailed immutable diagnostics remain available below
+            without rerunning a model.
+          </p>
+        </div>
+        <span>{verified ? "Fleet evidence verified" : "Review evidence"}</span>
+      </header>
+      <dl className="strategy-fleet-reliability-summary">
+        <div>
+          <dt>Engine state</dt>
+          <dd>
+            {center.stableCount} stable · {center.recoveredCount} recovered ·{" "}
+            {center.safeWaitCount} safe wait
+          </dd>
+        </div>
+        <div>
+          <dt>Needs review</dt>
+          <dd>
+            {center.attentionCount} attention · {center.unavailableCount}{" "}
+            unavailable
+          </dd>
+        </div>
+        <div>
+          <dt>Saved failures</dt>
+          <dd>
+            {center.savedFailureCount} total · {center.recoveredFailureCount}{" "}
+            recovered · {center.currentFailureCount} current
+          </dd>
+        </div>
+        <div>
+          <dt>Recovery timing</dt>
+          <dd>
+            Median {exactSecondsLabel(center.medianRecoverySeconds)} · max{" "}
+            {exactSecondsLabel(center.maximumRecoverySeconds)}
+          </dd>
+        </div>
+      </dl>
+      <ol className="strategy-fleet-reliability-engines">
+        {center.engines.map((engine) => (
+          <li
+            className={`is-${engine.state.toLowerCase().replaceAll("_", "-")}`}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)} ·{" "}
+                    {providerLabel(engine.provider)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{readable(engine.state)}</span>
+            </header>
+            <dl>
+              <div>
+                <dt>Saved cycles</dt>
+                <dd>
+                  {engine.successCount}/{engine.sampleCount} succeeded
+                </dd>
+              </div>
+              <div>
+                <dt>Failures</dt>
+                <dd>
+                  {engine.failureCount} saved · {engine.currentFailureCount}{" "}
+                  current
+                </dd>
+              </div>
+              <div>
+                <dt>Incidents</dt>
+                <dd>
+                  {engine.recoveredIncidentCount} recovered ·{" "}
+                  {engine.currentIncidentCount} current
+                </dd>
+              </div>
+              <div>
+                <dt>Safe waits</dt>
+                <dd>{engine.safeWaitCount}</dd>
+              </div>
+            </dl>
+            <p>{engine.followUp}</p>
+            <footer>
+              <Link href={engine.evidenceHref}>Open scheduler evidence →</Link>
+              <Link href="/activity">Decision journal →</Link>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <div className="strategy-fleet-reliability-diagnostics">
+        <header>
+          <div>
+            <strong>Advanced diagnostics</strong>
+            <span>
+              Exact evidence stays collapsed when healthy and opens
+              automatically when review is required.
+            </span>
+          </div>
+          <span>{diagnosticPanels.length} evidence views</span>
+        </header>
+        {diagnosticPanels.map((panel) => (
+          <details
+            key={panel.key}
+            open={panel.status !== "VERIFIED"}
+            data-status={panel.status.toLowerCase()}
+          >
+            <summary>
+              <span>
+                <strong>{panel.title}</strong>
+                <small>{panel.description}</small>
+              </span>
+              <span>{readable(panel.status)}</span>
+            </summary>
+            <div>{panel.content}</div>
+          </details>
+        ))}
+      </div>
+      <footer>
+        Owner-scoped saved evidence only · no manual cycle · no model rerun · no
+        provider refresh · no broker order · no account mutation · no live path
+      </footer>
+    </section>
+  );
 }
 
 function StrategyFleetAutomaticCycleSLOHistoryView({
@@ -6542,19 +6906,7 @@ export function StrategyFleet({
       )}
 
       {inventoryAvailable && (
-        <StrategyFleetAutomaticCycleSLOHistoryView items={items} />
-      )}
-
-      {inventoryAvailable && (
-        <StrategyFleetAutomaticCycleFailureTaxonomyView items={items} />
-      )}
-
-      {inventoryAvailable && (
-        <StrategyFleetAutomaticRecoveryRTOView items={items} />
-      )}
-
-      {inventoryAvailable && (
-        <StrategyFleetAutomaticCycleIncidentTimelineView items={items} />
+        <StrategyFleetReliabilityCenterView items={items} />
       )}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}

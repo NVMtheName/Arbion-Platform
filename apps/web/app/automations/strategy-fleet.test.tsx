@@ -7,6 +7,7 @@ import {
   projectStrategyFleetAutomaticCycleFailureTaxonomy,
   projectStrategyFleetAutomaticRecoveryRTO,
   projectStrategyFleetAutomaticCycleSLOHistory,
+  projectStrategyFleetReliabilityCenter,
   projectStrategyFleetDecisionEvidence,
   projectStrategyFleetEvidenceFreshnessBoard,
   projectStrategyFleetIdentityIsolation,
@@ -1033,6 +1034,130 @@ describe("StrategyFleet", () => {
     );
   });
 
+  it("consolidates stable, recovered, and safe-wait evidence without dropping exact counts", () => {
+    const recovered: StrategyFleetItem = {
+      ...coinbaseEngine,
+      scheduleRecentRuns: [
+        ...coinbaseEngine.scheduleRecentRuns!,
+        {
+          id: "schedule-run-failed",
+          scheduledFor: "2026-08-26T15:17:00Z",
+          completedAt: "2026-08-26T15:17:05Z",
+          nextRunAt: "2026-08-26T16:17:00Z",
+          status: "FAILED",
+          errorCode: "INTERNAL",
+          duplicateRecovered: false,
+          consecutiveFailures: 1,
+        },
+      ],
+    };
+    const safeWait: StrategyFleetItem = {
+      ...coinbaseEngine,
+      id: "schwab-shadow",
+      strategyInstanceID: "schwab-shadow-instance",
+      capitalBucketID: "schwab-shadow-bucket",
+      capitalReservationID: "schwab-shadow-reservation",
+      provider: "schwab",
+      accountName: "Schwab Brokerage ••••1000",
+      scheduleStatus: "SKIPPED",
+      scheduleErrorCode: "OUTSIDE_SESSION",
+      scheduleRecentRuns: [
+        {
+          ...coinbaseEngine.scheduleRecentRuns![0],
+          status: "SKIPPED",
+          errorCode: "OUTSIDE_SESSION",
+        },
+      ],
+    };
+
+    const center = projectStrategyFleetReliabilityCenter([recovered, safeWait]);
+
+    expect(center).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        engineCount: 2,
+        stableCount: 0,
+        recoveredCount: 1,
+        safeWaitCount: 1,
+        attentionCount: 0,
+        unavailableCount: 0,
+        savedFailureCount: 1,
+        recoveredFailureCount: 1,
+        currentFailureCount: 0,
+        recoveredIncidentCount: 1,
+        currentIncidentCount: 0,
+        medianRecoverySeconds: 3634,
+        maximumRecoverySeconds: 3634,
+      }),
+    );
+    expect(center.engines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "ai-mandate",
+          state: "RECOVERED",
+          failureCount: 1,
+          recoveredIncidentCount: 1,
+        }),
+        expect.objectContaining({
+          id: "schwab-shadow",
+          state: "SAFE_WAIT",
+          safeWaitCount: 1,
+        }),
+      ]),
+    );
+  });
+
+  it("elevates current and incomplete reliability evidence for owner review", () => {
+    const attention = projectStrategyFleetReliabilityCenter([
+      {
+        ...coinbaseEngine,
+        scheduleStatus: "FAILED",
+        scheduleErrorCode: "STRUCTURED_OUTPUT_MISSING",
+        consecutiveFailures: 1,
+        scheduleRecentRuns: [
+          {
+            ...coinbaseEngine.scheduleRecentRuns![0],
+            status: "FAILED",
+            errorCode: "STRUCTURED_OUTPUT_MISSING",
+            consecutiveFailures: 1,
+          },
+        ],
+      },
+    ]);
+    expect(attention).toEqual(
+      expect.objectContaining({
+        status: "ATTENTION",
+        attentionCount: 1,
+        currentFailureCount: 1,
+        currentIncidentCount: 1,
+      }),
+    );
+    expect(attention.engines[0]).toEqual(
+      expect.objectContaining({ state: "ATTENTION" }),
+    );
+
+    const unavailable = projectStrategyFleetReliabilityCenter([
+      {
+        ...coinbaseEngine,
+        scheduleRecentRuns: [
+          {
+            ...coinbaseEngine.scheduleRecentRuns![0],
+            id: undefined,
+          },
+        ],
+      },
+    ]);
+    expect(unavailable).toEqual(
+      expect.objectContaining({
+        status: "UNAVAILABLE",
+        unavailableCount: 1,
+      }),
+    );
+    expect(unavailable.engines[0]).toEqual(
+      expect.objectContaining({ state: "UNAVAILABLE" }),
+    );
+  });
+
   it("uses the exact five-minute completion boundary", () => {
     const atBoundary: StrategyFleetItem = {
       ...coinbaseEngine,
@@ -1749,6 +1874,48 @@ describe("StrategyFleet", () => {
     expect(identity).toHaveTextContent("Cross-account collisions0");
   });
 
+  it("automatically exposes reliability diagnostics that need review", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            scheduleStatus: "FAILED",
+            scheduleErrorCode: "STRUCTURED_OUTPUT_MISSING",
+            consecutiveFailures: 1,
+            scheduleRecentRuns: [
+              {
+                ...coinbaseEngine.scheduleRecentRuns![0],
+                status: "FAILED",
+                errorCode: "STRUCTURED_OUTPUT_MISSING",
+                consecutiveFailures: 1,
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const center = screen.getByRole("region", {
+      name: "1 engine needs review while automatic recovery stays in control.",
+    });
+    expect(center).toHaveTextContent("0 stable · 0 recovered · 0 safe wait");
+    expect(center).toHaveTextContent("1 attention · 0 unavailable");
+    expect(center).toHaveTextContent("1 total · 0 recovered · 1 current");
+    expect(
+      within(center).getByText("Scheduler SLO History").closest("details"),
+    ).toHaveAttribute("open");
+    expect(
+      within(center).getByText("Failure Taxonomy").closest("details"),
+    ).toHaveAttribute("open");
+    expect(
+      within(center).getByText("Recovery Time Objective").closest("details"),
+    ).toHaveAttribute("open");
+    expect(
+      within(center).getByText("Incident Timeline").closest("details"),
+    ).toHaveAttribute("open");
+  });
+
   it("shows an owner-facing fleet summary with account and engine context", () => {
     render(
       <StrategyFleet
@@ -1898,8 +2065,41 @@ describe("StrategyFleet", () => {
         name: /Decision journal/i,
       }),
     ).toHaveAttribute("href", "/activity");
+    const reliabilityCenter = screen.getByRole("region", {
+      name: "Every active AI engine is stable, recovered, or safely waiting.",
+    });
+    expect(reliabilityCenter).toHaveTextContent("FLEET RELIABILITY CENTER");
+    expect(reliabilityCenter).toHaveTextContent(
+      "1 stable · 0 recovered · 0 safe wait",
+    );
+    expect(reliabilityCenter).toHaveTextContent("0 attention · 0 unavailable");
+    expect(reliabilityCenter).toHaveTextContent(
+      "0 total · 0 recovered · 0 current",
+    );
+    expect(reliabilityCenter).toHaveTextContent("Advanced diagnostics");
+    expect(
+      within(reliabilityCenter)
+        .getByText("Scheduler SLO History")
+        .closest("details"),
+    ).not.toHaveAttribute("open");
+    expect(
+      within(reliabilityCenter)
+        .getByText("Failure Taxonomy")
+        .closest("details"),
+    ).not.toHaveAttribute("open");
+    expect(
+      within(reliabilityCenter)
+        .getByText("Recovery Time Objective")
+        .closest("details"),
+    ).not.toHaveAttribute("open");
+    expect(
+      within(reliabilityCenter)
+        .getByText("Incident Timeline")
+        .closest("details"),
+    ).not.toHaveAttribute("open");
     const sloHistory = screen.getByRole("region", {
       name: "1 active AI engine has verified cycle history.",
+      hidden: true,
     });
     expect(sloHistory).toHaveTextContent("AUTOMATIC CYCLE SLO HISTORY");
     expect(sloHistory).toHaveTextContent("Saved samples1");
@@ -1912,10 +2112,14 @@ describe("StrategyFleet", () => {
       "no manual cycle · no model rerun · no provider refresh",
     );
     expect(
-      within(sloHistory).getByRole("link", { name: /Scheduler evidence/i }),
+      within(sloHistory).getByRole("link", {
+        name: /Scheduler evidence/i,
+        hidden: true,
+      }),
     ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
     const failureTaxonomy = screen.getByRole("region", {
       name: "0 saved failures remain visible after recovery.",
+      hidden: true,
     });
     expect(failureTaxonomy).toHaveTextContent(
       "AUTOMATIC CYCLE FAILURE TAXONOMY",
@@ -1931,10 +2135,12 @@ describe("StrategyFleet", () => {
     expect(
       within(failureTaxonomy).getByRole("link", {
         name: /Scheduler evidence/i,
+        hidden: true,
       }),
     ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
     const recoveryRTO = screen.getByRole("region", {
       name: "No saved failure requires a recovery measurement.",
+      hidden: true,
     });
     expect(recoveryRTO).toHaveTextContent("AUTOMATIC RECOVERY TIME OBJECTIVE");
     expect(recoveryRTO).toHaveTextContent("Recovered samples0");
@@ -1949,10 +2155,12 @@ describe("StrategyFleet", () => {
     expect(
       within(recoveryRTO).getByRole("link", {
         name: /Scheduler evidence/i,
+        hidden: true,
       }),
     ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
     const incidentTimeline = screen.getByRole("region", {
       name: "No saved automatic cycle incident is open.",
+      hidden: true,
     });
     expect(incidentTimeline).toHaveTextContent(
       "AUTOMATIC CYCLE INCIDENT TIMELINE",
@@ -1968,6 +2176,7 @@ describe("StrategyFleet", () => {
     expect(
       within(incidentTimeline).getByRole("link", {
         name: /Scheduler evidence/i,
+        hidden: true,
       }),
     ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
     expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(2);
