@@ -885,6 +885,38 @@ async function fleetItem(
       "proposed_notional",
       "ProposedNotional",
     ),
+    priorDecisionFinancialContextComplete:
+      priorDecisionProvenance.financialContextComplete,
+    priorDecisionFinancialProvider: priorDecisionProvenance.financialProvider,
+    priorDecisionMarketSymbols: priorDecisionProvenance.marketSymbols,
+    priorDecisionMarketFeeds: priorDecisionProvenance.marketFeeds,
+    priorDecisionMarketQualities: priorDecisionProvenance.marketQualities,
+    priorDecisionMarketObservedAt: priorDecisionProvenance.marketObservedAt,
+    priorDecisionInputCoverageComplete:
+      priorDecisionProvenance.inputCoverageComplete,
+    priorDecisionHistoryLiquidityEvidenceComplete:
+      priorDecisionProvenance.historyLiquidityEvidenceComplete,
+    priorDecisionHistoryStatuses: priorDecisionProvenance.historyStatuses,
+    priorDecisionHistoryFeeds: priorDecisionProvenance.historyFeeds,
+    priorDecisionHistoryQualities: priorDecisionProvenance.historyQualities,
+    priorDecisionLiquidityStatuses: priorDecisionProvenance.liquidityStatuses,
+    priorDecisionPositionEvidenceComplete:
+      priorDecisionProvenance.positionEvidenceComplete,
+    priorDecisionPositionCount: priorDecisionProvenance.positionCount,
+    priorDecisionPositionPerformanceStatuses:
+      priorDecisionProvenance.positionPerformanceStatuses,
+    priorDecisionMarketEventEvidenceComplete:
+      priorDecisionProvenance.marketEventEvidenceComplete,
+    priorDecisionMarketEventCoverageCount:
+      priorDecisionProvenance.marketEventCoverageCount,
+    priorDecisionMarketEventCoverageStatuses:
+      priorDecisionProvenance.marketEventCoverageStatuses,
+    priorDecisionMarketEventProviders:
+      priorDecisionProvenance.marketEventProviders,
+    priorDecisionMarketEventFeeds: priorDecisionProvenance.marketEventFeeds,
+    priorDecisionMarketEventQualities:
+      priorDecisionProvenance.marketEventQualities,
+    priorDecisionMarketEventCount: priorDecisionProvenance.marketEventCount,
     reconciliationAvailable: expectsReconciliation
       ? reconciliationAvailable
       : undefined,
