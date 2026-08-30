@@ -28,6 +28,8 @@ type Props = {
   paperPortfolio?: PaperPortfolio;
   automationBreaker?: Entity;
   schedulerEnabled: boolean;
+  decisions?: Entity[];
+  allowedSymbols?: string[];
 };
 
 function read(entity: Entity, key: string, legacy: string, fallback = "") {
@@ -43,6 +45,41 @@ function number(entity: Entity, key: string, legacy: string) {
 function flag(entity: Entity, key: string, legacy: string) {
   const value = entity?.[key] ?? entity?.[legacy];
   return typeof value === "boolean" ? value : false;
+}
+
+function object(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function records(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object" && !Array.isArray(item),
+      )
+    : [];
+}
+
+function strings(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function metric(entity: Record<string, unknown>, key: string) {
+  const value = entity[key];
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function sameSymbols(actual: string[], expected: string[]) {
+  if (actual.length !== expected.length) return false;
+  const left = [...actual].map((value) => value.toUpperCase()).sort();
+  const right = [...expected].map((value) => value.toUpperCase()).sort();
+  return left.every((value, index) => value === right[index]);
 }
 
 function providerLabel(provider: string) {
@@ -214,6 +251,94 @@ function buildSignals(props: Props): ReadinessSignal[] {
   const breakerOpen =
     read(props.automationBreaker, "state", "State") === "OPEN";
 
+  const latestDecision = (props.decisions ?? []).find(
+    (entry) => read(entry, "source", "Source") === "AI",
+  );
+  const rationale = object(
+    latestDecision?.structured_rationale ?? latestDecision?.StructuredRationale,
+  );
+  const evidence = object(rationale.input_evidence);
+  const markets = records(evidence.markets);
+  const marketSymbols = markets
+    .map((market) => market.symbol)
+    .filter((symbol): symbol is string => typeof symbol === "string");
+  const recentDecisions = records(evidence.recent_decisions);
+  const expectedAIProvider = read(props.aiConnection, "provider", "Provider");
+  const decisionType = read(latestDecision, "decision_type", "DecisionType");
+  const rationaleDecision =
+    typeof rationale.decision === "string" ? rationale.decision : "";
+  const decisionProvider =
+    typeof rationale.ai_provider === "string" ? rationale.ai_provider : "";
+  const decisionModel =
+    typeof rationale.model_id === "string" ? rationale.model_id : "";
+  const decisionProfile =
+    typeof rationale.profile === "string" ? rationale.profile : "";
+  const financialInputProvider =
+    typeof evidence.provider === "string" ? evidence.provider : "";
+  const latency = metric(rationale, "latency_ms");
+  const inputUsage = metric(rationale, "input_usage");
+  const outputUsage = metric(rationale, "output_usage");
+  const decisionProvenanceReady =
+    Boolean(latestDecision) &&
+    decisionProvider === expectedAIProvider &&
+    decisionModel === props.modelID &&
+    Boolean(decisionProfile) &&
+    financialInputProvider === props.provider &&
+    props.executionMode === "PAPER" &&
+    sameSymbols(marketSymbols, props.allowedSymbols ?? []) &&
+    recentDecisions.length <= 6 &&
+    latency !== undefined &&
+    inputUsage !== undefined &&
+    outputUsage !== undefined;
+
+  const proposedActionID = read(
+    latestDecision,
+    "proposed_action_id",
+    "ProposedActionID",
+  );
+  const riskEvaluationID = read(
+    latestDecision,
+    "risk_evaluation_id",
+    "RiskEvaluationID",
+  );
+  const executionRecordID = read(
+    latestDecision,
+    "execution_record_id",
+    "ExecutionRecordID",
+  );
+  const riskDecision = read(latestDecision, "risk_decision", "RiskDecision");
+  const executionStatus = read(
+    latestDecision,
+    "execution_status",
+    "ExecutionStatus",
+  );
+  const riskFlags = strings(rationale.risk_flags);
+  const thesis = typeof rationale.thesis === "string" ? rationale.thesis : "";
+  const proposedNotional =
+    typeof rationale.proposed_notional === "string"
+      ? rationale.proposed_notional
+      : "";
+  const abstentionBoundaryReady =
+    decisionType === "ABSTAIN" &&
+    rationaleDecision === "ABSTAIN" &&
+    equal(proposedNotional, "0") &&
+    Boolean(thesis) &&
+    riskFlags.length > 0 &&
+    !proposedActionID &&
+    !riskEvaluationID &&
+    !executionRecordID;
+  const proposalBoundaryReady =
+    decisionType === "PROPOSE" &&
+    rationaleDecision === "PROPOSE" &&
+    positive(proposedNotional) &&
+    Boolean(proposedActionID) &&
+    Boolean(riskEvaluationID) &&
+    ((riskDecision === "DENY" && !executionRecordID) ||
+      (executionStatus === "SIMULATED_FILLED" && Boolean(executionRecordID)));
+  const actionBoundaryReady =
+    Boolean(latestDecision) &&
+    (abstentionBoundaryReady || proposalBoundaryReady);
+
   return [
     {
       label: `${providerLabel(props.provider)} connection`,
@@ -294,6 +419,36 @@ function buildSignals(props: Props): ReadinessSignal[] {
         ? "The owner emergency stop is engaged; new simulated actions fail closed."
         : "Clear. The owner emergency stop remains immediately available.",
     },
+    {
+      label: "Latest decision provenance",
+      state: !latestDecision
+        ? "COLLECTING"
+        : decisionProvenanceReady
+          ? "READY"
+          : "BLOCKED",
+      detail: !latestDecision
+        ? "Waiting for the first automatic AI decision."
+        : decisionProvenanceReady
+          ? `${decisionProvider} · ${decisionModel} · ${decisionProfile} · ${financialInputProvider} inputs · ${markets.length} exact markets · ${recentDecisions.length} prior decisions · ${latency} ms · ${inputUsage}/${outputUsage} tokens.`
+          : "The newest immutable decision does not match the saved model route, financial provider, exact allowed universe, bounded memory, or complete telemetry contract.",
+    },
+    {
+      label: "Deterministic action boundary",
+      state: !latestDecision
+        ? "COLLECTING"
+        : actionBoundaryReady
+          ? "READY"
+          : "BLOCKED",
+      detail: !latestDecision
+        ? "Waiting for a decision to prove the abstention or simulated-action boundary."
+        : abstentionBoundaryReady
+          ? `Evidence-based abstention stopped before risk evaluation or simulation; ${riskFlags.length} explicit risk flags were preserved.`
+          : proposalBoundaryReady
+            ? riskDecision === "DENY"
+              ? "The proposal reached deterministic risk evaluation and was denied before simulation."
+              : "The proposal passed deterministic risk evaluation and produced only an isolated simulated fill."
+            : "The latest decision does not prove a valid abstention or deterministic Paper proposal path.",
+    },
   ];
 }
 
@@ -331,7 +486,8 @@ export function PaperAutonomyReadinessControlPlane(props: Props) {
           <p>
             Arbion verifies the connected account, model route, immutable
             mandate, exact capital claim, isolated Paper ledger, schedule, and
-            emergency stop without implying broker execution.
+            emergency stop, then proves the newest decision used the expected
+            providers and stopped at a valid simulation boundary.
           </p>
         </div>
         <div

@@ -13,7 +13,12 @@ const base = {
   executionMode: "PAPER",
   financialAccount: { id: "account-1", status: "active" },
   financialConnection: { id: "financial-1", status: "active" },
-  aiConnection: { id: "ai-1", status: "active", enabled: true },
+  aiConnection: {
+    id: "ai-1",
+    provider: "openai",
+    status: "active",
+    enabled: true,
+  },
   capitalBucket: {
     id: "bucket-1",
     status: "ACTIVE",
@@ -55,6 +60,31 @@ const base = {
   },
   automationBreaker: null,
   schedulerEnabled: true,
+  allowedSymbols: ["BTC", "ETH", "XRP"],
+  decisions: [
+    {
+      id: "decision-1",
+      source: "AI",
+      decision_type: "ABSTAIN",
+      structured_rationale: {
+        ai_provider: "openai",
+        model_id: "gpt-5.6-sol",
+        profile: "deep",
+        decision: "ABSTAIN",
+        proposed_notional: "0",
+        thesis: "Mixed momentum does not support a cautious entry.",
+        risk_flags: ["Negative short-term momentum"],
+        latency_ms: 4301,
+        input_usage: 1725,
+        output_usage: 237,
+        input_evidence: {
+          provider: "coinbase",
+          markets: [{ symbol: "BTC" }, { symbol: "ETH" }, { symbol: "XRP" }],
+          recent_decisions: [],
+        },
+      },
+    },
+  ],
 };
 
 describe("Paper autonomy readiness control plane", () => {
@@ -64,13 +94,17 @@ describe("Paper autonomy readiness control plane", () => {
     render(<PaperAutonomyReadinessControlPlane {...base} />);
 
     expect(screen.getByText("PAPER VERIFIED")).toBeInTheDocument();
-    expect(screen.getByText("8/8")).toBeInTheDocument();
+    expect(screen.getByText("10/10")).toBeInTheDocument();
     expect(screen.getByText(/\$1,000\.00 starting cash/i)).toBeInTheDocument();
     expect(
       screen.getByText(/Broker-write capability remains absent/i),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/cannot submit, replace, cancel, or route/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/4301 ms · 1725\/237 tokens/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/stopped before risk evaluation/i),
     ).toBeInTheDocument();
   });
 
@@ -87,7 +121,7 @@ describe("Paper autonomy readiness control plane", () => {
     );
 
     expect(screen.getByText("PAPER MONITORING")).toBeInTheDocument();
-    expect(screen.getByText("7/8")).toBeInTheDocument();
+    expect(screen.getByText("9/10")).toBeInTheDocument();
     expect(screen.getByText(/Skipped safely/i)).toBeInTheDocument();
     expect(
       screen.getByText(/AI_DECISION_BUDGET_EXHAUSTED/i),
@@ -106,7 +140,7 @@ describe("Paper autonomy readiness control plane", () => {
     );
 
     expect(screen.getByText("REVIEW REQUIRED")).toBeInTheDocument();
-    expect(screen.getByText("7/8")).toBeInTheDocument();
+    expect(screen.getByText("9/10")).toBeInTheDocument();
     expect(
       screen.getByText(/do not form one exact isolated ledger/i),
     ).toBeInTheDocument();
@@ -124,7 +158,45 @@ describe("Paper autonomy readiness control plane", () => {
     );
 
     expect(screen.getByText("REVIEW REQUIRED")).toBeInTheDocument();
-    expect(screen.getByText("6/8")).toBeInTheDocument();
+    expect(screen.getByText("8/10")).toBeInTheDocument();
     expect(screen.getByText(/exact, active, positive/i)).toBeInTheDocument();
+  });
+
+  it("fails closed when the newest decision route or market universe drifts", () => {
+    render(
+      <PaperAutonomyReadinessControlPlane
+        {...base}
+        decisions={[
+          {
+            ...base.decisions[0],
+            structured_rationale: {
+              ...base.decisions[0].structured_rationale,
+              model_id: "unexpected-model",
+              input_evidence: {
+                provider: "coinbase",
+                markets: [{ symbol: "BTC" }, { symbol: "DOGE" }],
+                recent_decisions: [],
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("REVIEW REQUIRED")).toBeInTheDocument();
+    expect(screen.getByText("9/10")).toBeInTheDocument();
+    expect(
+      screen.getByText(/does not match the saved model route/i),
+    ).toBeInTheDocument();
+  });
+
+  it("monitors safely until the first immutable decision arrives", () => {
+    render(<PaperAutonomyReadinessControlPlane {...base} decisions={[]} />);
+
+    expect(screen.getByText("PAPER MONITORING")).toBeInTheDocument();
+    expect(screen.getByText("8/10")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Waiting for the first automatic AI decision/i),
+    ).toBeInTheDocument();
   });
 });
