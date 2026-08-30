@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import Link from "next/link";
 
 import { ArbionBrand } from "../brand";
+import { AppNavigation } from "../app-navigation";
 import { LogoutButton } from "./logout-button";
 import {
   OwnerAttentionCenter,
@@ -304,20 +305,8 @@ export function CommandCenterDashboard({
     <main className="command-dashboard portfolio-dashboard">
       <header className="command-topbar">
         <ArbionBrand className="command-brand" href="/dashboard" priority />
-        <nav aria-label="Command center navigation">
-          <Link className="is-current" href="/dashboard">
-            Home
-          </Link>
-          <Link href="/accounts">Portfolio</Link>
-          <Link href="/automations">Strategies</Link>
-          <Link href="/capital">Capital</Link>
-          <Link href="/markets">Markets</Link>
-        </nav>
+        <AppNavigation className="command-navigation" />
         <div className="command-account-actions">
-          <Link href="/connections">Connections</Link>
-          <Link href="/settings/security" aria-label="Security settings">
-            Security
-          </Link>
           {(user.role === "admin" || user.role === "superadmin") && (
             <Link href="/admin">Admin</Link>
           )}

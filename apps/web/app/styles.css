@@ -68,19 +68,71 @@ body {
   width: min(154px, 36vw);
 }
 .app-page-header {
-  display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: minmax(130px, 164px) minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 42px;
+  gap: clamp(18px, 2.5vw, 34px);
+  margin-bottom: 30px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(139, 181, 163, 0.16);
+  background: rgba(7, 17, 14, 0.92);
+  box-shadow: 0 14px 30px rgba(2, 8, 6, 0.16);
+  backdrop-filter: blur(16px);
 }
 .section-brand {
   width: min(154px, 38vw);
 }
-.app-back-link {
-  color: var(--brand-cyan);
-  font-size: 0.9rem;
+.app-navigation {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 1.65vw, 24px);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.app-navigation::-webkit-scrollbar {
+  display: none;
+}
+.app-navigation a {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 9px 0;
+  color: #8da299;
+  font-size: 0.74rem;
+  font-weight: 680;
   text-decoration: none;
+  white-space: nowrap;
+}
+.app-navigation a:hover,
+.app-navigation a:focus-visible,
+.app-navigation a.is-current {
+  color: #eff9f4;
+}
+.app-navigation a:focus-visible {
+  border-radius: 5px;
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 4px;
+}
+.app-navigation a.is-current::after {
+  position: absolute;
+  right: 0;
+  bottom: 2px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--brand-mint);
+  content: "";
+}
+.app-back-link {
+  flex: 0 0 auto;
+  color: var(--brand-cyan);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
 }
 .app-back-link:hover {
   text-decoration: underline;
@@ -13143,10 +13195,6 @@ h1 {
   .ai-provider-grid {
     grid-template-columns: 1fr;
   }
-  .command-topbar nav a:nth-child(4),
-  .command-topbar nav a:nth-child(5) {
-    display: none;
-  }
   .command-workspace {
     grid-template-columns: 1fr;
   }
@@ -13302,13 +13350,23 @@ h1 {
   }
   .command-topbar {
     grid-template-columns: 1fr auto;
+    row-gap: 8px;
     min-height: 66px;
+    padding: 9px 0 10px;
   }
   .command-brand {
     width: 126px;
   }
   .command-topbar nav {
-    display: none;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-start;
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .command-topbar a.is-current::after {
+    bottom: -3px;
   }
   .command-account-actions > a:first-child {
     display: inline;
@@ -14861,6 +14919,43 @@ h1 {
   .capital-reservation-callout span {
     grid-row: auto;
     width: fit-content;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-page-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 18px;
+    margin-bottom: 22px;
+    padding: 11px 0 9px;
+  }
+  .app-page-header .section-brand {
+    grid-column: 1;
+    grid-row: 1;
+    width: 132px;
+  }
+  .app-page-header .app-back-link {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .app-page-header .app-navigation {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-right: -2px;
+    padding: 2px 2px 0;
+  }
+}
+
+@media (max-width: 520px) {
+  .app-navigation {
+    gap: 18px;
+  }
+  .app-navigation a {
+    padding-block: 8px;
+    font-size: 0.7rem;
+  }
+  .app-back-link {
+    font-size: 0.7rem;
   }
 }
 
