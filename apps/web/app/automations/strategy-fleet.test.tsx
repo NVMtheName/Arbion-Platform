@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   projectStrategyFleetAccountIsolation,
   projectStrategyFleetAutomaticCycleFailureTaxonomy,
+  projectStrategyFleetAutomaticRecoveryRTO,
   projectStrategyFleetAutomaticCycleSLOHistory,
   projectStrategyFleetDecisionEvidence,
   projectStrategyFleetEvidenceFreshnessBoard,
@@ -1273,6 +1274,156 @@ describe("StrategyFleet", () => {
     );
   });
 
+  it("measures exact first-success recovery time for saved failures", () => {
+    const recovery = projectStrategyFleetAutomaticRecoveryRTO([
+      {
+        ...coinbaseEngine,
+        scheduleRecentRuns: [
+          ...coinbaseEngine.scheduleRecentRuns!,
+          {
+            id: "schedule-run-internal-latest",
+            scheduledFor: "2026-08-26T15:17:00Z",
+            completedAt: "2026-08-26T15:17:05Z",
+            nextRunAt: "2026-08-26T16:17:00Z",
+            status: "FAILED",
+            errorCode: "INTERNAL",
+            duplicateRecovered: false,
+            consecutiveFailures: 2,
+          },
+          {
+            id: "schedule-run-internal-first",
+            scheduledFor: "2026-08-26T14:17:00Z",
+            completedAt: "2026-08-26T14:17:04Z",
+            nextRunAt: "2026-08-26T15:17:00Z",
+            status: "FAILED",
+            errorCode: "INTERNAL",
+            duplicateRecovered: false,
+            consecutiveFailures: 1,
+          },
+        ],
+      },
+    ]);
+
+    expect(recovery).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        recoveredFailureCount: 2,
+        currentFailureCount: 0,
+        medianRecoverySeconds: 5434.5,
+        maximumRecoverySeconds: 7235,
+        latestRecoveryAt: "2026-08-26T16:17:39Z",
+      }),
+    );
+    expect(recovery.codes).toEqual([
+      expect.objectContaining({
+        code: "INTERNAL",
+        recoveredCount: 2,
+        currentCount: 0,
+        medianRecoverySeconds: 5434.5,
+        maximumRecoverySeconds: 7235,
+        affectedEngineCount: 1,
+        executionModes: ["SHADOW"],
+        providers: ["coinbase"],
+      }),
+    ]);
+    expect(recovery.engines[0]).toEqual(
+      expect.objectContaining({ state: "RECOVERED", sampleCount: 3 }),
+    );
+  });
+
+  it("keeps unrecovered age and exact session waits separate", () => {
+    const failed: StrategyFleetItem = {
+      ...coinbaseEngine,
+      scheduleStatus: "FAILED",
+      scheduleErrorCode: "AI_STRUCTURED_OUTPUT_MISSING",
+      consecutiveFailures: 1,
+      scheduleRecentRuns: [
+        {
+          ...coinbaseEngine.scheduleRecentRuns![0],
+          status: "FAILED",
+          errorCode: "AI_STRUCTURED_OUTPUT_MISSING",
+          consecutiveFailures: 1,
+        },
+      ],
+    };
+    const safeWait: StrategyFleetItem = {
+      ...coinbaseEngine,
+      id: "schwab-shadow",
+      strategyInstanceID: "schwab-shadow-instance",
+      provider: "schwab",
+      accountName: "Schwab Brokerage ••••1000",
+      scheduleStatus: "SKIPPED",
+      scheduleErrorCode: "OUTSIDE_SESSION",
+      scheduleRecentRuns: [
+        {
+          ...coinbaseEngine.scheduleRecentRuns![0],
+          status: "SKIPPED",
+          errorCode: "OUTSIDE_SESSION",
+        },
+      ],
+    };
+    const recovery = projectStrategyFleetAutomaticRecoveryRTO([
+      failed,
+      safeWait,
+    ]);
+
+    expect(recovery).toEqual(
+      expect.objectContaining({
+        status: "ATTENTION",
+        currentFailureCount: 1,
+        recoveredFailureCount: 0,
+        safeWaitCount: 1,
+        maximumCurrentUnrecoveredAgeSeconds: 741,
+      }),
+    );
+    expect(recovery.engines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "ai-mandate",
+          state: "ATTENTION",
+          maximumCurrentUnrecoveredAgeSeconds: 741,
+        }),
+        expect.objectContaining({
+          id: "schwab-shadow",
+          state: "SAFE_WAIT",
+          safeWaitCount: 1,
+        }),
+      ]),
+    );
+  });
+
+  it("fails recovery timing closed when a later cycle completed before its failure", () => {
+    const recovery = projectStrategyFleetAutomaticRecoveryRTO([
+      {
+        ...coinbaseEngine,
+        scheduleLastCompletedAt: "2026-08-26T16:18:00Z",
+        scheduleRecentRuns: [
+          {
+            ...coinbaseEngine.scheduleRecentRuns![0],
+            completedAt: "2026-08-26T16:18:00Z",
+          },
+          {
+            id: "schedule-run-impossible-failure",
+            scheduledFor: "2026-08-26T15:17:00Z",
+            completedAt: "2026-08-26T16:20:00Z",
+            nextRunAt: "2026-08-26T16:17:00Z",
+            status: "FAILED",
+            errorCode: "INTERNAL",
+            duplicateRecovered: false,
+            consecutiveFailures: 1,
+          },
+        ],
+      },
+    ]);
+
+    expect(recovery).toEqual(
+      expect.objectContaining({ status: "UNAVAILABLE", verifiedCount: 0 }),
+    );
+    expect(recovery.engines[0]).toEqual(
+      expect.objectContaining({ state: "UNAVAILABLE", verified: false }),
+    );
+  });
+
   it("proves complete immutable trails for abstentions and linked non-live outcomes", () => {
     const paperFill: StrategyFleetItem = {
       ...coinbaseEngine,
@@ -1616,6 +1767,24 @@ describe("StrategyFleet", () => {
     );
     expect(
       within(failureTaxonomy).getByRole("link", {
+        name: /Scheduler evidence/i,
+      }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
+    const recoveryRTO = screen.getByRole("region", {
+      name: "No saved failure requires a recovery measurement.",
+    });
+    expect(recoveryRTO).toHaveTextContent("AUTOMATIC RECOVERY TIME OBJECTIVE");
+    expect(recoveryRTO).toHaveTextContent("Recovered samples0");
+    expect(recoveryRTO).toHaveTextContent("Current failures0");
+    expect(recoveryRTO).toHaveTextContent("Median recoveryUnavailable");
+    expect(recoveryRTO).toHaveTextContent(
+      "No recovery classification in this bounded window",
+    );
+    expect(recoveryRTO).toHaveTextContent(
+      "First later saved success only · safe-session waits stay separate",
+    );
+    expect(
+      within(recoveryRTO).getByRole("link", {
         name: /Scheduler evidence/i,
       }),
     ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
