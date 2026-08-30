@@ -2979,6 +2979,279 @@ button:disabled {
 .strategy-fleet-input-gaps > footer {
   margin-top: 13px;
 }
+.strategy-fleet-reliability-center {
+  margin-top: 20px;
+  padding: 28px;
+  border: 1px solid rgba(25, 201, 214, 0.28);
+  border-radius: 24px;
+  background:
+    radial-gradient(
+      circle at 100% 0%,
+      rgba(25, 201, 214, 0.13),
+      transparent 34rem
+    ),
+    linear-gradient(145deg, rgba(3, 21, 22, 0.98), rgba(3, 13, 15, 0.94));
+}
+.strategy-fleet-reliability-center.needs-review {
+  border-color: rgba(216, 169, 82, 0.42);
+}
+.strategy-fleet-reliability-center > header,
+.strategy-fleet-reliability-engines > li > header,
+.strategy-fleet-reliability-engines > li > header > div,
+.strategy-fleet-reliability-engines > li > footer,
+.strategy-fleet-reliability-diagnostics > header,
+.strategy-fleet-reliability-diagnostics summary,
+.strategy-fleet-reliability-diagnostics summary > span:first-child {
+  display: flex;
+  align-items: center;
+}
+.strategy-fleet-reliability-center > header {
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+}
+.strategy-fleet-reliability-center > header > div {
+  max-width: 860px;
+}
+.strategy-fleet-reliability-center h2 {
+  margin: 7px 0 8px;
+  color: #edfdff;
+  font-size: clamp(1.5rem, 2.5vw, 2.25rem);
+}
+.strategy-fleet-reliability-center > header p:last-child,
+.strategy-fleet-reliability-center > footer {
+  color: #78939a;
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+.strategy-fleet-reliability-center > header > span {
+  flex: 0 0 auto;
+  padding: 8px 11px;
+  border: 1px solid rgba(25, 201, 214, 0.4);
+  border-radius: 999px;
+  color: #7ce5ec;
+  font-size: 0.65rem;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.strategy-fleet-reliability-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 22px 0 14px;
+  overflow: hidden;
+  border: 1px solid rgba(25, 201, 214, 0.15);
+  border-radius: 13px;
+  background: rgba(25, 201, 214, 0.11);
+}
+.strategy-fleet-reliability-summary > div {
+  min-width: 0;
+  padding: 15px;
+  background: rgba(3, 18, 20, 0.94);
+}
+.strategy-fleet-reliability-summary dt,
+.strategy-fleet-reliability-summary dd,
+.strategy-fleet-reliability-engines dt,
+.strategy-fleet-reliability-engines dd {
+  margin: 0;
+}
+.strategy-fleet-reliability-summary dt {
+  color: #718e94;
+  font-size: 0.58rem;
+  font-weight: 760;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.strategy-fleet-reliability-summary dd {
+  margin-top: 6px;
+  color: #d7f2f4;
+  font-size: 0.74rem;
+  font-weight: 720;
+  line-height: 1.45;
+}
+.strategy-fleet-reliability-engines {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 11px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-fleet-reliability-engines > li {
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid rgba(25, 201, 214, 0.18);
+  border-radius: 15px;
+  background: rgba(3, 16, 18, 0.84);
+}
+.strategy-fleet-reliability-engines > li.is-attention,
+.strategy-fleet-reliability-engines > li.is-unavailable {
+  border-color: rgba(216, 169, 82, 0.44);
+}
+.strategy-fleet-reliability-engines > li > header {
+  justify-content: space-between;
+  gap: 12px;
+}
+.strategy-fleet-reliability-engines > li > header > div {
+  gap: 9px;
+  min-width: 0;
+}
+.strategy-fleet-reliability-engines > li > header p {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  margin: 0;
+}
+.strategy-fleet-reliability-engines > li > header small {
+  overflow: hidden;
+  color: #728b91;
+  font-size: 0.58rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-fleet-reliability-engines > li > header strong {
+  color: #d8f1f3;
+  font-size: 0.8rem;
+}
+.strategy-fleet-reliability-engines > li > header > span {
+  color: #7ce5ec;
+  font-size: 0.6rem;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+.strategy-fleet-reliability-engines > li.is-attention > header > span,
+.strategy-fleet-reliability-engines > li.is-unavailable > header > span {
+  color: #e1bd79;
+}
+.strategy-fleet-reliability-engines > li > dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 14px 0;
+}
+.strategy-fleet-reliability-engines > li > dl > div {
+  padding: 9px 10px;
+  border-left: 2px solid rgba(25, 201, 214, 0.6);
+  border-radius: 3px 9px 9px 3px;
+  background: rgba(4, 25, 27, 0.72);
+}
+.strategy-fleet-reliability-engines dt {
+  color: #718e94;
+  font-size: 0.55rem;
+  text-transform: uppercase;
+}
+.strategy-fleet-reliability-engines dd {
+  margin-top: 4px;
+  color: #c9e4e6;
+  font-size: 0.62rem;
+  font-weight: 680;
+}
+.strategy-fleet-reliability-engines > li > p {
+  min-height: 2.7em;
+  margin: 0;
+  color: #779298;
+  font-size: 0.59rem;
+  line-height: 1.5;
+}
+.strategy-fleet-reliability-engines > li > footer {
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 13px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(25, 201, 214, 0.12);
+}
+.strategy-fleet-reliability-engines > li > footer a {
+  color: #7ce5ec;
+  font-size: 0.59rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.strategy-fleet-reliability-diagnostics {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(25, 201, 214, 0.16);
+  border-radius: 15px;
+  background: rgba(2, 13, 15, 0.62);
+}
+.strategy-fleet-reliability-diagnostics > header {
+  justify-content: space-between;
+  gap: 18px;
+  padding: 2px 3px 13px;
+}
+.strategy-fleet-reliability-diagnostics > header > div {
+  display: grid;
+  gap: 4px;
+}
+.strategy-fleet-reliability-diagnostics > header strong {
+  color: #cfecee;
+  font-size: 0.78rem;
+}
+.strategy-fleet-reliability-diagnostics > header span {
+  color: #718e94;
+  font-size: 0.59rem;
+  line-height: 1.45;
+}
+.strategy-fleet-reliability-diagnostics details {
+  overflow: hidden;
+  border-top: 1px solid rgba(25, 201, 214, 0.13);
+}
+.strategy-fleet-reliability-diagnostics details[data-status="attention"],
+.strategy-fleet-reliability-diagnostics details[data-status="unavailable"] {
+  border-top-color: rgba(216, 169, 82, 0.34);
+}
+.strategy-fleet-reliability-diagnostics summary {
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 3px;
+  color: #ccebed;
+  cursor: pointer;
+  list-style: none;
+}
+.strategy-fleet-reliability-diagnostics summary::-webkit-details-marker {
+  display: none;
+}
+.strategy-fleet-reliability-diagnostics summary > span:first-child {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+}
+.strategy-fleet-reliability-diagnostics summary strong {
+  font-size: 0.72rem;
+}
+.strategy-fleet-reliability-diagnostics summary small {
+  color: #708b91;
+  font-size: 0.57rem;
+}
+.strategy-fleet-reliability-diagnostics summary > span:last-child {
+  flex: 0 0 auto;
+  color: #7ce5ec;
+  font-size: 0.58rem;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+.strategy-fleet-reliability-diagnostics summary::after {
+  content: "+";
+  color: #7ce5ec;
+  font-size: 1rem;
+}
+.strategy-fleet-reliability-diagnostics details[open] summary::after {
+  content: "−";
+}
+.strategy-fleet-reliability-diagnostics summary:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid #7ce5ec;
+  outline-offset: -2px;
+}
+.strategy-fleet-reliability-diagnostics details > div {
+  padding: 0 0 14px;
+}
+.strategy-fleet-reliability-diagnostics .strategy-fleet-freshness {
+  margin-top: 0;
+}
+.strategy-fleet-reliability-center > footer {
+  margin-top: 14px;
+}
 .strategy-fleet-freshness {
   margin-top: 20px;
   padding: 26px;
@@ -4767,6 +5040,7 @@ button:disabled {
   .strategy-fleet-input-matrix > header,
   .strategy-fleet-input-change > header,
   .strategy-fleet-input-gaps > header,
+  .strategy-fleet-reliability-center > header,
   .strategy-fleet-freshness > header,
   .strategy-fleet-isolation > header,
   .strategy-fleet-watchtower > header,
@@ -4800,6 +5074,9 @@ button:disabled {
   .strategy-fleet-input-gaps-list {
     grid-template-columns: 1fr;
   }
+  .strategy-fleet-reliability-engines {
+    grid-template-columns: 1fr;
+  }
   .strategy-fleet-freshness-list {
     grid-template-columns: 1fr;
   }
@@ -4825,6 +5102,7 @@ button:disabled {
   .strategy-fleet-input-matrix-summary,
   .strategy-fleet-input-change-summary,
   .strategy-fleet-input-gaps-summary,
+  .strategy-fleet-reliability-summary,
   .strategy-fleet-freshness-summary,
   .strategy-fleet-evidence-chain-list > li > dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
