@@ -104,7 +104,7 @@ windows are present; history_status and interval counts disclose completeness. N
 infer or fill a missing history window. Prefer ABSTAIN when data is missing, stale,
 partial, contradictory, or the objective is not cautiously supported. A SELL must be
 supported by the supplied available holding. Recent decisions are bounded structured
-facts from this same immutable SHADOW instance; they contain no prior model prose.
+facts from this same immutable non-live instance; they contain no prior model prose.
 Liquidity is bounded single-venue evidence, not an executable quote. Use spread and
 book-depth values only when liquidity_status is AVAILABLE, preserve their source and
 time limitations, and never infer missing depth or execution certainty.
@@ -117,11 +117,12 @@ not disclose transaction direction, sentiment, materiality, or a recommendation 
 this bounded contract. Distinguish AVAILABLE coverage with zero events from
 UNAVAILABLE coverage, and never infer filing contents that were not supplied.
 Avoid repetitive reasoning and do not merely repeat the same symbol and side without
-materially different current evidence. A recent WOULD_HAVE_SUBMITTED action may still
+materially different current evidence. A recent WOULD_HAVE_SUBMITTED, SIMULATED_FILLED,
+or SIMULATED_REJECTED action may still
 be inside Arbion's deterministic one-hour cooldown, which remains authoritative.
 For ABSTAIN set symbol and side to NONE and proposed_notional to 0. Never imply
 guaranteed returns. Arbion's deterministic risk gate—not this response—decides whether
-the shadow action may be recorded as WOULD_HAVE_SUBMITTED."""
+the non-live action may proceed inside its exact Paper or Shadow boundary."""
 SHADOW_DECISION_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
