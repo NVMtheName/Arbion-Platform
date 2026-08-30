@@ -672,6 +672,46 @@ export type StrategyFleetAutomaticRecoveryRTO = {
   }>;
 };
 
+export type StrategyFleetAutomaticCycleIncidents = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  engineCount: number;
+  verifiedCount: number;
+  incidentCount: number;
+  recoveredIncidentCount: number;
+  currentIncidentCount: number;
+  safeWaitCount: number;
+  latestRecoveryAt?: string;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    state: "CLEAR" | "RECOVERED" | "SAFE_WAIT" | "ATTENTION" | "UNAVAILABLE";
+    verified: boolean;
+    sampleCount: number;
+    incidentCount: number;
+    recoveredIncidentCount: number;
+    currentIncidentCount: number;
+    safeWaitCount: number;
+    latestRecoveryAt?: string;
+    incidents: Array<{
+      key: string;
+      failureRunIDs: string[];
+      failureCount: number;
+      failureStages: string[];
+      startedAt: string;
+      latestFailureAt: string;
+      recoveredAt?: string;
+      recoverySeconds?: number;
+      currentAgeSeconds?: number;
+      state: "RECOVERED" | "CURRENT";
+    }>;
+    followUp: string;
+    evidenceHref: string;
+  }>;
+};
+
 function providerLabel(provider: string) {
   if (provider === "coinbase") return "Coinbase";
   if (provider === "schwab") return "Charles Schwab";
@@ -3439,6 +3479,222 @@ function recentRecoveryTimingForCode(
   return { recoverySeconds, currentAges };
 }
 
+export function projectStrategyFleetAutomaticCycleIncidents(
+  items: StrategyFleetItem[],
+): StrategyFleetAutomaticCycleIncidents {
+  const active = items.filter(
+    (item) =>
+      isAI(item) &&
+      item.instanceStatus === "ACTIVE" &&
+      item.runtimeScheduleEnabled === true,
+  );
+  const engines = active.map((item) => {
+    const observedAt = exactInstantMillis(item.freshnessObservedAt);
+    const recentRuns = item.scheduleRecentRuns ?? [];
+    const latest = recentRuns[0];
+    const runIdentitiesAreDistinct =
+      new Set(recentRuns.map((run) => run.id)).size === recentRuns.length;
+    const samples = recentRuns
+      .map((run) => ({
+        run,
+        scheduledFor: exactInstantMillis(run.scheduledFor),
+        completedAt: exactInstantMillis(run.completedAt),
+      }))
+      .sort(
+        (left, right) =>
+          (left.scheduledFor ?? Number.POSITIVE_INFINITY) -
+          (right.scheduledFor ?? Number.POSITIVE_INFINITY),
+      );
+    const baseVerified = Boolean(
+      item.scheduleHistoryAvailable === true &&
+        observedAt !== undefined &&
+        recentRuns.length > 0 &&
+        recentRuns.length <= 12 &&
+        runIdentitiesAreDistinct &&
+        recentRuns.every(validScheduleRunEvidence) &&
+        samples.every(
+          (sample, index) =>
+            sample.scheduledFor !== undefined &&
+            sample.completedAt !== undefined &&
+            sample.scheduledFor <= sample.completedAt &&
+            sample.scheduledFor <= observedAt! &&
+            sample.completedAt <= observedAt! &&
+            (index === 0 ||
+              sample.scheduledFor > samples[index - 1].scheduledFor!) &&
+            (sample.run.status !== "FAILED" || Boolean(sample.run.errorCode)),
+        ) &&
+        latest?.status === item.scheduleStatus &&
+        latest?.consecutiveFailures === item.consecutiveFailures &&
+        sameInstant(latest?.completedAt, item.scheduleLastCompletedAt) &&
+        sameInstant(latest?.nextRunAt, item.nextRunAt),
+    );
+    const incidents: StrategyFleetAutomaticCycleIncidents["engines"][number]["incidents"] =
+      [];
+    let open:
+      | StrategyFleetAutomaticCycleIncidents["engines"][number]["incidents"][number]
+      | undefined;
+    let openStartedMillis: number | undefined;
+    let latestFailureMillis: number | undefined;
+    let timingValid = baseVerified;
+    let safeWaitCount = 0;
+    if (baseVerified) {
+      samples.forEach((sample) => {
+        if (
+          sample.run.status === "SKIPPED" &&
+          sample.run.errorCode === "OUTSIDE_SESSION"
+        ) {
+          safeWaitCount += 1;
+          return;
+        }
+        if (sample.run.status === "FAILED") {
+          if (!open) {
+            openStartedMillis = sample.completedAt!;
+            open = {
+              key: `${item.id}:${sample.run.id}`,
+              failureRunIDs: [sample.run.id!],
+              failureCount: 1,
+              failureStages: [sample.run.errorCode!],
+              startedAt: sample.run.completedAt!,
+              latestFailureAt: sample.run.completedAt!,
+              state: "CURRENT",
+            };
+          } else {
+            open.failureRunIDs.push(sample.run.id!);
+            open.failureCount += 1;
+            open.failureStages.push(sample.run.errorCode!);
+            open.latestFailureAt = sample.run.completedAt!;
+          }
+          latestFailureMillis = sample.completedAt!;
+          return;
+        }
+        if (sample.run.status === "SUCCEEDED" && open) {
+          if (
+            openStartedMillis === undefined ||
+            latestFailureMillis === undefined ||
+            sample.completedAt! < latestFailureMillis
+          ) {
+            timingValid = false;
+            return;
+          }
+          open.recoveredAt = sample.run.completedAt!;
+          open.recoverySeconds =
+            (sample.completedAt! - openStartedMillis) / 1000;
+          open.state = "RECOVERED";
+          incidents.push(open);
+          open = undefined;
+          openStartedMillis = undefined;
+          latestFailureMillis = undefined;
+        }
+      });
+      if (open) {
+        if (
+          openStartedMillis === undefined ||
+          observedAt! < openStartedMillis
+        ) {
+          timingValid = false;
+        } else {
+          open.currentAgeSeconds = (observedAt! - openStartedMillis) / 1000;
+          incidents.push(open);
+        }
+      }
+    }
+    const verified = baseVerified && timingValid;
+    const exactIncidents = verified ? incidents : [];
+    const recovered = exactIncidents.filter(
+      (incident) => incident.state === "RECOVERED",
+    );
+    const current = exactIncidents.filter(
+      (incident) => incident.state === "CURRENT",
+    );
+    const latestSample = verified ? samples.at(-1) : undefined;
+    const latestRecovery = recovered
+      .map((incident) => ({
+        timestamp: incident.recoveredAt!,
+        millis: exactInstantMillis(incident.recoveredAt)!,
+      }))
+      .sort((left, right) => left.millis - right.millis)
+      .at(-1)?.timestamp;
+    const state = !verified
+      ? ("UNAVAILABLE" as const)
+      : current.length > 0 ||
+          latestSample?.run.status === "FAILED" ||
+          item.consecutiveFailures > 0
+        ? ("ATTENTION" as const)
+        : latestSample?.run.status === "SKIPPED" &&
+            latestSample.run.errorCode === "OUTSIDE_SESSION"
+          ? ("SAFE_WAIT" as const)
+          : recovered.length > 0
+            ? ("RECOVERED" as const)
+            : ("CLEAR" as const);
+    const followUp =
+      state === "UNAVAILABLE"
+        ? "Review immutable scheduler rows before relying on this incident timeline. Arbion will not infer ambiguous failure stages or timestamps."
+        : state === "ATTENTION"
+          ? "Review the current incident and let the next guarded cycle attempt automatic recovery. Do not rerun the model manually."
+          : state === "RECOVERED"
+            ? "No owner action is required. Every saved incident in this window ended at an exact later automatic success."
+            : state === "SAFE_WAIT"
+              ? "No owner action is required. The latest result is an exact market-session wait, not an incident."
+              : "No owner action is required. This bounded scheduler window contains no failure incident.";
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      state,
+      verified,
+      sampleCount: verified ? samples.length : 0,
+      incidentCount: exactIncidents.length,
+      recoveredIncidentCount: recovered.length,
+      currentIncidentCount: current.length,
+      safeWaitCount: verified ? safeWaitCount : 0,
+      latestRecoveryAt: latestRecovery,
+      incidents: exactIncidents,
+      followUp,
+      evidenceHref: `/automations/${encodeURIComponent(item.id)}#schedule-controls`,
+    };
+  });
+  const currentIncidentCount = engines.reduce(
+    (sum, engine) => sum + engine.currentIncidentCount,
+    0,
+  );
+  const unavailable = engines.some((engine) => !engine.verified);
+  const recoveries = engines
+    .flatMap((engine) => engine.incidents)
+    .filter((incident) => incident.recoveredAt)
+    .map((incident) => ({
+      timestamp: incident.recoveredAt!,
+      millis: exactInstantMillis(incident.recoveredAt)!,
+    }))
+    .sort((left, right) => left.millis - right.millis);
+  return {
+    status:
+      engines.length === 0 || unavailable
+        ? "UNAVAILABLE"
+        : currentIncidentCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    engineCount: engines.length,
+    verifiedCount: engines.filter((engine) => engine.verified).length,
+    incidentCount: engines.reduce(
+      (sum, engine) => sum + engine.incidentCount,
+      0,
+    ),
+    recoveredIncidentCount: engines.reduce(
+      (sum, engine) => sum + engine.recoveredIncidentCount,
+      0,
+    ),
+    currentIncidentCount,
+    safeWaitCount: engines.reduce(
+      (sum, engine) => sum + engine.safeWaitCount,
+      0,
+    ),
+    latestRecoveryAt: recoveries.at(-1)?.timestamp,
+    engines,
+  };
+}
+
 function healthClass(item: StrategyFleetItem) {
   if (needsReview(item)) return "needs-review";
   return item.instanceStatus === "ACTIVE" ? "healthy" : "neutral";
@@ -4905,6 +5161,162 @@ function StrategyFleetAutomaticRecoveryRTOView({
   );
 }
 
+function StrategyFleetAutomaticCycleIncidentTimelineView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const timeline = projectStrategyFleetAutomaticCycleIncidents(items);
+  if (timeline.engineCount === 0) return null;
+  const verified = timeline.status === "VERIFIED";
+  return (
+    <section
+      className={`strategy-fleet-freshness strategy-fleet-incident-timeline ${verified ? "is-verified" : "needs-review"}`}
+      aria-labelledby="strategy-fleet-incident-timeline-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">AUTOMATIC CYCLE INCIDENT TIMELINE</p>
+          <h2 id="strategy-fleet-incident-timeline-heading">
+            {timeline.status === "UNAVAILABLE"
+              ? "An active engine has incomplete incident evidence."
+              : timeline.status === "ATTENTION"
+                ? `${timeline.currentIncidentCount} automatic-cycle ${timeline.currentIncidentCount === 1 ? "incident remains" : "incidents remain"} open.`
+                : timeline.incidentCount > 0
+                  ? `${timeline.recoveredIncidentCount} saved ${timeline.recoveredIncidentCount === 1 ? "incident ended" : "incidents ended"} at an exact later success.`
+                  : "No saved automatic cycle incident is open."}
+          </h2>
+          <p>
+            Consecutive saved failures stay together until the first later
+            SUCCEEDED cycle. Every failure stage remains in immutable order.
+          </p>
+        </div>
+        <span>{verified ? "Timeline verified" : "Review history"}</span>
+      </header>
+      <dl className="strategy-fleet-freshness-summary">
+        <div>
+          <dt>Incidents</dt>
+          <dd>{timeline.incidentCount}</dd>
+        </div>
+        <div>
+          <dt>Recovered</dt>
+          <dd>{timeline.recoveredIncidentCount}</dd>
+        </div>
+        <div>
+          <dt>Current</dt>
+          <dd>{timeline.currentIncidentCount}</dd>
+        </div>
+        <div>
+          <dt>Session-safe waits</dt>
+          <dd>{timeline.safeWaitCount}</dd>
+        </div>
+      </dl>
+      <div className="strategy-fleet-freshness-policy">
+        <strong>
+          {timeline.incidentCount > 0
+            ? `${timeline.incidentCount} exact immutable ${timeline.incidentCount === 1 ? "incident" : "incidents"}`
+            : "No failed-cycle incident in this bounded window"}
+        </strong>
+        <span>
+          {timeline.currentIncidentCount > 0
+            ? `${timeline.currentIncidentCount} incident ${timeline.currentIncidentCount === 1 ? "is" : "are"} waiting for the first later automatic success.`
+            : "Every saved incident is recovered or the bounded windows are clear."}
+        </span>
+        <small>
+          Latest automatic recovery {readableTime(timeline.latestRecoveryAt)} ·
+          safe-session waits are never incidents
+        </small>
+      </div>
+      <ol className="strategy-fleet-freshness-list">
+        {timeline.engines.map((engine) => (
+          <li
+            className={`is-${engine.state.toLowerCase().replaceAll("_", "-")}`}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{readable(engine.state)}</span>
+            </header>
+            <div className="strategy-fleet-freshness-policy">
+              <strong>{engine.sampleCount} immutable cycle samples</strong>
+              <span>
+                {engine.incidentCount} incidents ·{" "}
+                {engine.recoveredIncidentCount} recovered ·{" "}
+                {engine.currentIncidentCount} current · {engine.safeWaitCount}{" "}
+                safe waits
+              </span>
+              <small>
+                {providerLabel(engine.provider)} ·{" "}
+                {readable(engine.executionMode)} only · latest recovery{" "}
+                {readableTime(engine.latestRecoveryAt)}
+              </small>
+            </div>
+            <dl>
+              {engine.incidents.length > 0 ? (
+                engine.incidents.map((incident) => (
+                  <div key={incident.key}>
+                    <dt>
+                      <span>
+                        {incident.failureStages.map(readable).join(" → ")}
+                      </span>
+                      <strong>{readable(incident.state)}</strong>
+                    </dt>
+                    <dd>
+                      {incident.failureCount} immutable failed{" "}
+                      {incident.failureCount === 1 ? "row" : "rows"} · started{" "}
+                      {readableTime(incident.startedAt)} · latest failure{" "}
+                      {readableTime(incident.latestFailureAt)}
+                    </dd>
+                    <time dateTime={incident.recoveredAt ?? incident.startedAt}>
+                      {incident.state === "RECOVERED"
+                        ? `Recovered ${readableTime(incident.recoveredAt)} · ${exactSecondsLabel(incident.recoverySeconds)}`
+                        : `Still open · ${exactSecondsLabel(incident.currentAgeSeconds)} old`}
+                    </time>
+                  </div>
+                ))
+              ) : (
+                <div>
+                  <dt>
+                    <span>Saved failure incidents</span>
+                    <strong>Clear</strong>
+                  </dt>
+                  <dd>No failed cycle starts an incident in this window.</dd>
+                </div>
+              )}
+            </dl>
+            <footer>
+              <span>{engine.followUp}</span>
+              <div>
+                <Link href={engine.evidenceHref}>Scheduler evidence →</Link>
+                <Link href="/activity">Decision journal →</Link>
+              </div>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Bounded immutable rows only · first later SUCCEEDED cycle ends an
+        incident · safe-session waits stay separate · no inferred causality or
+        provider output · no manual cycle · no model rerun · no provider refresh
+        · no broker order · no live path
+      </footer>
+    </section>
+  );
+}
+
 function StrategyFleetAccountIsolationMap({
   items,
 }: {
@@ -6139,6 +6551,10 @@ export function StrategyFleet({
 
       {inventoryAvailable && (
         <StrategyFleetAutomaticRecoveryRTOView items={items} />
+      )}
+
+      {inventoryAvailable && (
+        <StrategyFleetAutomaticCycleIncidentTimelineView items={items} />
       )}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}

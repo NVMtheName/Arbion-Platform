@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   projectStrategyFleetAccountIsolation,
+  projectStrategyFleetAutomaticCycleIncidents,
   projectStrategyFleetAutomaticCycleFailureTaxonomy,
   projectStrategyFleetAutomaticRecoveryRTO,
   projectStrategyFleetAutomaticCycleSLOHistory,
@@ -1424,6 +1425,168 @@ describe("StrategyFleet", () => {
     );
   });
 
+  it("groups consecutive saved failures into one recovered incident", () => {
+    const timeline = projectStrategyFleetAutomaticCycleIncidents([
+      {
+        ...coinbaseEngine,
+        scheduleRecentRuns: [
+          ...coinbaseEngine.scheduleRecentRuns!,
+          {
+            id: "schedule-run-contract-failure",
+            scheduledFor: "2026-08-26T15:17:00Z",
+            completedAt: "2026-08-26T15:17:05Z",
+            nextRunAt: "2026-08-26T16:17:00Z",
+            status: "FAILED",
+            errorCode: "AI_REQUEST_INVALID",
+            duplicateRecovered: false,
+            consecutiveFailures: 2,
+          },
+          {
+            id: "schedule-run-internal-failure",
+            scheduledFor: "2026-08-26T14:17:00Z",
+            completedAt: "2026-08-26T14:17:04Z",
+            nextRunAt: "2026-08-26T15:17:00Z",
+            status: "FAILED",
+            errorCode: "INTERNAL",
+            duplicateRecovered: false,
+            consecutiveFailures: 1,
+          },
+        ],
+      },
+    ]);
+
+    expect(timeline).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        incidentCount: 1,
+        recoveredIncidentCount: 1,
+        currentIncidentCount: 0,
+        latestRecoveryAt: "2026-08-26T16:17:39Z",
+      }),
+    );
+    expect(timeline.engines[0]).toEqual(
+      expect.objectContaining({ state: "RECOVERED", sampleCount: 3 }),
+    );
+    expect(timeline.engines[0].incidents).toEqual([
+      expect.objectContaining({
+        failureRunIDs: [
+          "schedule-run-internal-failure",
+          "schedule-run-contract-failure",
+        ],
+        failureCount: 2,
+        failureStages: ["INTERNAL", "AI_REQUEST_INVALID"],
+        startedAt: "2026-08-26T14:17:04Z",
+        latestFailureAt: "2026-08-26T15:17:05Z",
+        recoveredAt: "2026-08-26T16:17:39Z",
+        recoverySeconds: 7235,
+        state: "RECOVERED",
+      }),
+    ]);
+  });
+
+  it("keeps recovered and current incidents distinct while separating safe waits", () => {
+    const current: StrategyFleetItem = {
+      ...coinbaseEngine,
+      scheduleStatus: "FAILED",
+      scheduleErrorCode: "STRUCTURED_OUTPUT_MISSING",
+      consecutiveFailures: 1,
+      scheduleRecentRuns: [
+        {
+          ...coinbaseEngine.scheduleRecentRuns![0],
+          status: "FAILED",
+          errorCode: "STRUCTURED_OUTPUT_MISSING",
+          consecutiveFailures: 1,
+        },
+        {
+          id: "schedule-run-prior-success",
+          scheduledFor: "2026-08-26T15:17:00Z",
+          completedAt: "2026-08-26T15:17:39Z",
+          nextRunAt: "2026-08-26T16:17:00Z",
+          status: "SUCCEEDED",
+          duplicateRecovered: false,
+          consecutiveFailures: 0,
+        },
+        {
+          id: "schedule-run-prior-failure",
+          scheduledFor: "2026-08-26T14:17:00Z",
+          completedAt: "2026-08-26T14:17:04Z",
+          nextRunAt: "2026-08-26T15:17:00Z",
+          status: "FAILED",
+          errorCode: "INTERNAL",
+          duplicateRecovered: false,
+          consecutiveFailures: 1,
+        },
+      ],
+    };
+    const safeWait: StrategyFleetItem = {
+      ...coinbaseEngine,
+      id: "schwab-shadow",
+      strategyInstanceID: "schwab-shadow-instance",
+      provider: "schwab",
+      accountName: "Schwab Brokerage ••••1000",
+      scheduleStatus: "SKIPPED",
+      scheduleErrorCode: "OUTSIDE_SESSION",
+      scheduleRecentRuns: [
+        {
+          ...coinbaseEngine.scheduleRecentRuns![0],
+          status: "SKIPPED",
+          errorCode: "OUTSIDE_SESSION",
+        },
+      ],
+    };
+    const timeline = projectStrategyFleetAutomaticCycleIncidents([
+      current,
+      safeWait,
+    ]);
+
+    expect(timeline).toEqual(
+      expect.objectContaining({
+        status: "ATTENTION",
+        incidentCount: 2,
+        recoveredIncidentCount: 1,
+        currentIncidentCount: 1,
+        safeWaitCount: 1,
+      }),
+    );
+    expect(timeline.engines[0].incidents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ state: "RECOVERED", recoverySeconds: 3635 }),
+        expect.objectContaining({ state: "CURRENT", currentAgeSeconds: 741 }),
+      ]),
+    );
+    expect(timeline.engines[1]).toEqual(
+      expect.objectContaining({ state: "SAFE_WAIT", safeWaitCount: 1 }),
+    );
+  });
+
+  it("fails the incident timeline closed on ambiguous scheduled timestamps", () => {
+    const timeline = projectStrategyFleetAutomaticCycleIncidents([
+      {
+        ...coinbaseEngine,
+        scheduleRecentRuns: [
+          ...coinbaseEngine.scheduleRecentRuns!,
+          {
+            id: "schedule-run-duplicate-time",
+            scheduledFor: "2026-08-26T16:17:00Z",
+            completedAt: "2026-08-26T16:17:20Z",
+            nextRunAt: "2026-08-26T17:17:39Z",
+            status: "FAILED",
+            errorCode: "INTERNAL",
+            duplicateRecovered: false,
+            consecutiveFailures: 1,
+          },
+        ],
+      },
+    ]);
+
+    expect(timeline).toEqual(
+      expect.objectContaining({ status: "UNAVAILABLE", verifiedCount: 0 }),
+    );
+    expect(timeline.engines[0]).toEqual(
+      expect.objectContaining({ state: "UNAVAILABLE", incidentCount: 0 }),
+    );
+  });
+
   it("proves complete immutable trails for abstentions and linked non-live outcomes", () => {
     const paperFill: StrategyFleetItem = {
       ...coinbaseEngine,
@@ -1785,6 +1948,25 @@ describe("StrategyFleet", () => {
     );
     expect(
       within(recoveryRTO).getByRole("link", {
+        name: /Scheduler evidence/i,
+      }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
+    const incidentTimeline = screen.getByRole("region", {
+      name: "No saved automatic cycle incident is open.",
+    });
+    expect(incidentTimeline).toHaveTextContent(
+      "AUTOMATIC CYCLE INCIDENT TIMELINE",
+    );
+    expect(incidentTimeline).toHaveTextContent("Incidents0");
+    expect(incidentTimeline).toHaveTextContent("Current0");
+    expect(incidentTimeline).toHaveTextContent(
+      "No failed-cycle incident in this bounded window",
+    );
+    expect(incidentTimeline).toHaveTextContent(
+      "first later SUCCEEDED cycle ends an incident",
+    );
+    expect(
+      within(incidentTimeline).getByRole("link", {
         name: /Scheduler evidence/i,
       }),
     ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
