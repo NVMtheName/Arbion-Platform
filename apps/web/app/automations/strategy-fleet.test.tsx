@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   projectStrategyFleetAccountIsolation,
   projectStrategyFleetIdentityIsolation,
+  projectStrategyFleetScheduleReliability,
   reconciliationFreshWithinTwentyFourHours,
+  scheduledRunTimingStatus,
   StrategyFleet,
   type StrategyFleetItem,
 } from "./strategy-fleet";
@@ -61,6 +63,8 @@ const coinbaseEngine: StrategyFleetItem = {
   scheduleAvailable: true,
   scheduleEnabled: true,
   scheduleStatus: "SUCCEEDED",
+  scheduleLastCompletedAt: "2026-08-26T16:17:39Z",
+  scheduleTimingStatus: "ON_SCHEDULE",
   consecutiveFailures: 0,
   nextRunAt: "2026-08-26T17:17:39Z",
   evidenceAvailable: true,
@@ -116,6 +120,69 @@ describe("StrategyFleet", () => {
     ).toBe(false);
     expect(reconciliationFreshWithinTwentyFourHours("invalid", now)).toBe(
       false,
+    );
+  });
+
+  it("uses a five-minute grace boundary before a scheduled cycle is overdue", () => {
+    const observedAt = new Date("2026-08-30T08:05:00Z");
+
+    expect(scheduledRunTimingStatus("2026-08-30T08:00:00Z", observedAt)).toBe(
+      "ON_SCHEDULE",
+    );
+    expect(
+      scheduledRunTimingStatus("2026-08-30T07:59:59.999Z", observedAt),
+    ).toBe("OVERDUE");
+    expect(scheduledRunTimingStatus("invalid", observedAt)).toBe("UNAVAILABLE");
+  });
+
+  it("proves exact fleet scheduler reliability across a completion and safe session wait", () => {
+    const schwabWait: StrategyFleetItem = {
+      ...coinbaseEngine,
+      id: "schwab-shadow",
+      strategyInstanceID: "schwab-shadow-instance",
+      financialAccountID: "schwab-account",
+      capitalBucketID: "schwab-shadow-bucket",
+      capitalReservationID: "schwab-shadow-reservation",
+      title: "Schwab AI Shadow Engine",
+      accountName: "Schwab Brokerage ••••1000",
+      provider: "schwab",
+      runtimeScheduleSession: "US_EQUITIES_REGULAR",
+      scheduleStatus: "SKIPPED",
+      scheduleErrorCode: "OUTSIDE_SESSION",
+      scheduleLastCompletedAt: "2026-08-29T20:35:30Z",
+      nextRunAt: "2026-08-31T13:35:00Z",
+    };
+    const reliability = projectStrategyFleetScheduleReliability([
+      coinbaseEngine,
+      schwabWait,
+    ]);
+
+    expect(reliability).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        engineCount: 2,
+        healthyCount: 2,
+        succeededCount: 1,
+        safelySkippedCount: 1,
+        failureCount: 0,
+        overdueCount: 0,
+        consecutiveFailures: 0,
+        nextRunAt: "2026-08-26T17:17:39Z",
+      }),
+    );
+  });
+
+  it("fails fleet scheduler reliability closed when timing is overdue", () => {
+    const reliability = projectStrategyFleetScheduleReliability([
+      { ...coinbaseEngine, scheduleTimingStatus: "OVERDUE" },
+    ]);
+
+    expect(reliability).toEqual(
+      expect.objectContaining({
+        status: "ATTENTION",
+        healthyCount: 0,
+        overdueCount: 1,
+      }),
     );
   });
 
@@ -258,6 +325,17 @@ describe("StrategyFleet", () => {
     expect(screen.getAllByText("gpt-5.6-sol")).toHaveLength(2);
     expect(screen.getAllByText("BTC · ETH · XRP +1")).toHaveLength(2);
     expect(screen.getByText("Healthy schedule")).toBeInTheDocument();
+    const watchtower = screen.getByRole("region", {
+      name: "1 guarded schedule is on course.",
+    });
+    expect(watchtower).toHaveTextContent("Verified");
+    expect(watchtower).toHaveTextContent("Healthy schedules1 / 1");
+    expect(watchtower).toHaveTextContent("Failure streaks0");
+    expect(watchtower).toHaveTextContent("Completed safely");
+    expect(watchtower).toHaveTextContent("On schedule");
+    expect(watchtower).toHaveTextContent(
+      "Paper or Shadow only · no manual cycle · no broker order",
+    );
     const runtimeContract = screen.getByRole("region", {
       name: "AI Shadow Engine immutable runtime contract",
     });

@@ -14,6 +14,7 @@ import {
 } from "./runtime-contract";
 import {
   reconciliationFreshWithinTwentyFourHours,
+  scheduledRunTimingStatus,
   StrategyFleet,
   type StrategyFleetItem,
 } from "./strategy-fleet";
@@ -413,6 +414,16 @@ async function fleetItem(
     reconciliationResult.available &&
     reconciliationResult.payload?.live_execution_available === false &&
     Boolean(reconciliation);
+  const scheduleNextRunAt =
+    !expectsPinnedRuntime || runtimeScheduleBindingValid
+      ? text(schedule, "next_run_at", "NextRunAt")
+      : undefined;
+  const scheduleTimingStatus =
+    expectsOperationalData && runtimeContract?.scheduleEnabled === true
+      ? scheduleResult.available && runtimeScheduleBindingValid
+        ? scheduledRunTimingStatus(scheduleNextRunAt, observedAt)
+        : "UNAVAILABLE"
+      : undefined;
 
   return {
     id,
@@ -498,14 +509,20 @@ async function fleetItem(
       !expectsPinnedRuntime || runtimeScheduleBindingValid
         ? text(schedule, "last_status", "LastStatus")
         : undefined,
+    scheduleErrorCode:
+      !expectsPinnedRuntime || runtimeScheduleBindingValid
+        ? text(schedule, "last_error_code", "LastErrorCode")
+        : undefined,
+    scheduleLastCompletedAt:
+      !expectsPinnedRuntime || runtimeScheduleBindingValid
+        ? text(schedule, "last_completed_at", "LastCompletedAt")
+        : undefined,
+    scheduleTimingStatus,
     consecutiveFailures:
       !expectsPinnedRuntime || runtimeScheduleBindingValid
         ? (number(schedule, "consecutive_failures", "ConsecutiveFailures") ?? 0)
         : 0,
-    nextRunAt:
-      !expectsPinnedRuntime || runtimeScheduleBindingValid
-        ? text(schedule, "next_run_at", "NextRunAt")
-        : undefined,
+    nextRunAt: scheduleNextRunAt,
     evidenceAvailable: expectsShadowEvidence ? evidenceAvailable : undefined,
     evidenceStatus: text(evidenceGate, "status", "Status"),
     oneHourSampleSize: number(

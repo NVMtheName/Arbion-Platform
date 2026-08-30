@@ -2035,6 +2035,141 @@ button:disabled {
   margin-top: 5px;
   color: #60756c;
 }
+.strategy-fleet-watchtower {
+  margin-top: 20px;
+  padding: 24px;
+  border: 1px solid rgba(92, 216, 168, 0.2);
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(9, 39, 29, 0.78), rgba(3, 17, 13, 0.88)),
+    rgba(4, 18, 14, 0.78);
+}
+.strategy-fleet-watchtower.is-attention,
+.strategy-fleet-watchtower.is-unavailable {
+  border-color: rgba(216, 169, 82, 0.32);
+  background: rgba(41, 29, 11, 0.24);
+}
+.strategy-fleet-watchtower > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 28px;
+}
+.strategy-fleet-watchtower > header > div {
+  max-width: 780px;
+}
+.strategy-fleet-watchtower h2 {
+  margin: 7px 0 8px;
+  color: #eefaf4;
+  font-size: clamp(1.35rem, 2.2vw, 2rem);
+}
+.strategy-fleet-watchtower > header p:last-child,
+.strategy-fleet-watchtower > footer {
+  color: #789087;
+  font-size: 0.73rem;
+  line-height: 1.6;
+}
+.strategy-fleet-watchtower > header > span {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid rgba(92, 216, 168, 0.3);
+  border-radius: 999px;
+  color: #70dbaf;
+  font-size: 0.64rem;
+  font-weight: 780;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.strategy-fleet-watchtower.is-attention > header > span,
+.strategy-fleet-watchtower.is-unavailable > header > span {
+  border-color: rgba(216, 169, 82, 0.38);
+  color: #e1bd79;
+}
+.strategy-fleet-watchtower-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 20px 0 14px;
+  overflow: hidden;
+  border: 1px solid rgba(139, 181, 163, 0.1);
+  border-radius: 12px;
+  background: rgba(139, 181, 163, 0.1);
+}
+.strategy-fleet-watchtower-summary > div {
+  min-width: 0;
+  padding: 14px;
+  background: rgba(3, 15, 11, 0.84);
+}
+.strategy-fleet-watchtower dt,
+.strategy-fleet-watchtower dd {
+  margin: 0;
+}
+.strategy-fleet-watchtower dt {
+  color: #6e847a;
+  font-size: 0.58rem;
+  font-weight: 760;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.strategy-fleet-watchtower dd {
+  margin-top: 5px;
+  color: #dcebe4;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.strategy-fleet-watchtower-engines {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-fleet-watchtower-engines > li {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 0.75fr) minmax(0, 1.7fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(139, 181, 163, 0.13);
+  border-radius: 13px;
+  background: rgba(3, 14, 11, 0.64);
+}
+.strategy-fleet-watchtower-engines > li.needs-review {
+  border-color: rgba(216, 169, 82, 0.28);
+}
+.strategy-fleet-watchtower-engines > li > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.strategy-fleet-watchtower-engines > li > div small {
+  overflow: hidden;
+  color: #6e847a;
+  font-size: 0.62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-fleet-watchtower-engines > li > div strong {
+  color: #dcebe4;
+  font-size: 0.78rem;
+}
+.strategy-fleet-watchtower-engines > li > dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.strategy-fleet-watchtower-engines > li > span:last-child {
+  color: #70dbaf;
+  font-size: 0.66rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
+.strategy-fleet-watchtower-engines > li.needs-review > span:last-child {
+  color: #e1bd79;
+}
+.strategy-fleet-watchtower > footer {
+  margin-top: 12px;
+}
 .strategy-fleet-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2916,6 +3051,7 @@ button:disabled {
   .strategy-fleet-grid footer,
   .strategy-fleet-safety,
   .strategy-fleet-isolation > header,
+  .strategy-fleet-watchtower > header,
   .strategy-fleet-identity-proof > header,
   .strategy-fleet-identity-proof > header > div,
   .strategy-fleet-isolation article > header {
@@ -2924,6 +3060,16 @@ button:disabled {
   }
   .strategy-fleet-isolation dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .strategy-fleet-watchtower-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .strategy-fleet-watchtower-engines > li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .strategy-fleet-watchtower-engines > li > dl,
+  .strategy-fleet-watchtower-engines > li > span:last-child {
+    grid-column: 1 / -1;
   }
   .strategy-fleet-grid > article > dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
