@@ -447,7 +447,7 @@ async def test_anthropic_shadow_decision_is_structured_tool_free_and_bounded() -
                                 "decision": "ABSTAIN",
                                 "symbol": "NONE",
                                 "side": "NONE",
-                                "proposed_notional": "0",
+                                "proposed_notional": "0.000",
                                 "confidence": "LOW",
                                 "thesis": (
                                     "The bounded evidence does not support a cautious action."
@@ -467,6 +467,7 @@ async def test_anthropic_shadow_decision_is_structured_tool_free_and_bounded() -
             "secret-value", "core", context, "a" * 64
         )
     assert result.decision == "ABSTAIN"
+    assert result.proposed_notional == "0"
     assert result.metadata.provider == "anthropic"
     assert result.metadata.model == "claude-sonnet-5"
     assert result.metadata.profile == "core"
