@@ -226,8 +226,12 @@ def _normalize_shadow_value(
         raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
     amount = Decimal(notional)
     if decision == "ABSTAIN":
-        if symbol != "NONE" or side != "NONE" or notional != "0":
+        if symbol != "NONE" or side != "NONE" or amount != 0:
             raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
+        # JSON Schema guarantees an exact decimal string, but providers may
+        # serialize numeric zero as 0.0 or 0.000. Preserve the semantic
+        # fail-closed check and store one canonical zero downstream.
+        notional = "0"
     elif symbol not in allowed or side not in {"BUY", "SELL"} or amount <= 0 or amount > maximum:
         raise NeuralProviderError(ErrorCode.INTERNAL_ERROR)
 
