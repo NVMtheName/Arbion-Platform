@@ -7,6 +7,7 @@ import {
   projectStrategyFleetIdentityIsolation,
   projectStrategyFleetInputCoverageChangeLedger,
   projectStrategyFleetInputCoverageMatrix,
+  projectStrategyFleetPersistentInputGapRegister,
   projectStrategyFleetOperatingBrief,
   projectStrategyFleetProvenanceDigest,
   projectStrategyFleetScheduleRecovery,
@@ -164,6 +165,86 @@ const coinbaseEngine: StrategyFleetItem = {
   priorDecisionMarketEventFeeds: [],
   priorDecisionMarketEventQualities: [],
   priorDecisionMarketEventCount: 0,
+  recentDecisionInputCoverage: [
+    {
+      decisionID: "decision-abstain",
+      decisionAt: "2026-08-26T16:17:39Z",
+      financialProvider: "coinbase",
+      financialContextComplete: true,
+      inputCoverageComplete: true,
+      historyLiquidityEvidenceComplete: true,
+      marketSymbols: ["BTC", "ETH", "XRP", "SOL"],
+      marketFeeds: ["rest_ticker"],
+      marketQualities: ["REAL_TIME_SINGLE_VENUE"],
+      marketObservedAt: "2026-08-26T16:17:38Z",
+      historyStatuses: ["COMPLETE"],
+      historyFeeds: ["coinbase_candles"],
+      historyQualities: ["REAL_TIME_SINGLE_VENUE"],
+      liquidityStatuses: ["AVAILABLE"],
+      positionEvidenceComplete: true,
+      positionCount: 2,
+      positionPerformanceStatuses: ["UNAVAILABLE"],
+      marketEventEvidenceComplete: true,
+      marketEventCoverageCount: 0,
+      marketEventCoverageStatuses: [],
+      marketEventProviders: [],
+      marketEventFeeds: [],
+      marketEventQualities: [],
+      marketEventCount: 0,
+    },
+    {
+      decisionID: "decision-abstain-prior",
+      decisionAt: "2026-08-26T15:17:39Z",
+      financialProvider: "coinbase",
+      financialContextComplete: true,
+      inputCoverageComplete: true,
+      historyLiquidityEvidenceComplete: true,
+      marketSymbols: ["BTC", "ETH", "XRP", "SOL"],
+      marketFeeds: ["rest_ticker"],
+      marketQualities: ["REAL_TIME_SINGLE_VENUE"],
+      marketObservedAt: "2026-08-26T15:17:38Z",
+      historyStatuses: ["COMPLETE"],
+      historyFeeds: ["coinbase_candles"],
+      historyQualities: ["REAL_TIME_SINGLE_VENUE"],
+      liquidityStatuses: ["AVAILABLE"],
+      positionEvidenceComplete: true,
+      positionCount: 2,
+      positionPerformanceStatuses: ["UNAVAILABLE"],
+      marketEventEvidenceComplete: true,
+      marketEventCoverageCount: 0,
+      marketEventCoverageStatuses: [],
+      marketEventProviders: [],
+      marketEventFeeds: [],
+      marketEventQualities: [],
+      marketEventCount: 0,
+    },
+    {
+      decisionID: "decision-abstain-oldest",
+      decisionAt: "2026-08-26T14:17:39Z",
+      financialProvider: "coinbase",
+      financialContextComplete: true,
+      inputCoverageComplete: true,
+      historyLiquidityEvidenceComplete: true,
+      marketSymbols: ["BTC", "ETH", "XRP", "SOL"],
+      marketFeeds: ["rest_ticker"],
+      marketQualities: ["REAL_TIME_SINGLE_VENUE"],
+      marketObservedAt: "2026-08-26T14:17:38Z",
+      historyStatuses: ["COMPLETE"],
+      historyFeeds: ["coinbase_candles"],
+      historyQualities: ["REAL_TIME_SINGLE_VENUE"],
+      liquidityStatuses: ["AVAILABLE"],
+      positionEvidenceComplete: true,
+      positionCount: 2,
+      positionPerformanceStatuses: ["UNAVAILABLE"],
+      marketEventEvidenceComplete: true,
+      marketEventCoverageCount: 0,
+      marketEventCoverageStatuses: [],
+      marketEventProviders: [],
+      marketEventFeeds: [],
+      marketEventQualities: [],
+      marketEventCount: 0,
+    },
+  ],
   reconciliationAvailable: true,
   reconciliationComparisonStatus: "MATCHED",
   reconciliationBalancesStatus: "READY",
@@ -617,6 +698,135 @@ describe("StrategyFleet", () => {
     );
   });
 
+  it("registers repeated gaps over a bounded immutable decision window", () => {
+    const register = projectStrategyFleetPersistentInputGapRegister([
+      coinbaseEngine,
+    ]);
+
+    expect(register).toEqual(
+      expect.objectContaining({
+        status: "VERIFIED",
+        engineCount: 1,
+        attributableCount: 1,
+        persistentCount: 2,
+        intermittentCount: 0,
+        newlyMissingCount: 0,
+        resolvedCount: 0,
+      }),
+    );
+    expect(register.engines[0]).toEqual(
+      expect.objectContaining({
+        sampleCount: 3,
+        windowStartedAt: "2026-08-26T14:17:39Z",
+        windowEndedAt: "2026-08-26T16:17:39Z",
+        attributable: true,
+      }),
+    );
+    expect(register.engines[0].categories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "HISTORY",
+          state: "CLEAR",
+          gapSampleCount: 0,
+        }),
+        expect.objectContaining({
+          key: "POSITION",
+          state: "PERSISTENT",
+          gapSampleCount: 3,
+          firstGapAt: "2026-08-26T14:17:39Z",
+          latestGapAt: "2026-08-26T16:17:39Z",
+        }),
+        expect.objectContaining({
+          key: "EVENTS",
+          state: "PERSISTENT",
+          gapSampleCount: 3,
+        }),
+      ]),
+    );
+  });
+
+  it("distinguishes intermittent, newly missing, resolved, and context-changed gaps", () => {
+    const snapshots = coinbaseEngine.recentDecisionInputCoverage!.map(
+      (snapshot, index) => ({
+        ...snapshot,
+        historyStatuses: index === 0 ? ["UNAVAILABLE"] : ["COMPLETE"],
+        historyFeeds: index === 0 ? [] : ["coinbase_candles"],
+        historyQualities: index === 0 ? [] : ["REAL_TIME_SINGLE_VENUE"],
+        liquidityStatuses: index === 1 ? ["AVAILABLE"] : ["UNAVAILABLE"],
+        positionCount: index === 0 ? 2 : index === 1 ? 0 : 2,
+        positionPerformanceStatuses:
+          index === 0 ? ["AVAILABLE"] : index === 1 ? [] : ["UNAVAILABLE"],
+      }),
+    );
+    const register = projectStrategyFleetPersistentInputGapRegister([
+      { ...coinbaseEngine, recentDecisionInputCoverage: snapshots },
+    ]);
+
+    expect(register.engines[0].categories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "HISTORY", state: "NEWLY_MISSING" }),
+        expect.objectContaining({ key: "LIQUIDITY", state: "INTERMITTENT" }),
+        expect.objectContaining({
+          key: "POSITION",
+          state: "CONTEXT_CHANGED",
+        }),
+      ]),
+    );
+
+    const resolved = projectStrategyFleetPersistentInputGapRegister([
+      {
+        ...coinbaseEngine,
+        recentDecisionInputCoverage: snapshots.map((snapshot, index) => ({
+          ...snapshot,
+          positionCount: 2,
+          positionPerformanceStatuses:
+            index === 0 ? ["AVAILABLE"] : ["UNAVAILABLE"],
+        })),
+      },
+    ]);
+    expect(resolved.engines[0].categories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "POSITION",
+          state: "CURRENTLY_RESOLVED",
+        }),
+      ]),
+    );
+  });
+
+  it("fails the persistent gap register closed on a short or mismatched window", () => {
+    const short = projectStrategyFleetPersistentInputGapRegister([
+      {
+        ...coinbaseEngine,
+        recentDecisionInputCoverage:
+          coinbaseEngine.recentDecisionInputCoverage!.slice(0, 1),
+      },
+    ]);
+    expect(short).toEqual(
+      expect.objectContaining({ status: "UNAVAILABLE", attributableCount: 0 }),
+    );
+
+    const mismatched = projectStrategyFleetPersistentInputGapRegister([
+      {
+        ...coinbaseEngine,
+        recentDecisionInputCoverage:
+          coinbaseEngine.recentDecisionInputCoverage!.map((snapshot, index) =>
+            index === 1
+              ? { ...snapshot, financialProvider: "schwab" }
+              : snapshot,
+          ),
+      },
+    ]);
+    expect(mismatched).toEqual(
+      expect.objectContaining({ status: "UNAVAILABLE", attributableCount: 0 }),
+    );
+    expect(mismatched.engines[0].categories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ state: "UNAVAILABLE", gapSampleCount: 0 }),
+      ]),
+    );
+  });
+
   it("proves complete immutable trails for abstentions and linked non-live outcomes", () => {
     const paperFill: StrategyFleetItem = {
       ...coinbaseEngine,
@@ -881,6 +1091,25 @@ describe("StrategyFleet", () => {
     expect(
       within(inputChangeLedger).getByRole("link", {
         name: /Compare immutable records/i,
+      }),
+    ).toHaveAttribute("href", "/activity");
+    const inputGapRegister = screen.getByRole("region", {
+      name: "1 active AI engine has a bounded input history.",
+    });
+    expect(inputGapRegister).toHaveTextContent("PERSISTENT AI INPUT GAPS");
+    expect(inputGapRegister).toHaveTextContent("Attributable engines1 / 1");
+    expect(inputGapRegister).toHaveTextContent("Persistent gaps2");
+    expect(inputGapRegister).toHaveTextContent("3 immutable decision samples");
+    expect(inputGapRegister).toHaveTextContent(
+      "Position performancePersistent",
+    );
+    expect(inputGapRegister).toHaveTextContent("gap samples 3/3");
+    expect(inputGapRegister).toHaveTextContent(
+      "they never explain or grade an AI conclusion",
+    );
+    expect(
+      within(inputGapRegister).getByRole("link", {
+        name: /Review immutable window/i,
       }),
     ).toHaveAttribute("href", "/activity");
     expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(2);

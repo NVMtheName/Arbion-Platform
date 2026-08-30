@@ -1,5 +1,32 @@
 import Link from "next/link";
 
+export type StrategyFleetDecisionInputCoverageSnapshot = {
+  decisionID?: string;
+  decisionAt?: string;
+  financialProvider?: string;
+  financialContextComplete?: boolean;
+  inputCoverageComplete?: boolean;
+  historyLiquidityEvidenceComplete?: boolean;
+  marketSymbols?: string[];
+  marketFeeds?: string[];
+  marketQualities?: string[];
+  marketObservedAt?: string;
+  historyStatuses?: string[];
+  historyFeeds?: string[];
+  historyQualities?: string[];
+  liquidityStatuses?: string[];
+  positionEvidenceComplete?: boolean;
+  positionCount?: number;
+  positionPerformanceStatuses?: string[];
+  marketEventEvidenceComplete?: boolean;
+  marketEventCoverageCount?: number;
+  marketEventCoverageStatuses?: string[];
+  marketEventProviders?: string[];
+  marketEventFeeds?: string[];
+  marketEventQualities?: string[];
+  marketEventCount?: number;
+};
+
 export type StrategyFleetItem = {
   id: string;
   strategyInstanceID?: string;
@@ -140,6 +167,7 @@ export type StrategyFleetItem = {
   priorDecisionMarketEventFeeds?: string[];
   priorDecisionMarketEventQualities?: string[];
   priorDecisionMarketEventCount?: number;
+  recentDecisionInputCoverage?: StrategyFleetDecisionInputCoverageSnapshot[];
   reconciliationAvailable?: boolean;
   reconciliationComparisonStatus?: string;
   reconciliationBalancesStatus?: string;
@@ -421,6 +449,48 @@ export type StrategyFleetInputCoverageChangeLedger = {
       change: StrategyFleetInputCoverageChange;
       priorEvidence: string;
       currentEvidence: string;
+    }>;
+  }>;
+};
+
+export type StrategyFleetPersistentInputGapState =
+  | "PERSISTENT"
+  | "INTERMITTENT"
+  | "NEWLY_MISSING"
+  | "CURRENTLY_RESOLVED"
+  | "CLEAR"
+  | "CONTEXT_CHANGED"
+  | "UNAVAILABLE";
+
+export type StrategyFleetPersistentInputGapRegister = {
+  status: "VERIFIED" | "UNAVAILABLE";
+  engineCount: number;
+  attributableCount: number;
+  persistentCount: number;
+  intermittentCount: number;
+  newlyMissingCount: number;
+  resolvedCount: number;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    financialProvider?: string;
+    attributable: boolean;
+    sampleCount: number;
+    windowStartedAt?: string;
+    windowEndedAt?: string;
+    followUp: string;
+    categories: Array<{
+      key: "HISTORY" | "LIQUIDITY" | "POSITION" | "EVENTS";
+      label: string;
+      state: StrategyFleetPersistentInputGapState;
+      currentStatus: StrategyFleetInputCoverageStatus;
+      sampleCount: number;
+      gapSampleCount: number;
+      firstGapAt?: string;
+      latestGapAt?: string;
     }>;
   }>;
 };
@@ -2084,6 +2154,189 @@ export function projectStrategyFleetInputCoverageChangeLedger(
   };
 }
 
+function snapshotInputCoverageItem(
+  item: StrategyFleetItem,
+  snapshot: StrategyFleetDecisionInputCoverageSnapshot,
+): StrategyFleetItem {
+  return {
+    ...item,
+    decisionAvailable: Boolean(snapshot.decisionID),
+    latestDecisionID: snapshot.decisionID,
+    latestDecisionAt: snapshot.decisionAt,
+    latestDecisionFinancialContextComplete: snapshot.financialContextComplete,
+    latestDecisionFinancialProvider: snapshot.financialProvider,
+    latestDecisionMarketSymbols: snapshot.marketSymbols,
+    latestDecisionMarketFeeds: snapshot.marketFeeds,
+    latestDecisionMarketQualities: snapshot.marketQualities,
+    latestDecisionMarketObservedAt: snapshot.marketObservedAt,
+    latestDecisionInputCoverageComplete: snapshot.inputCoverageComplete,
+    latestDecisionHistoryLiquidityEvidenceComplete:
+      snapshot.historyLiquidityEvidenceComplete,
+    latestDecisionHistoryStatuses: snapshot.historyStatuses,
+    latestDecisionHistoryFeeds: snapshot.historyFeeds,
+    latestDecisionHistoryQualities: snapshot.historyQualities,
+    latestDecisionLiquidityStatuses: snapshot.liquidityStatuses,
+    latestDecisionPositionEvidenceComplete: snapshot.positionEvidenceComplete,
+    latestDecisionPositionCount: snapshot.positionCount,
+    latestDecisionPositionPerformanceStatuses:
+      snapshot.positionPerformanceStatuses,
+    latestDecisionMarketEventEvidenceComplete:
+      snapshot.marketEventEvidenceComplete,
+    latestDecisionMarketEventCoverageCount: snapshot.marketEventCoverageCount,
+    latestDecisionMarketEventCoverageStatuses:
+      snapshot.marketEventCoverageStatuses,
+    latestDecisionMarketEventProviders: snapshot.marketEventProviders,
+    latestDecisionMarketEventFeeds: snapshot.marketEventFeeds,
+    latestDecisionMarketEventQualities: snapshot.marketEventQualities,
+    latestDecisionMarketEventCount: snapshot.marketEventCount,
+  };
+}
+
+function persistentInputGapState(
+  statuses: StrategyFleetInputCoverageStatus[],
+  attributable: boolean,
+): StrategyFleetPersistentInputGapState {
+  if (!attributable || statuses.length < 2) return "UNAVAILABLE";
+  const current = statuses[0];
+  const older = statuses.slice(1);
+  if (statuses.every((status) => status === "NOT_APPLICABLE")) return "CLEAR";
+  if (statuses.some((status) => status === "NOT_APPLICABLE"))
+    return "CONTEXT_CHANGED";
+  const isGap = (status: StrategyFleetInputCoverageStatus) =>
+    status === "PARTIAL" || status === "UNAVAILABLE";
+  if (!isGap(current))
+    return older.some(isGap) ? "CURRENTLY_RESOLVED" : "CLEAR";
+  if (statuses.every(isGap)) return "PERSISTENT";
+  if (!older.some(isGap)) return "NEWLY_MISSING";
+  return "INTERMITTENT";
+}
+
+export function projectStrategyFleetPersistentInputGapRegister(
+  items: StrategyFleetItem[],
+): StrategyFleetPersistentInputGapRegister {
+  const active = items.filter(
+    (item) => isAI(item) && item.instanceStatus === "ACTIVE",
+  );
+  const trackedKeys = ["HISTORY", "LIQUIDITY", "POSITION", "EVENTS"] as const;
+  const engines = active.map((item) => {
+    const snapshots = [...(item.recentDecisionInputCoverage ?? [])]
+      .slice(0, 6)
+      .sort(
+        (left, right) =>
+          new Date(right.decisionAt ?? "").valueOf() -
+          new Date(left.decisionAt ?? "").valueOf(),
+      );
+    const projections = snapshots.map(
+      (snapshot) =>
+        projectStrategyFleetInputCoverageMatrix([
+          snapshotInputCoverageItem(item, snapshot),
+        ]).engines[0],
+    );
+    const decisionIDs = snapshots
+      .map((snapshot) => snapshot.decisionID)
+      .filter((value): value is string => Boolean(value));
+    const decisionTimes = snapshots
+      .map((snapshot) => snapshot.decisionAt)
+      .filter((value): value is string => Boolean(value));
+    const attributable = Boolean(
+      snapshots.length >= 2 &&
+        decisionIDs.length === snapshots.length &&
+        new Set(decisionIDs).size === snapshots.length &&
+        decisionTimes.length === snapshots.length &&
+        new Set(decisionTimes).size === snapshots.length &&
+        decisionTimes.every((value) => exactDecisionInstant(value)) &&
+        projections.every(
+          (projection) =>
+            projection?.attributable &&
+            projection.financialProvider === item.provider,
+        ),
+    );
+    const categories = trackedKeys.map((key) => {
+      const observations = projections.map((projection, index) => ({
+        status:
+          projection?.categories.find((category) => category.key === key)
+            ?.status ?? ("UNAVAILABLE" as const),
+        decisionAt: snapshots[index]?.decisionAt,
+      }));
+      const gapObservations = observations.filter(
+        (observation) =>
+          observation.status === "PARTIAL" ||
+          observation.status === "UNAVAILABLE",
+      );
+      const label =
+        projections[0]?.categories.find((category) => category.key === key)
+          ?.label ?? readable(key);
+      return {
+        key,
+        label,
+        state: persistentInputGapState(
+          observations.map((observation) => observation.status),
+          attributable,
+        ),
+        currentStatus: observations[0]?.status ?? ("UNAVAILABLE" as const),
+        sampleCount: snapshots.length,
+        gapSampleCount: attributable ? gapObservations.length : 0,
+        firstGapAt: attributable
+          ? gapObservations[gapObservations.length - 1]?.decisionAt
+          : undefined,
+        latestGapAt: attributable ? gapObservations[0]?.decisionAt : undefined,
+      };
+    });
+    const hasCurrentGap = categories.some((category) =>
+      ["PERSISTENT", "INTERMITTENT", "NEWLY_MISSING"].includes(category.state),
+    );
+    const hasContextChange = categories.some(
+      (category) => category.state === "CONTEXT_CHANGED",
+    );
+    const followUp = !attributable
+      ? "Review the saved decision window before relying on this register. Arbion will not rerun the model or refresh a provider to fill the gap."
+      : hasCurrentGap
+        ? "Review the linked immutable records for the registered gaps. The next guarded cycle remains automatic; no live action is available."
+        : hasContextChange
+          ? "Review the saved position-context change without treating it as an input improvement or regression."
+          : "No owner action is required. No current repeated input gap needs intervention, and the next guarded cycle remains automatic.";
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      financialProvider: snapshots[0]?.financialProvider,
+      attributable,
+      sampleCount: snapshots.length,
+      windowStartedAt: snapshots[snapshots.length - 1]?.decisionAt,
+      windowEndedAt: snapshots[0]?.decisionAt,
+      followUp,
+      categories,
+    };
+  });
+  const categories = engines.flatMap((engine) => engine.categories);
+  const attributableCount = engines.filter(
+    (engine) => engine.attributable,
+  ).length;
+  return {
+    status:
+      engines.length > 0 && attributableCount === engines.length
+        ? "VERIFIED"
+        : "UNAVAILABLE",
+    engineCount: engines.length,
+    attributableCount,
+    persistentCount: categories.filter(
+      (category) => category.state === "PERSISTENT",
+    ).length,
+    intermittentCount: categories.filter(
+      (category) => category.state === "INTERMITTENT",
+    ).length,
+    newlyMissingCount: categories.filter(
+      (category) => category.state === "NEWLY_MISSING",
+    ).length,
+    resolvedCount: categories.filter(
+      (category) => category.state === "CURRENTLY_RESOLVED",
+    ).length,
+    engines,
+  };
+}
+
 function healthClass(item: StrategyFleetItem) {
   if (needsReview(item)) return "needs-review";
   return item.instanceStatus === "ACTIVE" ? "healthy" : "neutral";
@@ -2780,6 +3033,142 @@ function StrategyFleetInputCoverageChangeLedgerView({
       <footer>
         Evidence coverage only · no causal claim · no model rerun · no provider
         refresh · no broker order · no live path
+      </footer>
+    </section>
+  );
+}
+
+function persistentInputGapStateLabel(
+  state: StrategyFleetPersistentInputGapState,
+) {
+  if (state === "NEWLY_MISSING") return "Newly missing";
+  if (state === "CURRENTLY_RESOLVED") return "Currently resolved";
+  if (state === "CONTEXT_CHANGED") return "Context changed";
+  return readable(state);
+}
+
+function StrategyFleetPersistentInputGapRegisterView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const register = projectStrategyFleetPersistentInputGapRegister(items);
+  if (register.engineCount === 0) return null;
+  const verified = register.status === "VERIFIED";
+  return (
+    <section
+      className={`strategy-fleet-input-gaps ${verified ? "is-verified" : "needs-review"}`}
+      aria-labelledby="strategy-fleet-input-gaps-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">PERSISTENT AI INPUT GAPS</p>
+          <h2 id="strategy-fleet-input-gaps-heading">
+            {verified
+              ? `${register.attributableCount} active AI ${register.attributableCount === 1 ? "engine has" : "engines have"} a bounded input history.`
+              : "An AI input history is not yet fully attributable."}
+          </h2>
+          <p>
+            Track repeated gaps across up to six recent immutable decisions per
+            engine. Persistent, intermittent, and resolved describe saved
+            evidence only—they never explain or grade an AI conclusion.
+          </p>
+        </div>
+        <span>{verified ? "Bounded saved history" : "Review evidence"}</span>
+      </header>
+      <dl className="strategy-fleet-input-gaps-summary">
+        <div>
+          <dt>Attributable engines</dt>
+          <dd>
+            {register.attributableCount} / {register.engineCount}
+          </dd>
+        </div>
+        <div>
+          <dt>Persistent gaps</dt>
+          <dd>{register.persistentCount}</dd>
+        </div>
+        <div>
+          <dt>Intermittent + new</dt>
+          <dd>{register.intermittentCount + register.newlyMissingCount}</dd>
+        </div>
+        <div>
+          <dt>Currently resolved</dt>
+          <dd>{register.resolvedCount}</dd>
+        </div>
+      </dl>
+      <ol className="strategy-fleet-input-gaps-list">
+        {register.engines.map((engine) => (
+          <li
+            className={engine.attributable ? "is-verified" : "needs-review"}
+            key={engine.id}
+          >
+            <header>
+              <div>
+                <span
+                  className={`provider-mark provider-${engine.provider}`}
+                  aria-hidden="true"
+                >
+                  {providerInitial(engine.provider)}
+                </span>
+                <p>
+                  <small>
+                    {engine.accountName} · {readable(engine.executionMode)}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </p>
+              </div>
+              <span>{engine.attributable ? "Attributed" : "Unavailable"}</span>
+            </header>
+            <div className="strategy-fleet-input-gaps-window">
+              <strong>
+                {engine.financialProvider
+                  ? providerLabel(engine.financialProvider)
+                  : "Provider unavailable"}
+              </strong>
+              <span>{engine.sampleCount} immutable decision samples</span>
+              <time dateTime={engine.windowStartedAt}>
+                {readableTime(engine.windowStartedAt)} →{" "}
+                {readableTime(engine.windowEndedAt)}
+              </time>
+            </div>
+            <dl>
+              {engine.categories.map((category) => (
+                <div
+                  className={`is-${category.state.toLowerCase().replaceAll("_", "-")}`}
+                  key={category.key}
+                >
+                  <dt>
+                    <span>{category.label}</span>
+                    <strong>
+                      {persistentInputGapStateLabel(category.state)}
+                    </strong>
+                  </dt>
+                  <dd>
+                    Current: {inputCoverageStatusLabel(category.currentStatus)}
+                    {engine.attributable &&
+                      ` · gap samples ${category.gapSampleCount}/${category.sampleCount}`}
+                  </dd>
+                  <small>
+                    {category.gapSampleCount > 0
+                      ? `First saved gap ${readableTime(category.firstGapAt)} · latest saved gap ${readableTime(category.latestGapAt)}`
+                      : category.state === "CONTEXT_CHANGED"
+                        ? "The saved position context changed inside this window."
+                        : "No exact gap observation is registered in this window."}
+                  </small>
+                </div>
+              ))}
+            </dl>
+            <footer>
+              <span>{engine.followUp}</span>
+              <Link href="/activity">Review immutable window →</Link>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Up to six owner-scoped saved decisions per engine · no inferred values ·
+        no causal claim · no model rerun · no provider refresh · no broker order
+        · no live path
       </footer>
     </section>
   );
@@ -3999,6 +4388,10 @@ export function StrategyFleet({
 
       {inventoryAvailable && (
         <StrategyFleetInputCoverageChangeLedgerView items={items} />
+      )}
+
+      {inventoryAvailable && (
+        <StrategyFleetPersistentInputGapRegisterView items={items} />
       )}
 
       {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}
