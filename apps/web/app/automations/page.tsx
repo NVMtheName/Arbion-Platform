@@ -3,11 +3,17 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../app-page-header";
+import { compareExactDecimals, subtractExactDecimals } from "../exact-money";
 import {
   capitalReservationMatchesPolicy,
   paperCapitalReservationMatchesPolicy,
 } from "./capital-authority";
 import { asList } from "./response";
+import {
+  calculatePaperPerformance,
+  extractLatestPaperMarketSnapshots,
+} from "./paper-performance";
+import type { PaperPortfolio, PaperPosition } from "./paper-portfolio-summary";
 import {
   projectPinnedAIRuntime,
   scheduleMatchesPinnedAIRuntime,
@@ -81,6 +87,99 @@ function record(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as RecordValue)
     : undefined;
+}
+
+function exactDecimal(value: unknown) {
+  return typeof value === "string" &&
+    /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value)
+    ? value
+    : undefined;
+}
+
+function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
+  const portfolio = record(value);
+  const rawPositions = portfolio?.positions ?? portfolio?.Positions;
+  const currency = text(portfolio, "currency", "Currency");
+  const startingCash = exactDecimal(
+    portfolio?.starting_cash ?? portfolio?.StartingCash,
+  );
+  const cash = exactDecimal(portfolio?.cash ?? portfolio?.Cash);
+  const version = number(portfolio, "version", "Version");
+  const updatedAt = text(portfolio, "updated_at", "UpdatedAt");
+  const strategyInstanceID = text(
+    portfolio,
+    "strategy_instance_id",
+    "StrategyInstanceID",
+  );
+  if (
+    !currency ||
+    !startingCash ||
+    !cash ||
+    compareExactDecimals(startingCash, "0") !== 1 ||
+    (compareExactDecimals(cash, "0") ?? -1) < 0 ||
+    version === undefined ||
+    !updatedAt ||
+    Number.isNaN(Date.parse(updatedAt)) ||
+    !strategyInstanceID ||
+    !Array.isArray(rawPositions)
+  )
+    return;
+  const positions: PaperPosition[] = [];
+  for (const rawPosition of rawPositions) {
+    const position = record(rawPosition);
+    const symbol = text(position, "symbol", "Symbol");
+    const instrument = text(position, "instrument", "Instrument");
+    const quantity = exactDecimal(position?.quantity ?? position?.Quantity);
+    const averagePrice = exactDecimal(
+      position?.average_price ?? position?.AveragePrice,
+    );
+    const isOpen = flag(position, "is_open", "IsOpen");
+    const positionUpdatedAt = text(position, "updated_at", "UpdatedAt");
+    if (
+      !symbol ||
+      !["EQUITY", "OPTION", "CRYPTO"].includes(instrument ?? "") ||
+      !quantity ||
+      !averagePrice ||
+      isOpen === undefined ||
+      !positionUpdatedAt ||
+      Number.isNaN(Date.parse(positionUpdatedAt))
+    )
+      return;
+    const optionType = text(position, "option_type", "OptionType");
+    if (optionType && optionType !== "PUT" && optionType !== "CALL") return;
+    positions.push({
+      symbol,
+      instrument: instrument as PaperPosition["instrument"],
+      option_type: optionType as PaperPosition["option_type"],
+      strike: exactDecimal(position?.strike ?? position?.Strike),
+      expiration: text(position, "expiration", "Expiration"),
+      quantity,
+      average_price: averagePrice,
+      is_open: isOpen,
+      updated_at: positionUpdatedAt,
+    });
+  }
+  return {
+    strategy_instance_id: strategyInstanceID,
+    currency,
+    starting_cash: startingCash,
+    cash,
+    version,
+    positions,
+    updated_at: updatedAt,
+  };
+}
+
+function minimumExactDecimals(values: Array<string | undefined>) {
+  const present = values.filter((value): value is string => Boolean(value));
+  if (present.length !== values.length || present.length === 0) return;
+  let minimum = present[0];
+  for (const value of present.slice(1)) {
+    const comparison = compareExactDecimals(value, minimum);
+    if (comparison === undefined) return;
+    if (comparison < 0) minimum = value;
+  }
+  return minimum;
 }
 
 function uniqueStrings(values: Array<string | undefined>) {
@@ -480,6 +579,7 @@ async function fleetItem(
     scheduleHistoryResult,
     scorecardResult,
     decisionResult,
+    paperPortfolioResult,
     reconciliationResult,
   ] = await Promise.all([
     expectsPinnedRuntime
@@ -514,6 +614,12 @@ async function fleetItem(
           headers,
         )
       : Promise.resolve({ available: true as const, payload: undefined }),
+    expectsOperationalData && runtimeExecutionMode === "PAPER"
+      ? fetchOptional<{ paper_portfolio?: RecordValue }>(
+          `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/paper-portfolio`,
+          headers,
+        )
+      : Promise.resolve({ available: true as const, payload: undefined }),
     expectsReconciliation && accountID
       ? fetchOptional<ReconciliationEnvelope>(
           `${base}/api/accounts/${encodeURIComponent(accountID)}/reconciliations/latest`,
@@ -528,6 +634,7 @@ async function fleetItem(
       scheduleHistoryResult,
       scorecardResult,
       decisionResult,
+      paperPortfolioResult,
       reconciliationResult,
     ].some((result) => "status" in result && result.status === 401)
   )
@@ -643,6 +750,51 @@ async function fleetItem(
       : [];
   const decisionRationale = latestDecisionProvenance.rationale;
   const priorDecisionRationale = priorDecisionProvenance.rationale;
+  const paperPortfolio =
+    runtimeExecutionMode === "PAPER"
+      ? normalizedPaperPortfolio(paperPortfolioResult.payload?.paper_portfolio)
+      : undefined;
+  const paperPortfolioAvailable =
+    expectsOperationalData &&
+    runtimeExecutionMode === "PAPER" &&
+    paperPortfolioResult.available &&
+    Boolean(paperPortfolio);
+  const paperPerformance = paperPortfolio
+    ? calculatePaperPerformance(
+        paperPortfolio,
+        extractLatestPaperMarketSnapshots(aiDecisions),
+      )
+    : undefined;
+  const riskParameters = record(
+    displayConfiguration?.risk_parameters ??
+      displayConfiguration?.RiskParameters,
+  );
+  const paperCashReserve = exactDecimal(
+    riskParameters?.minimum_cash_reserve ?? riskParameters?.MinimumCashReserve,
+  );
+  const paperExposureCeiling = exactDecimal(
+    riskParameters?.max_capital_deployed ?? riskParameters?.MaxCapitalDeployed,
+  );
+  const paperSymbolCeiling = exactDecimal(
+    riskParameters?.max_single_position_amount ??
+      riskParameters?.MaxSinglePositionAmount,
+  );
+  const paperCashHeadroom =
+    paperPortfolio?.cash && paperCashReserve
+      ? subtractExactDecimals(paperPortfolio.cash, paperCashReserve)
+      : undefined;
+  const paperExposureHeadroom =
+    paperExposureCeiling && paperPerformance?.investedExposure
+      ? subtractExactDecimals(
+          paperExposureCeiling,
+          paperPerformance.investedExposure,
+        )
+      : undefined;
+  const paperProposalHeadroom = minimumExactDecimals([
+    paperCashHeadroom,
+    paperExposureHeadroom,
+    runtimeContract?.maxProposalNotional,
+  ]);
   const reconciliation = reconciliationResult.payload?.reconciliation;
   const reconciliationObservedAt = text(
     reconciliation,
@@ -808,6 +960,29 @@ async function fleetItem(
       "current_evidence_reviewed",
       "CurrentEvidenceReviewed",
     ),
+    paperPortfolioAvailable:
+      runtimeExecutionMode === "PAPER" ? paperPortfolioAvailable : undefined,
+    paperPerformanceStatus: paperPerformance?.status,
+    paperCurrency: paperPortfolio?.currency,
+    paperStartingCash: paperPortfolio?.starting_cash,
+    paperCash: paperPortfolio?.cash,
+    paperSimulatedEquity: paperPerformance?.simulatedEquity,
+    paperInvestedExposure: paperPerformance?.investedExposure,
+    paperTotalProfitLoss: paperPerformance?.totalProfitLoss,
+    paperTotalReturnPercent: paperPerformance?.totalReturnPercent,
+    paperValuedAt: paperPerformance?.valuedAt,
+    paperCashReserve,
+    paperCashHeadroom,
+    paperExposureCeiling,
+    paperExposureHeadroom,
+    paperSymbolCeiling,
+    paperProposalHeadroom,
+    paperPositionOutcomes: paperPerformance?.positions.map((position) => ({
+      symbol: position.symbol,
+      marketValue: position.marketValue,
+      unrealizedProfitLoss: position.unrealizedProfitLoss,
+      unrealizedProfitLossPercent: position.unrealizedProfitLossPercent,
+    })),
     decisionAvailable: expectsDecisionEvidence ? decisionAvailable : undefined,
     latestDecisionID: text(latestAIDecision, "id", "ID"),
     latestDecisionType: text(latestAIDecision, "decision_type", "DecisionType"),
