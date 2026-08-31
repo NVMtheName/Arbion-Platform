@@ -95,6 +95,35 @@ export type PaperExecutionSideCost = {
   fill_count: number;
 };
 
+export type PaperExecutionCheckpoint = {
+  sequence: number;
+  fill_id: string;
+  execution_record_id: string;
+  proposed_action_id: string;
+  risk_evaluation_id: string;
+  symbol: string;
+  instrument: "EQUITY" | "CRYPTO";
+  side: "BUY" | "SELL";
+  fee: string;
+  adverse_slippage: string;
+  explicit_cost: string;
+  provider_reference_notional: string;
+  gross_notional: string;
+  fill_notional_residual: string;
+  cumulative_fees: string;
+  cumulative_adverse_slippage: string;
+  cumulative_explicit_cost: string;
+  cumulative_provider_reference_notional: string;
+  cumulative_gross_notional: string;
+  cumulative_all_in_cost_rate_bps: string;
+  cumulative_rate_change: "FIRST" | "ROSE" | "FELL" | "HELD";
+  market_provider: string;
+  market_feed: string;
+  market_quality: string;
+  market_observed_at: string;
+  simulated_at: string;
+};
+
 export type PaperExecutionCosts = {
   status: "AVAILABLE" | "NO_FILLS" | "UNAVAILABLE";
   calculation_method?: "SAVED_REFERENCE_VERSUS_SIMULATED_FILL";
@@ -118,6 +147,9 @@ export type PaperExecutionCosts = {
   market_qualities: string[];
   sides: PaperExecutionSideCost[];
   symbols: PaperExecutionSymbolCost[];
+  timeline_sample_count: number;
+  timeline_capped: boolean;
+  timeline: PaperExecutionCheckpoint[];
 };
 
 export type PaperPortfolio = {
@@ -322,6 +354,9 @@ export function PaperPortfolioSummary({
   const executionCostSides = Array.isArray(executionCosts?.sides)
     ? executionCosts.sides
     : [];
+  const executionCostTimeline = Array.isArray(executionCosts?.timeline)
+    ? executionCosts.timeline
+    : [];
   const sumExecutionValues = (values: string[]) =>
     values.length === 0
       ? "0"
@@ -413,6 +448,12 @@ export function PaperPortfolioSummary({
       Array.isArray(executionCosts.market_qualities) &&
       Array.isArray(executionCosts.sides) &&
       Array.isArray(executionCosts.symbols) &&
+      Array.isArray(executionCosts.timeline) &&
+      Number.isSafeInteger(executionCosts.timeline_sample_count) &&
+      executionCosts.timeline_sample_count === executionCosts.fill_count &&
+      executionCosts.timeline_capped === executionCosts.fill_count > 12 &&
+      executionCostTimeline.length ===
+        Math.min(executionCosts.fill_count, 12) &&
       isExactDecimal(executionCosts.total_fees) &&
       isExactDecimal(executionCosts.total_adverse_slippage) &&
       isExactDecimal(executionCosts.total_explicit_cost) &&
@@ -468,6 +509,59 @@ export function PaperPortfolioSummary({
         executionCostSides.length &&
       executionCostSides.reduce((count, side) => count + side.fill_count, 0) ===
         executionCosts.fill_count &&
+      executionCostTimeline.every(
+        (checkpoint, index) =>
+          checkpoint.sequence >= 1 &&
+          Boolean(
+            checkpoint.fill_id &&
+              checkpoint.execution_record_id &&
+              checkpoint.proposed_action_id &&
+              checkpoint.risk_evaluation_id &&
+              checkpoint.symbol &&
+              checkpoint.market_provider &&
+              checkpoint.market_feed &&
+              checkpoint.market_quality,
+          ) &&
+          ["EQUITY", "CRYPTO"].includes(checkpoint.instrument) &&
+          ["BUY", "SELL"].includes(checkpoint.side) &&
+          ["FIRST", "ROSE", "FELL", "HELD"].includes(
+            checkpoint.cumulative_rate_change,
+          ) &&
+          isExactDecimal(checkpoint.fee) &&
+          isExactDecimal(checkpoint.adverse_slippage) &&
+          isExactDecimal(checkpoint.explicit_cost) &&
+          isExactDecimal(checkpoint.provider_reference_notional) &&
+          isExactDecimal(checkpoint.gross_notional) &&
+          isExactDecimal(checkpoint.fill_notional_residual) &&
+          isExactDecimal(checkpoint.cumulative_fees) &&
+          isExactDecimal(checkpoint.cumulative_adverse_slippage) &&
+          isExactDecimal(checkpoint.cumulative_explicit_cost) &&
+          isExactDecimal(checkpoint.cumulative_provider_reference_notional) &&
+          isExactDecimal(checkpoint.cumulative_gross_notional) &&
+          isExactDecimal(checkpoint.cumulative_all_in_cost_rate_bps) &&
+          !Number.isNaN(Date.parse(checkpoint.market_observed_at)) &&
+          !Number.isNaN(Date.parse(checkpoint.simulated_at)) &&
+          (index === 0 ||
+            checkpoint.sequence ===
+              executionCostTimeline[index - 1].sequence + 1),
+      ) &&
+      new Set(executionCostTimeline.map((checkpoint) => checkpoint.fill_id))
+        .size === executionCostTimeline.length &&
+      (executionCosts.fill_count === 0 ||
+        (executionCostTimeline.at(-1)?.sequence === executionCosts.fill_count &&
+          compareExactDecimals(
+            executionCostTimeline.at(-1)!.cumulative_explicit_cost,
+            executionCosts.total_explicit_cost!,
+          ) === 0 &&
+          compareExactDecimals(
+            executionCostTimeline.at(-1)!
+              .cumulative_provider_reference_notional,
+            executionCosts.provider_reference_notional!,
+          ) === 0 &&
+          compareExactDecimals(
+            executionCostTimeline.at(-1)!.cumulative_all_in_cost_rate_bps,
+            executionCosts.all_in_cost_rate_bps!,
+          ) === 0)) &&
       executionCostSymbols.every(
         (symbol) =>
           Boolean(symbol.symbol) &&
@@ -915,6 +1009,115 @@ export function PaperPortfolioSummary({
                 $0.
               </p>
             )}
+            {executionCosts!.timeline.length > 0 ? (
+              <details
+                className="paper-fill-ledger"
+                aria-label="Immutable Paper cost and turnover timeline"
+              >
+                <summary className="paper-performance-header">
+                  <span>
+                    <strong>Cost + turnover change timeline</strong>
+                    <small>
+                      Latest {executionCosts!.timeline.length} of{" "}
+                      {executionCosts!.timeline_sample_count} exact checkpoints
+                    </small>
+                  </span>
+                  <span>
+                    {executionCosts!.timeline.at(-1)!.cumulative_rate_change ===
+                    "FIRST"
+                      ? "First saved rate"
+                      : `${executionCosts!.timeline.at(-1)!.cumulative_rate_change.toLowerCase()} vs prior`}
+                  </span>
+                </summary>
+                <div className="paper-position-table-wrap">
+                  <table
+                    className="paper-position-table"
+                    aria-label="Exact Paper cost and turnover checkpoints"
+                  >
+                    <thead>
+                      <tr>
+                        <th>Time / action</th>
+                        <th>Fill cost</th>
+                        <th>Cumulative turnover</th>
+                        <th>Cumulative cost / rate</th>
+                        <th>Saved evidence</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {executionCosts!.timeline.map((checkpoint) => (
+                        <tr key={checkpoint.fill_id}>
+                          <td>
+                            {new Date(checkpoint.simulated_at).toLocaleString()}
+                            <br />
+                            {checkpoint.side === "SELL" ? "SALE" : "BUY"}{" "}
+                            {checkpoint.symbol}
+                          </td>
+                          <td>
+                            {money(
+                              checkpoint.explicit_cost,
+                              portfolio.currency,
+                            )}
+                            <br />
+                            <small>
+                              {money(checkpoint.fee, portfolio.currency)} fees +{" "}
+                              {money(
+                                checkpoint.adverse_slippage,
+                                portfolio.currency,
+                              )}{" "}
+                              slippage
+                            </small>
+                          </td>
+                          <td>
+                            {money(
+                              checkpoint.cumulative_provider_reference_notional,
+                              portfolio.currency,
+                            )}
+                          </td>
+                          <td>
+                            {money(
+                              checkpoint.cumulative_explicit_cost,
+                              portfolio.currency,
+                            )}{" "}
+                            ·{" "}
+                            {formatExactDecimal(
+                              checkpoint.cumulative_all_in_cost_rate_bps,
+                              { maximumFractionDigits: 4, suffix: " bps" },
+                            )}
+                            <br />
+                            <small>
+                              {checkpoint.cumulative_rate_change === "FIRST"
+                                ? "First saved rate"
+                                : `${checkpoint.cumulative_rate_change.toLowerCase()} vs prior checkpoint`}
+                            </small>
+                          </td>
+                          <td>
+                            <a href={`#paper-fill-${checkpoint.fill_id}`}>
+                              Fill #{checkpoint.sequence}
+                            </a>{" "}
+                            · <a href="#decision-journal">decision</a> ·{" "}
+                            <a href="#runtime-evidence">risk</a>
+                            <br />
+                            <small>
+                              {checkpoint.market_provider} ·{" "}
+                              {checkpoint.market_feed} ·{" "}
+                              {checkpoint.market_quality}
+                            </small>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="paper-market-source">
+                  {executionCosts!.timeline_capped
+                    ? `Showing the latest ${executionCosts!.timeline.length} of ${executionCosts!.timeline_sample_count} immutable checkpoints; cumulative values still replay every fill from portfolio genesis.`
+                    : `Showing all ${executionCosts!.timeline_sample_count} immutable checkpoints from portfolio genesis.`}{" "}
+                  Rate direction compares saved cumulative cost rates only. It
+                  does not establish performance, decision quality, or
+                  causality.
+                </p>
+              </details>
+            ) : null}
             <p className="paper-market-source">
               Exact immutable simulation evidence from portfolio genesis. Fees
               and adverse slippage versus each saved provider reference stay
@@ -1255,7 +1458,7 @@ export function PaperPortfolioSummary({
               </thead>
               <tbody>
                 {fills.map((fill) => (
-                  <tr key={fill.id}>
+                  <tr key={fill.id} id={`paper-fill-${fill.id}`}>
                     <td>{new Date(fill.simulated_at).toLocaleString()}</td>
                     <td>
                       {fill.side} {fill.symbol}

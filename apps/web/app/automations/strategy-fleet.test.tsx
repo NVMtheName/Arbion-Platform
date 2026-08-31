@@ -2531,6 +2531,67 @@ describe("StrategyFleet", () => {
             paperExecutionMarketProviders: ["coinbase"],
             paperExecutionMarketFeeds: ["rest_ticker"],
             paperExecutionMarketQualities: ["REAL_TIME_SINGLE_VENUE"],
+            paperExecutionTimelineSampleCount: 3,
+            paperExecutionTimelineCapped: false,
+            paperExecutionTimeline: [
+              {
+                sequence: 1,
+                fillID: "fill-first",
+                symbol: "BTC",
+                side: "BUY",
+                explicitCost: "1.2500000000",
+                fee: "1.0000000000",
+                adverseSlippage: "0.2500000000",
+                providerReferenceNotional: "100.0000000000",
+                cumulativeExplicitCost: "1.2500000000",
+                cumulativeProviderReferenceNotional: "100.0000000000",
+                cumulativeAllInCostRateBPS: "125.0000000000",
+                cumulativeRateChange: "FIRST",
+                marketProvider: "coinbase",
+                marketFeed: "rest_ticker",
+                marketQuality: "REAL_TIME_SINGLE_VENUE",
+                marketObservedAt: "2026-08-30T12:59:59Z",
+                simulatedAt: "2026-08-30T13:00:00Z",
+              },
+              {
+                sequence: 2,
+                fillID: "fill-prior",
+                symbol: "BTC",
+                side: "BUY",
+                explicitCost: "1.2500000000",
+                fee: "1.0000000000",
+                adverseSlippage: "0.2500000000",
+                providerReferenceNotional: "100.0000000000",
+                cumulativeExplicitCost: "2.5000000000",
+                cumulativeProviderReferenceNotional: "200.0000000000",
+                cumulativeAllInCostRateBPS: "125.0000000000",
+                cumulativeRateChange: "HELD",
+                marketProvider: "coinbase",
+                marketFeed: "rest_ticker",
+                marketQuality: "REAL_TIME_SINGLE_VENUE",
+                marketObservedAt: "2026-08-30T13:59:59Z",
+                simulatedAt: "2026-08-30T14:00:00Z",
+              },
+              {
+                sequence: 3,
+                fillID: "fill-current",
+                symbol: "BTC",
+                side: "SELL",
+                explicitCost: "1.1000000000",
+                fee: "0.8500000000",
+                adverseSlippage: "0.2500000000",
+                providerReferenceNotional: "100.0000000000",
+                cumulativeExplicitCost: "3.6000000000",
+                cumulativeProviderReferenceNotional: "300.0000000000",
+                cumulativeAllInCostRateBPS: "120.0000000000",
+                cumulativeRateChange: "FELL",
+                marketProvider: "coinbase",
+                marketFeed: "rest_ticker",
+                marketQuality: "REAL_TIME_SINGLE_VENUE",
+                marketObservedAt: "2026-08-30T14:59:59Z",
+                simulatedAt: "2026-08-30T15:00:00Z",
+              },
+            ],
             paperExecutionSideCosts: [
               {
                 side: "BUY",
@@ -2642,6 +2703,21 @@ describe("StrategyFleet", () => {
     expect(
       within(executionCosts).getByText(/not broker-reported costs/i),
     ).toBeInTheDocument();
+    const costTimeline = within(executionCosts).getByLabelText(
+      /AI Paper Engine immutable Paper cost and turnover timeline/i,
+    );
+    expect(
+      within(costTimeline).getByText(/fell vs prior/i),
+    ).toBeInTheDocument();
+    expect(
+      within(costTimeline).getByRole("link", {
+        name: /Fill #3/i,
+        hidden: true,
+      }),
+    ).toHaveAttribute(
+      "href",
+      "/automations/ai-mandate#paper-fill-fill-current",
+    );
     const reconciliation = screen.getByRole("region", {
       name: /AI Paper Engine exact Paper outcome reconciliation/i,
       hidden: true,

@@ -22,6 +22,7 @@ import {
 import { reconcilePaperOutcome } from "./paper-outcome-reconciliation";
 import type {
   PaperExecutionCosts,
+  PaperExecutionCheckpoint,
   PaperExecutionSideCost,
   PaperExecutionSymbolCost,
   PaperPortfolio,
@@ -97,6 +98,11 @@ function normalizedPaperExecutionCosts(
   );
   const rawSides = costs?.sides ?? costs?.Sides;
   const rawSymbols = costs?.symbols ?? costs?.Symbols;
+  const rawTimeline = costs?.timeline ?? costs?.Timeline;
+  const timelineSampleCount = nonnegativeInteger(
+    costs?.timeline_sample_count ?? costs?.TimelineSampleCount,
+  );
+  const timelineCappedValue = costs?.timeline_capped ?? costs?.TimelineCapped;
   const marketProviders = stringList(
     costs?.market_providers ?? costs?.MarketProviders,
   );
@@ -111,11 +117,21 @@ function normalizedPaperExecutionCosts(
     sellFillCount === undefined ||
     buyFillCount + sellFillCount !== fillCount ||
     !Array.isArray(rawSides) ||
-    !Array.isArray(rawSymbols)
+    !Array.isArray(rawSymbols) ||
+    !Array.isArray(rawTimeline) ||
+    timelineSampleCount === undefined ||
+    typeof timelineCappedValue !== "boolean"
   )
     return;
   if (status === "UNAVAILABLE") {
-    if (rawSides.length !== 0 || rawSymbols.length !== 0) return;
+    if (
+      rawSides.length !== 0 ||
+      rawSymbols.length !== 0 ||
+      rawTimeline.length !== 0 ||
+      timelineSampleCount !== 0 ||
+      timelineCappedValue
+    )
+      return;
     return {
       status: "UNAVAILABLE",
       fill_count: fillCount,
@@ -126,6 +142,9 @@ function normalizedPaperExecutionCosts(
       market_qualities: marketQualities,
       sides: [],
       symbols: [],
+      timeline_sample_count: 0,
+      timeline_capped: false,
+      timeline: [],
     };
   }
   const calculationMethod = text(
@@ -382,7 +401,264 @@ function normalizedPaperExecutionCosts(
       sell_fill_count: symbolSellCount,
     });
   }
+  const timeline: PaperExecutionCheckpoint[] = [];
+  const seenTimelineIDs = new Set<string>();
+  for (const rawCheckpoint of rawTimeline) {
+    const checkpoint = record(rawCheckpoint);
+    const sequence = nonnegativeInteger(
+      checkpoint?.sequence ?? checkpoint?.Sequence,
+    );
+    const fillID = text(checkpoint, "fill_id", "FillID");
+    const executionRecordID = text(
+      checkpoint,
+      "execution_record_id",
+      "ExecutionRecordID",
+    );
+    const proposedActionID = text(
+      checkpoint,
+      "proposed_action_id",
+      "ProposedActionID",
+    );
+    const riskEvaluationID = text(
+      checkpoint,
+      "risk_evaluation_id",
+      "RiskEvaluationID",
+    );
+    const symbol = text(checkpoint, "symbol", "Symbol");
+    const instrument = text(checkpoint, "instrument", "Instrument");
+    const side = text(checkpoint, "side", "Side");
+    const fee = exactDecimal(checkpoint?.fee ?? checkpoint?.Fee);
+    const adverseSlippage = exactDecimal(
+      checkpoint?.adverse_slippage ?? checkpoint?.AdverseSlippage,
+    );
+    const explicitCost = exactDecimal(
+      checkpoint?.explicit_cost ?? checkpoint?.ExplicitCost,
+    );
+    const referenceNotional = exactDecimal(
+      checkpoint?.provider_reference_notional ??
+        checkpoint?.ProviderReferenceNotional,
+    );
+    const checkpointGross = exactDecimal(
+      checkpoint?.gross_notional ?? checkpoint?.GrossNotional,
+    );
+    const checkpointResidual = exactDecimal(
+      checkpoint?.fill_notional_residual ?? checkpoint?.FillNotionalResidual,
+    );
+    const cumulativeFees = exactDecimal(
+      checkpoint?.cumulative_fees ?? checkpoint?.CumulativeFees,
+    );
+    const cumulativeSlippage = exactDecimal(
+      checkpoint?.cumulative_adverse_slippage ??
+        checkpoint?.CumulativeAdverseSlippage,
+    );
+    const cumulativeExplicit = exactDecimal(
+      checkpoint?.cumulative_explicit_cost ??
+        checkpoint?.CumulativeExplicitCost,
+    );
+    const cumulativeReference = exactDecimal(
+      checkpoint?.cumulative_provider_reference_notional ??
+        checkpoint?.CumulativeProviderReferenceNotional,
+    );
+    const cumulativeGross = exactDecimal(
+      checkpoint?.cumulative_gross_notional ??
+        checkpoint?.CumulativeGrossNotional,
+    );
+    const cumulativeRate = exactDecimal(
+      checkpoint?.cumulative_all_in_cost_rate_bps ??
+        checkpoint?.CumulativeAllInCostRateBPS,
+    );
+    const rateChange = text(
+      checkpoint,
+      "cumulative_rate_change",
+      "CumulativeRateChange",
+    );
+    const marketProvider = text(
+      checkpoint,
+      "market_provider",
+      "MarketProvider",
+    );
+    const marketFeed = text(checkpoint, "market_feed", "MarketFeed");
+    const marketQuality = text(checkpoint, "market_quality", "MarketQuality");
+    const marketObservedAt = text(
+      checkpoint,
+      "market_observed_at",
+      "MarketObservedAt",
+    );
+    const simulatedAt = text(checkpoint, "simulated_at", "SimulatedAt");
+    const expectedExplicit =
+      fee && adverseSlippage ? sumUSD([fee, adverseSlippage]) : undefined;
+    const expectedCumulativeExplicit =
+      cumulativeFees && cumulativeSlippage
+        ? sumUSD([cumulativeFees, cumulativeSlippage])
+        : undefined;
+    const expectedCumulativeRate =
+      cumulativeExplicit && cumulativeReference
+        ? divideExactDecimals(
+            multiplyExactDecimals(cumulativeExplicit, "10000") ?? "invalid",
+            cumulativeReference,
+            10,
+          )
+        : undefined;
+    if (
+      sequence === undefined ||
+      sequence < 1 ||
+      !fillID ||
+      !executionRecordID ||
+      !proposedActionID ||
+      !riskEvaluationID ||
+      !symbol ||
+      !["EQUITY", "CRYPTO"].includes(instrument ?? "") ||
+      !["BUY", "SELL"].includes(side ?? "") ||
+      !fee ||
+      !adverseSlippage ||
+      !explicitCost ||
+      !referenceNotional ||
+      !checkpointGross ||
+      !checkpointResidual ||
+      !cumulativeFees ||
+      !cumulativeSlippage ||
+      !cumulativeExplicit ||
+      !cumulativeReference ||
+      !cumulativeGross ||
+      !cumulativeRate ||
+      !["FIRST", "ROSE", "FELL", "HELD"].includes(rateChange ?? "") ||
+      !marketProvider ||
+      !marketFeed ||
+      !marketQuality ||
+      !marketObservedAt ||
+      !simulatedAt ||
+      Number.isNaN(Date.parse(marketObservedAt)) ||
+      Number.isNaN(Date.parse(simulatedAt)) ||
+      Date.parse(marketObservedAt) < Date.parse(simulatedAt) - 120_000 ||
+      Date.parse(marketObservedAt) > Date.parse(simulatedAt) + 5_000 ||
+      (compareExactDecimals(fee, "0") ?? -1) < 0 ||
+      (compareExactDecimals(adverseSlippage, "0") ?? -1) < 0 ||
+      (compareExactDecimals(referenceNotional, "0") ?? 0) <= 0 ||
+      (compareExactDecimals(checkpointGross, "0") ?? 0) <= 0 ||
+      compareExactDecimals(expectedExplicit ?? "invalid", explicitCost) !== 0 ||
+      compareExactDecimals(
+        expectedCumulativeExplicit ?? "invalid",
+        cumulativeExplicit,
+      ) !== 0 ||
+      compareExactDecimals(
+        expectedCumulativeRate ?? "invalid",
+        cumulativeRate,
+      ) !== 0 ||
+      compareExactDecimals(
+        checkpointResidual,
+        multiplyExactDecimals(residualBoundPerFill, "-1") ?? "invalid",
+      ) === -1 ||
+      compareExactDecimals(checkpointResidual, residualBoundPerFill) === 1 ||
+      seenTimelineIDs.has(fillID)
+    )
+      return;
+    const prior = timeline.at(-1);
+    if (
+      (prior &&
+        (sequence !== prior.sequence + 1 ||
+          Date.parse(simulatedAt) < Date.parse(prior.simulated_at) ||
+          compareExactDecimals(
+            subtractExactDecimals(cumulativeFees, prior.cumulative_fees) ??
+              "invalid",
+            fee,
+          ) !== 0 ||
+          compareExactDecimals(
+            subtractExactDecimals(
+              cumulativeSlippage,
+              prior.cumulative_adverse_slippage,
+            ) ?? "invalid",
+            adverseSlippage,
+          ) !== 0 ||
+          compareExactDecimals(
+            subtractExactDecimals(
+              cumulativeReference,
+              prior.cumulative_provider_reference_notional,
+            ) ?? "invalid",
+            referenceNotional,
+          ) !== 0 ||
+          compareExactDecimals(
+            subtractExactDecimals(
+              cumulativeGross,
+              prior.cumulative_gross_notional,
+            ) ?? "invalid",
+            checkpointGross,
+          ) !== 0 ||
+          rateChange !==
+            (compareExactDecimals(
+              cumulativeRate,
+              prior.cumulative_all_in_cost_rate_bps,
+            ) === 1
+              ? "ROSE"
+              : compareExactDecimals(
+                    cumulativeRate,
+                    prior.cumulative_all_in_cost_rate_bps,
+                  ) === -1
+                ? "FELL"
+                : "HELD"))) ||
+      (!prior && sequence === 1 && rateChange !== "FIRST") ||
+      (!prior && sequence > 1 && rateChange === "FIRST")
+    )
+      return;
+    seenTimelineIDs.add(fillID);
+    timeline.push({
+      sequence,
+      fill_id: fillID,
+      execution_record_id: executionRecordID,
+      proposed_action_id: proposedActionID,
+      risk_evaluation_id: riskEvaluationID,
+      symbol,
+      instrument: instrument as PaperExecutionCheckpoint["instrument"],
+      side: side as PaperExecutionCheckpoint["side"],
+      fee,
+      adverse_slippage: adverseSlippage,
+      explicit_cost: explicitCost,
+      provider_reference_notional: referenceNotional,
+      gross_notional: checkpointGross,
+      fill_notional_residual: checkpointResidual,
+      cumulative_fees: cumulativeFees,
+      cumulative_adverse_slippage: cumulativeSlippage,
+      cumulative_explicit_cost: cumulativeExplicit,
+      cumulative_provider_reference_notional: cumulativeReference,
+      cumulative_gross_notional: cumulativeGross,
+      cumulative_all_in_cost_rate_bps: cumulativeRate,
+      cumulative_rate_change:
+        rateChange as PaperExecutionCheckpoint["cumulative_rate_change"],
+      market_provider: marketProvider,
+      market_feed: marketFeed,
+      market_quality: marketQuality,
+      market_observed_at: marketObservedAt,
+      simulated_at: simulatedAt,
+    });
+  }
+  const latestTimeline = timeline.at(-1);
   if (
+    timelineSampleCount !== fillCount ||
+    timeline.length !== Math.min(fillCount, 12) ||
+    timelineCappedValue !== fillCount > 12 ||
+    (timeline.length > 0 &&
+      (!latestTimeline ||
+        latestTimeline.sequence !== fillCount ||
+        compareExactDecimals(latestTimeline.cumulative_fees, totalFees) !== 0 ||
+        compareExactDecimals(
+          latestTimeline.cumulative_adverse_slippage,
+          totalAdverseSlippage,
+        ) !== 0 ||
+        compareExactDecimals(
+          latestTimeline.cumulative_explicit_cost,
+          totalExplicitCost,
+        ) !== 0 ||
+        compareExactDecimals(
+          latestTimeline.cumulative_provider_reference_notional,
+          providerReferenceNotional,
+        ) !== 0 ||
+        compareExactDecimals(
+          latestTimeline.cumulative_gross_notional,
+          grossNotional,
+        ) !== 0 ||
+        compareExactDecimals(
+          latestTimeline.cumulative_all_in_cost_rate_bps,
+          allInCostRateBPS,
+        ) !== 0)) ||
     sides.reduce((count, side) => count + side.fill_count, 0) !== fillCount ||
     (fillCount === 0 ? sides.length !== 0 : sides.length === 0) ||
     compareExactDecimals(
@@ -459,6 +735,9 @@ function normalizedPaperExecutionCosts(
     market_qualities: marketQualities,
     sides,
     symbols,
+    timeline_sample_count: timelineSampleCount,
+    timeline_capped: timelineCappedValue,
+    timeline,
   };
 }
 
@@ -1858,6 +2137,32 @@ async function fleetItem(
     paperExecutionMarketFeeds: paperPortfolio?.execution_costs?.market_feeds,
     paperExecutionMarketQualities:
       paperPortfolio?.execution_costs?.market_qualities,
+    paperExecutionTimelineSampleCount:
+      paperPortfolio?.execution_costs?.timeline_sample_count,
+    paperExecutionTimelineCapped:
+      paperPortfolio?.execution_costs?.timeline_capped,
+    paperExecutionTimeline: paperPortfolio?.execution_costs?.timeline.map(
+      (checkpoint) => ({
+        sequence: checkpoint.sequence,
+        fillID: checkpoint.fill_id,
+        symbol: checkpoint.symbol,
+        side: checkpoint.side,
+        explicitCost: checkpoint.explicit_cost,
+        fee: checkpoint.fee,
+        adverseSlippage: checkpoint.adverse_slippage,
+        providerReferenceNotional: checkpoint.provider_reference_notional,
+        cumulativeExplicitCost: checkpoint.cumulative_explicit_cost,
+        cumulativeProviderReferenceNotional:
+          checkpoint.cumulative_provider_reference_notional,
+        cumulativeAllInCostRateBPS: checkpoint.cumulative_all_in_cost_rate_bps,
+        cumulativeRateChange: checkpoint.cumulative_rate_change,
+        marketProvider: checkpoint.market_provider,
+        marketFeed: checkpoint.market_feed,
+        marketQuality: checkpoint.market_quality,
+        marketObservedAt: checkpoint.market_observed_at,
+        simulatedAt: checkpoint.simulated_at,
+      }),
+    ),
     paperExecutionSideCosts: paperPortfolio?.execution_costs?.sides.map(
       (side) => ({
         side: side.side,
