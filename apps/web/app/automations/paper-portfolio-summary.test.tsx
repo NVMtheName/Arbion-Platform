@@ -190,6 +190,7 @@ describe("PaperPortfolioSummary", () => {
         executionMode="PAPER"
         portfolio={{
           ...portfolio,
+          starting_cash: "1000.0000000000",
           positions: [],
           realized_outcome: {
             status: "AVAILABLE",
@@ -236,6 +237,7 @@ describe("PaperPortfolioSummary", () => {
         executionMode="PAPER"
         portfolio={{
           ...portfolio,
+          starting_cash: "1000.0000000000",
           positions: [],
           execution_costs: {
             status: "AVAILABLE",
@@ -320,6 +322,9 @@ describe("PaperPortfolioSummary", () => {
                 cumulative_gross_notional: "100.2500000000",
                 cumulative_all_in_cost_rate_bps: "75.1250000000",
                 cumulative_rate_change: "FIRST",
+                symbol_sequence: 1,
+                same_side_streak: 1,
+                side_transition: "FIRST",
                 market_provider: "coinbase",
                 market_feed: "rest_ticker",
                 market_quality: "REAL_TIME_SINGLE_VENUE",
@@ -348,6 +353,10 @@ describe("PaperPortfolioSummary", () => {
                 cumulative_gross_notional: "155.1125000000",
                 cumulative_all_in_cost_rate_bps: "75.0362903226",
                 cumulative_rate_change: "FELL",
+                symbol_sequence: 2,
+                same_side_streak: 1,
+                side_transition: "BUY_TO_SELL",
+                opposite_side_elapsed_seconds: "3600.0000000000",
                 market_provider: "coinbase",
                 market_feed: "rest_ticker",
                 market_quality: "REAL_TIME_SINGLE_VENUE",
@@ -355,6 +364,38 @@ describe("PaperPortfolioSummary", () => {
                 simulated_at: "2026-08-31T05:36:38Z",
               },
             ],
+            trade_sequence: {
+              status: "AVAILABLE",
+              calculation_method: "COMPLETE_IMMUTABLE_FILL_SEQUENCE",
+              historical_coverage: "COMPLETE_FROM_PORTFOLIO_GENESIS",
+              starting_cash: "1000.0000000000",
+              provider_reference_turnover_to_starting_cash_bps:
+                "1550.0000000000",
+              explicit_cost_to_starting_cash_bps: "11.6306250000",
+              fill_count: 2,
+              same_side_transition_count: 0,
+              opposite_side_transition_count: 1,
+              buy_to_sell_reversal_count: 1,
+              sell_to_buy_reversal_count: 0,
+              symbols: [
+                {
+                  symbol: "BTC",
+                  instrument: "CRYPTO",
+                  fill_count: 2,
+                  buy_fill_count: 1,
+                  sell_fill_count: 1,
+                  same_side_transition_count: 0,
+                  opposite_side_transition_count: 1,
+                  buy_to_sell_reversal_count: 1,
+                  sell_to_buy_reversal_count: 0,
+                  longest_same_side_streak: 1,
+                  first_side: "BUY",
+                  last_side: "SELL",
+                  first_fill_at: "2026-08-31T04:36:38Z",
+                  last_fill_at: "2026-08-31T05:36:38Z",
+                },
+              ],
+            },
           },
         }}
       />,
@@ -378,6 +419,14 @@ describe("PaperPortfolioSummary", () => {
     expect(
       within(timeline).getByRole("link", { name: /fill #2/i }),
     ).toHaveAttribute("href", "#paper-fill-fill-sell");
+    const sequence = within(costs).getByLabelText(
+      /immutable paper trade sequence and churn evidence/i,
+    );
+    expect(within(sequence).getByText("1,550.00 bps")).toBeInTheDocument();
+    expect(within(sequence).getAllByText(/buy → sale/i).length).toBeGreaterThan(
+      0,
+    );
+    expect(within(timeline).getByText(/3,600.00 sec/i)).toBeInTheDocument();
     expect(within(costs).getByText(/not broker-reported/i)).toBeInTheDocument();
     expect(
       within(costs).getAllByText(/coinbase · rest_ticker/i).length,

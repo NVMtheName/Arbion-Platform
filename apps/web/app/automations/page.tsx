@@ -29,6 +29,8 @@ import type {
   PaperPosition,
   PaperRealizedOutcome,
   PaperRealizedSymbolOutcome,
+  PaperTradeSequenceEvidence,
+  PaperTradeSequenceSymbol,
 } from "./paper-portfolio-summary";
 import {
   projectPinnedAIRuntime,
@@ -84,6 +86,226 @@ type PaperPortfolioEnvelope = {
   live_execution_available?: boolean;
 };
 
+function normalizedPaperTradeSequence(
+  value: unknown,
+  fillCount: number,
+  providerReferenceNotional?: string,
+  totalExplicitCost?: string,
+): PaperTradeSequenceEvidence | undefined {
+  const sequence = record(value);
+  const status = text(sequence, "status", "Status");
+  const rawSymbols = sequence?.symbols ?? sequence?.Symbols;
+  const sequenceFillCount = nonnegativeInteger(
+    sequence?.fill_count ?? sequence?.FillCount,
+  );
+  const sameCount = nonnegativeInteger(
+    sequence?.same_side_transition_count ?? sequence?.SameSideTransitionCount,
+  );
+  const oppositeCount = nonnegativeInteger(
+    sequence?.opposite_side_transition_count ??
+      sequence?.OppositeSideTransitionCount,
+  );
+  const buyToSellCount = nonnegativeInteger(
+    sequence?.buy_to_sell_reversal_count ?? sequence?.BuyToSellReversalCount,
+  );
+  const sellToBuyCount = nonnegativeInteger(
+    sequence?.sell_to_buy_reversal_count ?? sequence?.SellToBuyReversalCount,
+  );
+  if (
+    !["AVAILABLE", "NO_FILLS", "UNAVAILABLE"].includes(status ?? "") ||
+    sequenceFillCount !== fillCount ||
+    sameCount === undefined ||
+    oppositeCount === undefined ||
+    buyToSellCount === undefined ||
+    sellToBuyCount === undefined ||
+    buyToSellCount + sellToBuyCount !== oppositeCount ||
+    !Array.isArray(rawSymbols)
+  )
+    return;
+  if (status === "UNAVAILABLE") {
+    if (rawSymbols.length !== 0) return;
+    return {
+      status: "UNAVAILABLE",
+      fill_count: fillCount,
+      same_side_transition_count: sameCount,
+      opposite_side_transition_count: oppositeCount,
+      buy_to_sell_reversal_count: buyToSellCount,
+      sell_to_buy_reversal_count: sellToBuyCount,
+      symbols: [],
+    };
+  }
+  const calculationMethod = text(
+    sequence,
+    "calculation_method",
+    "CalculationMethod",
+  );
+  const historicalCoverage = text(
+    sequence,
+    "historical_coverage",
+    "HistoricalCoverage",
+  );
+  const startingCash = exactDecimal(
+    sequence?.starting_cash ?? sequence?.StartingCash,
+  );
+  const turnoverRate = exactDecimal(
+    sequence?.provider_reference_turnover_to_starting_cash_bps ??
+      sequence?.ProviderReferenceTurnoverToStartingCashBPS,
+  );
+  const explicitCostRate = exactDecimal(
+    sequence?.explicit_cost_to_starting_cash_bps ??
+      sequence?.ExplicitCostToStartingCashBPS,
+  );
+  if (
+    calculationMethod !== "COMPLETE_IMMUTABLE_FILL_SEQUENCE" ||
+    historicalCoverage !== "COMPLETE_FROM_PORTFOLIO_GENESIS" ||
+    !startingCash ||
+    !turnoverRate ||
+    !explicitCostRate ||
+    (compareExactDecimals(startingCash, "0") ?? 0) <= 0 ||
+    !providerReferenceNotional ||
+    !totalExplicitCost ||
+    compareExactDecimals(
+      divideExactDecimals(
+        multiplyExactDecimals(providerReferenceNotional, "10000") ?? "invalid",
+        startingCash,
+        10,
+      ) ?? "invalid",
+      turnoverRate,
+    ) !== 0 ||
+    compareExactDecimals(
+      divideExactDecimals(
+        multiplyExactDecimals(totalExplicitCost, "10000") ?? "invalid",
+        startingCash,
+        10,
+      ) ?? "invalid",
+      explicitCostRate,
+    ) !== 0
+  )
+    return;
+  const symbols: PaperTradeSequenceSymbol[] = [];
+  const seen = new Set<string>();
+  for (const rawSymbol of rawSymbols) {
+    const symbolRecord = record(rawSymbol);
+    const symbol = text(symbolRecord, "symbol", "Symbol");
+    const instrument = text(symbolRecord, "instrument", "Instrument");
+    const symbolFillCount = nonnegativeInteger(
+      symbolRecord?.fill_count ?? symbolRecord?.FillCount,
+    );
+    const buyCount = nonnegativeInteger(
+      symbolRecord?.buy_fill_count ?? symbolRecord?.BuyFillCount,
+    );
+    const sellCount = nonnegativeInteger(
+      symbolRecord?.sell_fill_count ?? symbolRecord?.SellFillCount,
+    );
+    const symbolSameCount = nonnegativeInteger(
+      symbolRecord?.same_side_transition_count ??
+        symbolRecord?.SameSideTransitionCount,
+    );
+    const symbolOppositeCount = nonnegativeInteger(
+      symbolRecord?.opposite_side_transition_count ??
+        symbolRecord?.OppositeSideTransitionCount,
+    );
+    const symbolBuyToSell = nonnegativeInteger(
+      symbolRecord?.buy_to_sell_reversal_count ??
+        symbolRecord?.BuyToSellReversalCount,
+    );
+    const symbolSellToBuy = nonnegativeInteger(
+      symbolRecord?.sell_to_buy_reversal_count ??
+        symbolRecord?.SellToBuyReversalCount,
+    );
+    const longestStreak = nonnegativeInteger(
+      symbolRecord?.longest_same_side_streak ??
+        symbolRecord?.LongestSameSideStreak,
+    );
+    const firstSide = text(symbolRecord, "first_side", "FirstSide");
+    const lastSide = text(symbolRecord, "last_side", "LastSide");
+    const firstFillAt = text(symbolRecord, "first_fill_at", "FirstFillAt");
+    const lastFillAt = text(symbolRecord, "last_fill_at", "LastFillAt");
+    const key = `${instrument}:${symbol}`;
+    if (
+      !symbol ||
+      !["EQUITY", "CRYPTO"].includes(instrument ?? "") ||
+      symbolFillCount === undefined ||
+      symbolFillCount < 1 ||
+      buyCount === undefined ||
+      sellCount === undefined ||
+      buyCount + sellCount !== symbolFillCount ||
+      symbolSameCount === undefined ||
+      symbolOppositeCount === undefined ||
+      symbolSameCount + symbolOppositeCount !== symbolFillCount - 1 ||
+      symbolBuyToSell === undefined ||
+      symbolSellToBuy === undefined ||
+      symbolBuyToSell + symbolSellToBuy !== symbolOppositeCount ||
+      longestStreak === undefined ||
+      longestStreak < 1 ||
+      longestStreak > symbolFillCount ||
+      !["BUY", "SELL"].includes(firstSide ?? "") ||
+      !["BUY", "SELL"].includes(lastSide ?? "") ||
+      !firstFillAt ||
+      !lastFillAt ||
+      Number.isNaN(Date.parse(firstFillAt)) ||
+      Number.isNaN(Date.parse(lastFillAt)) ||
+      Date.parse(firstFillAt) > Date.parse(lastFillAt) ||
+      seen.has(key)
+    )
+      return;
+    seen.add(key);
+    symbols.push({
+      symbol,
+      instrument: instrument as PaperTradeSequenceSymbol["instrument"],
+      fill_count: symbolFillCount,
+      buy_fill_count: buyCount,
+      sell_fill_count: sellCount,
+      same_side_transition_count: symbolSameCount,
+      opposite_side_transition_count: symbolOppositeCount,
+      buy_to_sell_reversal_count: symbolBuyToSell,
+      sell_to_buy_reversal_count: symbolSellToBuy,
+      longest_same_side_streak: longestStreak,
+      first_side: firstSide as PaperTradeSequenceSymbol["first_side"],
+      last_side: lastSide as PaperTradeSequenceSymbol["last_side"],
+      first_fill_at: firstFillAt,
+      last_fill_at: lastFillAt,
+    });
+  }
+  if (
+    symbols.reduce((total, symbol) => total + symbol.fill_count, 0) !==
+      fillCount ||
+    symbols.reduce(
+      (total, symbol) => total + symbol.same_side_transition_count,
+      0,
+    ) !== sameCount ||
+    symbols.reduce(
+      (total, symbol) => total + symbol.opposite_side_transition_count,
+      0,
+    ) !== oppositeCount ||
+    symbols.reduce(
+      (total, symbol) => total + symbol.buy_to_sell_reversal_count,
+      0,
+    ) !== buyToSellCount ||
+    symbols.reduce(
+      (total, symbol) => total + symbol.sell_to_buy_reversal_count,
+      0,
+    ) !== sellToBuyCount ||
+    (fillCount === 0 ? symbols.length !== 0 : symbols.length === 0) ||
+    (status === "AVAILABLE" ? fillCount === 0 : fillCount !== 0)
+  )
+    return;
+  return {
+    status: status as PaperTradeSequenceEvidence["status"],
+    calculation_method: calculationMethod,
+    historical_coverage: historicalCoverage,
+    starting_cash: startingCash,
+    provider_reference_turnover_to_starting_cash_bps: turnoverRate,
+    explicit_cost_to_starting_cash_bps: explicitCostRate,
+    fill_count: fillCount,
+    same_side_transition_count: sameCount,
+    opposite_side_transition_count: oppositeCount,
+    buy_to_sell_reversal_count: buyToSellCount,
+    sell_to_buy_reversal_count: sellToBuyCount,
+    symbols,
+  };
+}
+
 function normalizedPaperExecutionCosts(
   value: unknown,
 ): PaperExecutionCosts | undefined {
@@ -99,6 +321,7 @@ function normalizedPaperExecutionCosts(
   const rawSides = costs?.sides ?? costs?.Sides;
   const rawSymbols = costs?.symbols ?? costs?.Symbols;
   const rawTimeline = costs?.timeline ?? costs?.Timeline;
+  const rawTradeSequence = costs?.trade_sequence ?? costs?.TradeSequence;
   const timelineSampleCount = nonnegativeInteger(
     costs?.timeline_sample_count ?? costs?.TimelineSampleCount,
   );
@@ -124,12 +347,17 @@ function normalizedPaperExecutionCosts(
   )
     return;
   if (status === "UNAVAILABLE") {
+    const tradeSequence = normalizedPaperTradeSequence(
+      rawTradeSequence,
+      fillCount,
+    );
     if (
       rawSides.length !== 0 ||
       rawSymbols.length !== 0 ||
       rawTimeline.length !== 0 ||
       timelineSampleCount !== 0 ||
-      timelineCappedValue
+      timelineCappedValue ||
+      tradeSequence?.status !== "UNAVAILABLE"
     )
       return;
     return {
@@ -145,6 +373,7 @@ function normalizedPaperExecutionCosts(
       timeline_sample_count: 0,
       timeline_capped: false,
       timeline: [],
+      trade_sequence: tradeSequence,
     };
   }
   const calculationMethod = text(
@@ -182,6 +411,12 @@ function normalizedPaperExecutionCosts(
   const residualBoundPerFill = exactDecimal(
     costs?.residual_bound_per_fill ?? costs?.ResidualBoundPerFill,
   );
+  const tradeSequence = normalizedPaperTradeSequence(
+    rawTradeSequence,
+    fillCount,
+    providerReferenceNotional,
+    totalExplicitCost,
+  );
   const expectedExplicitCost =
     totalFees && totalAdverseSlippage
       ? sumUSD([totalFees, totalAdverseSlippage])
@@ -208,6 +443,7 @@ function normalizedPaperExecutionCosts(
     !fillNotionalResidual ||
     !maximumAbsoluteFillResidual ||
     !residualBoundPerFill ||
+    !tradeSequence ||
     (compareExactDecimals(totalFees, "0") ?? -1) < 0 ||
     (compareExactDecimals(totalAdverseSlippage, "0") ?? -1) < 0 ||
     (compareExactDecimals(totalExplicitCost, "0") ?? -1) < 0 ||
@@ -472,6 +708,21 @@ function normalizedPaperExecutionCosts(
       "cumulative_rate_change",
       "CumulativeRateChange",
     );
+    const symbolSequence = nonnegativeInteger(
+      checkpoint?.symbol_sequence ?? checkpoint?.SymbolSequence,
+    );
+    const sameSideStreak = nonnegativeInteger(
+      checkpoint?.same_side_streak ?? checkpoint?.SameSideStreak,
+    );
+    const sideTransition = text(
+      checkpoint,
+      "side_transition",
+      "SideTransition",
+    );
+    const oppositeSideElapsedSeconds = exactDecimal(
+      checkpoint?.opposite_side_elapsed_seconds ??
+        checkpoint?.OppositeSideElapsedSeconds,
+    );
     const marketProvider = text(
       checkpoint,
       "market_provider",
@@ -522,6 +773,21 @@ function normalizedPaperExecutionCosts(
       !cumulativeGross ||
       !cumulativeRate ||
       !["FIRST", "ROSE", "FELL", "HELD"].includes(rateChange ?? "") ||
+      symbolSequence === undefined ||
+      symbolSequence < 1 ||
+      sameSideStreak === undefined ||
+      sameSideStreak < 1 ||
+      sameSideStreak > symbolSequence ||
+      !["FIRST", "SAME_SIDE", "BUY_TO_SELL", "SELL_TO_BUY"].includes(
+        sideTransition ?? "",
+      ) ||
+      (symbolSequence === 1
+        ? sideTransition !== "FIRST"
+        : sideTransition === "FIRST") ||
+      (["BUY_TO_SELL", "SELL_TO_BUY"].includes(sideTransition ?? "")
+        ? !oppositeSideElapsedSeconds ||
+          (compareExactDecimals(oppositeSideElapsedSeconds, "0") ?? 0) < 0
+        : oppositeSideElapsedSeconds !== undefined) ||
       !marketProvider ||
       !marketFeed ||
       !marketQuality ||
@@ -623,6 +889,11 @@ function normalizedPaperExecutionCosts(
       cumulative_all_in_cost_rate_bps: cumulativeRate,
       cumulative_rate_change:
         rateChange as PaperExecutionCheckpoint["cumulative_rate_change"],
+      symbol_sequence: symbolSequence,
+      same_side_streak: sameSideStreak,
+      side_transition:
+        sideTransition as PaperExecutionCheckpoint["side_transition"],
+      opposite_side_elapsed_seconds: oppositeSideElapsedSeconds,
       market_provider: marketProvider,
       market_feed: marketFeed,
       market_quality: marketQuality,
@@ -659,6 +930,22 @@ function normalizedPaperExecutionCosts(
           latestTimeline.cumulative_all_in_cost_rate_bps,
           allInCostRateBPS,
         ) !== 0)) ||
+    timeline.some((checkpoint) => {
+      const sequenceSymbol = tradeSequence.symbols.find(
+        (symbol) =>
+          symbol.symbol === checkpoint.symbol &&
+          symbol.instrument === checkpoint.instrument,
+      );
+      return (
+        !sequenceSymbol ||
+        checkpoint.symbol_sequence > sequenceSymbol.fill_count ||
+        checkpoint.same_side_streak > sequenceSymbol.longest_same_side_streak ||
+        (checkpoint.side_transition === "BUY_TO_SELL" &&
+          checkpoint.side !== "SELL") ||
+        (checkpoint.side_transition === "SELL_TO_BUY" &&
+          checkpoint.side !== "BUY")
+      );
+    }) ||
     sides.reduce((count, side) => count + side.fill_count, 0) !== fillCount ||
     (fillCount === 0 ? sides.length !== 0 : sides.length === 0) ||
     compareExactDecimals(
@@ -738,6 +1025,7 @@ function normalizedPaperExecutionCosts(
     timeline_sample_count: timelineSampleCount,
     timeline_capped: timelineCappedValue,
     timeline,
+    trade_sequence: tradeSequence,
   };
 }
 
@@ -2141,6 +2429,7 @@ async function fleetItem(
       paperPortfolio?.execution_costs?.timeline_sample_count,
     paperExecutionTimelineCapped:
       paperPortfolio?.execution_costs?.timeline_capped,
+    paperTradeSequence: paperPortfolio?.execution_costs?.trade_sequence,
     paperExecutionTimeline: paperPortfolio?.execution_costs?.timeline.map(
       (checkpoint) => ({
         sequence: checkpoint.sequence,
@@ -2156,6 +2445,10 @@ async function fleetItem(
           checkpoint.cumulative_provider_reference_notional,
         cumulativeAllInCostRateBPS: checkpoint.cumulative_all_in_cost_rate_bps,
         cumulativeRateChange: checkpoint.cumulative_rate_change,
+        symbolSequence: checkpoint.symbol_sequence,
+        sameSideStreak: checkpoint.same_side_streak,
+        sideTransition: checkpoint.side_transition,
+        oppositeSideElapsedSeconds: checkpoint.opposite_side_elapsed_seconds,
         marketProvider: checkpoint.market_provider,
         marketFeed: checkpoint.market_feed,
         marketQuality: checkpoint.market_quality,

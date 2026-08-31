@@ -2533,6 +2533,38 @@ describe("StrategyFleet", () => {
             paperExecutionMarketQualities: ["REAL_TIME_SINGLE_VENUE"],
             paperExecutionTimelineSampleCount: 3,
             paperExecutionTimelineCapped: false,
+            paperTradeSequence: {
+              status: "AVAILABLE",
+              calculation_method: "COMPLETE_IMMUTABLE_FILL_SEQUENCE",
+              historical_coverage: "COMPLETE_FROM_PORTFOLIO_GENESIS",
+              starting_cash: "1000.0000000000",
+              provider_reference_turnover_to_starting_cash_bps:
+                "3000.0000000000",
+              explicit_cost_to_starting_cash_bps: "36.0000000000",
+              fill_count: 3,
+              same_side_transition_count: 1,
+              opposite_side_transition_count: 1,
+              buy_to_sell_reversal_count: 1,
+              sell_to_buy_reversal_count: 0,
+              symbols: [
+                {
+                  symbol: "BTC",
+                  instrument: "CRYPTO",
+                  fill_count: 3,
+                  buy_fill_count: 2,
+                  sell_fill_count: 1,
+                  same_side_transition_count: 1,
+                  opposite_side_transition_count: 1,
+                  buy_to_sell_reversal_count: 1,
+                  sell_to_buy_reversal_count: 0,
+                  longest_same_side_streak: 2,
+                  first_side: "BUY",
+                  last_side: "SELL",
+                  first_fill_at: "2026-08-30T13:00:00Z",
+                  last_fill_at: "2026-08-30T15:00:00Z",
+                },
+              ],
+            },
             paperExecutionTimeline: [
               {
                 sequence: 1,
@@ -2547,6 +2579,9 @@ describe("StrategyFleet", () => {
                 cumulativeProviderReferenceNotional: "100.0000000000",
                 cumulativeAllInCostRateBPS: "125.0000000000",
                 cumulativeRateChange: "FIRST",
+                symbolSequence: 1,
+                sameSideStreak: 1,
+                sideTransition: "FIRST",
                 marketProvider: "coinbase",
                 marketFeed: "rest_ticker",
                 marketQuality: "REAL_TIME_SINGLE_VENUE",
@@ -2566,6 +2601,9 @@ describe("StrategyFleet", () => {
                 cumulativeProviderReferenceNotional: "200.0000000000",
                 cumulativeAllInCostRateBPS: "125.0000000000",
                 cumulativeRateChange: "HELD",
+                symbolSequence: 2,
+                sameSideStreak: 2,
+                sideTransition: "SAME_SIDE",
                 marketProvider: "coinbase",
                 marketFeed: "rest_ticker",
                 marketQuality: "REAL_TIME_SINGLE_VENUE",
@@ -2585,6 +2623,10 @@ describe("StrategyFleet", () => {
                 cumulativeProviderReferenceNotional: "300.0000000000",
                 cumulativeAllInCostRateBPS: "120.0000000000",
                 cumulativeRateChange: "FELL",
+                symbolSequence: 3,
+                sameSideStreak: 1,
+                sideTransition: "BUY_TO_SELL",
+                oppositeSideElapsedSeconds: "3600.0000000000",
                 marketProvider: "coinbase",
                 marketFeed: "rest_ticker",
                 marketQuality: "REAL_TIME_SINGLE_VENUE",
@@ -2673,7 +2715,7 @@ describe("StrategyFleet", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Next proposal headroom")).toBeInTheDocument();
     expect(screen.getByText("−$5 · −0.5%")).toBeInTheDocument();
-    expect(screen.getAllByText("BTC")).toHaveLength(3);
+    expect(screen.getAllByText("BTC")).toHaveLength(4);
     expect(screen.getByText("$95")).toBeInTheDocument();
     expect(screen.getByText("Unrealized −$4 · −4.0404%")).toBeInTheDocument();
     expect(
@@ -2709,6 +2751,7 @@ describe("StrategyFleet", () => {
     expect(
       within(costTimeline).getByText(/fell vs prior/i),
     ).toBeInTheDocument();
+    expect(within(costTimeline).getByText(/3,600 sec/i)).toBeInTheDocument();
     expect(
       within(costTimeline).getByRole("link", {
         name: /Fill #3/i,
@@ -2718,6 +2761,13 @@ describe("StrategyFleet", () => {
       "href",
       "/automations/ai-mandate#paper-fill-fill-current",
     );
+    const tradeSequence = within(executionCosts).getByLabelText(
+      /AI Paper Engine exact immutable Paper trade sequence and churn evidence/i,
+    );
+    expect(within(tradeSequence).getByText(/3,000 bps/i)).toBeInTheDocument();
+    expect(
+      within(tradeSequence).getByText(/longest same-side streak 2/i),
+    ).toBeInTheDocument();
     const reconciliation = screen.getByRole("region", {
       name: /AI Paper Engine exact Paper outcome reconciliation/i,
       hidden: true,

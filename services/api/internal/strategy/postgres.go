@@ -562,7 +562,7 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 	}
 	fillRows.Close()
 	portfolio.RealizedOutcome = projectPaperRealizedOutcome(portfolio.StartingCash, portfolio, fills)
-	portfolio.ExecutionCosts = projectPaperExecutionCosts(portfolio.RealizedOutcome, fills)
+	portfolio.ExecutionCosts = projectPaperExecutionCosts(portfolio.RealizedOutcome, portfolio.StartingCash, fills)
 	if err = tx.Commit(c); err != nil {
 		return PaperPortfolio{}, err
 	}
