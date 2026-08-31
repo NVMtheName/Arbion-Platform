@@ -428,6 +428,51 @@ describe("PaperPortfolioSummary", () => {
               simulated_fill_count: 2,
               other_succeeded_count: 0,
             },
+            disposition_funnel: {
+              status: "AVAILABLE",
+              calculation_method:
+                "IMMUTABLE_PAPER_EVALUATION_DISPOSITION_FUNNEL",
+              twenty_four_hours: {
+                status: "AVAILABLE",
+                horizon_hours: 24,
+                window_started_at: "2026-08-30T06:10:00Z",
+                window_ended_at: "2026-08-31T06:10:00Z",
+                scheduled_cycle_count: 24,
+                completed_cycle_count: 24,
+                succeeded_evaluation_count: 24,
+                failed_cycle_count: 0,
+                safe_wait_cycle_count: 0,
+                decision_count: 24,
+                abstention_count: 21,
+                proposal_count: 3,
+                deterministic_deny_count: 1,
+                simulated_fill_count: 2,
+                other_proposal_outcome_count: 0,
+                completion_rate_percent: "100.0000000000",
+                succeeded_evaluation_rate_percent: "100.0000000000",
+                decision_rate_percent: "100.0000000000",
+                abstention_rate_percent: "87.5000000000",
+                proposal_rate_percent: "12.5000000000",
+                deterministic_deny_rate_percent: "33.3333333333",
+                simulated_fill_rate_percent: "66.6666666667",
+                other_proposal_outcome_rate_percent: "0.0000000000",
+              },
+              seven_days: {
+                status: "UNAVAILABLE",
+                horizon_hours: 168,
+                scheduled_cycle_count: 0,
+                completed_cycle_count: 0,
+                succeeded_evaluation_count: 0,
+                failed_cycle_count: 0,
+                safe_wait_cycle_count: 0,
+                decision_count: 0,
+                abstention_count: 0,
+                proposal_count: 0,
+                deterministic_deny_count: 0,
+                simulated_fill_count: 0,
+                other_proposal_outcome_count: 0,
+              },
+            },
             fill_timing: {
               status: "AVAILABLE",
               historical_coverage: "COMPLETE_FROM_PORTFOLIO_GENESIS",
@@ -501,7 +546,11 @@ describe("PaperPortfolioSummary", () => {
       within(cadence).getByText(/seven-day evidence/i),
     ).toBeInTheDocument();
     expect(
-      within(cadence).getByText(/timestamps do not establish overtrading/i),
+      within(cadence).getByText(/21 abstain · 3 propose/i),
+    ).toBeInTheDocument();
+    expect(within(cadence).getByText(/66.67% filled/i)).toBeInTheDocument();
+    expect(
+      within(cadence).getByText(/do not establish conversion quality/i),
     ).toBeInTheDocument();
   });
 

@@ -4493,6 +4493,8 @@ function paperActivityCadenceAvailable(item: StrategyFleetItem) {
       item.paperActivityCadenceContractAvailable === true &&
       cadence?.status === "AVAILABLE" &&
       cadence.twenty_four_hours.status === "AVAILABLE" &&
+      cadence.disposition_funnel.status === "AVAILABLE" &&
+      cadence.disposition_funnel.twenty_four_hours.status === "AVAILABLE" &&
       cadence.fill_timing.status !== "UNAVAILABLE" &&
       cadence.longest_no_fill_interval.status !== "UNAVAILABLE",
   );
@@ -5341,19 +5343,52 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                   </summary>
                   <dl>
                     <div>
-                      <dt>24-hour conclusions</dt>
+                      <dt>24-hour decisions</dt>
                       <dd>
                         {
-                          item.paperActivityCadence!.twenty_four_hours
-                            .abstention_count
+                          item.paperActivityCadence!.disposition_funnel
+                            .twenty_four_hours.abstention_count
                         }{" "}
                         abstain ·{" "}
                         {
-                          item.paperActivityCadence!.twenty_four_hours
-                            .deterministic_deny_count
+                          item.paperActivityCadence!.disposition_funnel
+                            .twenty_four_hours.proposal_count
+                        }{" "}
+                        propose
+                      </dd>
+                      <small>
+                        {conciseCapitalDecimal(
+                          item.paperActivityCadence!.disposition_funnel
+                            .twenty_four_hours.abstention_rate_percent,
+                        )}
+                        % /{" "}
+                        {conciseCapitalDecimal(
+                          item.paperActivityCadence!.disposition_funnel
+                            .twenty_four_hours.proposal_rate_percent,
+                        )}
+                        % of exact saved decisions
+                      </small>
+                    </div>
+                    <div>
+                      <dt>Proposal outcomes</dt>
+                      <dd>
+                        {
+                          item.paperActivityCadence!.disposition_funnel
+                            .twenty_four_hours.simulated_fill_count
+                        }{" "}
+                        filled ·{" "}
+                        {
+                          item.paperActivityCadence!.disposition_funnel
+                            .twenty_four_hours.deterministic_deny_count
                         }{" "}
                         denied
                       </dd>
+                      <small>
+                        {item.paperActivityCadence!.disposition_funnel
+                          .twenty_four_hours.proposal_count > 0
+                          ? `${conciseCapitalDecimal(item.paperActivityCadence!.disposition_funnel.twenty_four_hours.simulated_fill_rate_percent)}% / ${conciseCapitalDecimal(item.paperActivityCadence!.disposition_funnel.twenty_four_hours.deterministic_deny_rate_percent)}% of proposals`
+                          : "No exact saved proposals"}
+                      </small>
                     </div>
                     <div>
                       <dt>24-hour scheduler</dt>
@@ -5424,9 +5459,10 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                         : "unavailable until one complete seven-day window is saved"}
                     </strong>
                     . Schedule cadence and simulated fills are separate. This
-                    chronology does not establish overtrading, inactivity
-                    quality, intent, performance, missed opportunity, or
-                    causality.
+                    funnel uses exact saved decisions and proposal outcomes. It
+                    does not establish conversion quality, overtrading,
+                    inactivity quality, intent, performance, missed opportunity,
+                    causality, or readiness for live trading.
                   </p>
                 </details>
               ) : (

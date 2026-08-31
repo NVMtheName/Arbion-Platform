@@ -23,6 +23,8 @@ import { reconcilePaperOutcome } from "./paper-outcome-reconciliation";
 import type {
   PaperActivityCadence,
   PaperActivityWindow,
+  PaperDispositionFunnel,
+  PaperDispositionFunnelWindow,
   PaperExecutionCosts,
   PaperExecutionCheckpoint,
   PaperExecutionSideCost,
@@ -86,6 +88,8 @@ type PaperPortfolioEnvelope = {
   execution_costs_broker_reported?: boolean;
   activity_cadence_semantics?: string;
   activity_cadence_read_only?: boolean;
+  disposition_funnel_semantics?: string;
+  disposition_funnel_read_only?: boolean;
   broker_action_available?: boolean;
   live_execution_available?: boolean;
 };
@@ -1311,6 +1315,194 @@ function normalizedPaperActivityWindow(
   };
 }
 
+function exactDispositionRateMatches(
+  count: number,
+  total: number,
+  value?: string,
+) {
+  if (total === 0) return value === undefined;
+  const expected = divideExactDecimals(
+    multiplyExactDecimals(String(count), "100") ?? "invalid",
+    String(total),
+    10,
+  );
+  return Boolean(
+    expected && value && compareExactDecimals(expected, value) === 0,
+  );
+}
+
+function normalizedPaperDispositionWindow(
+  value: unknown,
+  expectedHours: 24 | 168,
+): PaperDispositionFunnelWindow | undefined {
+  const window = record(value);
+  const status = text(window, "status", "Status");
+  const horizonHours = nonnegativeInteger(
+    window?.horizon_hours ?? window?.HorizonHours,
+  );
+  const count = (snake: string, pascal: string) =>
+    nonnegativeInteger(window?.[snake] ?? window?.[pascal]);
+  const scheduled = count("scheduled_cycle_count", "ScheduledCycleCount");
+  const completed = count("completed_cycle_count", "CompletedCycleCount");
+  const succeeded = count(
+    "succeeded_evaluation_count",
+    "SucceededEvaluationCount",
+  );
+  const failed = count("failed_cycle_count", "FailedCycleCount");
+  const safeWait = count("safe_wait_cycle_count", "SafeWaitCycleCount");
+  const decisions = count("decision_count", "DecisionCount");
+  const abstentions = count("abstention_count", "AbstentionCount");
+  const proposals = count("proposal_count", "ProposalCount");
+  const denials = count("deterministic_deny_count", "DeterministicDenyCount");
+  const fills = count("simulated_fill_count", "SimulatedFillCount");
+  const other = count(
+    "other_proposal_outcome_count",
+    "OtherProposalOutcomeCount",
+  );
+  const rate = (snake: string, pascal: string) =>
+    exactDecimal(window?.[snake] ?? window?.[pascal]);
+  const completionRate = rate(
+    "completion_rate_percent",
+    "CompletionRatePercent",
+  );
+  const succeededRate = rate(
+    "succeeded_evaluation_rate_percent",
+    "SucceededEvaluationRatePercent",
+  );
+  const decisionRate = rate("decision_rate_percent", "DecisionRatePercent");
+  const abstentionRate = rate(
+    "abstention_rate_percent",
+    "AbstentionRatePercent",
+  );
+  const proposalRate = rate("proposal_rate_percent", "ProposalRatePercent");
+  const denialRate = rate(
+    "deterministic_deny_rate_percent",
+    "DeterministicDenyRatePercent",
+  );
+  const fillRate = rate(
+    "simulated_fill_rate_percent",
+    "SimulatedFillRatePercent",
+  );
+  const otherRate = rate(
+    "other_proposal_outcome_rate_percent",
+    "OtherProposalOutcomeRatePercent",
+  );
+  const windowStartedAt = text(window, "window_started_at", "WindowStartedAt");
+  const windowEndedAt = text(window, "window_ended_at", "WindowEndedAt");
+  if (
+    !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
+    horizonHours !== expectedHours ||
+    [
+      scheduled,
+      completed,
+      succeeded,
+      failed,
+      safeWait,
+      decisions,
+      abstentions,
+      proposals,
+      denials,
+      fills,
+      other,
+    ].some((value) => value === undefined)
+  )
+    return;
+  const normalized: PaperDispositionFunnelWindow = {
+    status: status as PaperDispositionFunnelWindow["status"],
+    horizon_hours: expectedHours,
+    window_started_at: windowStartedAt,
+    window_ended_at: windowEndedAt,
+    scheduled_cycle_count: scheduled!,
+    completed_cycle_count: completed!,
+    succeeded_evaluation_count: succeeded!,
+    failed_cycle_count: failed!,
+    safe_wait_cycle_count: safeWait!,
+    decision_count: decisions!,
+    abstention_count: abstentions!,
+    proposal_count: proposals!,
+    deterministic_deny_count: denials!,
+    simulated_fill_count: fills!,
+    other_proposal_outcome_count: other!,
+    completion_rate_percent: completionRate,
+    succeeded_evaluation_rate_percent: succeededRate,
+    decision_rate_percent: decisionRate,
+    abstention_rate_percent: abstentionRate,
+    proposal_rate_percent: proposalRate,
+    deterministic_deny_rate_percent: denialRate,
+    simulated_fill_rate_percent: fillRate,
+    other_proposal_outcome_rate_percent: otherRate,
+  };
+  if (status === "UNAVAILABLE") {
+    if (
+      [
+        completionRate,
+        succeededRate,
+        decisionRate,
+        abstentionRate,
+        proposalRate,
+        denialRate,
+        fillRate,
+        otherRate,
+      ].some(Boolean)
+    )
+      return;
+    return normalized;
+  }
+  if (
+    !windowStartedAt ||
+    !windowEndedAt ||
+    Number.isNaN(Date.parse(windowStartedAt)) ||
+    Number.isNaN(Date.parse(windowEndedAt)) ||
+    scheduled! < 1 ||
+    completed !== scheduled ||
+    scheduled !== succeeded! + failed! + safeWait! ||
+    decisions !== succeeded ||
+    decisions !== abstentions! + proposals! ||
+    proposals !== denials! + fills! + other! ||
+    !exactDispositionRateMatches(completed!, scheduled!, completionRate) ||
+    !exactDispositionRateMatches(succeeded!, scheduled!, succeededRate) ||
+    !exactDispositionRateMatches(decisions!, scheduled!, decisionRate) ||
+    !exactDispositionRateMatches(abstentions!, decisions!, abstentionRate) ||
+    !exactDispositionRateMatches(proposals!, decisions!, proposalRate) ||
+    !exactDispositionRateMatches(denials!, proposals!, denialRate) ||
+    !exactDispositionRateMatches(fills!, proposals!, fillRate) ||
+    !exactDispositionRateMatches(other!, proposals!, otherRate)
+  )
+    return;
+  return normalized;
+}
+
+function normalizedPaperDispositionFunnel(
+  value: unknown,
+): PaperDispositionFunnel | undefined {
+  const funnel = record(value);
+  const status = text(funnel, "status", "Status");
+  const method = text(funnel, "calculation_method", "CalculationMethod");
+  const twentyFourHours = normalizedPaperDispositionWindow(
+    funnel?.twenty_four_hours ?? funnel?.TwentyFourHours,
+    24,
+  );
+  const sevenDays = normalizedPaperDispositionWindow(
+    funnel?.seven_days ?? funnel?.SevenDays,
+    168,
+  );
+  if (
+    !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
+    !twentyFourHours ||
+    !sevenDays ||
+    (status === "AVAILABLE" &&
+      (method !== "IMMUTABLE_PAPER_EVALUATION_DISPOSITION_FUNNEL" ||
+        twentyFourHours.status !== "AVAILABLE"))
+  )
+    return;
+  return {
+    status: status as PaperDispositionFunnel["status"],
+    calculation_method: method as PaperDispositionFunnel["calculation_method"],
+    twenty_four_hours: twentyFourHours,
+    seven_days: sevenDays,
+  };
+}
+
 function normalizedPaperActivityCadence(
   value: unknown,
   expectedFillCount?: number,
@@ -1333,6 +1525,9 @@ function normalizedPaperActivityCadence(
   const sevenDays = normalizedPaperActivityWindow(
     cadence?.seven_days ?? cadence?.SevenDays,
     168,
+  );
+  const dispositionFunnel = normalizedPaperDispositionFunnel(
+    cadence?.disposition_funnel ?? cadence?.DispositionFunnel,
   );
   const timing = record(cadence?.fill_timing ?? cadence?.FillTiming);
   const timingStatus = text(timing, "status", "Status");
@@ -1378,6 +1573,7 @@ function normalizedPaperActivityCadence(
     scheduleIntervalMinutes < 30 ||
     !twentyFourHours ||
     !sevenDays ||
+    !dispositionFunnel ||
     ![
       "AVAILABLE",
       "NO_FILLS",
@@ -1398,6 +1594,7 @@ function normalizedPaperActivityCadence(
       schedule_interval_minutes: scheduleIntervalMinutes,
       twenty_four_hours: twentyFourHours,
       seven_days: sevenDays,
+      disposition_funnel: dispositionFunnel,
       fill_timing: {
         status: "UNAVAILABLE",
         fill_count: timingFillCount,
@@ -1411,6 +1608,7 @@ function normalizedPaperActivityCadence(
   }
   if (
     calculationMethod !== "IMMUTABLE_SCHEDULE_AND_SIMULATION_CHRONOLOGY" ||
+    dispositionFunnel.status !== "AVAILABLE" ||
     !asOf ||
     Number.isNaN(Date.parse(asOf)) ||
     timingCoverage !== "COMPLETE_FROM_PORTFOLIO_GENESIS" ||
@@ -1492,6 +1690,7 @@ function normalizedPaperActivityCadence(
     schedule_interval_minutes: scheduleIntervalMinutes,
     twenty_four_hours: twentyFourHours,
     seven_days: sevenDays,
+    disposition_funnel: dispositionFunnel,
     fill_timing: {
       status: timingStatus as PaperActivityCadence["fill_timing"]["status"],
       historical_coverage: timingCoverage,
@@ -2406,6 +2605,9 @@ async function fleetItem(
     paperPortfolioResult.payload?.activity_cadence_semantics ===
       "EXACT_IMMUTABLE_SCHEDULE_AND_SIMULATION_CHRONOLOGY" &&
     paperPortfolioResult.payload?.activity_cadence_read_only === true &&
+    paperPortfolioResult.payload?.disposition_funnel_semantics ===
+      "EXACT_IMMUTABLE_PAPER_EVALUATION_DISPOSITION_FUNNEL" &&
+    paperPortfolioResult.payload?.disposition_funnel_read_only === true &&
     paperPortfolioResult.payload?.broker_action_available === false &&
     paperPortfolioResult.payload?.live_execution_available === false &&
     Boolean(paperPortfolio?.activity_cadence);

@@ -10,9 +10,105 @@ const (
 	PaperActivityCadenceAvailable   = "AVAILABLE"
 	PaperActivityCadenceUnavailable = "UNAVAILABLE"
 	PaperActivityCadenceMethod      = "IMMUTABLE_SCHEDULE_AND_SIMULATION_CHRONOLOGY"
+	PaperDispositionFunnelMethod    = "IMMUTABLE_PAPER_EVALUATION_DISPOSITION_FUNNEL"
 	PaperFillTimingNoFills          = "NO_FILLS"
 	PaperFillTimingInsufficient     = "INSUFFICIENT_INTERVALS"
 )
+
+func paperDispositionRate(count, total int) *string {
+	if total <= 0 || count < 0 || count > total {
+		return nil
+	}
+	value := paperDecimal(new(big.Rat).Mul(new(big.Rat).SetFrac(big.NewInt(int64(count)), big.NewInt(int64(total))), big.NewRat(100, 1)))
+	return &value
+}
+
+func unavailablePaperDispositionWindow(window PaperActivityWindow) PaperDispositionFunnelWindow {
+	return PaperDispositionFunnelWindow{Status: PaperActivityCadenceUnavailable, HorizonHours: window.HorizonHours,
+		WindowStartedAt: window.WindowStartedAt, WindowEndedAt: window.WindowEndedAt}
+}
+
+func paperDispositionWindow(window PaperActivityWindow, runs []ScheduleRun) PaperDispositionFunnelWindow {
+	if window.Status != PaperActivityCadenceAvailable || window.WindowStartedAt == nil || window.WindowEndedAt == nil {
+		return unavailablePaperDispositionWindow(window)
+	}
+	result := PaperDispositionFunnelWindow{Status: PaperActivityCadenceAvailable, HorizonHours: window.HorizonHours,
+		WindowStartedAt: window.WindowStartedAt, WindowEndedAt: window.WindowEndedAt}
+	for _, run := range runs {
+		if run.ScheduledFor.Before(*window.WindowStartedAt) || run.CompletedAt.After(*window.WindowEndedAt) {
+			continue
+		}
+		result.ScheduledCycleCount++
+		result.CompletedCycleCount++
+		switch run.Status {
+		case "FAILED":
+			result.FailedCycleCount++
+		case "SKIPPED":
+			result.SafeWaitCycleCount++
+		case "SUCCEEDED":
+			result.SucceededEvaluationCount++
+			if run.AIDecision == nil {
+				return unavailablePaperDispositionWindow(window)
+			}
+			switch *run.AIDecision {
+			case "ABSTAIN":
+				if run.ExecutionStatus != nil {
+					return unavailablePaperDispositionWindow(window)
+				}
+				result.AbstentionCount++
+			case "PROPOSE":
+				if run.ExecutionStatus == nil {
+					return unavailablePaperDispositionWindow(window)
+				}
+				result.ProposalCount++
+				switch *run.ExecutionStatus {
+				case "RISK_DENIED":
+					result.DeterministicDenyCount++
+				case "SIMULATED_FILLED":
+					result.SimulatedFillCount++
+				default:
+					result.OtherProposalOutcomeCount++
+				}
+			default:
+				return unavailablePaperDispositionWindow(window)
+			}
+		default:
+			return unavailablePaperDispositionWindow(window)
+		}
+	}
+	result.DecisionCount = result.AbstentionCount + result.ProposalCount
+	if result.ScheduledCycleCount != window.ScheduledCycleCount || result.CompletedCycleCount != result.ScheduledCycleCount ||
+		result.ScheduledCycleCount != result.SucceededEvaluationCount+result.FailedCycleCount+result.SafeWaitCycleCount ||
+		result.SucceededEvaluationCount != result.DecisionCount ||
+		result.ProposalCount != result.DeterministicDenyCount+result.SimulatedFillCount+result.OtherProposalOutcomeCount {
+		return unavailablePaperDispositionWindow(window)
+	}
+	result.CompletionRatePercent = paperDispositionRate(result.CompletedCycleCount, result.ScheduledCycleCount)
+	result.SucceededEvaluationRatePercent = paperDispositionRate(result.SucceededEvaluationCount, result.ScheduledCycleCount)
+	result.DecisionRatePercent = paperDispositionRate(result.DecisionCount, result.ScheduledCycleCount)
+	result.AbstentionRatePercent = paperDispositionRate(result.AbstentionCount, result.DecisionCount)
+	result.ProposalRatePercent = paperDispositionRate(result.ProposalCount, result.DecisionCount)
+	result.DeterministicDenyRatePercent = paperDispositionRate(result.DeterministicDenyCount, result.ProposalCount)
+	result.SimulatedFillRatePercent = paperDispositionRate(result.SimulatedFillCount, result.ProposalCount)
+	result.OtherProposalOutcomeRatePercent = paperDispositionRate(result.OtherProposalOutcomeCount, result.ProposalCount)
+	if result.CompletionRatePercent == nil || result.SucceededEvaluationRatePercent == nil || result.DecisionRatePercent == nil ||
+		result.AbstentionRatePercent == nil || result.ProposalRatePercent == nil ||
+		(result.ProposalCount > 0 && (result.DeterministicDenyRatePercent == nil || result.SimulatedFillRatePercent == nil || result.OtherProposalOutcomeRatePercent == nil)) {
+		return unavailablePaperDispositionWindow(window)
+	}
+	return result
+}
+
+func projectPaperDispositionFunnel(cadence PaperActivityCadence, runs []ScheduleRun) PaperDispositionFunnel {
+	twentyFour := paperDispositionWindow(cadence.TwentyFourHours, runs)
+	sevenDays := paperDispositionWindow(cadence.SevenDays, runs)
+	status := PaperActivityCadenceUnavailable
+	method := ""
+	if cadence.Status == PaperActivityCadenceAvailable && twentyFour.Status == PaperActivityCadenceAvailable {
+		status, method = PaperActivityCadenceAvailable, PaperDispositionFunnelMethod
+	}
+	return PaperDispositionFunnel{Status: status, CalculationMethod: method, TwentyFourHours: twentyFour, SevenDays: sevenDays}
+}
 
 func paperDurationSeconds(duration time.Duration) string {
 	return paperDecimal(new(big.Rat).SetFrac(big.NewInt(duration.Nanoseconds()), big.NewInt(int64(time.Second))))
@@ -179,6 +275,8 @@ func paperLongestNoFillInterval(window PaperActivityWindow, runs []ScheduleRun) 
 func projectPaperActivityCadence(instanceID string, instanceStartedAt time.Time, intervalMinutes int, runs []ScheduleRun, fills []paperRealizedFill, fillsComplete bool) PaperActivityCadence {
 	unavailable := PaperActivityCadence{Status: PaperActivityCadenceUnavailable, ScheduleIntervalMinutes: intervalMinutes,
 		TwentyFourHours: PaperActivityWindow{Status: PaperActivityCadenceUnavailable, HorizonHours: 24}, SevenDays: PaperActivityWindow{Status: PaperActivityCadenceUnavailable, HorizonHours: 168},
+		DispositionFunnel: PaperDispositionFunnel{Status: PaperActivityCadenceUnavailable,
+			TwentyFourHours: PaperDispositionFunnelWindow{Status: PaperActivityCadenceUnavailable, HorizonHours: 24}, SevenDays: PaperDispositionFunnelWindow{Status: PaperActivityCadenceUnavailable, HorizonHours: 168}},
 		FillTiming: PaperFillTimingEvidence{Status: PaperActivityCadenceUnavailable, FillCount: len(fills), Symbols: []PaperFillTimingSymbol{}}, LongestNoFillInterval: PaperNoFillIntervalEvidence{Status: PaperActivityCadenceUnavailable}}
 	if instanceID == "" || instanceStartedAt.IsZero() || intervalMinutes < 30 || intervalMinutes > 1440 || len(runs) == 0 {
 		return unavailable
@@ -206,6 +304,8 @@ func projectPaperActivityCadence(instanceID string, instanceStartedAt time.Time,
 	if twentyFour.Status != PaperActivityCadenceAvailable || fillTiming.Status == PaperActivityCadenceUnavailable {
 		status = PaperActivityCadenceUnavailable
 	}
-	return PaperActivityCadence{Status: status, CalculationMethod: PaperActivityCadenceMethod, AsOf: &asOf, ScheduleIntervalMinutes: intervalMinutes,
+	result := PaperActivityCadence{Status: status, CalculationMethod: PaperActivityCadenceMethod, AsOf: &asOf, ScheduleIntervalMinutes: intervalMinutes,
 		TwentyFourHours: twentyFour, SevenDays: sevenDays, FillTiming: fillTiming, LongestNoFillInterval: paperLongestNoFillInterval(twentyFour, runs)}
+	result.DispositionFunnel = projectPaperDispositionFunnel(result, runs)
+	return result
 }

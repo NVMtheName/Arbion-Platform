@@ -2566,6 +2566,51 @@ describe("StrategyFleet", () => {
                 simulated_fill_count: 3,
                 other_succeeded_count: 0,
               },
+              disposition_funnel: {
+                status: "AVAILABLE",
+                calculation_method:
+                  "IMMUTABLE_PAPER_EVALUATION_DISPOSITION_FUNNEL",
+                twenty_four_hours: {
+                  status: "AVAILABLE",
+                  horizon_hours: 24,
+                  window_started_at: "2026-08-30T15:10:00Z",
+                  window_ended_at: "2026-08-31T15:10:00Z",
+                  scheduled_cycle_count: 24,
+                  completed_cycle_count: 24,
+                  succeeded_evaluation_count: 24,
+                  failed_cycle_count: 0,
+                  safe_wait_cycle_count: 0,
+                  decision_count: 24,
+                  abstention_count: 20,
+                  proposal_count: 4,
+                  deterministic_deny_count: 1,
+                  simulated_fill_count: 3,
+                  other_proposal_outcome_count: 0,
+                  completion_rate_percent: "100.0000000000",
+                  succeeded_evaluation_rate_percent: "100.0000000000",
+                  decision_rate_percent: "100.0000000000",
+                  abstention_rate_percent: "83.3333333333",
+                  proposal_rate_percent: "16.6666666667",
+                  deterministic_deny_rate_percent: "25.0000000000",
+                  simulated_fill_rate_percent: "75.0000000000",
+                  other_proposal_outcome_rate_percent: "0.0000000000",
+                },
+                seven_days: {
+                  status: "UNAVAILABLE",
+                  horizon_hours: 168,
+                  scheduled_cycle_count: 0,
+                  completed_cycle_count: 0,
+                  succeeded_evaluation_count: 0,
+                  failed_cycle_count: 0,
+                  safe_wait_cycle_count: 0,
+                  decision_count: 0,
+                  abstention_count: 0,
+                  proposal_count: 0,
+                  deterministic_deny_count: 0,
+                  simulated_fill_count: 0,
+                  other_proposal_outcome_count: 0,
+                },
+              },
               fill_timing: {
                 status: "AVAILABLE",
                 historical_coverage: "COMPLETE_FROM_PORTFOLIO_GENESIS",
@@ -2831,6 +2876,18 @@ describe("StrategyFleet", () => {
     expect(within(tradeSequence).getByText(/3,000 bps/i)).toBeInTheDocument();
     expect(
       within(tradeSequence).getByText(/longest same-side streak 2/i),
+    ).toBeInTheDocument();
+    const cadence = screen.getByLabelText(
+      /AI Paper Engine exact Paper activity cadence/i,
+    );
+    expect(
+      within(cadence).getByText(/20 abstain · 4 propose/i),
+    ).toBeInTheDocument();
+    expect(
+      within(cadence).getByText(/75% \/ 25% of proposals/i),
+    ).toBeInTheDocument();
+    expect(
+      within(cadence).getByText(/does not establish conversion quality/i),
     ).toBeInTheDocument();
     const reconciliation = screen.getByRole("region", {
       name: /AI Paper Engine exact Paper outcome reconciliation/i,
