@@ -2495,7 +2495,7 @@ describe("StrategyFleet", () => {
             paperProposalHeadroom: "100.0000000000",
             paperRealizedContractAvailable: true,
             paperRealizedOutcomeStatus: "AVAILABLE",
-            paperRealizedProfitLoss: "8.8000000000",
+            paperRealizedProfitLoss: "-2.0000000000",
             paperRealizedFillCount: 3,
             paperRealizedSellFillCount: 1,
             paperRealizedFirstFillAt: "2026-08-30T12:00:00Z",
@@ -2504,7 +2504,7 @@ describe("StrategyFleet", () => {
               {
                 symbol: "BTC",
                 instrument: "CRYPTO",
-                realizedProfitLoss: "8.8000000000",
+                realizedProfitLoss: "-2.0000000000",
                 buyFillCount: 2,
                 sellFillCount: 1,
                 totalFees: "2.8500000000",
@@ -2512,6 +2512,20 @@ describe("StrategyFleet", () => {
                 endingAverageCost: "111.1000000000",
               },
             ],
+            paperOutcomeReconciliationStatus: "RECONCILED_EXACT",
+            paperReconciledRealizedProfitLoss: "-2.0000000000",
+            paperReconciledUnrealizedProfitLoss: "-3.0000000000",
+            paperReconciledClassifiedProfitLoss: "-5.0000000000",
+            paperReconciledTotalProfitLoss: "-5.0000000000",
+            paperOutcomeResidual: "0.0000000000",
+            paperReconciledSimulatedEquity: "995.0000000000",
+            paperReconciledCashPlusExposure: "995.0000000000",
+            paperEquityResidual: "0.0000000000",
+            paperOutcomeResidualLimit: "0.000001",
+            paperOutcomeReconciliationProvider: "coinbase",
+            paperOutcomeReconciliationFeeds: ["rest_ticker"],
+            paperOutcomeReconciliationQualities: ["REAL_TIME_SINGLE_VENUE"],
+            paperOutcomeReconciliationValuedAt: "2026-08-31T02:35:57Z",
             paperPositionOutcomes: [
               {
                 symbol: "BTC",
@@ -2548,13 +2562,26 @@ describe("StrategyFleet", () => {
     expect(
       screen.getByText("Exact simulated realized outcome"),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("+$8.8")).toHaveLength(2);
+    expect(screen.getAllByText("−$2")).toHaveLength(2);
     expect(
       screen.getByText("1 simulated sale · $2.85 total fees"),
     ).toBeInTheDocument();
     expect(
       screen.getByText(
         /Exact average-cost replay from all 3 immutable simulated fills/i,
+      ),
+    ).toBeInTheDocument();
+    const reconciliation = screen.getByRole("region", {
+      name: /AI Paper Engine exact Paper outcome reconciliation/i,
+      hidden: true,
+    });
+    expect(within(reconciliation).getByText("Exact match")).toBeInTheDocument();
+    expect(
+      within(reconciliation).getByText(/−\$2 \+ −\$3/i),
+    ).toBeInTheDocument();
+    expect(
+      within(reconciliation).getByText(
+        /immutable fill replay and saved market valuation reconcile/i,
       ),
     ).toBeInTheDocument();
     expect(
@@ -2594,6 +2621,64 @@ describe("StrategyFleet", () => {
       screen.getByText(/Missing values are never inferred/i),
     ).toBeInTheDocument();
     expect(screen.queryByText("$850 cash")).not.toBeInTheDocument();
+  });
+
+  it("automatically exposes a material Paper outcome reconciliation mismatch", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            title: "AI Paper Engine",
+            executionMode: "PAPER",
+            paperPortfolioAvailable: true,
+            paperPerformanceStatus: "AVAILABLE",
+            paperCurrency: "USD",
+            paperStartingCash: "1000",
+            paperCash: "850",
+            paperSimulatedEquity: "995",
+            paperInvestedExposure: "145",
+            paperTotalProfitLoss: "-5",
+            paperTotalReturnPercent: "-0.5",
+            paperCashReserve: "200",
+            paperCashHeadroom: "650",
+            paperExposureCeiling: "800",
+            paperExposureHeadroom: "655",
+            paperSymbolCeiling: "300",
+            paperProposalHeadroom: "100",
+            paperPositionOutcomes: [],
+            paperRealizedContractAvailable: true,
+            paperRealizedOutcomeStatus: "AVAILABLE",
+            paperRealizedProfitLoss: "-2",
+            paperRealizedFillCount: 2,
+            paperRealizedSellFillCount: 1,
+            paperRealizedSymbolOutcomes: [],
+            paperOutcomeReconciliationStatus: "MISMATCH",
+            paperReconciledRealizedProfitLoss: "-2",
+            paperReconciledUnrealizedProfitLoss: "-3",
+            paperReconciledClassifiedProfitLoss: "-5",
+            paperReconciledTotalProfitLoss: "-4",
+            paperOutcomeResidual: "1",
+            paperReconciledSimulatedEquity: "995",
+            paperReconciledCashPlusExposure: "995",
+            paperEquityResidual: "0",
+            paperOutcomeResidualLimit: "0.000001",
+            paperOutcomeReconciliationProvider: "coinbase",
+            paperOutcomeReconciliationFeeds: ["rest_ticker"],
+            paperOutcomeReconciliationQualities: ["REAL_TIME_SINGLE_VENUE"],
+            paperOutcomeReconciliationValuedAt: "2026-08-31T02:35:57Z",
+          },
+        ]}
+      />,
+    );
+
+    const exposureSummary = screen.getByText("Exposure + outcomes");
+    expect(exposureSummary.closest("details")).toHaveAttribute("open");
+    expect(screen.getByText("Outcome mismatch")).toBeInTheDocument();
+    expect(
+      screen.getByText(/differ beyond Arbion's strict decimal bound/i),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Review required").length).toBeGreaterThan(0);
   });
 
   it("compares bounded exact Paper outcome snapshots without claiming realized performance", () => {

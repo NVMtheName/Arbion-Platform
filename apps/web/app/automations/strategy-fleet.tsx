@@ -166,6 +166,24 @@ export type StrategyFleetItem = {
     endingPositionQuantity: string;
     endingAverageCost?: string;
   }>;
+  paperOutcomeReconciliationStatus?:
+    | "RECONCILED_EXACT"
+    | "RECONCILED_WITH_DECIMAL_RESIDUAL"
+    | "MISMATCH"
+    | "UNAVAILABLE";
+  paperReconciledRealizedProfitLoss?: string;
+  paperReconciledUnrealizedProfitLoss?: string;
+  paperReconciledClassifiedProfitLoss?: string;
+  paperReconciledTotalProfitLoss?: string;
+  paperOutcomeResidual?: string;
+  paperReconciledSimulatedEquity?: string;
+  paperReconciledCashPlusExposure?: string;
+  paperEquityResidual?: string;
+  paperOutcomeResidualLimit?: string;
+  paperOutcomeReconciliationProvider?: string;
+  paperOutcomeReconciliationFeeds?: string[];
+  paperOutcomeReconciliationQualities?: string[];
+  paperOutcomeReconciliationValuedAt?: string;
   paperPositionOutcomes?: Array<{
     symbol: string;
     marketValue: string;
@@ -1532,7 +1550,9 @@ function needsReview(item: StrategyFleetItem) {
       (item.paperPortfolioAvailable === false ||
         item.paperPerformanceStatus === "UNAVAILABLE" ||
         item.paperRealizedContractAvailable === false ||
-        item.paperRealizedOutcomeStatus === "UNAVAILABLE")) ||
+        item.paperRealizedOutcomeStatus === "UNAVAILABLE" ||
+        item.paperOutcomeReconciliationStatus === "UNAVAILABLE" ||
+        item.paperOutcomeReconciliationStatus === "MISMATCH")) ||
     paperOutcomeLimitBreach(item) ||
     item.decisionAvailable === false ||
     item.scheduleStatus === "FAILED" ||
@@ -4332,6 +4352,31 @@ function paperRealizedEvidenceAvailable(item: StrategyFleetItem) {
   );
 }
 
+function paperOutcomeReconciliationAvailable(item: StrategyFleetItem) {
+  return (
+    item.executionMode === "PAPER" &&
+    [
+      "RECONCILED_EXACT",
+      "RECONCILED_WITH_DECIMAL_RESIDUAL",
+      "MISMATCH",
+    ].includes(item.paperOutcomeReconciliationStatus ?? "") &&
+    Boolean(
+      item.paperCurrency &&
+        item.paperReconciledRealizedProfitLoss &&
+        item.paperReconciledUnrealizedProfitLoss &&
+        item.paperReconciledClassifiedProfitLoss &&
+        item.paperReconciledTotalProfitLoss &&
+        item.paperOutcomeResidual &&
+        item.paperReconciledSimulatedEquity &&
+        item.paperReconciledCashPlusExposure &&
+        item.paperEquityResidual &&
+        item.paperOutcomeResidualLimit &&
+        item.paperOutcomeReconciliationFeeds &&
+        item.paperOutcomeReconciliationQualities,
+    )
+  );
+}
+
 function shadowOutcomeEvidenceAvailable(item: StrategyFleetItem) {
   return (
     item.executionMode === "SHADOW" &&
@@ -4611,12 +4656,21 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
     ? paperOutcomeEvidenceAvailable(item)
     : shadowOutcomeEvidenceAvailable(item);
   const realizedAvailable = paper && paperRealizedEvidenceAvailable(item);
+  const outcomeReconciliationAvailable =
+    paper && paperOutcomeReconciliationAvailable(item);
+  const outcomeReconciliationAttention =
+    paper && item.paperOutcomeReconciliationStatus === "MISMATCH";
   const limitBreach = paper && available && paperOutcomeLimitBreach(item);
   const detailHref = `/automations/${encodeURIComponent(item.id)}#runtime-evidence`;
   return (
     <details
-      className={`strategy-fleet-exposure-outcomes is-${item.executionMode.toLowerCase()}${available ? "" : " is-unavailable"}${limitBreach ? " is-attention" : ""}`}
-      open={!available || (paper && !realizedAvailable) || limitBreach}
+      className={`strategy-fleet-exposure-outcomes is-${item.executionMode.toLowerCase()}${available ? "" : " is-unavailable"}${limitBreach || outcomeReconciliationAttention ? " is-attention" : ""}`}
+      open={
+        !available ||
+        (paper && (!realizedAvailable || !outcomeReconciliationAvailable)) ||
+        limitBreach ||
+        outcomeReconciliationAttention
+      }
     >
       <summary>
         <span>
@@ -4632,11 +4686,15 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
             ? "Evidence unavailable"
             : paper && !realizedAvailable
               ? "Realized evidence unavailable"
-              : limitBreach
-                ? "Limit review required"
-                : paper
-                  ? `${capitalMoney(item.paperCurrency, item.paperCash)} cash · ${capitalMoney(item.paperCurrency, item.paperInvestedExposure)} marked`
-                  : `${item.oneHourSampleSize} one-hour · ${item.twentyFourHourSampleSize} 24-hour`}
+              : paper && !outcomeReconciliationAvailable
+                ? "Reconciliation unavailable"
+                : outcomeReconciliationAttention
+                  ? "Outcome mismatch"
+                  : limitBreach
+                    ? "Limit review required"
+                    : paper
+                      ? `${capitalMoney(item.paperCurrency, item.paperCash)} cash · ${capitalMoney(item.paperCurrency, item.paperInvestedExposure)} marked`
+                      : `${item.oneHourSampleSize} one-hour · ${item.twentyFourHourSampleSize} 24-hour`}
         </span>
       </summary>
       {paper ? (
@@ -4811,6 +4869,122 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                   immutable simulated fill chain could not be proven. Arbion
                   leaves the value unavailable instead of reconstructing or
                   inferring it.
+                </p>
+              )}
+              {outcomeReconciliationAvailable ? (
+                <section
+                  className="strategy-fleet-symbol-outcomes"
+                  aria-label={
+                    item.title + " exact Paper outcome reconciliation"
+                  }
+                >
+                  <header>
+                    <strong>Exact outcome reconciliation</strong>
+                    <span>
+                      {outcomeReconciliationAttention
+                        ? "Review required"
+                        : item.paperOutcomeReconciliationStatus ===
+                            "RECONCILED_EXACT"
+                          ? "Exact match"
+                          : "Reconciled · residual disclosed"}
+                    </span>
+                  </header>
+                  <dl>
+                    <div>
+                      <dt>Realized + unrealized</dt>
+                      <dd>
+                        {signedCapitalMoney(
+                          item.paperCurrency,
+                          item.paperReconciledRealizedProfitLoss,
+                        )}
+                        {" + "}
+                        {signedCapitalMoney(
+                          item.paperCurrency,
+                          item.paperReconciledUnrealizedProfitLoss,
+                        )}
+                      </dd>
+                      <small>
+                        {signedCapitalMoney(
+                          item.paperCurrency,
+                          item.paperReconciledClassifiedProfitLoss,
+                        )}
+                        {" classified outcome"}
+                      </small>
+                    </div>
+                    <div>
+                      <dt>Equity − starting cash</dt>
+                      <dd>
+                        {signedCapitalMoney(
+                          item.paperCurrency,
+                          item.paperReconciledTotalProfitLoss,
+                        )}
+                      </dd>
+                      <small>Independent total simulated outcome</small>
+                    </div>
+                    <div>
+                      <dt>Cash + marked exposure</dt>
+                      <dd>
+                        {capitalMoney(
+                          item.paperCurrency,
+                          item.paperReconciledCashPlusExposure,
+                        )}
+                      </dd>
+                      <small>
+                        {capitalMoney(
+                          item.paperCurrency,
+                          item.paperReconciledSimulatedEquity,
+                        )}
+                        {" simulated equity · residual "}
+                        {signedCapitalMoney(
+                          item.paperCurrency,
+                          item.paperEquityResidual,
+                        )}
+                      </small>
+                    </div>
+                    <div>
+                      <dt>Disclosed decimal residual</dt>
+                      <dd>
+                        {signedCapitalMoney(
+                          item.paperCurrency,
+                          item.paperOutcomeResidual,
+                        )}
+                      </dd>
+                      <small>
+                        Strict review bound ±
+                        {capitalMoney(
+                          item.paperCurrency,
+                          item.paperOutcomeResidualLimit,
+                        )}
+                      </small>
+                    </div>
+                  </dl>
+                  <p className="strategy-fleet-outcome-note">
+                    {outcomeReconciliationAttention
+                      ? "The saved accounting paths differ beyond Arbion's strict decimal bound. The exact mismatch is exposed and no value is substituted."
+                      : "The immutable fill replay and saved market valuation reconcile. Any sub-cent decimal residual remains separate from realized and unrealized outcomes."}
+                    {" Provider "}
+                    {item.paperOutcomeReconciliationProvider ??
+                      "attribution unavailable"}
+                    {item.paperOutcomeReconciliationFeeds?.length
+                      ? " · " + item.paperOutcomeReconciliationFeeds.join(", ")
+                      : ""}
+                    {item.paperOutcomeReconciliationQualities?.length
+                      ? " · " +
+                        item.paperOutcomeReconciliationQualities.join(", ")
+                      : ""}
+                    {item.paperOutcomeReconciliationValuedAt
+                      ? " · saved market evidence " +
+                        readableTime(item.paperOutcomeReconciliationValuedAt)
+                      : ""}
+                    . Simulation only; no broker balance, rerun, order, or live
+                    authority.
+                  </p>
+                </section>
+              ) : (
+                <p className="strategy-fleet-outcome-note">
+                  Outcome reconciliation: <strong>Unavailable</strong> · one
+                  complete realized fill replay and immutable market valuation
+                  could not both be proven. No value is inferred.
                 </p>
               )}
               <p className="strategy-fleet-outcome-note">

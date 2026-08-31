@@ -17,6 +17,7 @@ import {
   calculatePaperPerformance,
   extractLatestPaperMarketSnapshots,
 } from "./paper-performance";
+import { reconcilePaperOutcome } from "./paper-outcome-reconciliation";
 import type {
   PaperPortfolio,
   PaperPosition,
@@ -1149,6 +1150,16 @@ async function fleetItem(
         extractLatestPaperMarketSnapshots(aiDecisions),
       )
     : undefined;
+  const paperOutcomeReconciliation =
+    paperPortfolio && paperPerformance
+      ? reconcilePaperOutcome({
+          currency: paperPortfolio.currency,
+          cash: paperPortfolio.cash,
+          performance: paperPerformance,
+          realized: paperPortfolio.realized_outcome,
+          realizedContractAvailable: paperRealizedContractAvailable,
+        })
+      : undefined;
   const riskParameters = record(
     displayConfiguration?.risk_parameters ??
       displayConfiguration?.RiskParameters,
@@ -1416,6 +1427,25 @@ async function fleetItem(
         endingAverageCost: symbol.ending_average_cost,
       }),
     ),
+    paperOutcomeReconciliationStatus: paperOutcomeReconciliation?.status,
+    paperReconciledRealizedProfitLoss:
+      paperOutcomeReconciliation?.realizedProfitLoss,
+    paperReconciledUnrealizedProfitLoss:
+      paperOutcomeReconciliation?.unrealizedProfitLoss,
+    paperReconciledClassifiedProfitLoss:
+      paperOutcomeReconciliation?.classifiedProfitLoss,
+    paperReconciledTotalProfitLoss: paperOutcomeReconciliation?.totalProfitLoss,
+    paperOutcomeResidual: paperOutcomeReconciliation?.outcomeResidual,
+    paperReconciledSimulatedEquity: paperOutcomeReconciliation?.simulatedEquity,
+    paperReconciledCashPlusExposure:
+      paperOutcomeReconciliation?.cashPlusExposure,
+    paperEquityResidual: paperOutcomeReconciliation?.equityResidual,
+    paperOutcomeResidualLimit: paperOutcomeReconciliation?.residualLimit,
+    paperOutcomeReconciliationProvider: paperOutcomeReconciliation?.provider,
+    paperOutcomeReconciliationFeeds: paperOutcomeReconciliation?.marketFeeds,
+    paperOutcomeReconciliationQualities:
+      paperOutcomeReconciliation?.marketQualities,
+    paperOutcomeReconciliationValuedAt: paperOutcomeReconciliation?.valuedAt,
     paperPositionOutcomes: paperPerformance?.positions.map((position) => ({
       symbol: position.symbol,
       marketValue: position.marketValue,
