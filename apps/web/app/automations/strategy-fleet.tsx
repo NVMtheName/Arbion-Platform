@@ -166,6 +166,29 @@ export type StrategyFleetItem = {
     endingPositionQuantity: string;
     endingAverageCost?: string;
   }>;
+  paperExecutionCostsContractAvailable?: boolean;
+  paperExecutionCostsStatus?: "AVAILABLE" | "NO_FILLS" | "UNAVAILABLE";
+  paperExecutionTotalFees?: string;
+  paperExecutionTotalAdverseSlippage?: string;
+  paperExecutionGrossNotional?: string;
+  paperExecutionFillCount?: number;
+  paperExecutionBuyFillCount?: number;
+  paperExecutionSellFillCount?: number;
+  paperExecutionFirstFillAt?: string;
+  paperExecutionLastFillAt?: string;
+  paperExecutionMarketProviders?: string[];
+  paperExecutionMarketFeeds?: string[];
+  paperExecutionMarketQualities?: string[];
+  paperExecutionSymbolCosts?: Array<{
+    symbol: string;
+    instrument: "EQUITY" | "CRYPTO";
+    totalFees: string;
+    adverseSlippage: string;
+    grossNotional: string;
+    fillCount: number;
+    buyFillCount: number;
+    sellFillCount: number;
+  }>;
   paperOutcomeReconciliationStatus?:
     | "RECONCILED_EXACT"
     | "RECONCILED_WITH_DECIMAL_RESIDUAL"
@@ -1551,6 +1574,8 @@ function needsReview(item: StrategyFleetItem) {
         item.paperPerformanceStatus === "UNAVAILABLE" ||
         item.paperRealizedContractAvailable === false ||
         item.paperRealizedOutcomeStatus === "UNAVAILABLE" ||
+        item.paperExecutionCostsContractAvailable === false ||
+        item.paperExecutionCostsStatus === "UNAVAILABLE" ||
         item.paperOutcomeReconciliationStatus === "UNAVAILABLE" ||
         item.paperOutcomeReconciliationStatus === "MISMATCH")) ||
     paperOutcomeLimitBreach(item) ||
@@ -4377,6 +4402,27 @@ function paperOutcomeReconciliationAvailable(item: StrategyFleetItem) {
   );
 }
 
+function paperExecutionCostsAvailable(item: StrategyFleetItem) {
+  return (
+    item.executionMode === "PAPER" &&
+    item.paperExecutionCostsContractAvailable === true &&
+    ["AVAILABLE", "NO_FILLS"].includes(item.paperExecutionCostsStatus ?? "") &&
+    Boolean(
+      item.paperCurrency &&
+        item.paperExecutionTotalFees &&
+        item.paperExecutionTotalAdverseSlippage &&
+        item.paperExecutionGrossNotional &&
+        item.paperExecutionFillCount !== undefined &&
+        item.paperExecutionBuyFillCount !== undefined &&
+        item.paperExecutionSellFillCount !== undefined &&
+        item.paperExecutionMarketProviders &&
+        item.paperExecutionMarketFeeds &&
+        item.paperExecutionMarketQualities &&
+        item.paperExecutionSymbolCosts,
+    )
+  );
+}
+
 function shadowOutcomeEvidenceAvailable(item: StrategyFleetItem) {
   return (
     item.executionMode === "SHADOW" &&
@@ -4656,6 +4702,7 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
     ? paperOutcomeEvidenceAvailable(item)
     : shadowOutcomeEvidenceAvailable(item);
   const realizedAvailable = paper && paperRealizedEvidenceAvailable(item);
+  const executionCostsAvailable = paper && paperExecutionCostsAvailable(item);
   const outcomeReconciliationAvailable =
     paper && paperOutcomeReconciliationAvailable(item);
   const outcomeReconciliationAttention =
@@ -4667,7 +4714,10 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
       className={`strategy-fleet-exposure-outcomes is-${item.executionMode.toLowerCase()}${available ? "" : " is-unavailable"}${limitBreach || outcomeReconciliationAttention ? " is-attention" : ""}`}
       open={
         !available ||
-        (paper && (!realizedAvailable || !outcomeReconciliationAvailable)) ||
+        (paper &&
+          (!realizedAvailable ||
+            !executionCostsAvailable ||
+            !outcomeReconciliationAvailable)) ||
         limitBreach ||
         outcomeReconciliationAttention
       }
@@ -4686,15 +4736,17 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
             ? "Evidence unavailable"
             : paper && !realizedAvailable
               ? "Realized evidence unavailable"
-              : paper && !outcomeReconciliationAvailable
-                ? "Reconciliation unavailable"
-                : outcomeReconciliationAttention
-                  ? "Outcome mismatch"
-                  : limitBreach
-                    ? "Limit review required"
-                    : paper
-                      ? `${capitalMoney(item.paperCurrency, item.paperCash)} cash · ${capitalMoney(item.paperCurrency, item.paperInvestedExposure)} marked`
-                      : `${item.oneHourSampleSize} one-hour · ${item.twentyFourHourSampleSize} 24-hour`}
+              : outcomeReconciliationAttention
+                ? "Outcome mismatch"
+                : paper && !executionCostsAvailable
+                  ? "Execution costs unavailable"
+                  : paper && !outcomeReconciliationAvailable
+                    ? "Reconciliation unavailable"
+                    : limitBreach
+                      ? "Limit review required"
+                      : paper
+                        ? `${capitalMoney(item.paperCurrency, item.paperCash)} cash · ${capitalMoney(item.paperCurrency, item.paperInvestedExposure)} marked`
+                        : `${item.oneHourSampleSize} one-hour · ${item.twentyFourHourSampleSize} 24-hour`}
         </span>
       </summary>
       {paper ? (
@@ -4842,8 +4894,8 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                             {symbol.sellFillCount} simulated sale
                             {symbol.sellFillCount === 1 ? "" : "s"}
                             {" · "}
-                            {capitalMoney(item.paperCurrency, symbol.totalFees)}
-                            {" total fees"}
+                            {symbol.buyFillCount} simulated buy
+                            {symbol.buyFillCount === 1 ? "" : "s"}
                           </small>
                         </li>
                       ))}
@@ -4869,6 +4921,84 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                   immutable simulated fill chain could not be proven. Arbion
                   leaves the value unavailable instead of reconstructing or
                   inferring it.
+                </p>
+              )}
+              {executionCostsAvailable ? (
+                <section
+                  className="strategy-fleet-symbol-outcomes"
+                  aria-label={item.title + " exact Paper execution costs"}
+                >
+                  <header>
+                    <strong>Exact simulated execution costs</strong>
+                    <span>
+                      {capitalMoney(
+                        item.paperCurrency,
+                        item.paperExecutionTotalFees,
+                      )}
+                      {" fees · "}
+                      {capitalMoney(
+                        item.paperCurrency,
+                        item.paperExecutionTotalAdverseSlippage,
+                      )}
+                      {" slippage"}
+                    </span>
+                  </header>
+                  {(item.paperExecutionSymbolCosts ?? []).length > 0 ? (
+                    <ol>
+                      {item.paperExecutionSymbolCosts!.map((symbol) => (
+                        <li key={`${symbol.instrument}:${symbol.symbol}`}>
+                          <strong>{symbol.symbol}</strong>
+                          <span>
+                            {capitalMoney(item.paperCurrency, symbol.totalFees)}
+                            {" fees"}
+                          </span>
+                          <small>
+                            {capitalMoney(
+                              item.paperCurrency,
+                              symbol.adverseSlippage,
+                            )}
+                            {" adverse slippage · "}
+                            {capitalMoney(
+                              item.paperCurrency,
+                              symbol.grossNotional,
+                            )}
+                            {" gross simulated notional · "}
+                            {symbol.buyFillCount} / {symbol.sellFillCount} buy /
+                            sale fills
+                          </small>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p>No simulated fills yet · exact execution costs $0.</p>
+                  )}
+                  <p className="strategy-fleet-outcome-note">
+                    Exact immutable fill evidence from portfolio genesis:{" "}
+                    {item.paperExecutionFillCount} simulated fill
+                    {item.paperExecutionFillCount === 1 ? "" : "s"},{" "}
+                    {capitalMoney(
+                      item.paperCurrency,
+                      item.paperExecutionGrossNotional,
+                    )}
+                    {" gross notional. "}
+                    {item.paperExecutionMarketProviders?.join(", ") ||
+                      "Provider unavailable"}
+                    {item.paperExecutionMarketFeeds?.length
+                      ? " · " + item.paperExecutionMarketFeeds.join(", ")
+                      : ""}
+                    {item.paperExecutionMarketQualities?.length
+                      ? " · " + item.paperExecutionMarketQualities.join(", ")
+                      : ""}
+                    . Fees and adverse slippage remain separate from realized,
+                    unrealized, and total outcomes. Simulation only—not
+                    broker-reported costs or live execution.
+                  </p>
+                </section>
+              ) : (
+                <p className="strategy-fleet-outcome-note">
+                  Execution-cost attribution: <strong>Unavailable</strong> · the
+                  complete immutable simulated fill and market-attribution chain
+                  could not be proven. No fee or slippage value is estimated.
                 </p>
               )}
               {outcomeReconciliationAvailable ? (

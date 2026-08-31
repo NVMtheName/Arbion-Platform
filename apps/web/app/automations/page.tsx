@@ -19,6 +19,8 @@ import {
 } from "./paper-performance";
 import { reconcilePaperOutcome } from "./paper-outcome-reconciliation";
 import type {
+  PaperExecutionCosts,
+  PaperExecutionSymbolCost,
   PaperPortfolio,
   PaperPosition,
   PaperRealizedOutcome,
@@ -72,9 +74,179 @@ type PaperPortfolioEnvelope = {
   paper_portfolio?: RecordValue;
   realized_outcome_semantics?: string;
   realized_outcome_includes_fees?: boolean;
+  execution_cost_semantics?: string;
+  execution_costs_broker_reported?: boolean;
   broker_action_available?: boolean;
   live_execution_available?: boolean;
 };
+
+function normalizedPaperExecutionCosts(
+  value: unknown,
+): PaperExecutionCosts | undefined {
+  const costs = record(value);
+  const status = text(costs, "status", "Status");
+  const fillCount = nonnegativeInteger(costs?.fill_count ?? costs?.FillCount);
+  const buyFillCount = nonnegativeInteger(
+    costs?.buy_fill_count ?? costs?.BuyFillCount,
+  );
+  const sellFillCount = nonnegativeInteger(
+    costs?.sell_fill_count ?? costs?.SellFillCount,
+  );
+  const rawSymbols = costs?.symbols ?? costs?.Symbols;
+  const marketProviders = stringList(
+    costs?.market_providers ?? costs?.MarketProviders,
+  );
+  const marketFeeds = stringList(costs?.market_feeds ?? costs?.MarketFeeds);
+  const marketQualities = stringList(
+    costs?.market_qualities ?? costs?.MarketQualities,
+  );
+  if (
+    !["AVAILABLE", "NO_FILLS", "UNAVAILABLE"].includes(status ?? "") ||
+    fillCount === undefined ||
+    buyFillCount === undefined ||
+    sellFillCount === undefined ||
+    buyFillCount + sellFillCount !== fillCount ||
+    !Array.isArray(rawSymbols)
+  )
+    return;
+  if (status === "UNAVAILABLE") {
+    if (rawSymbols.length !== 0) return;
+    return {
+      status: "UNAVAILABLE",
+      fill_count: fillCount,
+      buy_fill_count: buyFillCount,
+      sell_fill_count: sellFillCount,
+      market_providers: marketProviders,
+      market_feeds: marketFeeds,
+      market_qualities: marketQualities,
+      symbols: [],
+    };
+  }
+  const calculationMethod = text(
+    costs,
+    "calculation_method",
+    "CalculationMethod",
+  );
+  const historicalCoverage = text(
+    costs,
+    "historical_coverage",
+    "HistoricalCoverage",
+  );
+  const totalFees = exactDecimal(costs?.total_fees ?? costs?.TotalFees);
+  const totalAdverseSlippage = exactDecimal(
+    costs?.total_adverse_slippage ?? costs?.TotalAdverseSlippage,
+  );
+  const grossNotional = exactDecimal(
+    costs?.gross_notional ?? costs?.GrossNotional,
+  );
+  const firstFillAt = text(costs, "first_fill_at", "FirstFillAt");
+  const lastFillAt = text(costs, "last_fill_at", "LastFillAt");
+  if (
+    calculationMethod !== "SAVED_REFERENCE_VERSUS_SIMULATED_FILL" ||
+    historicalCoverage !== "COMPLETE_FROM_PORTFOLIO_GENESIS" ||
+    !totalFees ||
+    !totalAdverseSlippage ||
+    !grossNotional ||
+    (compareExactDecimals(totalFees, "0") ?? -1) < 0 ||
+    (compareExactDecimals(totalAdverseSlippage, "0") ?? -1) < 0 ||
+    (compareExactDecimals(grossNotional, "0") ?? -1) < 0 ||
+    (status === "NO_FILLS" && fillCount !== 0) ||
+    (status === "AVAILABLE" && fillCount === 0) ||
+    (fillCount > 0 &&
+      (!firstFillAt ||
+        !lastFillAt ||
+        Number.isNaN(Date.parse(firstFillAt)) ||
+        Number.isNaN(Date.parse(lastFillAt))))
+  )
+    return;
+  const symbols: PaperExecutionSymbolCost[] = [];
+  const seenSymbols = new Set<string>();
+  for (const rawSymbol of rawSymbols) {
+    const symbolCost = record(rawSymbol);
+    const symbol = text(symbolCost, "symbol", "Symbol");
+    const instrument = text(symbolCost, "instrument", "Instrument");
+    const symbolFees = exactDecimal(
+      symbolCost?.total_fees ?? symbolCost?.TotalFees,
+    );
+    const adverseSlippage = exactDecimal(
+      symbolCost?.adverse_slippage ?? symbolCost?.AdverseSlippage,
+    );
+    const symbolGross = exactDecimal(
+      symbolCost?.gross_notional ?? symbolCost?.GrossNotional,
+    );
+    const symbolFillCount = nonnegativeInteger(
+      symbolCost?.fill_count ?? symbolCost?.FillCount,
+    );
+    const symbolBuyCount = nonnegativeInteger(
+      symbolCost?.buy_fill_count ?? symbolCost?.BuyFillCount,
+    );
+    const symbolSellCount = nonnegativeInteger(
+      symbolCost?.sell_fill_count ?? symbolCost?.SellFillCount,
+    );
+    const key = `${instrument}:${symbol}`;
+    if (
+      !symbol ||
+      !["EQUITY", "CRYPTO"].includes(instrument ?? "") ||
+      !symbolFees ||
+      !adverseSlippage ||
+      !symbolGross ||
+      symbolFillCount === undefined ||
+      symbolBuyCount === undefined ||
+      symbolSellCount === undefined ||
+      symbolBuyCount + symbolSellCount !== symbolFillCount ||
+      (compareExactDecimals(symbolFees, "0") ?? -1) < 0 ||
+      (compareExactDecimals(adverseSlippage, "0") ?? -1) < 0 ||
+      (compareExactDecimals(symbolGross, "0") ?? -1) < 0 ||
+      seenSymbols.has(key)
+    )
+      return;
+    seenSymbols.add(key);
+    symbols.push({
+      symbol,
+      instrument: instrument as PaperExecutionSymbolCost["instrument"],
+      total_fees: symbolFees,
+      adverse_slippage: adverseSlippage,
+      gross_notional: symbolGross,
+      fill_count: symbolFillCount,
+      buy_fill_count: symbolBuyCount,
+      sell_fill_count: symbolSellCount,
+    });
+  }
+  if (
+    symbols.reduce((count, symbol) => count + symbol.fill_count, 0) !==
+      fillCount ||
+    compareExactDecimals(
+      sumUSD(symbols.map((symbol) => symbol.total_fees)) ?? "invalid",
+      totalFees,
+    ) !== 0 ||
+    compareExactDecimals(
+      sumUSD(symbols.map((symbol) => symbol.adverse_slippage)) ?? "invalid",
+      totalAdverseSlippage,
+    ) !== 0 ||
+    compareExactDecimals(
+      sumUSD(symbols.map((symbol) => symbol.gross_notional)) ?? "invalid",
+      grossNotional,
+    ) !== 0
+  )
+    return;
+  return {
+    status: status as PaperExecutionCosts["status"],
+    calculation_method: calculationMethod,
+    historical_coverage: historicalCoverage,
+    total_fees: totalFees,
+    total_adverse_slippage: totalAdverseSlippage,
+    gross_notional: grossNotional,
+    fill_count: fillCount,
+    buy_fill_count: buyFillCount,
+    sell_fill_count: sellFillCount,
+    first_fill_at: firstFillAt,
+    last_fill_at: lastFillAt,
+    market_providers: marketProviders,
+    market_feeds: marketFeeds,
+    market_qualities: marketQualities,
+    symbols,
+  };
+}
 
 function text(record: RecordValue | undefined, key: string, legacy: string) {
   const value = record?.[key] ?? record?.[legacy];
@@ -286,6 +458,9 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
   const realizedOutcome = normalizedPaperRealizedOutcome(
     portfolio?.realized_outcome ?? portfolio?.RealizedOutcome,
   );
+  const executionCosts = normalizedPaperExecutionCosts(
+    portfolio?.execution_costs ?? portfolio?.ExecutionCosts,
+  );
   if (
     !currency ||
     !startingCash ||
@@ -342,6 +517,7 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
     version,
     positions,
     realized_outcome: realizedOutcome,
+    execution_costs: executionCosts,
     updated_at: updatedAt,
   };
 }
@@ -1139,6 +1315,14 @@ async function fleetItem(
     paperPortfolioResult.payload?.broker_action_available === false &&
     paperPortfolioResult.payload?.live_execution_available === false &&
     Boolean(paperPortfolio?.realized_outcome);
+  const paperExecutionCostContractAvailable =
+    runtimeExecutionMode === "PAPER" &&
+    paperPortfolioResult.payload?.execution_cost_semantics ===
+      "EXACT_IMMUTABLE_SIMULATION_FEES_AND_ADVERSE_SLIPPAGE" &&
+    paperPortfolioResult.payload?.execution_costs_broker_reported === false &&
+    paperPortfolioResult.payload?.broker_action_available === false &&
+    paperPortfolioResult.payload?.live_execution_available === false &&
+    Boolean(paperPortfolio?.execution_costs);
   const paperPortfolioAvailable =
     expectsOperationalData &&
     runtimeExecutionMode === "PAPER" &&
@@ -1425,6 +1609,39 @@ async function fleetItem(
         totalFees: symbol.total_fees,
         endingPositionQuantity: symbol.ending_position_quantity,
         endingAverageCost: symbol.ending_average_cost,
+      }),
+    ),
+    paperExecutionCostsContractAvailable:
+      runtimeExecutionMode === "PAPER"
+        ? paperExecutionCostContractAvailable
+        : undefined,
+    paperExecutionCostsStatus: paperPortfolio?.execution_costs?.status,
+    paperExecutionTotalFees: paperPortfolio?.execution_costs?.total_fees,
+    paperExecutionTotalAdverseSlippage:
+      paperPortfolio?.execution_costs?.total_adverse_slippage,
+    paperExecutionGrossNotional:
+      paperPortfolio?.execution_costs?.gross_notional,
+    paperExecutionFillCount: paperPortfolio?.execution_costs?.fill_count,
+    paperExecutionBuyFillCount: paperPortfolio?.execution_costs?.buy_fill_count,
+    paperExecutionSellFillCount:
+      paperPortfolio?.execution_costs?.sell_fill_count,
+    paperExecutionFirstFillAt: paperPortfolio?.execution_costs?.first_fill_at,
+    paperExecutionLastFillAt: paperPortfolio?.execution_costs?.last_fill_at,
+    paperExecutionMarketProviders:
+      paperPortfolio?.execution_costs?.market_providers,
+    paperExecutionMarketFeeds: paperPortfolio?.execution_costs?.market_feeds,
+    paperExecutionMarketQualities:
+      paperPortfolio?.execution_costs?.market_qualities,
+    paperExecutionSymbolCosts: paperPortfolio?.execution_costs?.symbols.map(
+      (symbol) => ({
+        symbol: symbol.symbol,
+        instrument: symbol.instrument,
+        totalFees: symbol.total_fees,
+        adverseSlippage: symbol.adverse_slippage,
+        grossNotional: symbol.gross_notional,
+        fillCount: symbol.fill_count,
+        buyFillCount: symbol.buy_fill_count,
+        sellFillCount: symbol.sell_fill_count,
       }),
     ),
     paperOutcomeReconciliationStatus: paperOutcomeReconciliation?.status,

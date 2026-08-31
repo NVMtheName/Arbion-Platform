@@ -230,6 +230,55 @@ describe("PaperPortfolioSummary", () => {
     ).toBeInTheDocument();
   });
 
+  it("attributes exact simulated fees and adverse slippage separately", () => {
+    render(
+      <PaperPortfolioSummary
+        executionMode="PAPER"
+        portfolio={{
+          ...portfolio,
+          positions: [],
+          execution_costs: {
+            status: "AVAILABLE",
+            calculation_method: "SAVED_REFERENCE_VERSUS_SIMULATED_FILL",
+            historical_coverage: "COMPLETE_FROM_PORTFOLIO_GENESIS",
+            total_fees: "0.7755625000",
+            total_adverse_slippage: "0.3875000000",
+            gross_notional: "155.1125000000",
+            fill_count: 2,
+            buy_fill_count: 1,
+            sell_fill_count: 1,
+            first_fill_at: "2026-08-31T04:36:38Z",
+            last_fill_at: "2026-08-31T05:36:38Z",
+            market_providers: ["coinbase"],
+            market_feeds: ["rest_ticker"],
+            market_qualities: ["REAL_TIME_SINGLE_VENUE"],
+            symbols: [
+              {
+                symbol: "BTC",
+                instrument: "CRYPTO",
+                total_fees: "0.7755625000",
+                adverse_slippage: "0.3875000000",
+                gross_notional: "155.1125000000",
+                fill_count: 2,
+                buy_fill_count: 1,
+                sell_fill_count: 1,
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    const costs = screen.getByLabelText(/exact paper execution costs/i);
+    expect(within(costs).getAllByText("$0.7756")).toHaveLength(2);
+    expect(within(costs).getAllByText("$0.3875")).toHaveLength(2);
+    expect(within(costs).getAllByText("$155.1125")).toHaveLength(2);
+    expect(within(costs).getByText(/not broker-reported/i)).toBeInTheDocument();
+    expect(
+      within(costs).getByText(/coinbase · rest_ticker/i),
+    ).toBeInTheDocument();
+  });
+
   it("reconciles exact realized, unrealized, total, and equity evidence", () => {
     render(
       <PaperPortfolioSummary

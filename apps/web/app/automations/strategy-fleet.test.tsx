@@ -2512,6 +2512,31 @@ describe("StrategyFleet", () => {
                 endingAverageCost: "111.1000000000",
               },
             ],
+            paperExecutionCostsContractAvailable: true,
+            paperExecutionCostsStatus: "AVAILABLE",
+            paperExecutionTotalFees: "2.8500000000",
+            paperExecutionTotalAdverseSlippage: "0.7500000000",
+            paperExecutionGrossNotional: "285.0000000000",
+            paperExecutionFillCount: 3,
+            paperExecutionBuyFillCount: 2,
+            paperExecutionSellFillCount: 1,
+            paperExecutionFirstFillAt: "2026-08-30T12:00:00Z",
+            paperExecutionLastFillAt: "2026-08-30T14:00:00Z",
+            paperExecutionMarketProviders: ["coinbase"],
+            paperExecutionMarketFeeds: ["rest_ticker"],
+            paperExecutionMarketQualities: ["REAL_TIME_SINGLE_VENUE"],
+            paperExecutionSymbolCosts: [
+              {
+                symbol: "BTC",
+                instrument: "CRYPTO",
+                totalFees: "2.8500000000",
+                adverseSlippage: "0.7500000000",
+                grossNotional: "285.0000000000",
+                fillCount: 3,
+                buyFillCount: 2,
+                sellFillCount: 1,
+              },
+            ],
             paperOutcomeReconciliationStatus: "RECONCILED_EXACT",
             paperReconciledRealizedProfitLoss: "-2.0000000000",
             paperReconciledUnrealizedProfitLoss: "-3.0000000000",
@@ -2556,7 +2581,7 @@ describe("StrategyFleet", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Next proposal headroom")).toBeInTheDocument();
     expect(screen.getByText("−$5 · −0.5%")).toBeInTheDocument();
-    expect(screen.getAllByText("BTC")).toHaveLength(2);
+    expect(screen.getAllByText("BTC")).toHaveLength(3);
     expect(screen.getByText("$95")).toBeInTheDocument();
     expect(screen.getByText("Unrealized −$4 · −4.0404%")).toBeInTheDocument();
     expect(
@@ -2564,12 +2589,23 @@ describe("StrategyFleet", () => {
     ).toBeInTheDocument();
     expect(screen.getAllByText("−$2")).toHaveLength(2);
     expect(
-      screen.getByText("1 simulated sale · $2.85 total fees"),
+      screen.getByText("1 simulated sale · 2 simulated buys"),
     ).toBeInTheDocument();
     expect(
       screen.getByText(
         /Exact average-cost replay from all 3 immutable simulated fills/i,
       ),
+    ).toBeInTheDocument();
+    const executionCosts = screen.getByRole("region", {
+      name: /AI Paper Engine exact Paper execution costs/i,
+      hidden: true,
+    });
+    expect(within(executionCosts).getAllByText(/\$2.85 fees/i)).toHaveLength(2);
+    expect(
+      within(executionCosts).getByText(/\$0.75 adverse slippage/i),
+    ).toBeInTheDocument();
+    expect(
+      within(executionCosts).getByText(/not broker-reported costs/i),
     ).toBeInTheDocument();
     const reconciliation = screen.getByRole("region", {
       name: /AI Paper Engine exact Paper outcome reconciliation/i,

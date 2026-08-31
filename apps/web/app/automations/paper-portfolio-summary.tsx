@@ -68,6 +68,35 @@ export type PaperRealizedOutcome = {
   symbols: PaperRealizedSymbolOutcome[];
 };
 
+export type PaperExecutionSymbolCost = {
+  symbol: string;
+  instrument: "EQUITY" | "CRYPTO";
+  total_fees: string;
+  adverse_slippage: string;
+  gross_notional: string;
+  fill_count: number;
+  buy_fill_count: number;
+  sell_fill_count: number;
+};
+
+export type PaperExecutionCosts = {
+  status: "AVAILABLE" | "NO_FILLS" | "UNAVAILABLE";
+  calculation_method?: "SAVED_REFERENCE_VERSUS_SIMULATED_FILL";
+  historical_coverage?: "COMPLETE_FROM_PORTFOLIO_GENESIS";
+  total_fees?: string;
+  total_adverse_slippage?: string;
+  gross_notional?: string;
+  fill_count: number;
+  buy_fill_count: number;
+  sell_fill_count: number;
+  first_fill_at?: string;
+  last_fill_at?: string;
+  market_providers: string[];
+  market_feeds: string[];
+  market_qualities: string[];
+  symbols: PaperExecutionSymbolCost[];
+};
+
 export type PaperPortfolio = {
   strategy_instance_id: string;
   currency: string;
@@ -76,6 +105,7 @@ export type PaperPortfolio = {
   version: number;
   positions: PaperPosition[];
   realized_outcome?: PaperRealizedOutcome;
+  execution_costs?: PaperExecutionCosts;
   updated_at: string;
 };
 
@@ -262,6 +292,104 @@ export function PaperPortfolioSummary({
   });
   const reconciliationAvailable = reconciliation.status !== "UNAVAILABLE";
   const reconciliationAttention = reconciliation.status === "MISMATCH";
+  const executionCosts = portfolio.execution_costs;
+  const executionCostSymbols = Array.isArray(executionCosts?.symbols)
+    ? executionCosts.symbols
+    : [];
+  const executionCostSymbolFees = executionCosts
+    ? executionCostSymbols.length === 0
+      ? "0"
+      : sumExactMoney(
+          executionCostSymbols.map((symbol) => ({
+            amount: symbol.total_fees,
+            currency: portfolio.currency,
+          })),
+        )?.amount
+    : undefined;
+  const executionCostSymbolSlippage = executionCosts
+    ? executionCostSymbols.length === 0
+      ? "0"
+      : sumExactMoney(
+          executionCostSymbols.map((symbol) => ({
+            amount: symbol.adverse_slippage,
+            currency: portfolio.currency,
+          })),
+        )?.amount
+    : undefined;
+  const executionCostSymbolGross = executionCosts
+    ? executionCostSymbols.length === 0
+      ? "0"
+      : sumExactMoney(
+          executionCostSymbols.map((symbol) => ({
+            amount: symbol.gross_notional,
+            currency: portfolio.currency,
+          })),
+        )?.amount
+    : undefined;
+  const executionCostsAvailable = Boolean(
+    executionCosts &&
+      ["AVAILABLE", "NO_FILLS"].includes(executionCosts.status) &&
+      executionCosts.calculation_method ===
+        "SAVED_REFERENCE_VERSUS_SIMULATED_FILL" &&
+      executionCosts.historical_coverage ===
+        "COMPLETE_FROM_PORTFOLIO_GENESIS" &&
+      Array.isArray(executionCosts.market_providers) &&
+      Array.isArray(executionCosts.market_feeds) &&
+      Array.isArray(executionCosts.market_qualities) &&
+      Array.isArray(executionCosts.symbols) &&
+      isExactDecimal(executionCosts.total_fees) &&
+      isExactDecimal(executionCosts.total_adverse_slippage) &&
+      isExactDecimal(executionCosts.gross_notional) &&
+      compareExactDecimals(executionCosts.total_fees!, "0")! >= 0 &&
+      compareExactDecimals(executionCosts.total_adverse_slippage!, "0")! >= 0 &&
+      Number.isSafeInteger(executionCosts.fill_count) &&
+      executionCosts.fill_count >= 0 &&
+      (executionCosts.status === "AVAILABLE"
+        ? executionCosts.fill_count > 0
+        : executionCosts.fill_count === 0) &&
+      Number.isSafeInteger(executionCosts.buy_fill_count) &&
+      Number.isSafeInteger(executionCosts.sell_fill_count) &&
+      executionCosts.buy_fill_count + executionCosts.sell_fill_count ===
+        executionCosts.fill_count &&
+      executionCostSymbols.every(
+        (symbol) =>
+          Boolean(symbol.symbol) &&
+          ["EQUITY", "CRYPTO"].includes(symbol.instrument) &&
+          isExactDecimal(symbol.total_fees) &&
+          isExactDecimal(symbol.adverse_slippage) &&
+          isExactDecimal(symbol.gross_notional) &&
+          symbol.buy_fill_count + symbol.sell_fill_count === symbol.fill_count,
+      ) &&
+      executionCostSymbols.reduce(
+        (count, symbol) => count + symbol.fill_count,
+        0,
+      ) === executionCosts.fill_count &&
+      executionCostSymbolFees &&
+      executionCostSymbolSlippage &&
+      executionCostSymbolGross &&
+      compareExactDecimals(
+        executionCostSymbolFees,
+        executionCosts.total_fees!,
+      ) === 0 &&
+      compareExactDecimals(
+        executionCostSymbolSlippage,
+        executionCosts.total_adverse_slippage!,
+      ) === 0 &&
+      compareExactDecimals(
+        executionCostSymbolGross,
+        executionCosts.gross_notional!,
+      ) === 0 &&
+      new Set(
+        executionCostSymbols.map(
+          (symbol) => `${symbol.instrument}:${symbol.symbol}`,
+        ),
+      ).size === executionCostSymbols.length &&
+      (executionCosts.fill_count === 0 ||
+        (Boolean(executionCosts.first_fill_at) &&
+          Boolean(executionCosts.last_fill_at) &&
+          !Number.isNaN(Date.parse(executionCosts.first_fill_at ?? "")) &&
+          !Number.isNaN(Date.parse(executionCosts.last_fill_at ?? "")))),
+  );
   return (
     <section className="paper-portfolio-card" aria-label="Paper portfolio">
       <p className="eyebrow">PAPER PORTFOLIO · SIMULATION ONLY</p>
@@ -392,7 +520,6 @@ export function PaperPortfolioSummary({
                       <th>Symbol</th>
                       <th>Realized simulated P&amp;L</th>
                       <th>Buy / sale fills</th>
-                      <th>Total simulated fees</th>
                       <th>Ending quantity</th>
                       <th>Ending average cost</th>
                     </tr>
@@ -416,7 +543,6 @@ export function PaperPortfolioSummary({
                         <td>
                           {symbol.buy_fill_count} / {symbol.sell_fill_count}
                         </td>
-                        <td>{money(symbol.total_fees, portfolio.currency)}</td>
                         <td>{quantity(symbol.ending_position_quantity)}</td>
                         <td>
                           {symbol.ending_average_cost
@@ -454,6 +580,120 @@ export function PaperPortfolioSummary({
           </div>
         )}
       </div>
+      <details
+        className="paper-performance-card"
+        aria-label="Exact Paper execution costs"
+        open={!executionCostsAvailable}
+      >
+        <summary className="paper-performance-header">
+          <span>
+            <span className="eyebrow">
+              PAPER EXECUTION COSTS · SIMULATION ONLY
+            </span>
+            <strong>Fees + adverse simulated slippage</strong>
+          </span>
+          <span>
+            {executionCostsAvailable ? "Exact fill evidence" : "Unavailable"}
+          </span>
+        </summary>
+        {executionCostsAvailable ? (
+          <>
+            <div className="paper-performance-grid">
+              <article>
+                <span>Total simulated fees</span>
+                <strong>
+                  {money(executionCosts!.total_fees!, portfolio.currency)}
+                </strong>
+              </article>
+              <article>
+                <span>Adverse simulated slippage</span>
+                <strong>
+                  {money(
+                    executionCosts!.total_adverse_slippage!,
+                    portfolio.currency,
+                  )}
+                </strong>
+              </article>
+              <article>
+                <span>Gross simulated notional</span>
+                <strong>
+                  {money(executionCosts!.gross_notional!, portfolio.currency)}
+                </strong>
+              </article>
+              <article>
+                <span>Buy / sale fills</span>
+                <strong>
+                  {executionCosts!.buy_fill_count} /{" "}
+                  {executionCosts!.sell_fill_count}
+                </strong>
+              </article>
+            </div>
+            {executionCosts!.symbols.length > 0 ? (
+              <div className="paper-position-table-wrap">
+                <table
+                  className="paper-position-table"
+                  aria-label="Exact per-symbol Paper execution costs"
+                >
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>Simulated fees</th>
+                      <th>Adverse slippage</th>
+                      <th>Gross notional</th>
+                      <th>Buy / sale fills</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {executionCosts!.symbols.map((symbol) => (
+                      <tr key={`${symbol.instrument}:${symbol.symbol}`}>
+                        <td>{symbol.symbol}</td>
+                        <td>{money(symbol.total_fees, portfolio.currency)}</td>
+                        <td>
+                          {money(symbol.adverse_slippage, portfolio.currency)}
+                        </td>
+                        <td>
+                          {money(symbol.gross_notional, portfolio.currency)}
+                        </td>
+                        <td>
+                          {symbol.buy_fill_count} / {symbol.sell_fill_count}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="security-note">
+                No simulated fills have been recorded; exact execution costs are
+                $0.
+              </p>
+            )}
+            <p className="paper-market-source">
+              Exact immutable simulation evidence from portfolio genesis. Fees
+              and adverse slippage versus each saved provider reference stay
+              separate from realized, unrealized, and total outcomes. Sources:{" "}
+              {executionCosts!.market_providers.join(", ") || "none yet"}
+              {executionCosts!.market_feeds.length
+                ? ` · ${executionCosts!.market_feeds.join(", ")}`
+                : ""}
+              {executionCosts!.market_qualities.length
+                ? ` · ${executionCosts!.market_qualities.join(", ")}`
+                : ""}
+              . These are simulated costs—not broker-reported charges or live
+              execution.
+            </p>
+          </>
+        ) : (
+          <div className="paper-performance-unavailable">
+            <strong>Execution-cost attribution unavailable</strong>
+            <p>
+              Arbion could not prove one complete immutable simulation fill and
+              market-attribution chain. Fees and slippage are left unavailable
+              rather than estimated.
+            </p>
+          </div>
+        )}
+      </details>
       <details
         className="paper-performance-card"
         aria-label="Exact Paper outcome reconciliation"
