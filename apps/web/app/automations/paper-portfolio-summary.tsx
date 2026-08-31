@@ -189,6 +189,62 @@ export type PaperExecutionCosts = {
   trade_sequence: PaperTradeSequenceEvidence;
 };
 
+export type PaperActivityWindow = {
+  status: "AVAILABLE" | "UNAVAILABLE";
+  horizon_hours: number;
+  window_started_at?: string;
+  window_ended_at?: string;
+  observed_started_at?: string;
+  observed_ended_at?: string;
+  scheduled_cycle_count: number;
+  succeeded_cycle_count: number;
+  failed_cycle_count: number;
+  safe_wait_cycle_count: number;
+  abstention_count: number;
+  deterministic_deny_count: number;
+  simulated_fill_count: number;
+  other_succeeded_count: number;
+};
+
+export type PaperFillTimingSymbol = {
+  status: "AVAILABLE" | "INSUFFICIENT_INTERVALS";
+  symbol: string;
+  instrument: "EQUITY" | "CRYPTO";
+  fill_count: number;
+  first_fill_at: string;
+  last_fill_at: string;
+  minimum_inter_fill_seconds?: string;
+  median_inter_fill_seconds?: string;
+  maximum_inter_fill_seconds?: string;
+};
+
+export type PaperActivityCadence = {
+  status: "AVAILABLE" | "UNAVAILABLE";
+  calculation_method?: "IMMUTABLE_SCHEDULE_AND_SIMULATION_CHRONOLOGY";
+  as_of?: string;
+  schedule_interval_minutes: number;
+  twenty_four_hours: PaperActivityWindow;
+  seven_days: PaperActivityWindow;
+  fill_timing: {
+    status: "AVAILABLE" | "NO_FILLS" | "INSUFFICIENT_INTERVALS" | "UNAVAILABLE";
+    historical_coverage?: "COMPLETE_FROM_PORTFOLIO_GENESIS";
+    fill_count: number;
+    first_fill_at?: string;
+    last_fill_at?: string;
+    minimum_inter_fill_seconds?: string;
+    median_inter_fill_seconds?: string;
+    maximum_inter_fill_seconds?: string;
+    symbols: PaperFillTimingSymbol[];
+  };
+  longest_no_fill_interval: {
+    status: "AVAILABLE" | "NO_FILLS" | "UNAVAILABLE";
+    cycle_count: number;
+    interval_seconds?: string;
+    scheduled_started_at?: string;
+    completed_ended_at?: string;
+  };
+};
+
 export type PaperPortfolio = {
   strategy_instance_id: string;
   currency: string;
@@ -198,6 +254,7 @@ export type PaperPortfolio = {
   positions: PaperPosition[];
   realized_outcome?: PaperRealizedOutcome;
   execution_costs?: PaperExecutionCosts;
+  activity_cadence?: PaperActivityCadence;
   updated_at: string;
 };
 
@@ -787,6 +844,93 @@ export function PaperPortfolioSummary({
           Boolean(executionCosts.last_fill_at) &&
           !Number.isNaN(Date.parse(executionCosts.first_fill_at ?? "")) &&
           !Number.isNaN(Date.parse(executionCosts.last_fill_at ?? "")))),
+  );
+  const cadence = portfolio.activity_cadence;
+  const cadenceWindowValid = (window: PaperActivityWindow | undefined) =>
+    Boolean(
+      window &&
+        ["AVAILABLE", "UNAVAILABLE"].includes(window.status) &&
+        [24, 168].includes(window.horizon_hours) &&
+        Number.isSafeInteger(window.scheduled_cycle_count) &&
+        window.scheduled_cycle_count >= 0 &&
+        window.scheduled_cycle_count ===
+          window.succeeded_cycle_count +
+            window.failed_cycle_count +
+            window.safe_wait_cycle_count &&
+        window.succeeded_cycle_count ===
+          window.abstention_count +
+            window.deterministic_deny_count +
+            window.simulated_fill_count +
+            window.other_succeeded_count &&
+        (window.status === "UNAVAILABLE" ||
+          (Boolean(window.window_started_at) &&
+            Boolean(window.window_ended_at) &&
+            !Number.isNaN(Date.parse(window.window_started_at!)) &&
+            !Number.isNaN(Date.parse(window.window_ended_at!)))),
+    );
+  const cadenceFillTiming = cadence?.fill_timing;
+  const cadenceAvailable = Boolean(
+    cadence &&
+      cadence.status === "AVAILABLE" &&
+      cadence.calculation_method ===
+        "IMMUTABLE_SCHEDULE_AND_SIMULATION_CHRONOLOGY" &&
+      cadence.as_of &&
+      !Number.isNaN(Date.parse(cadence.as_of)) &&
+      Number.isSafeInteger(cadence.schedule_interval_minutes) &&
+      cadence.schedule_interval_minutes >= 30 &&
+      cadenceWindowValid(cadence.twenty_four_hours) &&
+      cadence.twenty_four_hours.status === "AVAILABLE" &&
+      cadenceWindowValid(cadence.seven_days) &&
+      cadenceFillTiming &&
+      cadenceFillTiming.status !== "UNAVAILABLE" &&
+      cadenceFillTiming.historical_coverage ===
+        "COMPLETE_FROM_PORTFOLIO_GENESIS" &&
+      cadenceFillTiming.fill_count === executionCosts?.fill_count &&
+      Array.isArray(cadenceFillTiming.symbols) &&
+      cadenceFillTiming.symbols.reduce(
+        (count, symbol) => count + symbol.fill_count,
+        0,
+      ) === cadenceFillTiming.fill_count &&
+      cadenceFillTiming.symbols.every(
+        (symbol) =>
+          Boolean(symbol.symbol) &&
+          ["EQUITY", "CRYPTO"].includes(symbol.instrument) &&
+          symbol.fill_count > 0 &&
+          !Number.isNaN(Date.parse(symbol.first_fill_at)) &&
+          !Number.isNaN(Date.parse(symbol.last_fill_at)) &&
+          (symbol.status === "INSUFFICIENT_INTERVALS"
+            ? symbol.fill_count === 1
+            : symbol.status === "AVAILABLE" &&
+              symbol.fill_count > 1 &&
+              isExactDecimal(symbol.minimum_inter_fill_seconds) &&
+              isExactDecimal(symbol.median_inter_fill_seconds) &&
+              isExactDecimal(symbol.maximum_inter_fill_seconds)),
+      ) &&
+      (cadenceFillTiming.fill_count > 1
+        ? cadenceFillTiming.status === "AVAILABLE" &&
+          isExactDecimal(cadenceFillTiming.minimum_inter_fill_seconds) &&
+          isExactDecimal(cadenceFillTiming.median_inter_fill_seconds) &&
+          isExactDecimal(cadenceFillTiming.maximum_inter_fill_seconds)
+        : ["NO_FILLS", "INSUFFICIENT_INTERVALS"].includes(
+            cadenceFillTiming.status,
+          )) &&
+      ["AVAILABLE", "NO_FILLS"].includes(
+        cadence.longest_no_fill_interval.status,
+      ) &&
+      Number.isSafeInteger(cadence.longest_no_fill_interval.cycle_count) &&
+      (cadence.longest_no_fill_interval.status === "NO_FILLS" ||
+        (cadence.longest_no_fill_interval.cycle_count > 0 &&
+          isExactDecimal(cadence.longest_no_fill_interval.interval_seconds) &&
+          !Number.isNaN(
+            Date.parse(
+              cadence.longest_no_fill_interval.scheduled_started_at ?? "",
+            ),
+          ) &&
+          !Number.isNaN(
+            Date.parse(
+              cadence.longest_no_fill_interval.completed_ended_at ?? "",
+            ),
+          ))),
   );
   return (
     <section className="paper-portfolio-card" aria-label="Paper portfolio">
@@ -1404,6 +1548,167 @@ export function PaperPortfolioSummary({
               Arbion could not prove one complete immutable simulation fill and
               market-attribution chain. Fees and slippage are left unavailable
               rather than estimated.
+            </p>
+          </div>
+        )}
+      </details>
+      <details
+        className="paper-performance-card"
+        aria-label="Exact Paper activity cadence"
+        open={!cadenceAvailable}
+      >
+        <summary className="paper-performance-header">
+          <span>
+            <span className="eyebrow">
+              PAPER ACTIVITY CADENCE · SAVED EVIDENCE
+            </span>
+            <strong>Evaluations versus simulated fills</strong>
+          </span>
+          <span>
+            {cadenceAvailable
+              ? `${cadence!.twenty_four_hours.scheduled_cycle_count} cycles · ${cadence!.twenty_four_hours.simulated_fill_count} fills / 24h`
+              : "Unavailable"}
+          </span>
+        </summary>
+        {cadenceAvailable ? (
+          <>
+            <div className="paper-performance-grid">
+              <article>
+                <span>24-hour scheduled cycles</span>
+                <strong>
+                  {cadence!.twenty_four_hours.scheduled_cycle_count}
+                </strong>
+                <small>
+                  {cadence!.twenty_four_hours.succeeded_cycle_count} succeeded ·{" "}
+                  {cadence!.twenty_four_hours.failed_cycle_count} failed ·{" "}
+                  {cadence!.twenty_four_hours.safe_wait_cycle_count} safe waits
+                </small>
+              </article>
+              <article>
+                <span>24-hour conclusions</span>
+                <strong>
+                  {cadence!.twenty_four_hours.abstention_count} abstain ·{" "}
+                  {cadence!.twenty_four_hours.simulated_fill_count} fill
+                </strong>
+                <small>
+                  {cadence!.twenty_four_hours.deterministic_deny_count}{" "}
+                  deterministic denials ·{" "}
+                  {cadence!.twenty_four_hours.other_succeeded_count} other safe
+                  completions
+                </small>
+              </article>
+              <article>
+                <span>Longest saved no-fill interval</span>
+                <strong>
+                  {cadence!.longest_no_fill_interval.status === "AVAILABLE"
+                    ? formatExactDecimal(
+                        cadence!.longest_no_fill_interval.interval_seconds,
+                        {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 0,
+                          suffix: " sec",
+                        },
+                      )
+                    : "None"}
+                </strong>
+                <small>
+                  {cadence!.longest_no_fill_interval.cycle_count} consecutive
+                  completed cycle
+                  {cadence!.longest_no_fill_interval.cycle_count === 1
+                    ? ""
+                    : "s"}
+                </small>
+              </article>
+              <article>
+                <span>Complete fill cadence</span>
+                <strong>{cadence!.fill_timing.fill_count} fills</strong>
+                <small>
+                  {cadence!.fill_timing.status === "AVAILABLE"
+                    ? `${formatExactDecimal(cadence!.fill_timing.median_inter_fill_seconds, { minimumFractionDigits: 0, maximumFractionDigits: 0, suffix: " sec" })} median inter-fill time`
+                    : "Not enough fills for an interval"}
+                </small>
+              </article>
+            </div>
+            <section className="paper-position-table-wrap">
+              <table
+                className="paper-position-table"
+                aria-label="Exact per-symbol Paper fill cadence"
+              >
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Fills</th>
+                    <th>Minimum interval</th>
+                    <th>Median interval</th>
+                    <th>Maximum interval</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cadence!.fill_timing.symbols.map((symbol) => (
+                    <tr key={`${symbol.instrument}:${symbol.symbol}`}>
+                      <td>{symbol.symbol}</td>
+                      <td>{symbol.fill_count}</td>
+                      {symbol.status === "AVAILABLE" ? (
+                        <>
+                          <td>
+                            {formatExactDecimal(
+                              symbol.minimum_inter_fill_seconds,
+                              {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0,
+                                suffix: " sec",
+                              },
+                            )}
+                          </td>
+                          <td>
+                            {formatExactDecimal(
+                              symbol.median_inter_fill_seconds,
+                              {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0,
+                                suffix: " sec",
+                              },
+                            )}
+                          </td>
+                          <td>
+                            {formatExactDecimal(
+                              symbol.maximum_inter_fill_seconds,
+                              {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 0,
+                                suffix: " sec",
+                              },
+                            )}
+                          </td>
+                        </>
+                      ) : (
+                        <td colSpan={3}>Insufficient intervals</td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+            <p className="paper-market-source">
+              Seven-day evidence:{" "}
+              <strong>
+                {cadence!.seven_days.status === "AVAILABLE"
+                  ? `${cadence!.seven_days.scheduled_cycle_count} exact cycles`
+                  : "Unavailable until one complete seven-day window is saved"}
+              </strong>
+              . Schedule cadence and simulated trading activity remain separate.
+              These exact timestamps do not establish overtrading, inactivity
+              quality, intent, performance, missed opportunity, or causality. No
+              model or financial provider was rerun to create this view.
+            </p>
+          </>
+        ) : (
+          <div className="paper-performance-unavailable">
+            <strong>Activity cadence unavailable</strong>
+            <p>
+              Arbion could not prove one continuous 24-hour scheduler window and
+              complete immutable simulation fill history. Timing and disposition
+              counts are left unavailable rather than inferred.
             </p>
           </div>
         )}

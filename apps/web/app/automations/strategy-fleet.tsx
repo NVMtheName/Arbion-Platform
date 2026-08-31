@@ -2,7 +2,10 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { compareExactDecimals } from "../exact-money";
-import type { PaperTradeSequenceEvidence } from "./paper-portfolio-summary";
+import type {
+  PaperActivityCadence,
+  PaperTradeSequenceEvidence,
+} from "./paper-portfolio-summary";
 
 export type StrategyFleetDecisionInputCoverageSnapshot = {
   decisionID?: string;
@@ -188,6 +191,8 @@ export type StrategyFleetItem = {
   paperExecutionMarketQualities?: string[];
   paperExecutionTimelineSampleCount?: number;
   paperExecutionTimelineCapped?: boolean;
+  paperActivityCadenceContractAvailable?: boolean;
+  paperActivityCadence?: PaperActivityCadence;
   paperTradeSequence?: PaperTradeSequenceEvidence;
   paperExecutionTimeline?: Array<{
     sequence: number;
@@ -4481,6 +4486,18 @@ function paperExecutionCostsAvailable(item: StrategyFleetItem) {
   );
 }
 
+function paperActivityCadenceAvailable(item: StrategyFleetItem) {
+  const cadence = item.paperActivityCadence;
+  return Boolean(
+    item.executionMode === "PAPER" &&
+      item.paperActivityCadenceContractAvailable === true &&
+      cadence?.status === "AVAILABLE" &&
+      cadence.twenty_four_hours.status === "AVAILABLE" &&
+      cadence.fill_timing.status !== "UNAVAILABLE" &&
+      cadence.longest_no_fill_interval.status !== "UNAVAILABLE",
+  );
+}
+
 function shadowOutcomeEvidenceAvailable(item: StrategyFleetItem) {
   return (
     item.executionMode === "SHADOW" &&
@@ -4761,6 +4778,7 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
     : shadowOutcomeEvidenceAvailable(item);
   const realizedAvailable = paper && paperRealizedEvidenceAvailable(item);
   const executionCostsAvailable = paper && paperExecutionCostsAvailable(item);
+  const activityCadenceAvailable = paper && paperActivityCadenceAvailable(item);
   const outcomeReconciliationAvailable =
     paper && paperOutcomeReconciliationAvailable(item);
   const outcomeReconciliationAttention =
@@ -4775,6 +4793,7 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
         (paper &&
           (!realizedAvailable ||
             !executionCostsAvailable ||
+            !activityCadenceAvailable ||
             !outcomeReconciliationAvailable)) ||
         limitBreach ||
         outcomeReconciliationAttention
@@ -5295,6 +5314,127 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                   Execution-cost attribution: <strong>Unavailable</strong> · the
                   complete immutable simulated fill and market-attribution chain
                   could not be proven. No fee or slippage value is estimated.
+                </p>
+              )}
+              {activityCadenceAvailable ? (
+                <details
+                  className="strategy-fleet-paper-outcome-timeline"
+                  aria-label={item.title + " exact Paper activity cadence"}
+                >
+                  <summary>
+                    <span>
+                      <strong>Activity cadence</strong>
+                      <small>Saved evaluations versus simulated fills</small>
+                    </span>
+                    <span>
+                      {
+                        item.paperActivityCadence!.twenty_four_hours
+                          .scheduled_cycle_count
+                      }{" "}
+                      cycles ·{" "}
+                      {
+                        item.paperActivityCadence!.twenty_four_hours
+                          .simulated_fill_count
+                      }{" "}
+                      fills / 24h
+                    </span>
+                  </summary>
+                  <dl>
+                    <div>
+                      <dt>24-hour conclusions</dt>
+                      <dd>
+                        {
+                          item.paperActivityCadence!.twenty_four_hours
+                            .abstention_count
+                        }{" "}
+                        abstain ·{" "}
+                        {
+                          item.paperActivityCadence!.twenty_four_hours
+                            .deterministic_deny_count
+                        }{" "}
+                        denied
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>24-hour scheduler</dt>
+                      <dd>
+                        {
+                          item.paperActivityCadence!.twenty_four_hours
+                            .succeeded_cycle_count
+                        }{" "}
+                        succeeded ·{" "}
+                        {
+                          item.paperActivityCadence!.twenty_four_hours
+                            .failed_cycle_count
+                        }{" "}
+                        failed
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Complete fill cadence</dt>
+                      <dd>
+                        {item.paperActivityCadence!.fill_timing.fill_count}{" "}
+                        fills
+                      </dd>
+                      <small>
+                        {item.paperActivityCadence!.fill_timing.status ===
+                        "AVAILABLE"
+                          ? `${conciseCapitalDecimal(item.paperActivityCadence!.fill_timing.median_inter_fill_seconds)} sec median interval`
+                          : "Not enough fills for an interval"}
+                      </small>
+                    </div>
+                    <div>
+                      <dt>Longest saved no-fill interval</dt>
+                      <dd>
+                        {item.paperActivityCadence!.longest_no_fill_interval
+                          .status === "AVAILABLE"
+                          ? `${conciseCapitalDecimal(item.paperActivityCadence!.longest_no_fill_interval.interval_seconds)} sec`
+                          : "None"}
+                      </dd>
+                      <small>
+                        {
+                          item.paperActivityCadence!.longest_no_fill_interval
+                            .cycle_count
+                        }{" "}
+                        completed cycles
+                      </small>
+                    </div>
+                  </dl>
+                  <ol>
+                    {item.paperActivityCadence!.fill_timing.symbols.map(
+                      (symbol) => (
+                        <li key={`${symbol.instrument}:${symbol.symbol}`}>
+                          <strong>{symbol.symbol}</strong>
+                          <span>{symbol.fill_count} simulated fills</span>
+                          <small>
+                            {symbol.status === "AVAILABLE"
+                              ? `${conciseCapitalDecimal(symbol.minimum_inter_fill_seconds)} / ${conciseCapitalDecimal(symbol.median_inter_fill_seconds)} / ${conciseCapitalDecimal(symbol.maximum_inter_fill_seconds)} sec min / median / max`
+                              : "Insufficient exact intervals"}
+                          </small>
+                        </li>
+                      ),
+                    )}
+                  </ol>
+                  <p>
+                    Seven-day evidence is{" "}
+                    <strong>
+                      {item.paperActivityCadence!.seven_days.status ===
+                      "AVAILABLE"
+                        ? `${item.paperActivityCadence!.seven_days.scheduled_cycle_count} exact cycles`
+                        : "unavailable until one complete seven-day window is saved"}
+                    </strong>
+                    . Schedule cadence and simulated fills are separate. This
+                    chronology does not establish overtrading, inactivity
+                    quality, intent, performance, missed opportunity, or
+                    causality.
+                  </p>
+                </details>
+              ) : (
+                <p className="strategy-fleet-outcome-note">
+                  Activity cadence: <strong>Unavailable</strong> · one
+                  continuous 24-hour scheduler window and complete immutable
+                  fill history could not both be proven. No timing or
+                  disposition is inferred.
                 </p>
               )}
               {outcomeReconciliationAvailable ? (

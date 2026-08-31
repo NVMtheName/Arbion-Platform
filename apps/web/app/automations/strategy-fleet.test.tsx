@@ -2533,6 +2533,70 @@ describe("StrategyFleet", () => {
             paperExecutionMarketQualities: ["REAL_TIME_SINGLE_VENUE"],
             paperExecutionTimelineSampleCount: 3,
             paperExecutionTimelineCapped: false,
+            paperActivityCadenceContractAvailable: true,
+            paperActivityCadence: {
+              status: "AVAILABLE",
+              calculation_method:
+                "IMMUTABLE_SCHEDULE_AND_SIMULATION_CHRONOLOGY",
+              as_of: "2026-08-31T15:10:00Z",
+              schedule_interval_minutes: 60,
+              twenty_four_hours: {
+                status: "AVAILABLE",
+                horizon_hours: 24,
+                window_started_at: "2026-08-30T15:10:00Z",
+                window_ended_at: "2026-08-31T15:10:00Z",
+                scheduled_cycle_count: 24,
+                succeeded_cycle_count: 24,
+                failed_cycle_count: 0,
+                safe_wait_cycle_count: 0,
+                abstention_count: 20,
+                deterministic_deny_count: 1,
+                simulated_fill_count: 3,
+                other_succeeded_count: 0,
+              },
+              seven_days: {
+                status: "UNAVAILABLE",
+                horizon_hours: 168,
+                scheduled_cycle_count: 48,
+                succeeded_cycle_count: 48,
+                failed_cycle_count: 0,
+                safe_wait_cycle_count: 0,
+                abstention_count: 44,
+                deterministic_deny_count: 1,
+                simulated_fill_count: 3,
+                other_succeeded_count: 0,
+              },
+              fill_timing: {
+                status: "AVAILABLE",
+                historical_coverage: "COMPLETE_FROM_PORTFOLIO_GENESIS",
+                fill_count: 3,
+                first_fill_at: "2026-08-30T13:00:00Z",
+                last_fill_at: "2026-08-30T15:00:00Z",
+                minimum_inter_fill_seconds: "3600.0000000000",
+                median_inter_fill_seconds: "3600.0000000000",
+                maximum_inter_fill_seconds: "3600.0000000000",
+                symbols: [
+                  {
+                    status: "AVAILABLE",
+                    symbol: "BTC",
+                    instrument: "CRYPTO",
+                    fill_count: 3,
+                    first_fill_at: "2026-08-30T13:00:00Z",
+                    last_fill_at: "2026-08-30T15:00:00Z",
+                    minimum_inter_fill_seconds: "3600.0000000000",
+                    median_inter_fill_seconds: "3600.0000000000",
+                    maximum_inter_fill_seconds: "3600.0000000000",
+                  },
+                ],
+              },
+              longest_no_fill_interval: {
+                status: "AVAILABLE",
+                cycle_count: 6,
+                interval_seconds: "18600.0000000000",
+                scheduled_started_at: "2026-08-31T02:00:00Z",
+                completed_ended_at: "2026-08-31T07:10:00Z",
+              },
+            },
             paperTradeSequence: {
               status: "AVAILABLE",
               calculation_method: "COMPLETE_IMMUTABLE_FILL_SEQUENCE",
@@ -2715,7 +2779,7 @@ describe("StrategyFleet", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Next proposal headroom")).toBeInTheDocument();
     expect(screen.getByText("−$5 · −0.5%")).toBeInTheDocument();
-    expect(screen.getAllByText("BTC")).toHaveLength(4);
+    expect(screen.getAllByText("BTC")).toHaveLength(5);
     expect(screen.getByText("$95")).toBeInTheDocument();
     expect(screen.getByText("Unrealized −$4 · −4.0404%")).toBeInTheDocument();
     expect(
