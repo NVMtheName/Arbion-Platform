@@ -633,6 +633,8 @@ func (h *authHandler) strategyPaperPortfolio(w stdhttp.ResponseWriter, r *stdhtt
 		"guardrail_coverage_read_only":        true,
 		"guardrail_coverage_change_semantics": "EXACT_IMMUTABLE_24_HOUR_AND_SEVEN_DAY_COVERAGE_COMPARISON",
 		"guardrail_coverage_change_read_only": true,
+		"denial_eligibility_semantics":        "EXACT_IMMUTABLE_PAPER_DETERMINISTIC_DENIAL_AND_LATER_ELIGIBILITY",
+		"denial_eligibility_read_only":        true,
 		"broker_action_available":             false,
 		"live_execution_available":            false,
 	})

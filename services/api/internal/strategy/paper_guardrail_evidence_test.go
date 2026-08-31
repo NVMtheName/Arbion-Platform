@@ -63,13 +63,13 @@ func TestProjectPaperGuardrailEvidenceAttributesExactProposalDispositions(t *tes
 			DecisionJournalEntryID: "decision-deny", CreatedAt: denyAt, DecisionType: "DENY_RISK_DENIED", ProposedActionID: "action-deny", RiskEvaluationID: "risk-deny", ExecutionRecordID: "execution-deny",
 			Rationale: guardrailRationale("ETH", "SELL", "50", denyAt.Add(-time.Second)), RiskDecision: "DENY", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"INSUFFICIENT_POSITION"}),
 			Checks:        guardrailDenyChecks(9, "INSUFFICIENT_POSITION"),
-			ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "ETH", Instrument: "CRYPTO", Side: "SELL", ExecutionNotional: "50.0000000000",
+			ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "ETH", Instrument: "CRYPTO", Side: "SELL", ExecutionQuantity: "0.02", ExecutionNotional: "50.0000000000",
 		},
 		{
 			DecisionJournalEntryID: "decision-allow", CreatedAt: allowAt, DecisionType: "ALLOW_SIMULATED_FILLED", ProposedActionID: fill.ProposedActionID, RiskEvaluationID: fill.RiskEvaluationID, ExecutionRecordID: fill.ExecutionRecordID,
 			Rationale: guardrailRationale("BTC", "BUY", "100", fill.MarketObservedAt), RiskDecision: "ALLOW", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"ALLOWED"}),
 			Checks:        guardrailPassChecks(),
-			ExecutionMode: "PAPER", ExecutionStatus: "SIMULATED_FILLED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionNotional: "100.2500000000",
+			ExecutionMode: "PAPER", ExecutionStatus: "SIMULATED_FILLED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionQuantity: "0.001", ExecutionNotional: "100.2500000000",
 		},
 	}
 	result := projectPaperGuardrailEvidence(guardrailCadence(start, end), rows, []paperRealizedFill{fill})
@@ -92,6 +92,65 @@ func TestProjectPaperGuardrailEvidenceAttributesExactProposalDispositions(t *tes
 	}
 }
 
+func TestProjectPaperGuardrailEvidenceConnectsDenialsToFirstLaterComparableProposal(t *testing.T) {
+	end := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+	start := end.Add(-24 * time.Hour)
+	btcDeniedAt, btcAllowedAt := end.Add(-5*time.Hour), end.Add(-4*time.Hour)
+	ethDeniedAt, ethDeniedAgainAt := end.Add(-3*time.Hour), end.Add(-2*time.Hour)
+	fill := exactExecutionFill("later-allow", "BTC", "BUY", "0.001", "100", "100.25", "100.25", "0.50125", btcAllowedAt)
+	rows := []paperGuardrailProposalRow{
+		{
+			DecisionJournalEntryID: "decision-btc-denied", CreatedAt: btcDeniedAt, DecisionType: "DENY_RISK_DENIED", ProposedActionID: "action-btc-denied", RiskEvaluationID: "risk-btc-denied", ExecutionRecordID: "execution-btc-denied",
+			Rationale: guardrailRationale("BTC", "BUY", "50", btcDeniedAt.Add(-time.Second)), RiskDecision: "DENY", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"INSUFFICIENT_POSITION"}), Checks: guardrailDenyChecks(9, "INSUFFICIENT_POSITION"),
+			ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionQuantity: "0.001", ExecutionNotional: "50",
+		},
+		{
+			DecisionJournalEntryID: "decision-btc-allowed", CreatedAt: btcAllowedAt, DecisionType: "ALLOW_SIMULATED_FILLED", ProposedActionID: fill.ProposedActionID, RiskEvaluationID: fill.RiskEvaluationID, ExecutionRecordID: fill.ExecutionRecordID,
+			Rationale: guardrailRationale("BTC", "BUY", "100", fill.MarketObservedAt), RiskDecision: "ALLOW", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"ALLOWED"}), Checks: guardrailPassChecks(),
+			ExecutionMode: "PAPER", ExecutionStatus: "SIMULATED_FILLED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionQuantity: "0.001", ExecutionNotional: "100.25",
+		},
+		{
+			DecisionJournalEntryID: "decision-eth-denied", CreatedAt: ethDeniedAt, DecisionType: "DENY_RISK_DENIED", ProposedActionID: "action-eth-denied", RiskEvaluationID: "risk-eth-denied", ExecutionRecordID: "execution-eth-denied",
+			Rationale: guardrailRationale("ETH", "SELL", "50", ethDeniedAt.Add(-time.Second)), RiskDecision: "DENY", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"INSUFFICIENT_POSITION"}), Checks: guardrailDenyChecks(9, "INSUFFICIENT_POSITION"),
+			ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "ETH", Instrument: "CRYPTO", Side: "SELL", ExecutionQuantity: "0.02", ExecutionNotional: "50",
+		},
+		{
+			DecisionJournalEntryID: "decision-eth-denied-again", CreatedAt: ethDeniedAgainAt, DecisionType: "DENY_RISK_DENIED", ProposedActionID: "action-eth-denied-again", RiskEvaluationID: "risk-eth-denied-again", ExecutionRecordID: "execution-eth-denied-again",
+			Rationale: guardrailRationale("ETH", "SELL", "50", ethDeniedAgainAt.Add(-time.Second)), RiskDecision: "DENY", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"INSUFFICIENT_POSITION"}), Checks: guardrailDenyChecks(9, "INSUFFICIENT_POSITION"),
+			ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "ETH", Instrument: "CRYPTO", Side: "SELL", ExecutionQuantity: "0.02", ExecutionNotional: "50",
+		},
+	}
+	cadence := guardrailCadence(start, end)
+	cadence.DispositionFunnel.TwentyFourHours.ProposalCount = 4
+	cadence.DispositionFunnel.TwentyFourHours.DeterministicDenyCount = 3
+	cadence.DispositionFunnel.TwentyFourHours.SimulatedFillCount = 1
+	for index, row := range rows {
+		if _, _, ok := paperGuardrailProposalFact(row, map[string]paperRealizedFill{fill.ExecutionRecordID: fill}); !ok {
+			t.Fatalf("proposal %d failed exact attribution: %#v", index, row)
+		}
+	}
+	result := projectPaperGuardrailEvidence(cadence, rows, []paperRealizedFill{fill})
+	if result.TwentyFourHours.Status != PaperActivityCadenceAvailable {
+		t.Fatalf("source guardrail window unavailable: %#v", result.TwentyFourHours)
+	}
+	ledger := result.DenialEligibility
+	if ledger.Status != PaperActivityCadenceAvailable || ledger.CalculationMethod != PaperDenialEligibilityMethod || ledger.HorizonHours != 24 ||
+		ledger.DenialCount != 3 || ledger.LaterAllowedCount != 1 || ledger.LaterDeniedCount != 1 || ledger.NoLaterComparableProposalCount != 1 ||
+		len(ledger.FinancialProviders) != 1 || ledger.FinancialProviders[0] != "coinbase" || len(ledger.Denials) != 3 {
+		t.Fatalf("denial eligibility summary changed: %#v", ledger)
+	}
+	first := ledger.Denials[0]
+	if first.ProposedQuantity != "0.0010000000" || first.LaterDisposition != paperDenialLaterAllowed || first.LaterDecisionJournalEntryID != "decision-btc-allowed" ||
+		first.ElapsedSeconds == nil || *first.ElapsedSeconds != 3600 || len(first.ChangedRiskResults) != 1 || first.ChangedRiskResults[0].PreviousCode != "INSUFFICIENT_POSITION" ||
+		first.ChangedRiskResults[0].PreviousResult != "FAIL" || first.ChangedRiskResults[0].LaterResult != "PASS" {
+		t.Fatalf("first later allowed evidence changed: %#v", first)
+	}
+	if ledger.Denials[1].LaterDisposition != paperDenialLaterDenied || ledger.Denials[1].LaterDecisionJournalEntryID != "decision-eth-denied-again" ||
+		ledger.Denials[2].LaterDisposition != paperDenialNoLaterComparable || ledger.Denials[2].LaterDecisionJournalEntryID != "" {
+		t.Fatalf("later denied or no-later classification changed: %#v", ledger.Denials)
+	}
+}
+
 func TestProjectPaperGuardrailEvidenceComparesCompleteCoverageWindows(t *testing.T) {
 	end := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
 	currentStart, baselineStart := end.Add(-24*time.Hour), end.Add(-168*time.Hour)
@@ -102,17 +161,17 @@ func TestProjectPaperGuardrailEvidenceComparesCompleteCoverageWindows(t *testing
 		{
 			DecisionJournalEntryID: "decision-allow-older", CreatedAt: olderAllowAt, DecisionType: "ALLOW_SIMULATED_FILLED", ProposedActionID: olderFill.ProposedActionID, RiskEvaluationID: olderFill.RiskEvaluationID, ExecutionRecordID: olderFill.ExecutionRecordID,
 			Rationale: guardrailRationale("BTC", "BUY", "100", olderFill.MarketObservedAt), RiskDecision: "ALLOW", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"ALLOWED"}), Checks: guardrailPassChecks(),
-			ExecutionMode: "PAPER", ExecutionStatus: "SIMULATED_FILLED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionNotional: "100.2500000000",
+			ExecutionMode: "PAPER", ExecutionStatus: "SIMULATED_FILLED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionQuantity: "0.001", ExecutionNotional: "100.2500000000",
 		},
 		{
 			DecisionJournalEntryID: "decision-deny-current", CreatedAt: denyAt, DecisionType: "DENY_RISK_DENIED", ProposedActionID: "action-deny-current", RiskEvaluationID: "risk-deny-current", ExecutionRecordID: "execution-deny-current",
 			Rationale: guardrailRationale("ETH", "SELL", "50", denyAt.Add(-time.Second)), RiskDecision: "DENY", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"INSUFFICIENT_POSITION"}), Checks: guardrailDenyChecks(9, "INSUFFICIENT_POSITION"),
-			ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "ETH", Instrument: "CRYPTO", Side: "SELL", ExecutionNotional: "50.0000000000",
+			ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "ETH", Instrument: "CRYPTO", Side: "SELL", ExecutionQuantity: "0.02", ExecutionNotional: "50.0000000000",
 		},
 		{
 			DecisionJournalEntryID: "decision-allow-current", CreatedAt: allowAt, DecisionType: "ALLOW_SIMULATED_FILLED", ProposedActionID: currentFill.ProposedActionID, RiskEvaluationID: currentFill.RiskEvaluationID, ExecutionRecordID: currentFill.ExecutionRecordID,
 			Rationale: guardrailRationale("BTC", "BUY", "100", currentFill.MarketObservedAt), RiskDecision: "ALLOW", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"ALLOWED"}), Checks: guardrailPassChecks(),
-			ExecutionMode: "PAPER", ExecutionStatus: "SIMULATED_FILLED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionNotional: "100.2500000000",
+			ExecutionMode: "PAPER", ExecutionStatus: "SIMULATED_FILLED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionQuantity: "0.001", ExecutionNotional: "100.2500000000",
 		},
 	}
 	cadence := guardrailCadence(currentStart, end)
@@ -159,7 +218,7 @@ func TestProjectPaperGuardrailEvidenceExposesExactCheckSetDrift(t *testing.T) {
 			{"code": "AUTHORIZATION_DENIED", "result": "PASS", "message": "Identity is valid."},
 			{"code": "CAPITAL_LIMIT_EXCEEDED", "result": "FAIL", "message": "The saved set skipped required stages."},
 		}),
-		ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionNotional: "50",
+		ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionQuantity: "0.001", ExecutionNotional: "50",
 	}
 	cadence := guardrailCadence(start, end)
 	cadence.DispositionFunnel.TwentyFourHours.ProposalCount = 1
@@ -180,7 +239,7 @@ func TestProjectPaperGuardrailEvidenceFailsClosedOnInconsistentRiskEvidence(t *t
 		DecisionJournalEntryID: "decision", CreatedAt: end.Add(-time.Hour), DecisionType: "DENY_RISK_DENIED", ProposedActionID: "action", RiskEvaluationID: "risk", ExecutionRecordID: "execution",
 		Rationale: guardrailRationale("BTC", "SELL", "50", end.Add(-time.Hour-time.Second)), RiskDecision: "DENY", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"INSUFFICIENT_POSITION"}),
 		Checks:        guardrailJSON([]map[string]string{{"code": "INSUFFICIENT_POSITION", "result": "PASS", "message": "Inconsistent saved check."}}),
-		ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "BTC", Instrument: "CRYPTO", Side: "SELL", ExecutionNotional: "50",
+		ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "BTC", Instrument: "CRYPTO", Side: "SELL", ExecutionQuantity: "0.001", ExecutionNotional: "50",
 	}
 	cadence := guardrailCadence(start, end)
 	cadence.DispositionFunnel.TwentyFourHours.ProposalCount = 1

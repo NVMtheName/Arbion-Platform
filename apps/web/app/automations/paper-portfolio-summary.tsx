@@ -316,6 +316,7 @@ export type PaperGuardrailProposalFact = {
   symbol: string;
   instrument: "EQUITY" | "CRYPTO";
   side: "BUY" | "SELL";
+  proposed_quantity: string;
   proposed_notional: string;
   risk_decision: "ALLOW" | "DENY";
   execution_status: "SIMULATED_FILLED" | "RISK_DENIED";
@@ -434,6 +435,70 @@ export type PaperGuardrailEvidence = {
   twenty_four_hours: PaperGuardrailEvidenceWindow;
   seven_days: PaperGuardrailEvidenceWindow;
   coverage_change: PaperGuardrailCoverageChange;
+  denial_eligibility: PaperDenialEligibility;
+};
+
+export type PaperDenialRiskResultChange = {
+  stage: string;
+  previous_code: string;
+  later_code: string;
+  previous_result: "PASS" | "FAIL" | "WARN";
+  later_result: "PASS" | "FAIL" | "WARN";
+};
+
+export type PaperDenialEligibilityFact = {
+  decision_journal_entry_id: string;
+  proposed_action_id: string;
+  risk_evaluation_id: string;
+  execution_record_id: string;
+  created_at: string;
+  symbol: string;
+  instrument: "EQUITY" | "CRYPTO";
+  side: "BUY" | "SELL";
+  proposed_quantity: string;
+  proposed_notional: string;
+  denial_reason_codes: string[];
+  failed_check_codes: string[];
+  terminal_check_stage: string;
+  financial_provider: string;
+  market_feed: string;
+  market_quality: string;
+  market_observed_at: string;
+  later_disposition:
+    | "LATER_ALLOWED"
+    | "LATER_DENIED"
+    | "NO_LATER_COMPARABLE_PROPOSAL";
+  later_decision_journal_entry_id?: string;
+  later_proposed_action_id?: string;
+  later_risk_evaluation_id?: string;
+  later_execution_record_id?: string;
+  later_created_at?: string;
+  later_proposed_quantity?: string;
+  later_proposed_notional?: string;
+  later_risk_decision?: "ALLOW" | "DENY";
+  later_execution_status?: "SIMULATED_FILLED" | "RISK_DENIED";
+  later_financial_provider?: string;
+  later_market_feed?: string;
+  later_market_quality?: string;
+  later_market_observed_at?: string;
+  elapsed_seconds?: number;
+  changed_risk_results: PaperDenialRiskResultChange[];
+};
+
+export type PaperDenialEligibility = {
+  status: "AVAILABLE" | "UNAVAILABLE";
+  calculation_method?: "IMMUTABLE_PAPER_DETERMINISTIC_DENIAL_AND_LATER_ELIGIBILITY";
+  horizon_hours: number;
+  window_started_at?: string;
+  window_ended_at?: string;
+  denial_count: number;
+  later_allowed_count: number;
+  later_denied_count: number;
+  no_later_comparable_proposal_count: number;
+  financial_providers: string[];
+  first_denial_at?: string;
+  latest_denial_at?: string;
+  denials: PaperDenialEligibilityFact[];
 };
 
 export type PaperPortfolio = {
@@ -1243,6 +1308,22 @@ export function PaperPortfolioSummary({
           (metric.baseline_count > 0 || metric.current_count > 0),
       ),
   );
+  const denialEligibility = guardrail?.denial_eligibility;
+  const denialEligibilityAvailable = Boolean(
+    denialEligibility?.status === "AVAILABLE" &&
+      denialEligibility.calculation_method ===
+        "IMMUTABLE_PAPER_DETERMINISTIC_DENIAL_AND_LATER_ELIGIBILITY" &&
+      [24, 168].includes(denialEligibility.horizon_hours) &&
+      denialEligibility.denials.length === denialEligibility.denial_count &&
+      denialEligibility.later_allowed_count +
+        denialEligibility.later_denied_count +
+        denialEligibility.no_later_comparable_proposal_count ===
+        denialEligibility.denial_count,
+  );
+  const denialEligibilityAttention = Boolean(
+    !denialEligibilityAvailable ||
+      denialEligibility!.no_later_comparable_proposal_count > 0,
+  );
   const guardrailAvailable = Boolean(
     guardrail?.status === "AVAILABLE" &&
       guardrail.calculation_method ===
@@ -1277,6 +1358,7 @@ export function PaperPortfolioSummary({
           ) &&
           ["EQUITY", "CRYPTO"].includes(proposal.instrument) &&
           ["BUY", "SELL"].includes(proposal.side) &&
+          isExactDecimal(proposal.proposed_quantity) &&
           isExactDecimal(proposal.proposed_notional) &&
           !Number.isNaN(Date.parse(proposal.created_at)) &&
           !Number.isNaN(Date.parse(proposal.market_observed_at)) &&
@@ -1917,7 +1999,8 @@ export function PaperPortfolioSummary({
         open={
           !guardrailAvailable ||
           guardrailCoverageAttention ||
-          guardrailCoverageChangeAttention
+          guardrailCoverageChangeAttention ||
+          denialEligibilityAttention
         }
       >
         <summary className="paper-performance-header">
@@ -2240,6 +2323,141 @@ export function PaperPortfolioSummary({
                     Arbion is preserving the complete 24-hour evidence while it
                     collects one uninterrupted seven-day window. No trend,
                     missing stage, or quality conclusion is inferred early.
+                  </p>
+                </div>
+              )}
+            </details>
+            <details
+              className="paper-execution-timeline"
+              open={denialEligibilityAttention}
+            >
+              <summary>
+                Review deterministic denials and later comparable proposals
+              </summary>
+              {denialEligibilityAvailable ? (
+                <>
+                  <p className="paper-market-source">
+                    {denialEligibility!.denial_count} exact denials in the saved{" "}
+                    {denialEligibility!.horizon_hours}-hour window ·{" "}
+                    {denialEligibility!.later_allowed_count} first later
+                    comparable proposals allowed ·{" "}
+                    {denialEligibility!.later_denied_count} denied ·{" "}
+                    {denialEligibility!.no_later_comparable_proposal_count} with
+                    no later comparable proposal. This is chronology, not a
+                    recovery or model-learning claim.
+                  </p>
+                  {denialEligibility!.denials.length > 0 ? (
+                    <section className="paper-position-table-wrap">
+                      <table
+                        className="paper-position-table"
+                        aria-label="Paper deterministic denial and later eligibility"
+                      >
+                        <thead>
+                          <tr>
+                            <th>Denied proposal</th>
+                            <th>Exact hold</th>
+                            <th>First later comparable proposal</th>
+                            <th>Changed saved risk results</th>
+                            <th>Evidence</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {denialEligibility!.denials.map((denial) => (
+                            <tr key={denial.decision_journal_entry_id}>
+                              <td>
+                                <strong>
+                                  {denial.symbol} {denial.side}
+                                </strong>
+                                <br />
+                                <small>
+                                  {denial.proposed_quantity} units ·{" "}
+                                  {money(
+                                    denial.proposed_notional,
+                                    portfolio.currency,
+                                  )}
+                                </small>
+                                <br />
+                                <small>
+                                  {new Date(denial.created_at).toLocaleString()}
+                                </small>
+                              </td>
+                              <td>
+                                {denial.denial_reason_codes.join(" · ")}
+                                <br />
+                                <small>
+                                  terminal {denial.terminal_check_stage}
+                                </small>
+                              </td>
+                              <td>
+                                {denial.later_disposition ===
+                                "NO_LATER_COMPARABLE_PROPOSAL" ? (
+                                  <>None in this saved window</>
+                                ) : (
+                                  <>
+                                    <strong>
+                                      {denial.later_disposition ===
+                                      "LATER_ALLOWED"
+                                        ? "Allowed"
+                                        : "Denied"}
+                                    </strong>
+                                    <br />
+                                    <small>
+                                      {denial.later_proposed_quantity} units ·{" "}
+                                      {money(
+                                        denial.later_proposed_notional!,
+                                        portfolio.currency,
+                                      )}
+                                    </small>
+                                    <br />
+                                    <small>
+                                      {denial.elapsed_seconds} seconds later
+                                    </small>
+                                  </>
+                                )}
+                              </td>
+                              <td>
+                                {denial.changed_risk_results.length > 0
+                                  ? denial.changed_risk_results
+                                      .map(
+                                        (change) =>
+                                          `${change.stage}: ${change.previous_code}/${change.previous_result} → ${change.later_code}/${change.later_result}`,
+                                      )
+                                      .join(" · ")
+                                  : "No overlapping saved result changed"}
+                              </td>
+                              <td>
+                                <a href="#decision-journal">decision</a> ·{" "}
+                                <a href="#runtime-evidence">risk</a>
+                                <br />
+                                <small>
+                                  {denial.financial_provider} ·{" "}
+                                  {denial.market_feed} · {denial.market_quality}
+                                </small>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </section>
+                  ) : (
+                    <p className="paper-market-source">
+                      No deterministic denial exists in this complete saved
+                      window.
+                    </p>
+                  )}
+                  <p className="paper-market-source">
+                    The first later comparison must match symbol, instrument,
+                    and side and have exact saved risk evidence. No causal,
+                    performance, broker, or owner-action conclusion is added.
+                  </p>
+                </>
+              ) : (
+                <div className="paper-performance-unavailable">
+                  <strong>Denial comparison unavailable</strong>
+                  <p>
+                    Arbion could not prove one complete bounded denial and
+                    later-proposal chain. It leaves the comparison unavailable
+                    instead of inferring missing risk results or chronology.
                   </p>
                 </div>
               )}

@@ -4505,11 +4505,20 @@ function paperActivityCadenceAvailable(item: StrategyFleetItem) {
 
 function paperGuardrailEvidenceAvailable(item: StrategyFleetItem) {
   const evidence = item.paperGuardrailEvidence;
+  const denialEligibility = evidence?.denial_eligibility;
   return Boolean(
     item.executionMode === "PAPER" &&
       item.paperGuardrailEvidenceContractAvailable === true &&
       evidence?.status === "AVAILABLE" &&
-      evidence.twenty_four_hours.status === "AVAILABLE",
+      evidence.twenty_four_hours.status === "AVAILABLE" &&
+      denialEligibility?.status === "AVAILABLE" &&
+      denialEligibility.calculation_method ===
+        "IMMUTABLE_PAPER_DETERMINISTIC_DENIAL_AND_LATER_ELIGIBILITY" &&
+      denialEligibility.denials.length === denialEligibility.denial_count &&
+      denialEligibility.later_allowed_count +
+        denialEligibility.later_denied_count +
+        denialEligibility.no_later_comparable_proposal_count ===
+        denialEligibility.denial_count,
   );
 }
 
@@ -4820,6 +4829,19 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
             (metric.baseline_count > 0 || metric.current_count > 0),
         )),
   );
+  const denialEligibility = item.paperGuardrailEvidence?.denial_eligibility;
+  const denialEligibilityAvailable = Boolean(
+    guardrailEvidenceAvailable &&
+      denialEligibility?.status === "AVAILABLE" &&
+      denialEligibility.calculation_method ===
+        "IMMUTABLE_PAPER_DETERMINISTIC_DENIAL_AND_LATER_ELIGIBILITY",
+  );
+  const denialEligibilityAttention = Boolean(
+    paper &&
+      item.paperGuardrailEvidenceContractAvailable === true &&
+      (!denialEligibilityAvailable ||
+        denialEligibility!.no_later_comparable_proposal_count > 0),
+  );
   const outcomeReconciliationAvailable =
     paper && paperOutcomeReconciliationAvailable(item);
   const outcomeReconciliationAttention =
@@ -4841,6 +4863,7 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
         limitBreach ||
         guardrailCoverageAttention ||
         guardrailCoverageChangeAttention ||
+        denialEligibilityAttention ||
         outcomeReconciliationAttention
       }
     >
@@ -5522,7 +5545,8 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                   aria-label={item.title + " exact Paper guardrail disposition"}
                   open={
                     guardrailCoverageAttention ||
-                    guardrailCoverageChangeAttention
+                    guardrailCoverageChangeAttention ||
+                    denialEligibilityAttention
                   }
                 >
                   <summary>
@@ -5683,6 +5707,80 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                       · one uninterrupted seven-day window is required before
                       Arbion compares stage and symbol coverage. The complete
                       24-hour proof remains available; no trend is inferred.
+                    </p>
+                  )}
+                  {denialEligibilityAvailable ? (
+                    <details
+                      className="strategy-fleet-paper-outcome-timeline"
+                      open={denialEligibilityAttention}
+                    >
+                      <summary>
+                        <span>
+                          <strong>Denied proposal chronology</strong>
+                          <small>
+                            First later exact symbol, instrument, and side match
+                          </small>
+                        </span>
+                        <span>
+                          {denialEligibility!.later_allowed_count} later allowed
+                          {" · "}
+                          {denialEligibility!.later_denied_count} later denied
+                          {" · "}
+                          {
+                            denialEligibility!
+                              .no_later_comparable_proposal_count
+                          }{" "}
+                          no later match
+                        </span>
+                      </summary>
+                      {denialEligibility!.denials.length > 0 ? (
+                        <ol>
+                          {denialEligibility!.denials.map((denial) => (
+                            <li key={denial.decision_journal_entry_id}>
+                              <strong>
+                                {denial.symbol} {denial.side} ·{" "}
+                                {readable(denial.denial_reason_codes[0])}
+                              </strong>
+                              <span>
+                                {denial.later_disposition ===
+                                "NO_LATER_COMPARABLE_PROPOSAL"
+                                  ? "No later comparable proposal in the saved window"
+                                  : `${readable(denial.later_disposition)} · ${denial.elapsed_seconds} seconds later`}
+                              </span>
+                              <small>
+                                {denial.proposed_quantity} units ·{" "}
+                                {capitalMoney(
+                                  item.paperCurrency,
+                                  denial.proposed_notional,
+                                )}
+                                {denial.changed_risk_results.length > 0
+                                  ? ` · ${denial.changed_risk_results.length} changed saved risk result${denial.changed_risk_results.length === 1 ? "" : "s"}`
+                                  : " · no overlapping saved risk result changed"}
+                              </small>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p>
+                          No deterministic denial exists in this saved window.
+                        </p>
+                      )}
+                      <p>
+                        This is exact immutable chronology only. It does not
+                        claim recovery, model learning, causality, performance,
+                        or required owner action.{" "}
+                        <Link
+                          href={`/automations/${encodeURIComponent(item.id)}#runtime-evidence`}
+                        >
+                          Review exact denial evidence →
+                        </Link>
+                      </p>
+                    </details>
+                  ) : (
+                    <p className="strategy-fleet-outcome-note">
+                      Denied proposal chronology: <strong>Unavailable</strong> ·
+                      one complete bounded denial and later-proposal chain could
+                      not be proven. No later eligibility is inferred.
                     </p>
                   )}
                   <ol>
