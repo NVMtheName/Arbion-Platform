@@ -6,9 +6,11 @@ import { reconcilePaperOutcome } from "./paper-outcome-reconciliation";
 import { PaperPerformanceHistory } from "./paper-performance-history";
 import {
   compareExactDecimals,
+  divideExactDecimals,
   exactDecimalSign,
   formatExactDecimal,
   formatExactMoney,
+  multiplyExactDecimals,
   sumExactMoney,
 } from "../exact-money";
 
@@ -73,10 +75,24 @@ export type PaperExecutionSymbolCost = {
   instrument: "EQUITY" | "CRYPTO";
   total_fees: string;
   adverse_slippage: string;
+  total_explicit_cost: string;
+  provider_reference_notional: string;
   gross_notional: string;
+  all_in_cost_rate_bps: string;
   fill_count: number;
   buy_fill_count: number;
   sell_fill_count: number;
+};
+
+export type PaperExecutionSideCost = {
+  side: "BUY" | "SELL";
+  total_fees: string;
+  adverse_slippage: string;
+  total_explicit_cost: string;
+  provider_reference_notional: string;
+  gross_notional: string;
+  all_in_cost_rate_bps: string;
+  fill_count: number;
 };
 
 export type PaperExecutionCosts = {
@@ -85,7 +101,13 @@ export type PaperExecutionCosts = {
   historical_coverage?: "COMPLETE_FROM_PORTFOLIO_GENESIS";
   total_fees?: string;
   total_adverse_slippage?: string;
+  total_explicit_cost?: string;
+  provider_reference_notional?: string;
   gross_notional?: string;
+  all_in_cost_rate_bps?: string;
+  fill_notional_residual?: string;
+  maximum_absolute_fill_residual?: string;
+  residual_bound_per_fill?: string;
   fill_count: number;
   buy_fill_count: number;
   sell_fill_count: number;
@@ -94,6 +116,7 @@ export type PaperExecutionCosts = {
   market_providers: string[];
   market_feeds: string[];
   market_qualities: string[];
+  sides: PaperExecutionSideCost[];
   symbols: PaperExecutionSymbolCost[];
 };
 
@@ -296,6 +319,15 @@ export function PaperPortfolioSummary({
   const executionCostSymbols = Array.isArray(executionCosts?.symbols)
     ? executionCosts.symbols
     : [];
+  const executionCostSides = Array.isArray(executionCosts?.sides)
+    ? executionCosts.sides
+    : [];
+  const sumExecutionValues = (values: string[]) =>
+    values.length === 0
+      ? "0"
+      : sumExactMoney(
+          values.map((amount) => ({ amount, currency: portfolio.currency })),
+        )?.amount;
   const executionCostSymbolFees = executionCosts
     ? executionCostSymbols.length === 0
       ? "0"
@@ -326,6 +358,49 @@ export function PaperPortfolioSummary({
           })),
         )?.amount
     : undefined;
+  const executionCostSymbolExplicit = executionCosts
+    ? sumExecutionValues(
+        executionCostSymbols.map((symbol) => symbol.total_explicit_cost),
+      )
+    : undefined;
+  const executionCostSymbolReference = executionCosts
+    ? sumExecutionValues(
+        executionCostSymbols.map(
+          (symbol) => symbol.provider_reference_notional,
+        ),
+      )
+    : undefined;
+  const executionCostSideFees = executionCosts
+    ? sumExecutionValues(executionCostSides.map((side) => side.total_fees))
+    : undefined;
+  const executionCostSideSlippage = executionCosts
+    ? sumExecutionValues(
+        executionCostSides.map((side) => side.adverse_slippage),
+      )
+    : undefined;
+  const executionCostSideExplicit = executionCosts
+    ? sumExecutionValues(
+        executionCostSides.map((side) => side.total_explicit_cost),
+      )
+    : undefined;
+  const executionCostSideReference = executionCosts
+    ? sumExecutionValues(
+        executionCostSides.map((side) => side.provider_reference_notional),
+      )
+    : undefined;
+  const executionCostSideGross = executionCosts
+    ? sumExecutionValues(executionCostSides.map((side) => side.gross_notional))
+    : undefined;
+  const expectedExecutionCostRate = executionCosts
+    ? divideExactDecimals(
+        multiplyExactDecimals(
+          executionCosts.total_explicit_cost ?? "invalid",
+          "10000",
+        ) ?? "invalid",
+        executionCosts.provider_reference_notional ?? "invalid",
+        10,
+      )
+    : undefined;
   const executionCostsAvailable = Boolean(
     executionCosts &&
       ["AVAILABLE", "NO_FILLS"].includes(executionCosts.status) &&
@@ -336,12 +411,34 @@ export function PaperPortfolioSummary({
       Array.isArray(executionCosts.market_providers) &&
       Array.isArray(executionCosts.market_feeds) &&
       Array.isArray(executionCosts.market_qualities) &&
+      Array.isArray(executionCosts.sides) &&
       Array.isArray(executionCosts.symbols) &&
       isExactDecimal(executionCosts.total_fees) &&
       isExactDecimal(executionCosts.total_adverse_slippage) &&
+      isExactDecimal(executionCosts.total_explicit_cost) &&
+      isExactDecimal(executionCosts.provider_reference_notional) &&
       isExactDecimal(executionCosts.gross_notional) &&
+      isExactDecimal(executionCosts.all_in_cost_rate_bps) &&
+      isExactDecimal(executionCosts.fill_notional_residual) &&
+      isExactDecimal(executionCosts.maximum_absolute_fill_residual) &&
+      isExactDecimal(executionCosts.residual_bound_per_fill) &&
       compareExactDecimals(executionCosts.total_fees!, "0")! >= 0 &&
       compareExactDecimals(executionCosts.total_adverse_slippage!, "0")! >= 0 &&
+      compareExactDecimals(executionCosts.total_explicit_cost!, "0")! >= 0 &&
+      compareExactDecimals(executionCosts.provider_reference_notional!, "0")! >=
+        0 &&
+      compareExactDecimals(executionCosts.all_in_cost_rate_bps!, "0")! >= 0 &&
+      compareExactDecimals(
+        executionCosts.maximum_absolute_fill_residual!,
+        executionCosts.residual_bound_per_fill!,
+      )! <= 0 &&
+      compareExactDecimals(
+        sumExecutionValues([
+          executionCosts.total_fees!,
+          executionCosts.total_adverse_slippage!,
+        ]) ?? "invalid",
+        executionCosts.total_explicit_cost!,
+      ) === 0 &&
       Number.isSafeInteger(executionCosts.fill_count) &&
       executionCosts.fill_count >= 0 &&
       (executionCosts.status === "AVAILABLE"
@@ -351,13 +448,41 @@ export function PaperPortfolioSummary({
       Number.isSafeInteger(executionCosts.sell_fill_count) &&
       executionCosts.buy_fill_count + executionCosts.sell_fill_count ===
         executionCosts.fill_count &&
+      executionCostSides.every(
+        (side) =>
+          ["BUY", "SELL"].includes(side.side) &&
+          isExactDecimal(side.total_fees) &&
+          isExactDecimal(side.adverse_slippage) &&
+          isExactDecimal(side.total_explicit_cost) &&
+          isExactDecimal(side.provider_reference_notional) &&
+          isExactDecimal(side.gross_notional) &&
+          isExactDecimal(side.all_in_cost_rate_bps) &&
+          side.fill_count > 0 &&
+          compareExactDecimals(
+            sumExecutionValues([side.total_fees, side.adverse_slippage]) ??
+              "invalid",
+            side.total_explicit_cost,
+          ) === 0,
+      ) &&
+      new Set(executionCostSides.map((side) => side.side)).size ===
+        executionCostSides.length &&
+      executionCostSides.reduce((count, side) => count + side.fill_count, 0) ===
+        executionCosts.fill_count &&
       executionCostSymbols.every(
         (symbol) =>
           Boolean(symbol.symbol) &&
           ["EQUITY", "CRYPTO"].includes(symbol.instrument) &&
           isExactDecimal(symbol.total_fees) &&
           isExactDecimal(symbol.adverse_slippage) &&
+          isExactDecimal(symbol.total_explicit_cost) &&
+          isExactDecimal(symbol.provider_reference_notional) &&
           isExactDecimal(symbol.gross_notional) &&
+          isExactDecimal(symbol.all_in_cost_rate_bps) &&
+          compareExactDecimals(
+            sumExecutionValues([symbol.total_fees, symbol.adverse_slippage]) ??
+              "invalid",
+            symbol.total_explicit_cost,
+          ) === 0 &&
           symbol.buy_fill_count + symbol.sell_fill_count === symbol.fill_count,
       ) &&
       executionCostSymbols.reduce(
@@ -366,7 +491,14 @@ export function PaperPortfolioSummary({
       ) === executionCosts.fill_count &&
       executionCostSymbolFees &&
       executionCostSymbolSlippage &&
+      executionCostSymbolExplicit &&
+      executionCostSymbolReference &&
       executionCostSymbolGross &&
+      executionCostSideFees &&
+      executionCostSideSlippage &&
+      executionCostSideExplicit &&
+      executionCostSideReference &&
+      executionCostSideGross &&
       compareExactDecimals(
         executionCostSymbolFees,
         executionCosts.total_fees!,
@@ -379,6 +511,40 @@ export function PaperPortfolioSummary({
         executionCostSymbolGross,
         executionCosts.gross_notional!,
       ) === 0 &&
+      compareExactDecimals(
+        executionCostSymbolExplicit,
+        executionCosts.total_explicit_cost!,
+      ) === 0 &&
+      compareExactDecimals(
+        executionCostSymbolReference,
+        executionCosts.provider_reference_notional!,
+      ) === 0 &&
+      compareExactDecimals(
+        executionCostSideFees,
+        executionCosts.total_fees!,
+      ) === 0 &&
+      compareExactDecimals(
+        executionCostSideSlippage,
+        executionCosts.total_adverse_slippage!,
+      ) === 0 &&
+      compareExactDecimals(
+        executionCostSideExplicit,
+        executionCosts.total_explicit_cost!,
+      ) === 0 &&
+      compareExactDecimals(
+        executionCostSideReference,
+        executionCosts.provider_reference_notional!,
+      ) === 0 &&
+      compareExactDecimals(
+        executionCostSideGross,
+        executionCosts.gross_notional!,
+      ) === 0 &&
+      (executionCosts.fill_count === 0
+        ? compareExactDecimals(executionCosts.all_in_cost_rate_bps!, "0") === 0
+        : compareExactDecimals(
+            expectedExecutionCostRate ?? "invalid",
+            executionCosts.all_in_cost_rate_bps!,
+          ) === 0) &&
       new Set(
         executionCostSymbols.map(
           (symbol) => `${symbol.instrument}:${symbol.symbol}`,
@@ -590,15 +756,44 @@ export function PaperPortfolioSummary({
             <span className="eyebrow">
               PAPER EXECUTION COSTS · SIMULATION ONLY
             </span>
-            <strong>Fees + adverse simulated slippage</strong>
+            <strong>Exact all-in cost rate + turnover</strong>
           </span>
           <span>
-            {executionCostsAvailable ? "Exact fill evidence" : "Unavailable"}
+            {executionCostsAvailable
+              ? `${money(executionCosts!.total_explicit_cost!, portfolio.currency)} · ${formatExactDecimal(executionCosts!.all_in_cost_rate_bps, { maximumFractionDigits: 4, suffix: " bps" })}`
+              : "Unavailable"}
           </span>
         </summary>
         {executionCostsAvailable ? (
           <>
             <div className="paper-performance-grid">
+              <article>
+                <span>Total explicit simulated cost</span>
+                <strong>
+                  {money(
+                    executionCosts!.total_explicit_cost!,
+                    portfolio.currency,
+                  )}
+                </strong>
+              </article>
+              <article>
+                <span>All-in cost rate</span>
+                <strong>
+                  {formatExactDecimal(executionCosts!.all_in_cost_rate_bps, {
+                    maximumFractionDigits: 4,
+                    suffix: " bps",
+                  })}
+                </strong>
+              </article>
+              <article>
+                <span>Provider-reference turnover</span>
+                <strong>
+                  {money(
+                    executionCosts!.provider_reference_notional!,
+                    portfolio.currency,
+                  )}
+                </strong>
+              </article>
               <article>
                 <span>Total simulated fees</span>
                 <strong>
@@ -628,6 +823,47 @@ export function PaperPortfolioSummary({
                 </strong>
               </article>
             </div>
+            {executionCosts!.sides.length > 0 ? (
+              <div className="paper-position-table-wrap">
+                <table
+                  className="paper-position-table"
+                  aria-label="Exact buy-versus-sale Paper execution costs"
+                >
+                  <thead>
+                    <tr>
+                      <th>Side</th>
+                      <th>Explicit cost</th>
+                      <th>Cost rate</th>
+                      <th>Reference turnover</th>
+                      <th>Fills</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {executionCosts!.sides.map((side) => (
+                      <tr key={side.side}>
+                        <td>{side.side === "SELL" ? "SALE" : side.side}</td>
+                        <td>
+                          {money(side.total_explicit_cost, portfolio.currency)}
+                        </td>
+                        <td>
+                          {formatExactDecimal(side.all_in_cost_rate_bps, {
+                            maximumFractionDigits: 4,
+                            suffix: " bps",
+                          })}
+                        </td>
+                        <td>
+                          {money(
+                            side.provider_reference_notional,
+                            portfolio.currency,
+                          )}
+                        </td>
+                        <td>{side.fill_count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
             {executionCosts!.symbols.length > 0 ? (
               <div className="paper-position-table-wrap">
                 <table
@@ -637,9 +873,9 @@ export function PaperPortfolioSummary({
                   <thead>
                     <tr>
                       <th>Symbol</th>
-                      <th>Simulated fees</th>
-                      <th>Adverse slippage</th>
-                      <th>Gross notional</th>
+                      <th>Explicit cost</th>
+                      <th>Cost rate</th>
+                      <th>Reference turnover</th>
                       <th>Buy / sale fills</th>
                     </tr>
                   </thead>
@@ -647,12 +883,23 @@ export function PaperPortfolioSummary({
                     {executionCosts!.symbols.map((symbol) => (
                       <tr key={`${symbol.instrument}:${symbol.symbol}`}>
                         <td>{symbol.symbol}</td>
-                        <td>{money(symbol.total_fees, portfolio.currency)}</td>
                         <td>
-                          {money(symbol.adverse_slippage, portfolio.currency)}
+                          {money(
+                            symbol.total_explicit_cost,
+                            portfolio.currency,
+                          )}
                         </td>
                         <td>
-                          {money(symbol.gross_notional, portfolio.currency)}
+                          {formatExactDecimal(symbol.all_in_cost_rate_bps, {
+                            maximumFractionDigits: 4,
+                            suffix: " bps",
+                          })}
+                        </td>
+                        <td>
+                          {money(
+                            symbol.provider_reference_notional,
+                            portfolio.currency,
+                          )}
                         </td>
                         <td>
                           {symbol.buy_fill_count} / {symbol.sell_fill_count}
@@ -681,6 +928,26 @@ export function PaperPortfolioSummary({
                 : ""}
               . These are simulated costs—not broker-reported charges or live
               execution.
+            </p>
+            <p className="paper-market-source">
+              Stored fill-notional rounding residual:{" "}
+              {money(
+                executionCosts!.fill_notional_residual!,
+                portfolio.currency,
+              )}
+              {" · maximum absolute per fill "}
+              {money(
+                executionCosts!.maximum_absolute_fill_residual!,
+                portfolio.currency,
+              )}
+              {" · strict per-fill bound "}
+              {money(
+                executionCosts!.residual_bound_per_fill!,
+                portfolio.currency,
+              )}
+              . The all-in rate includes only saved simulated fees and adverse
+              slippage. It does not infer spread, market impact, broker fees,
+              performance, or causality.
             </p>
           </>
         ) : (

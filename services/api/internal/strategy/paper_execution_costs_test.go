@@ -25,11 +25,22 @@ func TestProjectPaperExecutionCostsAttributesExactFeesAndAdverseSlippage(t *test
 	if outcome.Status != PaperExecutionCostsAvailable || outcome.CalculationMethod != PaperExecutionCostMethod || outcome.HistoricalCoverage != PaperCoverageCompleteGenesis {
 		t.Fatalf("execution cost contract unavailable: %#v", outcome)
 	}
-	if outcome.TotalFees != "0.7755625000" || outcome.TotalAdverseSlippage != "0.3875000000" || outcome.GrossNotional != "155.1125000000" || outcome.FillCount != 2 || outcome.BuyFillCount != 1 || outcome.SellFillCount != 1 {
+	if outcome.TotalFees != "0.7755625000" || outcome.TotalAdverseSlippage != "0.3875000000" || outcome.TotalExplicitCost != "1.1630625000" ||
+		outcome.ProviderReferenceNotional != "155.0000000000" || outcome.GrossNotional != "155.1125000000" || outcome.AllInCostRateBPS != "75.0362903226" ||
+		outcome.FillNotionalResidual != "0.0000000000" || outcome.MaximumAbsoluteFillResidual != "0.0000000000" || outcome.ResidualBoundPerFill != "0.0000000001" ||
+		outcome.FillCount != 2 || outcome.BuyFillCount != 1 || outcome.SellFillCount != 1 {
 		t.Fatalf("execution cost totals changed: %#v", outcome)
 	}
-	if len(outcome.Symbols) != 1 || outcome.Symbols[0].Symbol != "BTC" || outcome.Symbols[0].TotalFees != outcome.TotalFees || outcome.Symbols[0].AdverseSlippage != outcome.TotalAdverseSlippage {
+	if len(outcome.Symbols) != 1 || outcome.Symbols[0].Symbol != "BTC" || outcome.Symbols[0].TotalFees != outcome.TotalFees ||
+		outcome.Symbols[0].AdverseSlippage != outcome.TotalAdverseSlippage || outcome.Symbols[0].TotalExplicitCost != outcome.TotalExplicitCost ||
+		outcome.Symbols[0].ProviderReferenceNotional != outcome.ProviderReferenceNotional || outcome.Symbols[0].AllInCostRateBPS != outcome.AllInCostRateBPS {
 		t.Fatalf("symbol attribution changed: %#v", outcome.Symbols)
+	}
+	if len(outcome.Sides) != 2 || outcome.Sides[0].Side != "BUY" || outcome.Sides[0].TotalExplicitCost != "0.7512500000" ||
+		outcome.Sides[0].ProviderReferenceNotional != "100.0000000000" || outcome.Sides[0].AllInCostRateBPS != "75.1250000000" ||
+		outcome.Sides[1].Side != "SELL" || outcome.Sides[1].TotalExplicitCost != "0.4118125000" ||
+		outcome.Sides[1].ProviderReferenceNotional != "55.0000000000" || outcome.Sides[1].AllInCostRateBPS != "74.8750000000" {
+		t.Fatalf("side attribution changed: %#v", outcome.Sides)
 	}
 	if len(outcome.MarketProviders) != 1 || outcome.MarketProviders[0] != "coinbase" || len(outcome.MarketFeeds) != 1 || outcome.MarketFeeds[0] != "rest_ticker" {
 		t.Fatalf("market attribution changed: %#v", outcome)
@@ -38,8 +49,19 @@ func TestProjectPaperExecutionCostsAttributesExactFeesAndAdverseSlippage(t *test
 
 func TestProjectPaperExecutionCostsProvesEmptyGenesis(t *testing.T) {
 	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedNoSales}, nil)
-	if outcome.Status != PaperExecutionCostsNoFills || outcome.TotalFees != "0.0000000000" || outcome.TotalAdverseSlippage != "0.0000000000" || outcome.FillCount != 0 {
+	if outcome.Status != PaperExecutionCostsNoFills || outcome.TotalFees != "0.0000000000" || outcome.TotalAdverseSlippage != "0.0000000000" ||
+		outcome.TotalExplicitCost != "0.0000000000" || outcome.ProviderReferenceNotional != "0.0000000000" || outcome.AllInCostRateBPS != "0.0000000000" ||
+		outcome.FillNotionalResidual != "0.0000000000" || outcome.MaximumAbsoluteFillResidual != "0.0000000000" || len(outcome.Sides) != 0 || outcome.FillCount != 0 {
 		t.Fatalf("empty execution cost contract changed: %#v", outcome)
+	}
+}
+
+func TestProjectPaperExecutionCostsFailsClosedWhenStoredNotionalResidualExceedsBound(t *testing.T) {
+	now := time.Date(2026, 8, 31, 8, 0, 0, 0, time.UTC)
+	fill := exactExecutionFill("buy", "BTC", "BUY", "1.0000000000", "100.0000000000", "100.2500000000", "100.2499999998", "0.5012500000", now)
+	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedAvailable, FillCount: 1}, []paperRealizedFill{fill})
+	if outcome.Status != PaperExecutionCostsUnavailable || outcome.TotalExplicitCost != "" || len(outcome.Sides) != 0 || len(outcome.Symbols) != 0 {
+		t.Fatalf("excess fill-notional residual was inferred: %#v", outcome)
 	}
 }
 
