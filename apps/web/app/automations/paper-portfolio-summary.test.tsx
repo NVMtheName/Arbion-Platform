@@ -3,8 +3,27 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   PaperPortfolioSummary,
+  type PaperGuardrailEvidence,
+  type PaperGuardrailProposalFact,
   type PaperPortfolio,
 } from "./paper-portfolio-summary";
+
+const paperCheckCodes = [
+  "AUTHORIZATION_DENIED",
+  "CIRCUIT_BREAKER_ACTIVE",
+  "MANDATE_NOT_READY",
+  "CAPITAL_POLICY_REQUIRED",
+  "AUTONOMY_DENIED",
+  "STALE_ACCOUNT_DATA",
+  "SYMBOL_NOT_ALLOWED",
+  "OPTIONS_NOT_ALLOWED",
+  "MARGIN_NOT_ALLOWED",
+  "INSUFFICIENT_POSITION",
+  "CAPITAL_LIMIT_EXCEEDED",
+  "POSITION_LIMIT_EXCEEDED",
+  "DAILY_LOSS_LIMIT_EXCEEDED",
+  "REPEAT_ACTION_COOLDOWN_ACTIVE",
+];
 
 const portfolio: PaperPortfolio = {
   strategy_instance_id: "instance-1",
@@ -774,6 +793,18 @@ describe("PaperPortfolioSummary", () => {
               symbols: [],
               proposals: [],
             },
+            coverage_change: {
+              status: "UNAVAILABLE",
+              baseline_horizon_hours: 168,
+              current_horizon_hours: 24,
+              baseline_proposal_count: 0,
+              current_proposal_count: 0,
+              proposal_count_delta: 0,
+              financial_providers: [],
+              coverage_metrics: [],
+              check_changes: [],
+              symbol_changes: [],
+            },
           },
         }}
       />,
@@ -803,6 +834,267 @@ describe("PaperPortfolioSummary", () => {
     expect(within(guardrails).getByText(/decision-denied/)).toBeInTheDocument();
     expect(
       within(guardrails).getByText(/does not infer model intent/i),
+    ).toBeInTheDocument();
+  });
+
+  it("compares complete immutable 24-hour and seven-day guardrail coverage", () => {
+    const currentProposal: PaperGuardrailProposalFact = {
+      decision_journal_entry_id: "decision-current",
+      proposed_action_id: "action-current",
+      risk_evaluation_id: "risk-current",
+      execution_record_id: "execution-current",
+      created_at: "2026-08-31T14:00:00Z",
+      symbol: "BTC",
+      instrument: "CRYPTO",
+      side: "BUY",
+      proposed_notional: "100.0000000000",
+      risk_decision: "ALLOW",
+      execution_status: "SIMULATED_FILLED",
+      denial_reason_codes: [],
+      failed_check_codes: [],
+      checks: paperCheckCodes.map((code) => ({ code, result: "PASS" })),
+      coverage_status: "FULL_EVALUATION",
+      terminal_check_stage: "ALL_REQUIRED_CHECKS",
+      financial_provider: "coinbase",
+      market_feed: "rest_ticker",
+      market_quality: "REAL_TIME_SINGLE_VENUE",
+      market_observed_at: "2026-08-31T13:59:59Z",
+    };
+    const olderProposal: PaperGuardrailProposalFact = {
+      ...currentProposal,
+      decision_journal_entry_id: "decision-older",
+      proposed_action_id: "action-older",
+      risk_evaluation_id: "risk-older",
+      execution_record_id: "execution-older",
+      created_at: "2026-08-29T14:00:00Z",
+      symbol: "ETH",
+      proposed_notional: "50.0000000000",
+      market_observed_at: "2026-08-29T13:59:59Z",
+    };
+    const evidence: PaperGuardrailEvidence = {
+      status: "AVAILABLE",
+      calculation_method:
+        "IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION",
+      as_of: "2026-08-31T15:00:00Z",
+      twenty_four_hours: {
+        status: "AVAILABLE",
+        coverage_status: "COMPLETE",
+        horizon_hours: 24,
+        window_started_at: "2026-08-30T15:00:00Z",
+        window_ended_at: "2026-08-31T15:00:00Z",
+        proposal_count: 1,
+        allow_count: 1,
+        deny_count: 0,
+        simulated_fill_count: 1,
+        minimum_proposed_notional: "100.0000000000",
+        median_proposed_notional: "100.0000000000",
+        maximum_proposed_notional: "100.0000000000",
+        denial_reason_codes: [],
+        failed_check_codes: [],
+        expected_check_codes: paperCheckCodes,
+        check_results: paperCheckCodes.map((code) => ({
+          code,
+          evaluation_count: 1,
+          pass_count: 1,
+          fail_count: 0,
+          warn_count: 0,
+        })),
+        fully_evaluated_count: 1,
+        fail_closed_prefix_count: 0,
+        check_set_drift_count: 0,
+        symbols: [
+          {
+            symbol: "BTC",
+            instrument: "CRYPTO",
+            proposal_count: 1,
+            allow_count: 1,
+            deny_count: 0,
+            simulated_fill_count: 1,
+            proposed_notional: "100.0000000000",
+          },
+        ],
+        proposals: [currentProposal],
+      },
+      seven_days: {
+        status: "AVAILABLE",
+        coverage_status: "COMPLETE",
+        horizon_hours: 168,
+        window_started_at: "2026-08-24T15:00:00Z",
+        window_ended_at: "2026-08-31T15:00:00Z",
+        proposal_count: 2,
+        allow_count: 2,
+        deny_count: 0,
+        simulated_fill_count: 2,
+        minimum_proposed_notional: "50.0000000000",
+        median_proposed_notional: "75.0000000000",
+        maximum_proposed_notional: "100.0000000000",
+        denial_reason_codes: [],
+        failed_check_codes: [],
+        expected_check_codes: paperCheckCodes,
+        check_results: paperCheckCodes.map((code) => ({
+          code,
+          evaluation_count: 2,
+          pass_count: 2,
+          fail_count: 0,
+          warn_count: 0,
+        })),
+        fully_evaluated_count: 2,
+        fail_closed_prefix_count: 0,
+        check_set_drift_count: 0,
+        symbols: [
+          {
+            symbol: "BTC",
+            instrument: "CRYPTO",
+            proposal_count: 1,
+            allow_count: 1,
+            deny_count: 0,
+            simulated_fill_count: 1,
+            proposed_notional: "100.0000000000",
+          },
+          {
+            symbol: "ETH",
+            instrument: "CRYPTO",
+            proposal_count: 1,
+            allow_count: 1,
+            deny_count: 0,
+            simulated_fill_count: 1,
+            proposed_notional: "50.0000000000",
+          },
+        ],
+        proposals: [olderProposal, currentProposal],
+      },
+      coverage_change: {
+        status: "AVAILABLE",
+        calculation_method:
+          "IMMUTABLE_24_HOUR_AND_SEVEN_DAY_GUARDRAIL_COVERAGE_COMPARISON",
+        baseline_horizon_hours: 168,
+        current_horizon_hours: 24,
+        baseline_window_started_at: "2026-08-24T15:00:00Z",
+        baseline_window_ended_at: "2026-08-31T15:00:00Z",
+        current_window_started_at: "2026-08-30T15:00:00Z",
+        current_window_ended_at: "2026-08-31T15:00:00Z",
+        baseline_proposal_count: 2,
+        current_proposal_count: 1,
+        proposal_count_delta: -1,
+        financial_providers: ["coinbase"],
+        first_evidence_at: "2026-08-29T14:00:00Z",
+        latest_evidence_at: "2026-08-31T14:00:00Z",
+        first_market_observed_at: "2026-08-29T13:59:59Z",
+        latest_market_observed_at: "2026-08-31T13:59:59Z",
+        coverage_metrics: [
+          {
+            metric: "FULL_EVALUATION",
+            baseline_count: 2,
+            current_count: 1,
+            count_delta: -1,
+            baseline_share_percent: "100.0000000000",
+            current_share_percent: "100.0000000000",
+            share_change: "UNCHANGED",
+          },
+          {
+            metric: "FAIL_CLOSED_PREFIX",
+            baseline_count: 0,
+            current_count: 0,
+            count_delta: 0,
+            baseline_share_percent: "0.0000000000",
+            current_share_percent: "0.0000000000",
+            share_change: "UNCHANGED",
+          },
+          {
+            metric: "CHECK_SET_DRIFT",
+            baseline_count: 0,
+            current_count: 0,
+            count_delta: 0,
+            baseline_share_percent: "0.0000000000",
+            current_share_percent: "0.0000000000",
+            share_change: "UNCHANGED",
+          },
+        ],
+        check_changes: paperCheckCodes.map((code) => ({
+          code,
+          baseline_evaluation_count: 2,
+          current_evaluation_count: 1,
+          evaluation_count_delta: -1,
+          baseline_pass_count: 2,
+          current_pass_count: 1,
+          pass_count_delta: -1,
+          baseline_fail_count: 0,
+          current_fail_count: 0,
+          fail_count_delta: 0,
+          baseline_warn_count: 0,
+          current_warn_count: 0,
+          warn_count_delta: 0,
+          baseline_evaluation_percent: "100.0000000000",
+          current_evaluation_percent: "100.0000000000",
+          evaluation_share_change: "UNCHANGED",
+        })),
+        symbol_changes: [
+          {
+            symbol: "BTC",
+            instrument: "CRYPTO",
+            baseline_proposal_count: 1,
+            current_proposal_count: 1,
+            proposal_count_delta: 0,
+            baseline_proposal_percent: "50.0000000000",
+            current_proposal_percent: "100.0000000000",
+            proposal_share_change: "INCREASED",
+            baseline_allow_count: 1,
+            current_allow_count: 1,
+            baseline_deny_count: 0,
+            current_deny_count: 0,
+            baseline_simulated_fill_count: 1,
+            current_simulated_fill_count: 1,
+            baseline_proposed_notional: "100.0000000000",
+            current_proposed_notional: "100.0000000000",
+            proposed_notional_delta: "0.0000000000",
+          },
+          {
+            symbol: "ETH",
+            instrument: "CRYPTO",
+            baseline_proposal_count: 1,
+            current_proposal_count: 0,
+            proposal_count_delta: -1,
+            baseline_proposal_percent: "50.0000000000",
+            current_proposal_percent: "0.0000000000",
+            proposal_share_change: "DECREASED",
+            baseline_allow_count: 1,
+            current_allow_count: 0,
+            baseline_deny_count: 0,
+            current_deny_count: 0,
+            baseline_simulated_fill_count: 1,
+            current_simulated_fill_count: 0,
+            baseline_proposed_notional: "50.0000000000",
+            current_proposed_notional: "0.0000000000",
+            proposed_notional_delta: "-50.0000000000",
+          },
+        ],
+      },
+    };
+    render(
+      <PaperPortfolioSummary
+        executionMode="PAPER"
+        portfolio={{
+          ...portfolio,
+          positions: [],
+          guardrail_evidence: evidence,
+        }}
+      />,
+    );
+    const comparison = screen.getByRole("table", {
+      name: /guardrail coverage window changes/i,
+    });
+    expect(within(comparison).getByText("FULL EVALUATION")).toBeInTheDocument();
+    expect(
+      screen.getByRole("table", { name: /guardrail stage coverage changes/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("table", { name: /guardrail symbol coverage changes/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/none in the complete saved seven-day window/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/share changes compare coverage proportions/i),
     ).toBeInTheDocument();
   });
 });

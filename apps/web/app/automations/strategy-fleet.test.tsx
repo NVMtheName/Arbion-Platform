@@ -3998,6 +3998,18 @@ describe("StrategyFleet", () => {
                 symbols: [],
                 proposals: [],
               },
+              coverage_change: {
+                status: "UNAVAILABLE",
+                baseline_horizon_hours: 168,
+                current_horizon_hours: 24,
+                baseline_proposal_count: 0,
+                current_proposal_count: 0,
+                proposal_count_delta: 0,
+                financial_providers: [],
+                coverage_metrics: [],
+                check_changes: [],
+                symbol_changes: [],
+              },
             },
           },
         ]}

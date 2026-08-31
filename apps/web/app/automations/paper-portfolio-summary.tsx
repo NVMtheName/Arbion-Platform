@@ -354,12 +354,86 @@ export type PaperGuardrailEvidenceWindow = {
   proposals: PaperGuardrailProposalFact[];
 };
 
+export type PaperGuardrailCoverageMetricChange = {
+  metric: "FULL_EVALUATION" | "FAIL_CLOSED_PREFIX" | "CHECK_SET_DRIFT";
+  baseline_count: number;
+  current_count: number;
+  count_delta: number;
+  baseline_share_percent: string;
+  current_share_percent: string;
+  share_change: "INCREASED" | "DECREASED" | "UNCHANGED";
+};
+
+export type PaperGuardrailCheckChange = {
+  code: string;
+  baseline_evaluation_count: number;
+  current_evaluation_count: number;
+  evaluation_count_delta: number;
+  baseline_pass_count: number;
+  current_pass_count: number;
+  pass_count_delta: number;
+  baseline_fail_count: number;
+  current_fail_count: number;
+  fail_count_delta: number;
+  baseline_warn_count: number;
+  current_warn_count: number;
+  warn_count_delta: number;
+  baseline_evaluation_percent: string;
+  current_evaluation_percent: string;
+  evaluation_share_change: "INCREASED" | "DECREASED" | "UNCHANGED";
+};
+
+export type PaperGuardrailSymbolChange = {
+  symbol: string;
+  instrument: "EQUITY" | "CRYPTO";
+  baseline_proposal_count: number;
+  current_proposal_count: number;
+  proposal_count_delta: number;
+  baseline_proposal_percent: string;
+  current_proposal_percent: string;
+  proposal_share_change: "INCREASED" | "DECREASED" | "UNCHANGED";
+  baseline_allow_count: number;
+  current_allow_count: number;
+  baseline_deny_count: number;
+  current_deny_count: number;
+  baseline_simulated_fill_count: number;
+  current_simulated_fill_count: number;
+  baseline_proposed_notional: string;
+  current_proposed_notional: string;
+  proposed_notional_delta: string;
+};
+
+export type PaperGuardrailCoverageChange = {
+  status: "AVAILABLE" | "UNAVAILABLE";
+  calculation_method?: "IMMUTABLE_24_HOUR_AND_SEVEN_DAY_GUARDRAIL_COVERAGE_COMPARISON";
+  baseline_horizon_hours: number;
+  current_horizon_hours: number;
+  baseline_window_started_at?: string;
+  baseline_window_ended_at?: string;
+  current_window_started_at?: string;
+  current_window_ended_at?: string;
+  baseline_proposal_count: number;
+  current_proposal_count: number;
+  proposal_count_delta: number;
+  financial_providers: string[];
+  first_evidence_at?: string;
+  latest_evidence_at?: string;
+  first_market_observed_at?: string;
+  latest_market_observed_at?: string;
+  first_check_set_drift_at?: string;
+  latest_check_set_drift_at?: string;
+  coverage_metrics: PaperGuardrailCoverageMetricChange[];
+  check_changes: PaperGuardrailCheckChange[];
+  symbol_changes: PaperGuardrailSymbolChange[];
+};
+
 export type PaperGuardrailEvidence = {
   status: "AVAILABLE" | "UNAVAILABLE";
   calculation_method?: "IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION";
   as_of?: string;
   twenty_four_hours: PaperGuardrailEvidenceWindow;
   seven_days: PaperGuardrailEvidenceWindow;
+  coverage_change: PaperGuardrailCoverageChange;
 };
 
 export type PaperPortfolio = {
@@ -1150,6 +1224,25 @@ export function PaperPortfolioSummary({
   const guardrailWindow = guardrail?.twenty_four_hours;
   const guardrailCoverageAttention =
     guardrailWindow?.coverage_status === "DRIFT_DETECTED";
+  const guardrailCoverageChange = guardrail?.coverage_change;
+  const guardrailCoverageChangeAvailable = Boolean(
+    guardrailCoverageChange?.status === "AVAILABLE" &&
+      guardrailCoverageChange.calculation_method ===
+        "IMMUTABLE_24_HOUR_AND_SEVEN_DAY_GUARDRAIL_COVERAGE_COMPARISON" &&
+      guardrailCoverageChange.baseline_horizon_hours === 168 &&
+      guardrailCoverageChange.current_horizon_hours === 24 &&
+      guardrailCoverageChange.coverage_metrics.length === 3 &&
+      guardrailCoverageChange.check_changes.length === 14 &&
+      guardrailCoverageChange.financial_providers.length > 0,
+  );
+  const guardrailCoverageChangeAttention = Boolean(
+    !guardrailCoverageChangeAvailable ||
+      guardrailCoverageChange?.coverage_metrics.some(
+        (metric) =>
+          metric.metric === "CHECK_SET_DRIFT" &&
+          (metric.baseline_count > 0 || metric.current_count > 0),
+      ),
+  );
   const guardrailAvailable = Boolean(
     guardrail?.status === "AVAILABLE" &&
       guardrail.calculation_method ===
@@ -1821,7 +1914,11 @@ export function PaperPortfolioSummary({
       <details
         className="paper-performance-card"
         aria-label="Exact Paper guardrail disposition"
-        open={!guardrailAvailable || guardrailCoverageAttention}
+        open={
+          !guardrailAvailable ||
+          guardrailCoverageAttention ||
+          guardrailCoverageChangeAttention
+        }
       >
         <summary className="paper-performance-header">
           <span>
@@ -1977,6 +2074,175 @@ export function PaperPortfolioSummary({
                   </tbody>
                 </table>
               </section>
+            </details>
+            <details
+              className="paper-execution-timeline"
+              open={guardrailCoverageChangeAttention}
+            >
+              <summary>
+                Compare 24-hour and seven-day guardrail coverage
+              </summary>
+              {guardrailCoverageChangeAvailable ? (
+                <>
+                  <p className="paper-market-source">
+                    {guardrailCoverageChange!.financial_providers.join(" · ")} ·{" "}
+                    saved evidence from{" "}
+                    {new Date(
+                      guardrailCoverageChange!.first_evidence_at!,
+                    ).toLocaleString()}{" "}
+                    through{" "}
+                    {new Date(
+                      guardrailCoverageChange!.latest_evidence_at!,
+                    ).toLocaleString()}
+                    . The windows end at the same immutable scheduler proof
+                    point; share changes compare coverage proportions, not
+                    performance or decision quality.
+                  </p>
+                  <section className="paper-position-table-wrap">
+                    <table
+                      className="paper-position-table"
+                      aria-label="Paper guardrail coverage window changes"
+                    >
+                      <thead>
+                        <tr>
+                          <th>Coverage path</th>
+                          <th>Seven days</th>
+                          <th>24 hours</th>
+                          <th>Share change</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {guardrailCoverageChange!.coverage_metrics.map(
+                          (metric) => (
+                            <tr key={metric.metric}>
+                              <td>{metric.metric.replaceAll("_", " ")}</td>
+                              <td>
+                                {metric.baseline_count} ·{" "}
+                                {metric.baseline_share_percent}%
+                              </td>
+                              <td>
+                                {metric.current_count} ·{" "}
+                                {metric.current_share_percent}%
+                              </td>
+                              <td>{metric.share_change.toLowerCase()}</td>
+                            </tr>
+                          ),
+                        )}
+                      </tbody>
+                    </table>
+                  </section>
+                  <details className="paper-execution-timeline">
+                    <summary>Review every ordered stage</summary>
+                    <section className="paper-position-table-wrap">
+                      <table
+                        className="paper-position-table"
+                        aria-label="Paper guardrail stage coverage changes"
+                      >
+                        <thead>
+                          <tr>
+                            <th>Stage</th>
+                            <th>Seven-day E / P / F / W</th>
+                            <th>24-hour E / P / F / W</th>
+                            <th>Evaluation share</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {guardrailCoverageChange!.check_changes.map(
+                            (check) => (
+                              <tr key={check.code}>
+                                <td>{check.code}</td>
+                                <td>
+                                  {check.baseline_evaluation_count} /{" "}
+                                  {check.baseline_pass_count} /{" "}
+                                  {check.baseline_fail_count} /{" "}
+                                  {check.baseline_warn_count}
+                                </td>
+                                <td>
+                                  {check.current_evaluation_count} /{" "}
+                                  {check.current_pass_count} /{" "}
+                                  {check.current_fail_count} /{" "}
+                                  {check.current_warn_count}
+                                </td>
+                                <td>
+                                  {check.baseline_evaluation_percent}% →{" "}
+                                  {check.current_evaluation_percent}% ·{" "}
+                                  {check.evaluation_share_change.toLowerCase()}
+                                </td>
+                              </tr>
+                            ),
+                          )}
+                        </tbody>
+                      </table>
+                    </section>
+                  </details>
+                  <details className="paper-execution-timeline">
+                    <summary>Review exact symbol coverage</summary>
+                    <section className="paper-position-table-wrap">
+                      <table
+                        className="paper-position-table"
+                        aria-label="Paper guardrail symbol coverage changes"
+                      >
+                        <thead>
+                          <tr>
+                            <th>Symbol</th>
+                            <th>Seven-day proposals</th>
+                            <th>24-hour proposals</th>
+                            <th>Share change</th>
+                            <th>Notional change</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {guardrailCoverageChange!.symbol_changes.map(
+                            (symbol) => (
+                              <tr key={`${symbol.instrument}:${symbol.symbol}`}>
+                                <td>{symbol.symbol}</td>
+                                <td>
+                                  {symbol.baseline_proposal_count} ·{" "}
+                                  {symbol.baseline_proposal_percent}%
+                                </td>
+                                <td>
+                                  {symbol.current_proposal_count} ·{" "}
+                                  {symbol.current_proposal_percent}%
+                                </td>
+                                <td>
+                                  {symbol.proposal_share_change.toLowerCase()}
+                                </td>
+                                <td>
+                                  {money(
+                                    symbol.proposed_notional_delta,
+                                    portfolio.currency,
+                                  )}
+                                </td>
+                              </tr>
+                            ),
+                          )}
+                        </tbody>
+                      </table>
+                    </section>
+                  </details>
+                  <p className="paper-market-source">
+                    Check-set drift:{" "}
+                    {guardrailCoverageChange!.first_check_set_drift_at
+                      ? `${new Date(
+                          guardrailCoverageChange!.first_check_set_drift_at,
+                        ).toLocaleString()} through ${new Date(
+                          guardrailCoverageChange!.latest_check_set_drift_at!,
+                        ).toLocaleString()}`
+                      : "none in the complete saved seven-day window"}
+                    . <a href="#decision-journal">Decision evidence</a> ·{" "}
+                    <a href="#runtime-evidence">risk and execution evidence</a>
+                  </p>
+                </>
+              ) : (
+                <div className="paper-performance-unavailable">
+                  <strong>Coverage comparison unavailable</strong>
+                  <p>
+                    Arbion is preserving the complete 24-hour evidence while it
+                    collects one uninterrupted seven-day window. No trend,
+                    missing stage, or quality conclusion is inferred early.
+                  </p>
+                </div>
+              )}
             </details>
             <details className="paper-execution-timeline">
               <summary>Review immutable proposal identities</summary>

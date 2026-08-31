@@ -400,6 +400,83 @@ type PaperGuardrailEvidence struct {
 	AsOf              *time.Time                   `json:"as_of,omitempty"`
 	TwentyFourHours   PaperGuardrailEvidenceWindow `json:"twenty_four_hours"`
 	SevenDays         PaperGuardrailEvidenceWindow `json:"seven_days"`
+	CoverageChange    PaperGuardrailCoverageChange `json:"coverage_change"`
+}
+
+// PaperGuardrailCoverageChange compares two complete, overlapping immutable
+// evidence windows. Its rates describe saved control coverage only; they do not
+// score decision quality or imply causality, performance, or live readiness.
+type PaperGuardrailCoverageChange struct {
+	Status                  string                               `json:"status"`
+	CalculationMethod       string                               `json:"calculation_method,omitempty"`
+	BaselineHorizonHours    int                                  `json:"baseline_horizon_hours"`
+	CurrentHorizonHours     int                                  `json:"current_horizon_hours"`
+	BaselineWindowStartedAt *time.Time                           `json:"baseline_window_started_at,omitempty"`
+	BaselineWindowEndedAt   *time.Time                           `json:"baseline_window_ended_at,omitempty"`
+	CurrentWindowStartedAt  *time.Time                           `json:"current_window_started_at,omitempty"`
+	CurrentWindowEndedAt    *time.Time                           `json:"current_window_ended_at,omitempty"`
+	BaselineProposalCount   int                                  `json:"baseline_proposal_count"`
+	CurrentProposalCount    int                                  `json:"current_proposal_count"`
+	ProposalCountDelta      int                                  `json:"proposal_count_delta"`
+	FinancialProviders      []string                             `json:"financial_providers"`
+	FirstEvidenceAt         *time.Time                           `json:"first_evidence_at,omitempty"`
+	LatestEvidenceAt        *time.Time                           `json:"latest_evidence_at,omitempty"`
+	FirstMarketObservedAt   *time.Time                           `json:"first_market_observed_at,omitempty"`
+	LatestMarketObservedAt  *time.Time                           `json:"latest_market_observed_at,omitempty"`
+	FirstCheckSetDriftAt    *time.Time                           `json:"first_check_set_drift_at,omitempty"`
+	LatestCheckSetDriftAt   *time.Time                           `json:"latest_check_set_drift_at,omitempty"`
+	CoverageMetrics         []PaperGuardrailCoverageMetricChange `json:"coverage_metrics"`
+	CheckChanges            []PaperGuardrailCheckChange          `json:"check_changes"`
+	SymbolChanges           []PaperGuardrailSymbolChange         `json:"symbol_changes"`
+}
+
+type PaperGuardrailCoverageMetricChange struct {
+	Metric               string `json:"metric"`
+	BaselineCount        int    `json:"baseline_count"`
+	CurrentCount         int    `json:"current_count"`
+	CountDelta           int    `json:"count_delta"`
+	BaselineSharePercent string `json:"baseline_share_percent"`
+	CurrentSharePercent  string `json:"current_share_percent"`
+	ShareChange          string `json:"share_change"`
+}
+
+type PaperGuardrailCheckChange struct {
+	Code                      string `json:"code"`
+	BaselineEvaluationCount   int    `json:"baseline_evaluation_count"`
+	CurrentEvaluationCount    int    `json:"current_evaluation_count"`
+	EvaluationCountDelta      int    `json:"evaluation_count_delta"`
+	BaselinePassCount         int    `json:"baseline_pass_count"`
+	CurrentPassCount          int    `json:"current_pass_count"`
+	PassCountDelta            int    `json:"pass_count_delta"`
+	BaselineFailCount         int    `json:"baseline_fail_count"`
+	CurrentFailCount          int    `json:"current_fail_count"`
+	FailCountDelta            int    `json:"fail_count_delta"`
+	BaselineWarnCount         int    `json:"baseline_warn_count"`
+	CurrentWarnCount          int    `json:"current_warn_count"`
+	WarnCountDelta            int    `json:"warn_count_delta"`
+	BaselineEvaluationPercent string `json:"baseline_evaluation_percent"`
+	CurrentEvaluationPercent  string `json:"current_evaluation_percent"`
+	EvaluationShareChange     string `json:"evaluation_share_change"`
+}
+
+type PaperGuardrailSymbolChange struct {
+	Symbol                     string `json:"symbol"`
+	Instrument                 string `json:"instrument"`
+	BaselineProposalCount      int    `json:"baseline_proposal_count"`
+	CurrentProposalCount       int    `json:"current_proposal_count"`
+	ProposalCountDelta         int    `json:"proposal_count_delta"`
+	BaselineProposalPercent    string `json:"baseline_proposal_percent"`
+	CurrentProposalPercent     string `json:"current_proposal_percent"`
+	ProposalShareChange        string `json:"proposal_share_change"`
+	BaselineAllowCount         int    `json:"baseline_allow_count"`
+	CurrentAllowCount          int    `json:"current_allow_count"`
+	BaselineDenyCount          int    `json:"baseline_deny_count"`
+	CurrentDenyCount           int    `json:"current_deny_count"`
+	BaselineSimulatedFillCount int    `json:"baseline_simulated_fill_count"`
+	CurrentSimulatedFillCount  int    `json:"current_simulated_fill_count"`
+	BaselineProposedNotional   string `json:"baseline_proposed_notional"`
+	CurrentProposedNotional    string `json:"current_proposed_notional"`
+	ProposedNotionalDelta      string `json:"proposed_notional_delta"`
 }
 
 type PaperGuardrailEvidenceWindow struct {

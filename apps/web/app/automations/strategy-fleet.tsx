@@ -4801,6 +4801,25 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
       item.paperGuardrailEvidence!.twenty_four_hours.coverage_status ===
         "DRIFT_DETECTED",
   );
+  const guardrailCoverageChange = item.paperGuardrailEvidence?.coverage_change;
+  const guardrailCoverageChangeAvailable = Boolean(
+    guardrailCoverageChange?.status === "AVAILABLE" &&
+      guardrailCoverageChange.calculation_method ===
+        "IMMUTABLE_24_HOUR_AND_SEVEN_DAY_GUARDRAIL_COVERAGE_COMPARISON" &&
+      guardrailCoverageChange.coverage_metrics.length === 3 &&
+      guardrailCoverageChange.check_changes.length === 14 &&
+      guardrailCoverageChange.financial_providers.length > 0,
+  );
+  const guardrailCoverageChangeAttention = Boolean(
+    paper &&
+      item.paperGuardrailEvidenceContractAvailable === true &&
+      (!guardrailCoverageChangeAvailable ||
+        guardrailCoverageChange?.coverage_metrics.some(
+          (metric) =>
+            metric.metric === "CHECK_SET_DRIFT" &&
+            (metric.baseline_count > 0 || metric.current_count > 0),
+        )),
+  );
   const outcomeReconciliationAvailable =
     paper && paperOutcomeReconciliationAvailable(item);
   const outcomeReconciliationAttention =
@@ -4821,6 +4840,7 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
             !outcomeReconciliationAvailable)) ||
         limitBreach ||
         guardrailCoverageAttention ||
+        guardrailCoverageChangeAttention ||
         outcomeReconciliationAttention
       }
     >
@@ -5500,7 +5520,10 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                 <details
                   className="strategy-fleet-paper-outcome-timeline"
                   aria-label={item.title + " exact Paper guardrail disposition"}
-                  open={guardrailCoverageAttention}
+                  open={
+                    guardrailCoverageAttention ||
+                    guardrailCoverageChangeAttention
+                  }
                 >
                   <summary>
                     <span>
@@ -5602,6 +5625,64 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                             `${readable(reason.code)} (${reason.count})`,
                         )
                         .join(" · ")}
+                    </p>
+                  )}
+                  {guardrailCoverageChangeAvailable ? (
+                    <section
+                      className="strategy-fleet-symbol-outcomes"
+                      aria-label={
+                        item.title + " Paper guardrail coverage comparison"
+                      }
+                    >
+                      <header>
+                        <strong>24-hour vs seven-day coverage</strong>
+                        <span>
+                          {guardrailCoverageChange!.coverage_metrics.find(
+                            (metric) => metric.metric === "CHECK_SET_DRIFT",
+                          )!.current_count > 0
+                            ? "Check-set drift · review"
+                            : "Exact saved comparison"}
+                        </span>
+                      </header>
+                      <ol>
+                        {guardrailCoverageChange!.coverage_metrics.map(
+                          (metric) => (
+                            <li key={metric.metric}>
+                              <strong>{readable(metric.metric)}</strong>
+                              <span>
+                                {metric.baseline_share_percent}% over seven days
+                                → {metric.current_share_percent}% over 24 hours
+                              </span>
+                              <small>
+                                {metric.baseline_count} → {metric.current_count}{" "}
+                                saved paths · {readable(metric.share_change)}
+                              </small>
+                            </li>
+                          ),
+                        )}
+                      </ol>
+                      <p>
+                        {guardrailCoverageChange!.financial_providers.join(
+                          " · ",
+                        )}{" "}
+                        · {guardrailCoverageChange!.check_changes.length}{" "}
+                        ordered stages ·{" "}
+                        {guardrailCoverageChange!.symbol_changes.length}{" "}
+                        symbols. Shares compare overlapping saved evidence
+                        windows and do not establish quality or causality.{" "}
+                        <Link
+                          href={`/automations/${encodeURIComponent(item.id)}#runtime-evidence`}
+                        >
+                          Review exact stage and symbol evidence →
+                        </Link>
+                      </p>
+                    </section>
+                  ) : (
+                    <p className="strategy-fleet-outcome-note">
+                      Coverage comparison: <strong>Collecting evidence</strong>{" "}
+                      · one uninterrupted seven-day window is required before
+                      Arbion compares stage and symbol coverage. The complete
+                      24-hour proof remains available; no trend is inferred.
                     </p>
                   )}
                   <ol>

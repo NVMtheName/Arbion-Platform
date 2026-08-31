@@ -3,6 +3,7 @@ package strategy
 import (
 	"encoding/json"
 	"math/big"
+	"reflect"
 	"sort"
 	"time"
 
@@ -11,11 +12,16 @@ import (
 
 const PaperGuardrailEvidenceMethod = "IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION"
 
+const PaperGuardrailCoverageChangeMethod = "IMMUTABLE_24_HOUR_AND_SEVEN_DAY_GUARDRAIL_COVERAGE_COMPARISON"
+
 const (
 	paperGuardrailCoverageComplete         = "COMPLETE"
 	paperGuardrailCoverageDriftDetected    = "DRIFT_DETECTED"
 	paperGuardrailCoverageFullEvaluation   = "FULL_EVALUATION"
 	paperGuardrailCoverageFailClosedPrefix = "FAIL_CLOSED_PREFIX"
+	paperGuardrailShareIncreased           = "INCREASED"
+	paperGuardrailShareDecreased           = "DECREASED"
+	paperGuardrailShareUnchanged           = "UNCHANGED"
 )
 
 type paperGuardrailProposalRow struct {
@@ -164,6 +170,242 @@ func sortedPaperGuardrailCheckCounts(values map[string]PaperGuardrailCheckCount)
 	for _, key := range keys {
 		result = append(result, values[key])
 	}
+	return result
+}
+
+func unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays PaperGuardrailEvidenceWindow) PaperGuardrailCoverageChange {
+	return PaperGuardrailCoverageChange{
+		Status:               PaperActivityCadenceUnavailable,
+		BaselineHorizonHours: sevenDays.HorizonHours, CurrentHorizonHours: twentyFour.HorizonHours,
+		BaselineWindowStartedAt: sevenDays.WindowStartedAt, BaselineWindowEndedAt: sevenDays.WindowEndedAt,
+		CurrentWindowStartedAt: twentyFour.WindowStartedAt, CurrentWindowEndedAt: twentyFour.WindowEndedAt,
+		FinancialProviders: []string{}, CoverageMetrics: []PaperGuardrailCoverageMetricChange{},
+		CheckChanges: []PaperGuardrailCheckChange{}, SymbolChanges: []PaperGuardrailSymbolChange{},
+	}
+}
+
+func paperGuardrailShareChange(currentCount, currentTotal, baselineCount, baselineTotal int) string {
+	current := int64(currentCount) * int64(baselineTotal)
+	baseline := int64(baselineCount) * int64(currentTotal)
+	switch {
+	case current > baseline:
+		return paperGuardrailShareIncreased
+	case current < baseline:
+		return paperGuardrailShareDecreased
+	default:
+		return paperGuardrailShareUnchanged
+	}
+}
+
+func paperGuardrailCoverageMetric(metric string, currentCount, currentTotal, baselineCount, baselineTotal int) (PaperGuardrailCoverageMetricChange, bool) {
+	currentRate := paperDispositionRate(currentCount, currentTotal)
+	baselineRate := paperDispositionRate(baselineCount, baselineTotal)
+	if currentRate == nil || baselineRate == nil {
+		return PaperGuardrailCoverageMetricChange{}, false
+	}
+	return PaperGuardrailCoverageMetricChange{
+		Metric: metric, BaselineCount: baselineCount, CurrentCount: currentCount, CountDelta: currentCount - baselineCount,
+		BaselineSharePercent: *baselineRate, CurrentSharePercent: *currentRate,
+		ShareChange: paperGuardrailShareChange(currentCount, currentTotal, baselineCount, baselineTotal),
+	}, true
+}
+
+func paperGuardrailStageCounts(window PaperGuardrailEvidenceWindow) (map[string]PaperGuardrailCheckCount, bool) {
+	plan := risk.AIAutonomousPaperCheckPlan()
+	if len(window.ExpectedCheckCodes) != len(plan) {
+		return nil, false
+	}
+	counts := make(map[string]PaperGuardrailCheckCount, len(plan))
+	for index, stage := range plan {
+		code := string(stage.CanonicalCode)
+		if window.ExpectedCheckCodes[index] != code {
+			return nil, false
+		}
+		counts[code] = PaperGuardrailCheckCount{Code: code}
+	}
+	for _, proposal := range window.Proposals {
+		if len(proposal.Checks) == 0 || len(proposal.Checks) > len(plan) {
+			return nil, false
+		}
+		for index, check := range proposal.Checks {
+			if !paperGuardrailStageAccepts(plan[index], check.Code) {
+				return nil, false
+			}
+			code := string(plan[index].CanonicalCode)
+			stage := counts[code]
+			stage.EvaluationCount++
+			switch check.Result {
+			case "PASS":
+				stage.PassCount++
+			case "FAIL":
+				stage.FailCount++
+			case "WARN":
+				stage.WarnCount++
+			default:
+				return nil, false
+			}
+			counts[code] = stage
+		}
+	}
+	return counts, true
+}
+
+func paperGuardrailCoverageChange(twentyFour, sevenDays PaperGuardrailEvidenceWindow) PaperGuardrailCoverageChange {
+	result := unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays)
+	if twentyFour.Status != PaperActivityCadenceAvailable || sevenDays.Status != PaperActivityCadenceAvailable ||
+		twentyFour.HorizonHours != 24 || sevenDays.HorizonHours != 168 || twentyFour.WindowStartedAt == nil || twentyFour.WindowEndedAt == nil ||
+		sevenDays.WindowStartedAt == nil || sevenDays.WindowEndedAt == nil || twentyFour.ProposalCount <= 0 || sevenDays.ProposalCount <= 0 ||
+		!twentyFour.WindowEndedAt.Equal(*sevenDays.WindowEndedAt) || twentyFour.WindowStartedAt.Before(*sevenDays.WindowStartedAt) ||
+		len(twentyFour.Proposals) != twentyFour.ProposalCount || len(sevenDays.Proposals) != sevenDays.ProposalCount {
+		return result
+	}
+	baselineFacts := make(map[string]PaperGuardrailProposalFact, len(sevenDays.Proposals))
+	providers := map[string]struct{}{}
+	for index, proposal := range sevenDays.Proposals {
+		if proposal.DecisionJournalEntryID == "" || proposal.RiskEvaluationID == "" || proposal.ExecutionRecordID == "" || proposal.FinancialProvider == "" ||
+			proposal.CreatedAt.Before(*sevenDays.WindowStartedAt) || proposal.CreatedAt.After(*sevenDays.WindowEndedAt) || proposal.MarketObservedAt.After(proposal.CreatedAt) {
+			return unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays)
+		}
+		if _, duplicate := baselineFacts[proposal.DecisionJournalEntryID]; duplicate {
+			return unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays)
+		}
+		baselineFacts[proposal.DecisionJournalEntryID] = proposal
+		providers[proposal.FinancialProvider] = struct{}{}
+		if index == 0 || proposal.CreatedAt.Before(*result.FirstEvidenceAt) {
+			value := proposal.CreatedAt
+			result.FirstEvidenceAt = &value
+		}
+		if index == 0 || proposal.CreatedAt.After(*result.LatestEvidenceAt) {
+			value := proposal.CreatedAt
+			result.LatestEvidenceAt = &value
+		}
+		if index == 0 || proposal.MarketObservedAt.Before(*result.FirstMarketObservedAt) {
+			value := proposal.MarketObservedAt
+			result.FirstMarketObservedAt = &value
+		}
+		if index == 0 || proposal.MarketObservedAt.After(*result.LatestMarketObservedAt) {
+			value := proposal.MarketObservedAt
+			result.LatestMarketObservedAt = &value
+		}
+		if proposal.CoverageStatus == paperGuardrailCoverageDriftDetected {
+			if result.FirstCheckSetDriftAt == nil || proposal.CreatedAt.Before(*result.FirstCheckSetDriftAt) {
+				value := proposal.CreatedAt
+				result.FirstCheckSetDriftAt = &value
+			}
+			if result.LatestCheckSetDriftAt == nil || proposal.CreatedAt.After(*result.LatestCheckSetDriftAt) {
+				value := proposal.CreatedAt
+				result.LatestCheckSetDriftAt = &value
+			}
+		}
+	}
+	for _, proposal := range twentyFour.Proposals {
+		baseline, exists := baselineFacts[proposal.DecisionJournalEntryID]
+		if !exists || !reflect.DeepEqual(baseline, proposal) {
+			return unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays)
+		}
+	}
+	for provider := range providers {
+		result.FinancialProviders = append(result.FinancialProviders, provider)
+	}
+	sort.Strings(result.FinancialProviders)
+
+	for _, values := range []struct {
+		metric                      string
+		currentCount, baselineCount int
+	}{
+		{"FULL_EVALUATION", twentyFour.FullyEvaluatedCount, sevenDays.FullyEvaluatedCount},
+		{"FAIL_CLOSED_PREFIX", twentyFour.FailClosedPrefixCount, sevenDays.FailClosedPrefixCount},
+		{"CHECK_SET_DRIFT", twentyFour.CheckSetDriftCount, sevenDays.CheckSetDriftCount},
+	} {
+		metric, ok := paperGuardrailCoverageMetric(values.metric, values.currentCount, twentyFour.ProposalCount, values.baselineCount, sevenDays.ProposalCount)
+		if !ok {
+			return unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays)
+		}
+		result.CoverageMetrics = append(result.CoverageMetrics, metric)
+	}
+
+	currentStages, currentOK := paperGuardrailStageCounts(twentyFour)
+	baselineStages, baselineOK := paperGuardrailStageCounts(sevenDays)
+	if !currentOK || !baselineOK {
+		return unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays)
+	}
+	for _, code := range paperGuardrailExpectedCheckCodes() {
+		current, baseline := currentStages[code], baselineStages[code]
+		currentRate := paperDispositionRate(current.EvaluationCount, twentyFour.ProposalCount)
+		baselineRate := paperDispositionRate(baseline.EvaluationCount, sevenDays.ProposalCount)
+		if currentRate == nil || baselineRate == nil {
+			return unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays)
+		}
+		result.CheckChanges = append(result.CheckChanges, PaperGuardrailCheckChange{
+			Code:                    code,
+			BaselineEvaluationCount: baseline.EvaluationCount, CurrentEvaluationCount: current.EvaluationCount, EvaluationCountDelta: current.EvaluationCount - baseline.EvaluationCount,
+			BaselinePassCount: baseline.PassCount, CurrentPassCount: current.PassCount, PassCountDelta: current.PassCount - baseline.PassCount,
+			BaselineFailCount: baseline.FailCount, CurrentFailCount: current.FailCount, FailCountDelta: current.FailCount - baseline.FailCount,
+			BaselineWarnCount: baseline.WarnCount, CurrentWarnCount: current.WarnCount, WarnCountDelta: current.WarnCount - baseline.WarnCount,
+			BaselineEvaluationPercent: *baselineRate, CurrentEvaluationPercent: *currentRate,
+			EvaluationShareChange: paperGuardrailShareChange(current.EvaluationCount, twentyFour.ProposalCount, baseline.EvaluationCount, sevenDays.ProposalCount),
+		})
+	}
+
+	type symbolWindow struct {
+		value    PaperGuardrailSymbol
+		notional *big.Rat
+	}
+	currentSymbols, baselineSymbols := map[string]symbolWindow{}, map[string]symbolWindow{}
+	for _, pair := range []struct {
+		window PaperGuardrailEvidenceWindow
+		target map[string]symbolWindow
+	}{{twentyFour, currentSymbols}, {sevenDays, baselineSymbols}} {
+		for _, symbol := range pair.window.Symbols {
+			notional, ok := new(big.Rat).SetString(symbol.ProposedNotional)
+			key := symbol.Instrument + ":" + symbol.Symbol
+			if !ok || notional.Sign() <= 0 || key == ":" {
+				return unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays)
+			}
+			if _, duplicate := pair.target[key]; duplicate {
+				return unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays)
+			}
+			pair.target[key] = symbolWindow{value: symbol, notional: notional}
+		}
+	}
+	keys := make([]string, 0, len(baselineSymbols))
+	for key := range baselineSymbols {
+		keys = append(keys, key)
+	}
+	for key := range currentSymbols {
+		if _, exists := baselineSymbols[key]; !exists {
+			return unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		baseline := baselineSymbols[key]
+		current := currentSymbols[key]
+		currentRate := paperDispositionRate(current.value.ProposalCount, twentyFour.ProposalCount)
+		baselineRate := paperDispositionRate(baseline.value.ProposalCount, sevenDays.ProposalCount)
+		if currentRate == nil || baselineRate == nil {
+			return unavailablePaperGuardrailCoverageChange(twentyFour, sevenDays)
+		}
+		currentNotional := new(big.Rat)
+		if current.notional != nil {
+			currentNotional.Set(current.notional)
+		}
+		result.SymbolChanges = append(result.SymbolChanges, PaperGuardrailSymbolChange{
+			Symbol: baseline.value.Symbol, Instrument: baseline.value.Instrument,
+			BaselineProposalCount: baseline.value.ProposalCount, CurrentProposalCount: current.value.ProposalCount, ProposalCountDelta: current.value.ProposalCount - baseline.value.ProposalCount,
+			BaselineProposalPercent: *baselineRate, CurrentProposalPercent: *currentRate,
+			ProposalShareChange: paperGuardrailShareChange(current.value.ProposalCount, twentyFour.ProposalCount, baseline.value.ProposalCount, sevenDays.ProposalCount),
+			BaselineAllowCount:  baseline.value.AllowCount, CurrentAllowCount: current.value.AllowCount,
+			BaselineDenyCount: baseline.value.DenyCount, CurrentDenyCount: current.value.DenyCount,
+			BaselineSimulatedFillCount: baseline.value.SimulatedFillCount, CurrentSimulatedFillCount: current.value.SimulatedFillCount,
+			BaselineProposedNotional: paperDecimal(baseline.notional), CurrentProposedNotional: paperDecimal(currentNotional),
+			ProposedNotionalDelta: paperDecimal(new(big.Rat).Sub(currentNotional, baseline.notional)),
+		})
+	}
+
+	result.Status, result.CalculationMethod = PaperActivityCadenceAvailable, PaperGuardrailCoverageChangeMethod
+	result.BaselineProposalCount, result.CurrentProposalCount = sevenDays.ProposalCount, twentyFour.ProposalCount
+	result.ProposalCountDelta = result.CurrentProposalCount - result.BaselineProposalCount
 	return result
 }
 
@@ -388,7 +630,8 @@ func paperGuardrailWindow(window PaperDispositionFunnelWindow, rows []paperGuard
 func projectPaperGuardrailEvidence(cadence PaperActivityCadence, rows []paperGuardrailProposalRow, fills []paperRealizedFill) PaperGuardrailEvidence {
 	twentyFour := paperGuardrailWindow(cadence.DispositionFunnel.TwentyFourHours, rows, fills)
 	sevenDays := paperGuardrailWindow(cadence.DispositionFunnel.SevenDays, rows, fills)
-	result := PaperGuardrailEvidence{Status: PaperActivityCadenceUnavailable, TwentyFourHours: twentyFour, SevenDays: sevenDays}
+	result := PaperGuardrailEvidence{Status: PaperActivityCadenceUnavailable, TwentyFourHours: twentyFour, SevenDays: sevenDays,
+		CoverageChange: paperGuardrailCoverageChange(twentyFour, sevenDays)}
 	if cadence.AsOf != nil {
 		value := *cadence.AsOf
 		result.AsOf = &value
