@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { compareExactDecimals } from "../exact-money";
+
 export type StrategyFleetDecisionInputCoverageSnapshot = {
   decisionID?: string;
   decisionAt?: string;
@@ -99,6 +101,28 @@ export type StrategyFleetItem = {
   evidenceScheduleHealthy?: boolean;
   evidenceBlockers?: string[];
   currentEvidenceReviewed?: boolean;
+  paperPortfolioAvailable?: boolean;
+  paperPerformanceStatus?: "AVAILABLE" | "CASH_ONLY" | "UNAVAILABLE";
+  paperCurrency?: string;
+  paperStartingCash?: string;
+  paperCash?: string;
+  paperSimulatedEquity?: string;
+  paperInvestedExposure?: string;
+  paperTotalProfitLoss?: string;
+  paperTotalReturnPercent?: string;
+  paperValuedAt?: string;
+  paperCashReserve?: string;
+  paperCashHeadroom?: string;
+  paperExposureCeiling?: string;
+  paperExposureHeadroom?: string;
+  paperSymbolCeiling?: string;
+  paperProposalHeadroom?: string;
+  paperPositionOutcomes?: Array<{
+    symbol: string;
+    marketValue: string;
+    unrealizedProfitLoss: string;
+    unrealizedProfitLossPercent: string;
+  }>;
   decisionAvailable?: boolean;
   latestDecisionID?: string;
   latestDecisionType?: string;
@@ -1452,6 +1476,11 @@ function needsReview(item: StrategyFleetItem) {
     item.scheduleAvailable === false ||
     item.scheduleHistoryAvailable === false ||
     (requiresShadowEvidence(item) && item.evidenceAvailable === false) ||
+    (requiresOperationalData(item) &&
+      item.executionMode === "PAPER" &&
+      (item.paperPortfolioAvailable === false ||
+        item.paperPerformanceStatus === "UNAVAILABLE")) ||
+    paperOutcomeLimitBreach(item) ||
     item.decisionAvailable === false ||
     item.scheduleStatus === "FAILED" ||
     item.scheduleTimingStatus === "OVERDUE" ||
@@ -4185,6 +4214,252 @@ function commandDeckRouteLabel(item: StrategyFleetItem) {
     : modelLabel(item);
 }
 
+function signedCapitalMoney(currency?: string, value?: string) {
+  if (!value || !currency || !/^[A-Z]{3}$/.test(currency)) return "Unavailable";
+  const negative = value.startsWith("-");
+  const amount = conciseCapitalDecimal(negative ? value.slice(1) : value);
+  if (!amount) return "Unavailable";
+  const sign = negative ? "−" : "+";
+  return currency === "USD"
+    ? `${sign}$${amount}`
+    : `${sign}${currency} ${amount}`;
+}
+
+function signedOutcomePercent(value?: string) {
+  if (!value) return "Unavailable";
+  const negative = value.startsWith("-");
+  const amount = conciseCapitalDecimal(negative ? value.slice(1) : value);
+  return amount ? `${negative ? "−" : "+"}${amount}%` : "Unavailable";
+}
+
+function capitalHeadroomMoney(currency?: string, value?: string) {
+  return value?.startsWith("-")
+    ? signedCapitalMoney(currency, value)
+    : capitalMoney(currency, value);
+}
+
+function paperOutcomeEvidenceAvailable(item: StrategyFleetItem) {
+  return (
+    item.executionMode === "PAPER" &&
+    item.paperPortfolioAvailable === true &&
+    item.paperPerformanceStatus !== "UNAVAILABLE" &&
+    Boolean(
+      item.paperCurrency &&
+        item.paperStartingCash &&
+        item.paperCash &&
+        item.paperSimulatedEquity &&
+        item.paperInvestedExposure &&
+        item.paperTotalProfitLoss &&
+        item.paperTotalReturnPercent &&
+        item.paperCashReserve &&
+        item.paperCashHeadroom &&
+        item.paperExposureCeiling &&
+        item.paperExposureHeadroom &&
+        item.paperSymbolCeiling &&
+        item.paperProposalHeadroom &&
+        item.paperPositionOutcomes,
+    )
+  );
+}
+
+function shadowOutcomeEvidenceAvailable(item: StrategyFleetItem) {
+  return (
+    item.executionMode === "SHADOW" &&
+    item.evidenceAvailable === true &&
+    item.oneHourSampleSize !== undefined &&
+    item.twentyFourHourSampleSize !== undefined &&
+    item.minimumSamplePerHorizon !== undefined &&
+    item.evidenceWindowHours !== undefined &&
+    item.minimumEvidenceWindowHours !== undefined
+  );
+}
+
+function paperOutcomeLimitBreach(item: StrategyFleetItem) {
+  return [
+    item.paperCashHeadroom,
+    item.paperExposureHeadroom,
+    item.paperProposalHeadroom,
+  ].some((value) => value && compareExactDecimals(value, "0") === -1);
+}
+
+function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
+  const paper = item.executionMode === "PAPER";
+  const available = paper
+    ? paperOutcomeEvidenceAvailable(item)
+    : shadowOutcomeEvidenceAvailable(item);
+  const limitBreach = paper && available && paperOutcomeLimitBreach(item);
+  const detailHref = `/automations/${encodeURIComponent(item.id)}#runtime-evidence`;
+  return (
+    <details
+      className={`strategy-fleet-exposure-outcomes is-${item.executionMode.toLowerCase()}${available ? "" : " is-unavailable"}${limitBreach ? " is-attention" : ""}`}
+      open={!available || limitBreach}
+    >
+      <summary>
+        <span>
+          <strong>Exposure + outcomes</strong>
+          <small>
+            {paper
+              ? "Exact isolated simulation marks and deterministic headroom"
+              : "Immutable one-hour and 24-hour Shadow outcome maturity"}
+          </small>
+        </span>
+        <span>
+          {!available
+            ? "Evidence unavailable"
+            : limitBreach
+              ? "Limit review required"
+              : paper
+                ? `${capitalMoney(item.paperCurrency, item.paperCash)} cash · ${capitalMoney(item.paperCurrency, item.paperInvestedExposure)} marked`
+                : `${item.oneHourSampleSize} one-hour · ${item.twentyFourHourSampleSize} 24-hour`}
+        </span>
+      </summary>
+      {paper ? (
+        <div>
+          {!available ? (
+            <section className="strategy-fleet-exposure-unavailable">
+              <strong>Exact Paper outcome evidence is unavailable</strong>
+              <p>
+                Arbion is waiting for a canonical isolated ledger, immutable
+                marks for every open simulated position, and the exact reserve,
+                exposure, symbol, and proposal limits. Missing values are never
+                inferred.
+              </p>
+            </section>
+          ) : (
+            <>
+              <dl>
+                <div>
+                  <dt>Simulated cash</dt>
+                  <dd>{capitalMoney(item.paperCurrency, item.paperCash)}</dd>
+                  <small>
+                    {capitalHeadroomMoney(
+                      item.paperCurrency,
+                      item.paperCashHeadroom,
+                    )}
+                    {" reserve headroom · "}
+                    {capitalMoney(item.paperCurrency, item.paperCashReserve)}
+                    {" floor"}
+                  </small>
+                </div>
+                <div>
+                  <dt>Marked exposure</dt>
+                  <dd>
+                    {capitalMoney(
+                      item.paperCurrency,
+                      item.paperInvestedExposure,
+                    )}
+                  </dd>
+                  <small>
+                    {capitalHeadroomMoney(
+                      item.paperCurrency,
+                      item.paperExposureHeadroom,
+                    )}
+                    {" ceiling headroom · "}
+                    {capitalMoney(
+                      item.paperCurrency,
+                      item.paperExposureCeiling,
+                    )}
+                    {" limit"}
+                  </small>
+                </div>
+                <div>
+                  <dt>Next proposal headroom</dt>
+                  <dd>
+                    {capitalHeadroomMoney(
+                      item.paperCurrency,
+                      item.paperProposalHeadroom,
+                    )}
+                  </dd>
+                  <small>
+                    Reserve, total exposure, and immutable proposal ceiling;
+                    symbol checks still apply
+                  </small>
+                </div>
+                <div>
+                  <dt>Total simulated outcome</dt>
+                  <dd>
+                    {signedCapitalMoney(
+                      item.paperCurrency,
+                      item.paperTotalProfitLoss,
+                    )}
+                    {" · "}
+                    {signedOutcomePercent(item.paperTotalReturnPercent)}
+                  </dd>
+                  <small>
+                    {capitalMoney(
+                      item.paperCurrency,
+                      item.paperSimulatedEquity,
+                    )}
+                    {" simulated equity"}
+                  </small>
+                </div>
+              </dl>
+              <section className="strategy-fleet-symbol-outcomes">
+                <header>
+                  <strong>Per-symbol simulated exposure</strong>
+                  <span>
+                    {capitalMoney(item.paperCurrency, item.paperSymbolCeiling)}
+                    {" each"}
+                  </span>
+                </header>
+                {(item.paperPositionOutcomes ?? []).length > 0 ? (
+                  <ol>
+                    {item.paperPositionOutcomes!.map((position) => (
+                      <li key={position.symbol}>
+                        <strong>{position.symbol}</strong>
+                        <span>
+                          {capitalMoney(
+                            item.paperCurrency,
+                            position.marketValue,
+                          )}
+                        </span>
+                        <small>
+                          Unrealized{" "}
+                          {signedCapitalMoney(
+                            item.paperCurrency,
+                            position.unrealizedProfitLoss,
+                          )}
+                          {" · "}
+                          {signedOutcomePercent(
+                            position.unrealizedProfitLossPercent,
+                          )}
+                        </small>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p>Cash-only simulated ledger · no open Paper positions.</p>
+                )}
+              </section>
+              <p className="strategy-fleet-outcome-note">
+                Realized P&amp;L: <strong>Unavailable</strong> · Arbion does not
+                reconstruct realized performance from fills. Values above use
+                the latest complete immutable AI market snapshot
+                {item.paperValuedAt
+                  ? ` saved ${readableTime(item.paperValuedAt)}`
+                  : ""}
+                , not a live quote or broker balance.
+              </p>
+            </>
+          )}
+          <footer>
+            <Link href={detailHref}>Open Paper evidence →</Link>
+            <span>Simulation only · no broker account mutation</span>
+          </footer>
+        </div>
+      ) : (
+        <div>
+          <StrategyFleetEvidence item={item} />
+          <footer>
+            <Link href={detailHref}>Open Shadow evidence →</Link>
+            <span>Would-have records only · never live authority</span>
+          </footer>
+        </div>
+      )}
+    </details>
+  );
+}
+
 function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
   const engines = items.filter(isAI).sort((left, right) => {
     const activeOrder =
@@ -4276,6 +4551,7 @@ function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
                   <dd>{readableTime(item.nextRunAt)}</dd>
                 </div>
               </dl>
+              <StrategyFleetExposureOutcomes item={item} />
               <footer>
                 <span className={healthClass(item)}>
                   <i /> {healthLabel(item)}
@@ -4303,7 +4579,6 @@ function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
                   <StrategyFleetCapitalAuthority item={item} />
                   <StrategyFleetDataHealth item={item} />
                   <StrategyFleetDecision item={item} />
-                  <StrategyFleetEvidence item={item} />
                 </div>
               </details>
             </li>

@@ -2467,6 +2467,105 @@ describe("StrategyFleet", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows exact Paper exposure, headroom, and marked outcomes without inferring realized performance", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            title: "AI Paper Engine",
+            executionMode: "PAPER",
+            evidenceAvailable: undefined,
+            evidenceStatus: undefined,
+            paperPortfolioAvailable: true,
+            paperPerformanceStatus: "AVAILABLE",
+            paperCurrency: "USD",
+            paperStartingCash: "1000.0000000000",
+            paperCash: "850.0000000000",
+            paperSimulatedEquity: "995.0000000000",
+            paperInvestedExposure: "145.0000000000",
+            paperTotalProfitLoss: "-5.0000000000",
+            paperTotalReturnPercent: "-0.5",
+            paperValuedAt: "2026-08-31T02:35:57Z",
+            paperCashReserve: "200.0000000000",
+            paperCashHeadroom: "650.0000000000",
+            paperExposureCeiling: "800.0000000000",
+            paperExposureHeadroom: "655.0000000000",
+            paperSymbolCeiling: "300.0000000000",
+            paperProposalHeadroom: "100.0000000000",
+            paperPositionOutcomes: [
+              {
+                symbol: "BTC",
+                marketValue: "95.0000000000",
+                unrealizedProfitLoss: "-4.0000000000",
+                unrealizedProfitLossPercent: "-4.0404",
+              },
+              {
+                symbol: "ETH",
+                marketValue: "50.0000000000",
+                unrealizedProfitLoss: "1.0000000000",
+                unrealizedProfitLossPercent: "2",
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const exposureSummary = screen.getByText("Exposure + outcomes");
+    expect(exposureSummary.closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByText("$850 cash · $145 marked")).toBeInTheDocument();
+    expect(
+      screen.getByText("$650 reserve headroom · $200 floor"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("$655 ceiling headroom · $800 limit"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Next proposal headroom")).toBeInTheDocument();
+    expect(screen.getByText("−$5 · −0.5%")).toBeInTheDocument();
+    expect(screen.getByText("BTC")).toBeInTheDocument();
+    expect(screen.getByText("$95")).toBeInTheDocument();
+    expect(screen.getByText("Unrealized −$4 · −4.0404%")).toBeInTheDocument();
+    expect(screen.getByText(/Realized P&L:/i)).toHaveTextContent("Unavailable");
+    expect(
+      screen.getByRole("link", {
+        name: /Open Paper evidence/i,
+        hidden: true,
+      }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#runtime-evidence");
+  });
+
+  it("fails closed and opens Paper outcome evidence when exact marks are unavailable", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            title: "AI Paper Engine",
+            executionMode: "PAPER",
+            evidenceAvailable: undefined,
+            evidenceStatus: undefined,
+            paperPortfolioAvailable: true,
+            paperPerformanceStatus: "UNAVAILABLE",
+            paperCurrency: "USD",
+            paperCash: "850.0000000000",
+          },
+        ]}
+      />,
+    );
+
+    const exposureSummary = screen.getByText("Exposure + outcomes");
+    expect(exposureSummary.closest("details")).toHaveAttribute("open");
+    expect(screen.getByText("Evidence unavailable")).toBeInTheDocument();
+    expect(
+      screen.getByText("Exact Paper outcome evidence is unavailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Missing values are never inferred/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("$850 cash")).not.toBeInTheDocument();
+  });
+
   it("surfaces a schedule outage instead of presenting healthy automation", () => {
     render(
       <StrategyFleet
