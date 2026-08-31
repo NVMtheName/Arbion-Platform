@@ -4129,6 +4129,312 @@ function StrategyFleetOperatingBrief({
   );
 }
 
+function commandDeckCapitalEnvelope(item: StrategyFleetItem) {
+  if (!requiresCapitalData(item)) return "Capital activates with the engine";
+  if (!capitalBindingHealthy(item)) return "Exact capital envelope unavailable";
+  const claim = capitalMoney(
+    item.capitalReservationCurrency,
+    item.capitalReservationAmount,
+  );
+  const proposal = capitalMoney("USD", item.runtimeMaxProposalNotional);
+  if (claim === "Unavailable" || proposal === "Unavailable")
+    return "Exact capital envelope unavailable";
+  return `${claim} ${readable(item.executionMode)} claim · ${proposal} proposal ceiling`;
+}
+
+function commandDeckScheduleLabel(item: StrategyFleetItem) {
+  if (item.instanceStatus !== "ACTIVE") return "Not running";
+  if (
+    item.scheduleAvailable !== true ||
+    item.scheduleEnabled !== true ||
+    !item.scheduleStatus ||
+    item.scheduleTimingStatus === "UNAVAILABLE"
+  )
+    return "Schedule evidence unavailable";
+  if (item.scheduleStatus === "FAILED" || item.consecutiveFailures > 0)
+    return `${item.consecutiveFailures} current failure${item.consecutiveFailures === 1 ? "" : "s"}`;
+  if (
+    item.scheduleStatus === "SKIPPED" &&
+    item.scheduleErrorCode === "OUTSIDE_SESSION"
+  )
+    return "Safely waiting for market session";
+  return `${readable(item.scheduleStatus)} · ${item.consecutiveFailures} failures`;
+}
+
+function commandDeckDecisionLabel(item: StrategyFleetItem) {
+  if (item.decisionAvailable !== true || !item.latestDecisionType)
+    return {
+      conclusion: "No saved AI decision yet",
+      action: "Awaiting a guarded engine cycle",
+    };
+  return {
+    conclusion: latestDecisionLabel(item.latestDecisionType),
+    action: provenanceDecisionAction(
+      item.latestDecisionType,
+      item.latestDecisionSide,
+      item.latestDecisionSymbol,
+      item.latestDecisionProposedNotional,
+    ),
+  };
+}
+
+function commandDeckRouteLabel(item: StrategyFleetItem) {
+  if (!runtimeContractHealthy(item)) return "Pinned model unavailable";
+  return item.decisionAvailable === true
+    ? latestRouteLabel(item)
+    : modelLabel(item);
+}
+
+function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
+  const engines = items.filter(isAI).sort((left, right) => {
+    const activeOrder =
+      Number(right.instanceStatus === "ACTIVE") -
+      Number(left.instanceStatus === "ACTIVE");
+    return activeOrder || left.accountName.localeCompare(right.accountName);
+  });
+  if (engines.length === 0) return null;
+  const activeCount = engines.filter(
+    (item) => item.instanceStatus === "ACTIVE",
+  ).length;
+  const reviewCount = engines.filter(needsReview).length;
+  return (
+    <section
+      className={`strategy-fleet-command-deck${reviewCount > 0 ? " needs-review" : ""}`}
+      aria-labelledby="strategy-fleet-command-deck-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">FLEET COMMAND DECK</p>
+          <h2 id="strategy-fleet-command-deck-heading">
+            {reviewCount > 0
+              ? `${reviewCount} AI ${reviewCount === 1 ? "engine has" : "engines have"} a clear review signal.`
+              : "Every AI engine has one clear operating view."}
+          </h2>
+          <p>
+            Account, mode, newest conclusion, exact model route, capital
+            envelope, and scheduler state without repeating the full evidence
+            record. Advanced engine facts stay available on each card.
+          </p>
+        </div>
+        <span>
+          {activeCount} active · {reviewCount} review
+        </span>
+      </header>
+      <ol>
+        {engines.map((item) => {
+          const decision = commandDeckDecisionLabel(item);
+          const review = needsReview(item);
+          return (
+            <li
+              className={`is-${item.executionMode.toLowerCase()}${review ? " needs-review" : ""}`}
+              key={item.id}
+            >
+              <header>
+                <div>
+                  <span
+                    className={`provider-mark provider-${item.provider}`}
+                    aria-hidden="true"
+                  >
+                    {providerInitial(item.provider)}
+                  </span>
+                  <p>
+                    <small>
+                      {providerLabel(item.provider)} · {item.accountName}
+                    </small>
+                    <strong>{item.title}</strong>
+                  </p>
+                </div>
+                <span>{readable(item.executionMode)}</span>
+              </header>
+              <div className="strategy-fleet-command-decision">
+                <span>Newest immutable conclusion</span>
+                <strong>{decision.conclusion}</strong>
+                <p>{decision.action}</p>
+                <time dateTime={item.latestDecisionAt}>
+                  {readableTime(item.latestDecisionAt)}
+                </time>
+              </div>
+              <dl>
+                <div>
+                  <dt>Exact AI route</dt>
+                  <dd>{commandDeckRouteLabel(item)}</dd>
+                </div>
+                <div>
+                  <dt>Allowed universe</dt>
+                  <dd>{fleetCoverageLabel(item)}</dd>
+                </div>
+                <div>
+                  <dt>Capital envelope</dt>
+                  <dd>{commandDeckCapitalEnvelope(item)}</dd>
+                </div>
+                <div>
+                  <dt>Scheduler health</dt>
+                  <dd>{commandDeckScheduleLabel(item)}</dd>
+                </div>
+                <div>
+                  <dt>Next guarded cycle</dt>
+                  <dd>{readableTime(item.nextRunAt)}</dd>
+                </div>
+              </dl>
+              <footer>
+                <span className={healthClass(item)}>
+                  <i /> {healthLabel(item)}
+                </span>
+                <Link href={`/automations/${item.id}#runtime-evidence`}>
+                  Open immutable evidence →
+                </Link>
+              </footer>
+              <details
+                className="strategy-fleet-command-advanced"
+                open={review}
+              >
+                <summary>
+                  <span>
+                    <strong>Advanced engine evidence</strong>
+                    <small>
+                      Pinned runtime, capital authority, account data, decision,
+                      and outcome records
+                    </small>
+                  </span>
+                  <span>{review ? "Review evidence" : "Verified details"}</span>
+                </summary>
+                <div>
+                  <StrategyFleetRuntimeContract item={item} />
+                  <StrategyFleetCapitalAuthority item={item} />
+                  <StrategyFleetDataHealth item={item} />
+                  <StrategyFleetDecision item={item} />
+                  <StrategyFleetEvidence item={item} />
+                </div>
+              </details>
+            </li>
+          );
+        })}
+      </ol>
+      <footer>
+        Paper and Shadow stay non-live · no model rerun · no manual cycle · no
+        broker order · no account mutation
+      </footer>
+    </section>
+  );
+}
+
+function StrategyFleetAdvancedOperationalEvidence({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const identity = projectStrategyFleetIdentityIsolation(items);
+  const accounts = projectStrategyFleetAccountIsolation(items);
+  if (identity.engineCount === 0) return null;
+  const reliability = projectStrategyFleetReliabilityCenter(items);
+  const schedule = projectStrategyFleetScheduleReliability(items);
+  const recovery = projectStrategyFleetScheduleRecovery(items);
+  const decisions = projectStrategyFleetDecisionEvidence(items);
+  const isolationStatus: StrategyFleetAIOperationsPanelState =
+    identity.status === "VERIFIED" &&
+    accounts.every((account) => account.status === "VERIFIED")
+      ? "VERIFIED"
+      : "UNAVAILABLE";
+  const reliabilityStatus: StrategyFleetAIOperationsPanelState = [
+    reliability.status,
+    schedule.status,
+    recovery.status,
+  ].includes("UNAVAILABLE")
+    ? "UNAVAILABLE"
+    : [reliability.status, schedule.status, recovery.status].includes(
+          "ATTENTION",
+        )
+      ? "ATTENTION"
+      : "VERIFIED";
+  const decisionStatus: StrategyFleetAIOperationsPanelState =
+    decisions.status === "VERIFIED" ? "VERIFIED" : "UNAVAILABLE";
+  const panels: Array<{
+    key: string;
+    title: string;
+    description: string;
+    state: StrategyFleetAIOperationsPanelState;
+    content: ReactNode;
+  }> = [
+    {
+      key: "isolation",
+      title: "Identity + capital isolation",
+      description:
+        "Unique engine, budget, reservation, and account-policy bindings",
+      state: isolationStatus,
+      content: <StrategyFleetAccountIsolationMap items={items} />,
+    },
+    {
+      key: "reliability",
+      title: "Automatic scheduler + recovery",
+      description:
+        "Current timing, preserved failures, recovery paths, and incidents",
+      state: reliabilityStatus,
+      content: (
+        <>
+          <StrategyFleetReliabilityCenterView items={items} />
+          <StrategyFleetScheduleWatchtower items={items} />
+          <StrategyFleetScheduleRecoveryProof items={items} />
+        </>
+      ),
+    },
+    {
+      key: "decisions",
+      title: "Immutable decision chain",
+      description:
+        "Decision, deterministic risk result, and terminal Paper or Shadow evidence",
+      state: decisionStatus,
+      content: <StrategyFleetDecisionEvidenceChain items={items} />,
+    },
+  ];
+  const exposedCount = panels.filter(
+    (panel) => panel.state !== "VERIFIED",
+  ).length;
+  return (
+    <section
+      className={`strategy-fleet-advanced-evidence${exposedCount > 0 ? " needs-review" : ""}`}
+      aria-labelledby="strategy-fleet-advanced-evidence-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">ADVANCED OPERATIONAL EVIDENCE</p>
+          <h2 id="strategy-fleet-advanced-evidence-heading">
+            {exposedCount > 0
+              ? `${exposedCount} advanced evidence ${exposedCount === 1 ? "view is" : "views are"} open for review.`
+              : "Detailed fleet proof is verified and available on demand."}
+          </h2>
+          <p>
+            Identity isolation, scheduler recovery, and immutable decision
+            chains stay compact until saved evidence needs attention.
+          </p>
+        </div>
+        <span>{exposedCount > 0 ? "Review evidence" : "Verified"}</span>
+      </header>
+      <div>
+        {panels.map((panel) => (
+          <details
+            data-status={panel.state.toLowerCase()}
+            key={panel.key}
+            open={panel.state !== "VERIFIED"}
+          >
+            <summary>
+              <span>
+                <strong>{panel.title}</strong>
+                <small>{panel.description}</small>
+              </span>
+              <span>{aiOperationsPanelStateLabel(panel.state)}</span>
+            </summary>
+            <div>{panel.content}</div>
+          </details>
+        ))}
+      </div>
+      <footer>
+        Owner-scoped saved evidence only · unavailable or attention evidence
+        opens automatically · no live path
+      </footer>
+    </section>
+  );
+}
+
 function provenanceDigestStateLabel(
   state: StrategyFleetProvenanceDigest["engines"][number]["state"],
 ) {
@@ -7038,6 +7344,7 @@ export function StrategyFleet({
   ).length;
   const attention = items.filter(needsReview).length;
   const drafts = items.filter((item) => item.mandateStatus === "DRAFT").length;
+  const rulesBased = ordered.filter((item) => !isAI(item));
   const nextActions = Array.from(
     new Map(
       items
@@ -7084,26 +7391,14 @@ export function StrategyFleet({
         </section>
       )}
 
-      {inventoryAvailable && <StrategyFleetOperatingBrief items={items} />}
+      {inventoryAvailable && <StrategyFleetCommandDeck items={ordered} />}
 
       {inventoryAvailable && (
         <StrategyFleetAIOperationsWorkspace items={items} />
       )}
 
       {inventoryAvailable && (
-        <StrategyFleetReliabilityCenterView items={items} />
-      )}
-
-      {inventoryAvailable && <StrategyFleetAccountIsolationMap items={items} />}
-
-      {inventoryAvailable && <StrategyFleetScheduleWatchtower items={items} />}
-
-      {inventoryAvailable && (
-        <StrategyFleetScheduleRecoveryProof items={items} />
-      )}
-
-      {inventoryAvailable && (
-        <StrategyFleetDecisionEvidenceChain items={items} />
+        <StrategyFleetAdvancedOperationalEvidence items={items} />
       )}
 
       {inventoryAvailable && ordered.length > 0 && (
@@ -7185,9 +7480,9 @@ export function StrategyFleet({
             Launch an AI Engine
           </Link>
         </section>
-      ) : (
+      ) : rulesBased.length > 0 ? (
         <section className="strategy-fleet-grid" aria-label="Strategy fleet">
-          {ordered.map((item) => (
+          {rulesBased.map((item) => (
             <article
               className={isAI(item) ? "is-ai-engine" : "is-rules-engine"}
               key={item.id}
@@ -7281,7 +7576,7 @@ export function StrategyFleet({
             </article>
           ))}
         </section>
-      )}
+      ) : null}
 
       <section
         className="strategy-fleet-safety"

@@ -1974,29 +1974,33 @@ describe("StrategyFleet", () => {
     expect(summary).toHaveTextContent("Scheduled1healthy automatic cycles");
     expect(summary).toHaveTextContent("Attention0engine health signals");
     expect(summary).toHaveTextContent("Drafts1not initialized");
-    const operatingBrief = screen.getByRole("region", {
-      name: "Your AI engines are continuing safely.",
+    const commandDeck = screen.getByRole("region", {
+      name: "Every AI engine has one clear operating view.",
     });
-    expect(operatingBrief).toHaveTextContent("No owner action");
-    expect(operatingBrief).toHaveTextContent("1 of 1 on course");
-    expect(operatingBrief).toHaveTextContent("AI chose to wait.");
-    expect(operatingBrief).toHaveTextContent("Why this is okay");
-    expect(operatingBrief).toHaveTextContent(
-      "The next guarded cycle runs automatically.",
+    expect(commandDeck).toHaveTextContent("FLEET COMMAND DECK");
+    expect(commandDeck).toHaveTextContent("1 active · 0 review");
+    expect(commandDeck).toHaveTextContent("Coinbase Portfolio ••••a5d0");
+    expect(commandDeck).toHaveTextContent("Newest immutable conclusion");
+    expect(commandDeck).toHaveTextContent("Abstained");
+    expect(commandDeck).toHaveTextContent("No action proposed · $0");
+    expect(commandDeck).toHaveTextContent("OpenAI · gpt-5.6-sol · Deep");
+    expect(commandDeck).toHaveTextContent(
+      "$1,000 Shadow claim · $1 proposal ceiling",
     );
-    expect(operatingBrief).toHaveTextContent(
-      "Paper and Shadow remain isolated · no broker order · no live path",
-    );
+    expect(commandDeck).toHaveTextContent("Succeeded · 0 failures");
     expect(
-      within(operatingBrief).getByRole("link", {
-        name: /Open engine evidence/i,
+      within(commandDeck)
+        .getByText("Advanced engine evidence")
+        .closest("details"),
+    ).not.toHaveAttribute("open");
+    expect(
+      within(commandDeck).getByRole("link", {
+        name: /Open immutable evidence/i,
       }),
     ).toHaveAttribute("href", "/automations/ai-mandate#runtime-evidence");
-    expect(
-      within(operatingBrief).getByRole("link", {
-        name: /Open decision journal/i,
-      }),
-    ).toHaveAttribute("href", "/activity");
+    expect(commandDeck).toHaveTextContent(
+      "Paper and Shadow stay non-live · no model rerun",
+    );
     const aiOperations = screen.getByRole("region", {
       name: "Your AI engines are operating with visible evidence limits.",
     });
@@ -2252,12 +2256,13 @@ describe("StrategyFleet", () => {
         hidden: true,
       }),
     ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
-    expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(2);
-    expect(screen.getAllByText("gpt-5.6-sol")).toHaveLength(2);
+    expect(screen.getAllByText("Coinbase Portfolio ••••a5d0")).toHaveLength(1);
+    expect(screen.getAllByText("gpt-5.6-sol")).toHaveLength(1);
     expect(screen.getAllByText("BTC · ETH · XRP +1")).toHaveLength(2);
     expect(screen.getByText("Healthy schedule")).toBeInTheDocument();
     const watchtower = screen.getByRole("region", {
       name: "1 guarded schedule is on course.",
+      hidden: true,
     });
     expect(watchtower).toHaveTextContent("Verified");
     expect(watchtower).toHaveTextContent("Healthy schedules1 / 1");
@@ -2269,6 +2274,7 @@ describe("StrategyFleet", () => {
     );
     const recovery = screen.getByRole("region", {
       name: "1 guarded engine has a verified recent path.",
+      hidden: true,
     });
     expect(recovery).toHaveTextContent("Verified engines1 / 1");
     expect(recovery).toHaveTextContent("Recent records1");
@@ -2283,10 +2289,14 @@ describe("StrategyFleet", () => {
       "no automatic replay · no manual cycle · no broker order",
     );
     expect(
-      within(recovery).getByRole("link", { name: /Review evidence/i }),
+      within(recovery).getByRole("link", {
+        name: /Review evidence/i,
+        hidden: true,
+      }),
     ).toHaveAttribute("href", "/automations/ai-mandate#schedule-controls");
     const decisionTrails = screen.getByRole("region", {
       name: "1 latest AI decision has a complete evidence trail.",
+      hidden: true,
     });
     expect(decisionTrails).toHaveTextContent("Verified trails1 / 1");
     expect(decisionTrails).toHaveTextContent("Safe abstentions1");
@@ -2301,10 +2311,12 @@ describe("StrategyFleet", () => {
     expect(
       within(decisionTrails).getByRole("link", {
         name: /Open decision journal/i,
+        hidden: true,
       }),
     ).toHaveAttribute("href", "/activity");
     const runtimeContract = screen.getByRole("region", {
       name: "AI Shadow Engine immutable runtime contract",
+      hidden: true,
     });
     expect(runtimeContract).toHaveTextContent("PINNED v6");
     expect(runtimeContract).toHaveTextContent("Ready · immutable");
@@ -2318,10 +2330,12 @@ describe("StrategyFleet", () => {
     expect(
       within(runtimeContract).getByRole("link", {
         name: /Exact configuration/i,
+        hidden: true,
       }),
     ).toHaveAttribute("href", "/automations/ai-mandate#configuration-controls");
     const dataHealth = screen.getByRole("region", {
       name: "AI Shadow Engine account data health",
+      hidden: true,
     });
     expect(dataHealth).toHaveTextContent("Verified");
     expect(dataHealth).toHaveTextContent("Active account · Active connection");
@@ -2329,13 +2343,17 @@ describe("StrategyFleet", () => {
     expect(dataHealth).toHaveTextContent("Fresh ≤24h");
     expect(dataHealth).toHaveTextContent("no provider read or order action");
     expect(
-      within(dataHealth).getByRole("link", { name: /Account evidence/i }),
+      within(dataHealth).getByRole("link", {
+        name: /Account evidence/i,
+        hidden: true,
+      }),
     ).toHaveAttribute(
       "href",
       "/accounts/coinbase-account#reconciliation-title",
     );
     const capitalAuthority = screen.getByRole("region", {
       name: "AI Shadow Engine capital authority",
+      hidden: true,
     });
     expect(capitalAuthority).toHaveTextContent("Bounded");
     expect(capitalAuthority).toHaveTextContent("Coinbase AI Shadow");
@@ -2347,7 +2365,10 @@ describe("StrategyFleet", () => {
       "no broker custody or execution authority",
     );
     expect(
-      within(capitalAuthority).getByRole("link", { name: /Capital center/i }),
+      within(capitalAuthority).getByRole("link", {
+        name: /Capital center/i,
+        hidden: true,
+      }),
     ).toHaveAttribute("href", "/capital");
     expect(screen.getByText("Covered Call")).toBeInTheDocument();
     expect(screen.getByText("Deterministic rules")).toBeInTheDocument();
@@ -2369,10 +2390,12 @@ describe("StrategyFleet", () => {
       screen.getByRole("region", { name: "Execution boundary" }),
     ).toHaveTextContent("Neither mode can submit a broker order");
     expect(
-      screen.getByRole("link", {
-        name: "Open AI Shadow Engine for Coinbase Portfolio ••••a5d0",
-      }),
-    ).toHaveAttribute("href", "/automations/ai-mandate");
+      within(
+        screen.getByRole("region", {
+          name: "Every AI engine has one clear operating view.",
+        }),
+      ).getByRole("link", { name: /Open immutable evidence/i }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#runtime-evidence");
   });
 
   it("treats AI Paper as an isolated healthy runtime without Shadow evidence or reconciliation", () => {
@@ -2408,12 +2431,16 @@ describe("StrategyFleet", () => {
       />,
     );
 
+    const commandDeck = screen.getByRole("region", {
+      name: "Every AI engine has one clear operating view.",
+    });
+    expect(commandDeck).toHaveTextContent("1 active · 0 review");
     expect(
-      within(screen.getByRole("region", { name: "Strategy fleet" })).getByText(
-        "Monitoring",
-      ),
+      within(commandDeck).getByText("Healthy schedule"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Healthy schedule")).toBeInTheDocument();
+    expect(
+      within(commandDeck).getByText("Succeeded · 0 failures"),
+    ).toBeInTheDocument();
     const dataHealth = screen.getByRole("region", {
       name: "AI Paper Engine account data health",
     });
@@ -2455,8 +2482,13 @@ describe("StrategyFleet", () => {
       />,
     );
 
-    const fleet = screen.getByRole("region", { name: "Strategy fleet" });
-    expect(within(fleet).getByText("Needs review")).toBeInTheDocument();
+    const fleet = screen.getByRole("region", {
+      name: "1 AI engine has a clear review signal.",
+    });
+    expect(fleet).toHaveTextContent("1 active · 1 review");
+    expect(
+      within(fleet).getByText("Schedule evidence unavailable"),
+    ).toBeInTheDocument();
     expect(
       within(fleet).getByText("Schedule status unavailable"),
     ).toBeInTheDocument();
@@ -2711,7 +2743,7 @@ describe("StrategyFleet", () => {
     expect(screen.getByText("Portfolio evidence is stale")).toBeInTheDocument();
     expect(
       screen.getAllByText(/older than the 24-hour autonomy threshold/i),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
 
     rerender(
       <StrategyFleet
@@ -2739,7 +2771,7 @@ describe("StrategyFleet", () => {
       screen.getAllByText(
         /will not infer balances, positions, or proposal readiness/i,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   it("shows a clear owner queue for a healthy scheduled fleet", () => {
@@ -3070,7 +3102,6 @@ describe("StrategyFleet", () => {
       />,
     );
 
-    expect(screen.getByText("New version required")).toBeInTheDocument();
     expect(screen.getByText("Historical version complete")).toBeInTheDocument();
     const queue = screen.getByRole("region", {
       name: "Your clearest path forward.",
