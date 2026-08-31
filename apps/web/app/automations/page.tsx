@@ -21,6 +21,8 @@ import {
 } from "./paper-performance";
 import { reconcilePaperOutcome } from "./paper-outcome-reconciliation";
 import type {
+  PaperActivityCadence,
+  PaperActivityWindow,
   PaperExecutionCosts,
   PaperExecutionCheckpoint,
   PaperExecutionSideCost,
@@ -82,6 +84,8 @@ type PaperPortfolioEnvelope = {
   realized_outcome_includes_fees?: boolean;
   execution_cost_semantics?: string;
   execution_costs_broker_reported?: boolean;
+  activity_cadence_semantics?: string;
+  activity_cadence_read_only?: boolean;
   broker_action_available?: boolean;
   live_execution_available?: boolean;
 };
@@ -1221,6 +1225,294 @@ function normalizedPaperRealizedOutcome(
   };
 }
 
+function normalizedPaperActivityWindow(
+  value: unknown,
+  expectedHours: 24 | 168,
+): PaperActivityWindow | undefined {
+  const window = record(value);
+  const status = text(window, "status", "Status");
+  const horizonHours = nonnegativeInteger(
+    window?.horizon_hours ?? window?.HorizonHours,
+  );
+  const scheduledCycleCount = nonnegativeInteger(
+    window?.scheduled_cycle_count ?? window?.ScheduledCycleCount,
+  );
+  const succeededCycleCount = nonnegativeInteger(
+    window?.succeeded_cycle_count ?? window?.SucceededCycleCount,
+  );
+  const failedCycleCount = nonnegativeInteger(
+    window?.failed_cycle_count ?? window?.FailedCycleCount,
+  );
+  const safeWaitCycleCount = nonnegativeInteger(
+    window?.safe_wait_cycle_count ?? window?.SafeWaitCycleCount,
+  );
+  const abstentionCount = nonnegativeInteger(
+    window?.abstention_count ?? window?.AbstentionCount,
+  );
+  const deterministicDenyCount = nonnegativeInteger(
+    window?.deterministic_deny_count ?? window?.DeterministicDenyCount,
+  );
+  const simulatedFillCount = nonnegativeInteger(
+    window?.simulated_fill_count ?? window?.SimulatedFillCount,
+  );
+  const otherSucceededCount = nonnegativeInteger(
+    window?.other_succeeded_count ?? window?.OtherSucceededCount,
+  );
+  const windowStartedAt = text(window, "window_started_at", "WindowStartedAt");
+  const windowEndedAt = text(window, "window_ended_at", "WindowEndedAt");
+  const observedStartedAt = text(
+    window,
+    "observed_started_at",
+    "ObservedStartedAt",
+  );
+  const observedEndedAt = text(window, "observed_ended_at", "ObservedEndedAt");
+  if (
+    !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
+    horizonHours !== expectedHours ||
+    scheduledCycleCount === undefined ||
+    succeededCycleCount === undefined ||
+    failedCycleCount === undefined ||
+    safeWaitCycleCount === undefined ||
+    abstentionCount === undefined ||
+    deterministicDenyCount === undefined ||
+    simulatedFillCount === undefined ||
+    otherSucceededCount === undefined ||
+    scheduledCycleCount !==
+      succeededCycleCount + failedCycleCount + safeWaitCycleCount ||
+    succeededCycleCount !==
+      abstentionCount +
+        deterministicDenyCount +
+        simulatedFillCount +
+        otherSucceededCount ||
+    (status === "AVAILABLE" &&
+      (!windowStartedAt ||
+        !windowEndedAt ||
+        Number.isNaN(Date.parse(windowStartedAt)) ||
+        Number.isNaN(Date.parse(windowEndedAt)))) ||
+    (observedStartedAt && Number.isNaN(Date.parse(observedStartedAt))) ||
+    (observedEndedAt && Number.isNaN(Date.parse(observedEndedAt)))
+  )
+    return;
+  return {
+    status: status as PaperActivityWindow["status"],
+    horizon_hours: expectedHours,
+    window_started_at: windowStartedAt,
+    window_ended_at: windowEndedAt,
+    observed_started_at: observedStartedAt,
+    observed_ended_at: observedEndedAt,
+    scheduled_cycle_count: scheduledCycleCount,
+    succeeded_cycle_count: succeededCycleCount,
+    failed_cycle_count: failedCycleCount,
+    safe_wait_cycle_count: safeWaitCycleCount,
+    abstention_count: abstentionCount,
+    deterministic_deny_count: deterministicDenyCount,
+    simulated_fill_count: simulatedFillCount,
+    other_succeeded_count: otherSucceededCount,
+  };
+}
+
+function normalizedPaperActivityCadence(
+  value: unknown,
+  expectedFillCount?: number,
+): PaperActivityCadence | undefined {
+  const cadence = record(value);
+  const status = text(cadence, "status", "Status");
+  const calculationMethod = text(
+    cadence,
+    "calculation_method",
+    "CalculationMethod",
+  );
+  const asOf = text(cadence, "as_of", "AsOf");
+  const scheduleIntervalMinutes = nonnegativeInteger(
+    cadence?.schedule_interval_minutes ?? cadence?.ScheduleIntervalMinutes,
+  );
+  const twentyFourHours = normalizedPaperActivityWindow(
+    cadence?.twenty_four_hours ?? cadence?.TwentyFourHours,
+    24,
+  );
+  const sevenDays = normalizedPaperActivityWindow(
+    cadence?.seven_days ?? cadence?.SevenDays,
+    168,
+  );
+  const timing = record(cadence?.fill_timing ?? cadence?.FillTiming);
+  const timingStatus = text(timing, "status", "Status");
+  const timingCoverage = text(
+    timing,
+    "historical_coverage",
+    "HistoricalCoverage",
+  );
+  const timingFillCount = nonnegativeInteger(
+    timing?.fill_count ?? timing?.FillCount,
+  );
+  const rawSymbols = timing?.symbols ?? timing?.Symbols;
+  const timingFirstFillAt = text(timing, "first_fill_at", "FirstFillAt");
+  const timingLastFillAt = text(timing, "last_fill_at", "LastFillAt");
+  const minimumInterFillSeconds = exactDecimal(
+    timing?.minimum_inter_fill_seconds ?? timing?.MinimumInterFillSeconds,
+  );
+  const medianInterFillSeconds = exactDecimal(
+    timing?.median_inter_fill_seconds ?? timing?.MedianInterFillSeconds,
+  );
+  const maximumInterFillSeconds = exactDecimal(
+    timing?.maximum_inter_fill_seconds ?? timing?.MaximumInterFillSeconds,
+  );
+  const noFill = record(
+    cadence?.longest_no_fill_interval ?? cadence?.LongestNoFillInterval,
+  );
+  const noFillStatus = text(noFill, "status", "Status");
+  const noFillCycleCount = nonnegativeInteger(
+    noFill?.cycle_count ?? noFill?.CycleCount,
+  );
+  const noFillIntervalSeconds = exactDecimal(
+    noFill?.interval_seconds ?? noFill?.IntervalSeconds,
+  );
+  const noFillStartedAt = text(
+    noFill,
+    "scheduled_started_at",
+    "ScheduledStartedAt",
+  );
+  const noFillEndedAt = text(noFill, "completed_ended_at", "CompletedEndedAt");
+  if (
+    !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
+    scheduleIntervalMinutes === undefined ||
+    scheduleIntervalMinutes < 30 ||
+    !twentyFourHours ||
+    !sevenDays ||
+    ![
+      "AVAILABLE",
+      "NO_FILLS",
+      "INSUFFICIENT_INTERVALS",
+      "UNAVAILABLE",
+    ].includes(timingStatus ?? "") ||
+    timingFillCount === undefined ||
+    (expectedFillCount !== undefined &&
+      timingFillCount !== expectedFillCount) ||
+    !Array.isArray(rawSymbols) ||
+    !["AVAILABLE", "NO_FILLS", "UNAVAILABLE"].includes(noFillStatus ?? "") ||
+    noFillCycleCount === undefined
+  )
+    return;
+  if (status === "UNAVAILABLE") {
+    return {
+      status: "UNAVAILABLE",
+      schedule_interval_minutes: scheduleIntervalMinutes,
+      twenty_four_hours: twentyFourHours,
+      seven_days: sevenDays,
+      fill_timing: {
+        status: "UNAVAILABLE",
+        fill_count: timingFillCount,
+        symbols: [],
+      },
+      longest_no_fill_interval: {
+        status: "UNAVAILABLE",
+        cycle_count: noFillCycleCount,
+      },
+    };
+  }
+  if (
+    calculationMethod !== "IMMUTABLE_SCHEDULE_AND_SIMULATION_CHRONOLOGY" ||
+    !asOf ||
+    Number.isNaN(Date.parse(asOf)) ||
+    timingCoverage !== "COMPLETE_FROM_PORTFOLIO_GENESIS" ||
+    timingStatus === "UNAVAILABLE" ||
+    (timingFillCount > 0 &&
+      (!timingFirstFillAt ||
+        !timingLastFillAt ||
+        Number.isNaN(Date.parse(timingFirstFillAt)) ||
+        Number.isNaN(Date.parse(timingLastFillAt)))) ||
+    (timingFillCount > 1 &&
+      (!minimumInterFillSeconds ||
+        !medianInterFillSeconds ||
+        !maximumInterFillSeconds)) ||
+    (noFillStatus === "AVAILABLE" &&
+      (!noFillIntervalSeconds ||
+        noFillCycleCount < 1 ||
+        !noFillStartedAt ||
+        !noFillEndedAt ||
+        Number.isNaN(Date.parse(noFillStartedAt)) ||
+        Number.isNaN(Date.parse(noFillEndedAt))))
+  )
+    return;
+  const symbols = [] as PaperActivityCadence["fill_timing"]["symbols"];
+  for (const rawSymbol of rawSymbols) {
+    const symbol = record(rawSymbol);
+    const symbolStatus = text(symbol, "status", "Status");
+    const symbolName = text(symbol, "symbol", "Symbol");
+    const instrument = text(symbol, "instrument", "Instrument");
+    const fillCount = nonnegativeInteger(
+      symbol?.fill_count ?? symbol?.FillCount,
+    );
+    const firstFillAt = text(symbol, "first_fill_at", "FirstFillAt");
+    const lastFillAt = text(symbol, "last_fill_at", "LastFillAt");
+    const minimum = exactDecimal(
+      symbol?.minimum_inter_fill_seconds ?? symbol?.MinimumInterFillSeconds,
+    );
+    const median = exactDecimal(
+      symbol?.median_inter_fill_seconds ?? symbol?.MedianInterFillSeconds,
+    );
+    const maximum = exactDecimal(
+      symbol?.maximum_inter_fill_seconds ?? symbol?.MaximumInterFillSeconds,
+    );
+    if (
+      !["AVAILABLE", "INSUFFICIENT_INTERVALS"].includes(symbolStatus ?? "") ||
+      !symbolName ||
+      !["EQUITY", "CRYPTO"].includes(instrument ?? "") ||
+      fillCount === undefined ||
+      fillCount < 1 ||
+      !firstFillAt ||
+      !lastFillAt ||
+      Number.isNaN(Date.parse(firstFillAt)) ||
+      Number.isNaN(Date.parse(lastFillAt)) ||
+      (symbolStatus === "AVAILABLE" &&
+        (fillCount < 2 || !minimum || !median || !maximum)) ||
+      (symbolStatus === "INSUFFICIENT_INTERVALS" && fillCount !== 1)
+    )
+      return;
+    symbols.push({
+      status: symbolStatus as "AVAILABLE" | "INSUFFICIENT_INTERVALS",
+      symbol: symbolName,
+      instrument: instrument as "EQUITY" | "CRYPTO",
+      fill_count: fillCount,
+      first_fill_at: firstFillAt,
+      last_fill_at: lastFillAt,
+      minimum_inter_fill_seconds: minimum,
+      median_inter_fill_seconds: median,
+      maximum_inter_fill_seconds: maximum,
+    });
+  }
+  if (
+    symbols.reduce((count, symbol) => count + symbol.fill_count, 0) !==
+    timingFillCount
+  )
+    return;
+  return {
+    status: "AVAILABLE",
+    calculation_method: calculationMethod,
+    as_of: asOf,
+    schedule_interval_minutes: scheduleIntervalMinutes,
+    twenty_four_hours: twentyFourHours,
+    seven_days: sevenDays,
+    fill_timing: {
+      status: timingStatus as PaperActivityCadence["fill_timing"]["status"],
+      historical_coverage: timingCoverage,
+      fill_count: timingFillCount,
+      first_fill_at: timingFirstFillAt,
+      last_fill_at: timingLastFillAt,
+      minimum_inter_fill_seconds: minimumInterFillSeconds,
+      median_inter_fill_seconds: medianInterFillSeconds,
+      maximum_inter_fill_seconds: maximumInterFillSeconds,
+      symbols,
+    },
+    longest_no_fill_interval: {
+      status: noFillStatus as "AVAILABLE" | "NO_FILLS",
+      cycle_count: noFillCycleCount,
+      interval_seconds: noFillIntervalSeconds,
+      scheduled_started_at: noFillStartedAt,
+      completed_ended_at: noFillEndedAt,
+    },
+  };
+}
+
 function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
   const portfolio = record(value);
   const rawPositions = portfolio?.positions ?? portfolio?.Positions;
@@ -1241,6 +1533,10 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
   );
   const executionCosts = normalizedPaperExecutionCosts(
     portfolio?.execution_costs ?? portfolio?.ExecutionCosts,
+  );
+  const activityCadence = normalizedPaperActivityCadence(
+    portfolio?.activity_cadence ?? portfolio?.ActivityCadence,
+    executionCosts?.fill_count,
   );
   if (
     !currency ||
@@ -1299,6 +1595,7 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
     positions,
     realized_outcome: realizedOutcome,
     execution_costs: executionCosts,
+    activity_cadence: activityCadence,
     updated_at: updatedAt,
   };
 }
@@ -2104,6 +2401,14 @@ async function fleetItem(
     paperPortfolioResult.payload?.broker_action_available === false &&
     paperPortfolioResult.payload?.live_execution_available === false &&
     Boolean(paperPortfolio?.execution_costs);
+  const paperActivityCadenceContractAvailable =
+    runtimeExecutionMode === "PAPER" &&
+    paperPortfolioResult.payload?.activity_cadence_semantics ===
+      "EXACT_IMMUTABLE_SCHEDULE_AND_SIMULATION_CHRONOLOGY" &&
+    paperPortfolioResult.payload?.activity_cadence_read_only === true &&
+    paperPortfolioResult.payload?.broker_action_available === false &&
+    paperPortfolioResult.payload?.live_execution_available === false &&
+    Boolean(paperPortfolio?.activity_cadence);
   const paperPortfolioAvailable =
     expectsOperationalData &&
     runtimeExecutionMode === "PAPER" &&
@@ -2397,6 +2702,11 @@ async function fleetItem(
         ? paperExecutionCostContractAvailable
         : undefined,
     paperExecutionCostsStatus: paperPortfolio?.execution_costs?.status,
+    paperActivityCadenceContractAvailable:
+      runtimeExecutionMode === "PAPER"
+        ? paperActivityCadenceContractAvailable
+        : undefined,
+    paperActivityCadence: paperPortfolio?.activity_cadence,
     paperExecutionTotalFees: paperPortfolio?.execution_costs?.total_fees,
     paperExecutionTotalAdverseSlippage:
       paperPortfolio?.execution_costs?.total_adverse_slippage,

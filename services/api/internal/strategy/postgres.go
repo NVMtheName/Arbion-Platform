@@ -504,11 +504,15 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 	defer tx.Rollback(c)
 
 	var portfolioID string
+	var instanceStartedAt time.Time
+	var intervalMinutes int
+	var latestScheduleCompletedAt *time.Time
 	portfolio := PaperPortfolio{StrategyInstanceID: instanceID, Positions: []PaperPosition{}}
-	err = tx.QueryRow(c, `SELECT f.id::text,f.currency,f.starting_cash::text,f.cash::text,f.version,f.updated_at
+	err = tx.QueryRow(c, `SELECT f.id::text,f.currency,f.starting_cash::text,f.cash::text,f.version,f.updated_at,i.started_at,COALESCE(s.interval_minutes,0),s.last_completed_at
 		FROM paper_portfolios f JOIN strategy_instances i ON i.id=f.strategy_instance_id AND i.user_id=f.user_id
+		LEFT JOIN nonlive_strategy_schedules s ON s.strategy_instance_id=i.id AND s.user_id=i.user_id
 		WHERE f.strategy_instance_id=$1 AND f.user_id=$2 AND i.execution_mode='PAPER'`, instanceID, userID).Scan(
-		&portfolioID, &portfolio.Currency, &portfolio.StartingCash, &portfolio.Cash, &portfolio.Version, &portfolio.UpdatedAt,
+		&portfolioID, &portfolio.Currency, &portfolio.StartingCash, &portfolio.Cash, &portfolio.Version, &portfolio.UpdatedAt, &instanceStartedAt, &intervalMinutes, &latestScheduleCompletedAt,
 	)
 	if err != nil {
 		return PaperPortfolio{}, err
@@ -563,6 +567,34 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 	fillRows.Close()
 	portfolio.RealizedOutcome = projectPaperRealizedOutcome(portfolio.StartingCash, portfolio, fills)
 	portfolio.ExecutionCosts = projectPaperExecutionCosts(portfolio.RealizedOutcome, portfolio.StartingCash, fills)
+	runs := []ScheduleRun{}
+	if latestScheduleCompletedAt != nil && intervalMinutes >= 30 {
+		cadenceStart := latestScheduleCompletedAt.Add(-7*24*time.Hour - time.Duration(intervalMinutes)*time.Minute)
+		const runColumns = `r.id::text,r.strategy_instance_id::text,r.mandate_id::text,r.mandate_version,
+			r.execution_mode,r.strategy_state,r.scheduled_for,r.started_at,r.completed_at,r.next_run_at,
+			r.status,r.error_code,r.ai_decision,r.execution_status,r.duplicate_recovered,
+			r.reconciliation_id::text,r.reconciliation_review_required,r.consecutive_failures`
+		runRows, runErr := tx.Query(c, `SELECT `+runColumns+` FROM nonlive_schedule_runs r
+			WHERE r.strategy_instance_id=$1 AND r.user_id=$2 AND r.completed_at >= $3 AND r.completed_at <= $4
+			ORDER BY r.scheduled_for,r.id`, instanceID, userID, cadenceStart, *latestScheduleCompletedAt)
+		if runErr != nil {
+			return PaperPortfolio{}, runErr
+		}
+		for runRows.Next() {
+			run, scanErr := scanScheduleRun(runRows)
+			if scanErr != nil {
+				runRows.Close()
+				return PaperPortfolio{}, scanErr
+			}
+			runs = append(runs, run)
+		}
+		if runErr = runRows.Err(); runErr != nil {
+			runRows.Close()
+			return PaperPortfolio{}, runErr
+		}
+		runRows.Close()
+	}
+	portfolio.ActivityCadence = projectPaperActivityCadence(instanceID, instanceStartedAt, intervalMinutes, runs, fills, portfolio.ExecutionCosts.Status != PaperExecutionCostsUnavailable)
 	if err = tx.Commit(c); err != nil {
 		return PaperPortfolio{}, err
 	}

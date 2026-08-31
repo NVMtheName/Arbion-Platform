@@ -397,6 +397,68 @@ describe("PaperPortfolioSummary", () => {
               ],
             },
           },
+          activity_cadence: {
+            status: "AVAILABLE",
+            calculation_method: "IMMUTABLE_SCHEDULE_AND_SIMULATION_CHRONOLOGY",
+            as_of: "2026-08-31T06:10:00Z",
+            schedule_interval_minutes: 60,
+            twenty_four_hours: {
+              status: "AVAILABLE",
+              horizon_hours: 24,
+              window_started_at: "2026-08-30T06:10:00Z",
+              window_ended_at: "2026-08-31T06:10:00Z",
+              scheduled_cycle_count: 24,
+              succeeded_cycle_count: 24,
+              failed_cycle_count: 0,
+              safe_wait_cycle_count: 0,
+              abstention_count: 21,
+              deterministic_deny_count: 1,
+              simulated_fill_count: 2,
+              other_succeeded_count: 0,
+            },
+            seven_days: {
+              status: "UNAVAILABLE",
+              horizon_hours: 168,
+              scheduled_cycle_count: 48,
+              succeeded_cycle_count: 48,
+              failed_cycle_count: 0,
+              safe_wait_cycle_count: 0,
+              abstention_count: 45,
+              deterministic_deny_count: 1,
+              simulated_fill_count: 2,
+              other_succeeded_count: 0,
+            },
+            fill_timing: {
+              status: "AVAILABLE",
+              historical_coverage: "COMPLETE_FROM_PORTFOLIO_GENESIS",
+              fill_count: 2,
+              first_fill_at: "2026-08-31T04:36:38Z",
+              last_fill_at: "2026-08-31T05:36:38Z",
+              minimum_inter_fill_seconds: "3600.0000000000",
+              median_inter_fill_seconds: "3600.0000000000",
+              maximum_inter_fill_seconds: "3600.0000000000",
+              symbols: [
+                {
+                  status: "AVAILABLE",
+                  symbol: "BTC",
+                  instrument: "CRYPTO",
+                  fill_count: 2,
+                  first_fill_at: "2026-08-31T04:36:38Z",
+                  last_fill_at: "2026-08-31T05:36:38Z",
+                  minimum_inter_fill_seconds: "3600.0000000000",
+                  median_inter_fill_seconds: "3600.0000000000",
+                  maximum_inter_fill_seconds: "3600.0000000000",
+                },
+              ],
+            },
+            longest_no_fill_interval: {
+              status: "AVAILABLE",
+              cycle_count: 8,
+              interval_seconds: "25800.0000000000",
+              scheduled_started_at: "2026-08-30T18:00:00Z",
+              completed_ended_at: "2026-08-31T01:10:00Z",
+            },
+          },
         }}
       />,
     );
@@ -431,6 +493,16 @@ describe("PaperPortfolioSummary", () => {
     expect(
       within(costs).getAllByText(/coinbase · rest_ticker/i).length,
     ).toBeGreaterThan(1);
+    const cadence = screen.getByLabelText(/exact paper activity cadence/i);
+    expect(
+      within(cadence).getByText("24 cycles · 2 fills / 24h"),
+    ).toBeInTheDocument();
+    expect(
+      within(cadence).getByText(/seven-day evidence/i),
+    ).toBeInTheDocument();
+    expect(
+      within(cadence).getByText(/timestamps do not establish overtrading/i),
+    ).toBeInTheDocument();
   });
 
   it("reconciles exact realized, unrealized, total, and equity evidence", () => {

@@ -386,7 +386,71 @@ type PaperPortfolio struct {
 	Positions          []PaperPosition      `json:"positions"`
 	RealizedOutcome    PaperRealizedOutcome `json:"realized_outcome"`
 	ExecutionCosts     PaperExecutionCosts  `json:"execution_costs"`
+	ActivityCadence    PaperActivityCadence `json:"activity_cadence"`
 	UpdatedAt          time.Time            `json:"updated_at"`
+}
+
+// PaperActivityCadence is read-only chronology from immutable scheduler and
+// simulation evidence. It describes frequency only; it does not classify
+// trading behavior, performance, intent, missed opportunity, or causality.
+type PaperActivityCadence struct {
+	Status                  string                      `json:"status"`
+	CalculationMethod       string                      `json:"calculation_method,omitempty"`
+	AsOf                    *time.Time                  `json:"as_of,omitempty"`
+	ScheduleIntervalMinutes int                         `json:"schedule_interval_minutes"`
+	TwentyFourHours         PaperActivityWindow         `json:"twenty_four_hours"`
+	SevenDays               PaperActivityWindow         `json:"seven_days"`
+	FillTiming              PaperFillTimingEvidence     `json:"fill_timing"`
+	LongestNoFillInterval   PaperNoFillIntervalEvidence `json:"longest_no_fill_interval"`
+}
+
+type PaperActivityWindow struct {
+	Status                 string     `json:"status"`
+	HorizonHours           int        `json:"horizon_hours"`
+	WindowStartedAt        *time.Time `json:"window_started_at,omitempty"`
+	WindowEndedAt          *time.Time `json:"window_ended_at,omitempty"`
+	ObservedStartedAt      *time.Time `json:"observed_started_at,omitempty"`
+	ObservedEndedAt        *time.Time `json:"observed_ended_at,omitempty"`
+	ScheduledCycleCount    int        `json:"scheduled_cycle_count"`
+	SucceededCycleCount    int        `json:"succeeded_cycle_count"`
+	FailedCycleCount       int        `json:"failed_cycle_count"`
+	SafeWaitCycleCount     int        `json:"safe_wait_cycle_count"`
+	AbstentionCount        int        `json:"abstention_count"`
+	DeterministicDenyCount int        `json:"deterministic_deny_count"`
+	SimulatedFillCount     int        `json:"simulated_fill_count"`
+	OtherSucceededCount    int        `json:"other_succeeded_count"`
+}
+
+type PaperFillTimingEvidence struct {
+	Status                  string                  `json:"status"`
+	HistoricalCoverage      string                  `json:"historical_coverage,omitempty"`
+	FillCount               int                     `json:"fill_count"`
+	FirstFillAt             *time.Time              `json:"first_fill_at,omitempty"`
+	LastFillAt              *time.Time              `json:"last_fill_at,omitempty"`
+	MinimumInterFillSeconds string                  `json:"minimum_inter_fill_seconds,omitempty"`
+	MedianInterFillSeconds  string                  `json:"median_inter_fill_seconds,omitempty"`
+	MaximumInterFillSeconds string                  `json:"maximum_inter_fill_seconds,omitempty"`
+	Symbols                 []PaperFillTimingSymbol `json:"symbols"`
+}
+
+type PaperFillTimingSymbol struct {
+	Status                  string     `json:"status"`
+	Symbol                  string     `json:"symbol"`
+	Instrument              string     `json:"instrument"`
+	FillCount               int        `json:"fill_count"`
+	FirstFillAt             *time.Time `json:"first_fill_at,omitempty"`
+	LastFillAt              *time.Time `json:"last_fill_at,omitempty"`
+	MinimumInterFillSeconds string     `json:"minimum_inter_fill_seconds,omitempty"`
+	MedianInterFillSeconds  string     `json:"median_inter_fill_seconds,omitempty"`
+	MaximumInterFillSeconds string     `json:"maximum_inter_fill_seconds,omitempty"`
+}
+
+type PaperNoFillIntervalEvidence struct {
+	Status             string     `json:"status"`
+	CycleCount         int        `json:"cycle_count"`
+	IntervalSeconds    string     `json:"interval_seconds,omitempty"`
+	ScheduledStartedAt *time.Time `json:"scheduled_started_at,omitempty"`
+	CompletedEndedAt   *time.Time `json:"completed_ended_at,omitempty"`
 }
 
 // PaperRealizedOutcome is an exact, read-only average-cost projection derived
