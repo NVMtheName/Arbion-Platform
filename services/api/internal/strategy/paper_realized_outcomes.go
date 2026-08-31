@@ -17,16 +17,27 @@ const (
 
 type paperRealizedFill struct {
 	ID                        string
+	ExecutionRecordID         string
+	ProposedActionID          string
+	RiskEvaluationID          string
 	Symbol                    string
 	Instrument                string
 	Side                      string
 	Quantity                  string
+	RequestedNotional         string
+	ReferencePrice            string
+	FillPrice                 string
 	GrossNotional             string
 	Fee                       string
 	PreviousCash              string
 	PreviousPositionQuantity  string
 	ResultingCash             string
 	ResultingPositionQuantity string
+	PricingBasis              string
+	MarketProvider            string
+	MarketFeed                string
+	MarketQuality             string
+	MarketObservedAt          time.Time
 	SimulatedAt               time.Time
 	SimulationOnly            bool
 }

@@ -618,11 +618,13 @@ func (h *authHandler) strategyPaperPortfolio(w stdhttp.ResponseWriter, r *stdhtt
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, 200, map[string]any{
-		"paper_portfolio":                v,
-		"realized_outcome_semantics":     "EXACT_IMMUTABLE_AVERAGE_COST_SIMULATION",
-		"realized_outcome_includes_fees": true,
-		"broker_action_available":        false,
-		"live_execution_available":       false,
+		"paper_portfolio":                 v,
+		"realized_outcome_semantics":      "EXACT_IMMUTABLE_AVERAGE_COST_SIMULATION",
+		"realized_outcome_includes_fees":  true,
+		"execution_cost_semantics":        "EXACT_IMMUTABLE_SIMULATION_FEES_AND_ADVERSE_SLIPPAGE",
+		"execution_costs_broker_reported": false,
+		"broker_action_available":         false,
+		"live_execution_available":        false,
 	})
 }
 
