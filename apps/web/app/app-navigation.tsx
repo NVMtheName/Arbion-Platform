@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useLayoutEffect, useRef } from "react";
 
 const destinations = [
   { href: "/dashboard", label: "Dashboard", matches: ["/dashboard"] },
@@ -26,6 +27,8 @@ const destinations = [
   },
 ] as const;
 
+let retainedNavigationScrollLeft = 0;
+
 function isCurrent(pathname: string, matches: readonly string[]) {
   return matches.some(
     (match) => pathname === match || pathname.startsWith(`${match}/`),
@@ -34,10 +37,26 @@ function isCurrent(pathname: string, matches: readonly string[]) {
 
 export function AppNavigation({ className = "" }: { className?: string }) {
   const pathname = usePathname();
+  const navigationRef = useRef<HTMLElement>(null);
+  const retainScrollPosition = () => {
+    if (navigationRef.current) {
+      retainedNavigationScrollLeft = navigationRef.current.scrollLeft;
+    }
+  };
+  useLayoutEffect(() => {
+    const navigation = navigationRef.current;
+    if (!navigation) return;
+    navigation.scrollLeft = Math.min(
+      retainedNavigationScrollLeft,
+      Math.max(0, navigation.scrollWidth - navigation.clientWidth),
+    );
+  }, []);
   return (
     <nav
+      ref={navigationRef}
       className={["app-navigation", className].filter(Boolean).join(" ")}
       aria-label="Application navigation"
+      onScroll={retainScrollPosition}
     >
       {destinations.map((destination) => {
         const current = isCurrent(pathname, destination.matches);
@@ -47,6 +66,7 @@ export function AppNavigation({ className = "" }: { className?: string }) {
             href={destination.href}
             aria-current={current ? "page" : undefined}
             key={destination.href}
+            onClick={retainScrollPosition}
           >
             {destination.label}
           </Link>
