@@ -441,6 +441,9 @@ type PaperExecutionCosts struct {
 	MarketQualities             []string                   `json:"market_qualities"`
 	Sides                       []PaperExecutionSideCost   `json:"sides"`
 	Symbols                     []PaperExecutionSymbolCost `json:"symbols"`
+	TimelineSampleCount         int                        `json:"timeline_sample_count"`
+	TimelineCapped              bool                       `json:"timeline_capped"`
+	Timeline                    []PaperExecutionCheckpoint `json:"timeline"`
 }
 
 type PaperExecutionSymbolCost struct {
@@ -466,6 +469,38 @@ type PaperExecutionSideCost struct {
 	GrossNotional             string `json:"gross_notional"`
 	AllInCostRateBPS          string `json:"all_in_cost_rate_bps"`
 	FillCount                 int    `json:"fill_count"`
+}
+
+// PaperExecutionCheckpoint is one bounded chronological checkpoint from the
+// complete immutable Paper fill replay. Change direction compares the saved
+// fixed-decimal cumulative rates and never implies performance or causality.
+type PaperExecutionCheckpoint struct {
+	Sequence                            int       `json:"sequence"`
+	FillID                              string    `json:"fill_id"`
+	ExecutionRecordID                   string    `json:"execution_record_id"`
+	ProposedActionID                    string    `json:"proposed_action_id"`
+	RiskEvaluationID                    string    `json:"risk_evaluation_id"`
+	Symbol                              string    `json:"symbol"`
+	Instrument                          string    `json:"instrument"`
+	Side                                string    `json:"side"`
+	Fee                                 string    `json:"fee"`
+	AdverseSlippage                     string    `json:"adverse_slippage"`
+	ExplicitCost                        string    `json:"explicit_cost"`
+	ProviderReferenceNotional           string    `json:"provider_reference_notional"`
+	GrossNotional                       string    `json:"gross_notional"`
+	FillNotionalResidual                string    `json:"fill_notional_residual"`
+	CumulativeFees                      string    `json:"cumulative_fees"`
+	CumulativeAdverseSlippage           string    `json:"cumulative_adverse_slippage"`
+	CumulativeExplicitCost              string    `json:"cumulative_explicit_cost"`
+	CumulativeProviderReferenceNotional string    `json:"cumulative_provider_reference_notional"`
+	CumulativeGrossNotional             string    `json:"cumulative_gross_notional"`
+	CumulativeAllInCostRateBPS          string    `json:"cumulative_all_in_cost_rate_bps"`
+	CumulativeRateChange                string    `json:"cumulative_rate_change"`
+	MarketProvider                      string    `json:"market_provider"`
+	MarketFeed                          string    `json:"market_feed"`
+	MarketQuality                       string    `json:"market_quality"`
+	MarketObservedAt                    time.Time `json:"market_observed_at"`
+	SimulatedAt                         time.Time `json:"simulated_at"`
 }
 
 // PaperPosition contains only normalized simulated position facts.

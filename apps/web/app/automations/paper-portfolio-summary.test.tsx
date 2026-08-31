@@ -295,6 +295,66 @@ describe("PaperPortfolioSummary", () => {
                 sell_fill_count: 1,
               },
             ],
+            timeline_sample_count: 2,
+            timeline_capped: false,
+            timeline: [
+              {
+                sequence: 1,
+                fill_id: "fill-buy",
+                execution_record_id: "execution-buy",
+                proposed_action_id: "action-buy",
+                risk_evaluation_id: "risk-buy",
+                symbol: "BTC",
+                instrument: "CRYPTO",
+                side: "BUY",
+                fee: "0.5012500000",
+                adverse_slippage: "0.2500000000",
+                explicit_cost: "0.7512500000",
+                provider_reference_notional: "100.0000000000",
+                gross_notional: "100.2500000000",
+                fill_notional_residual: "0.0000000000",
+                cumulative_fees: "0.5012500000",
+                cumulative_adverse_slippage: "0.2500000000",
+                cumulative_explicit_cost: "0.7512500000",
+                cumulative_provider_reference_notional: "100.0000000000",
+                cumulative_gross_notional: "100.2500000000",
+                cumulative_all_in_cost_rate_bps: "75.1250000000",
+                cumulative_rate_change: "FIRST",
+                market_provider: "coinbase",
+                market_feed: "rest_ticker",
+                market_quality: "REAL_TIME_SINGLE_VENUE",
+                market_observed_at: "2026-08-31T04:36:37Z",
+                simulated_at: "2026-08-31T04:36:38Z",
+              },
+              {
+                sequence: 2,
+                fill_id: "fill-sell",
+                execution_record_id: "execution-sell",
+                proposed_action_id: "action-sell",
+                risk_evaluation_id: "risk-sell",
+                symbol: "BTC",
+                instrument: "CRYPTO",
+                side: "SELL",
+                fee: "0.2743125000",
+                adverse_slippage: "0.1375000000",
+                explicit_cost: "0.4118125000",
+                provider_reference_notional: "55.0000000000",
+                gross_notional: "54.8625000000",
+                fill_notional_residual: "0.0000000000",
+                cumulative_fees: "0.7755625000",
+                cumulative_adverse_slippage: "0.3875000000",
+                cumulative_explicit_cost: "1.1630625000",
+                cumulative_provider_reference_notional: "155.0000000000",
+                cumulative_gross_notional: "155.1125000000",
+                cumulative_all_in_cost_rate_bps: "75.0362903226",
+                cumulative_rate_change: "FELL",
+                market_provider: "coinbase",
+                market_feed: "rest_ticker",
+                market_quality: "REAL_TIME_SINGLE_VENUE",
+                market_observed_at: "2026-08-31T05:36:37Z",
+                simulated_at: "2026-08-31T05:36:38Z",
+              },
+            ],
           },
         }}
       />,
@@ -311,10 +371,17 @@ describe("PaperPortfolioSummary", () => {
         name: /exact buy-versus-sale paper execution costs/i,
       }),
     ).toBeInTheDocument();
+    const timeline = within(costs).getByLabelText(
+      /immutable paper cost and turnover timeline/i,
+    );
+    expect(within(timeline).getAllByText(/fell vs prior/i)).toHaveLength(2);
+    expect(
+      within(timeline).getByRole("link", { name: /fill #2/i }),
+    ).toHaveAttribute("href", "#paper-fill-fill-sell");
     expect(within(costs).getByText(/not broker-reported/i)).toBeInTheDocument();
     expect(
-      within(costs).getByText(/coinbase · rest_ticker/i),
-    ).toBeInTheDocument();
+      within(costs).getAllByText(/coinbase · rest_ticker/i).length,
+    ).toBeGreaterThan(1);
   });
 
   it("reconciles exact realized, unrealized, total, and equity evidence", () => {

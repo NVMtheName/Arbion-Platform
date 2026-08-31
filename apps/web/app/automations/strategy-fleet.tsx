@@ -185,6 +185,27 @@ export type StrategyFleetItem = {
   paperExecutionMarketProviders?: string[];
   paperExecutionMarketFeeds?: string[];
   paperExecutionMarketQualities?: string[];
+  paperExecutionTimelineSampleCount?: number;
+  paperExecutionTimelineCapped?: boolean;
+  paperExecutionTimeline?: Array<{
+    sequence: number;
+    fillID: string;
+    symbol: string;
+    side: "BUY" | "SELL";
+    explicitCost: string;
+    fee: string;
+    adverseSlippage: string;
+    providerReferenceNotional: string;
+    cumulativeExplicitCost: string;
+    cumulativeProviderReferenceNotional: string;
+    cumulativeAllInCostRateBPS: string;
+    cumulativeRateChange: "FIRST" | "ROSE" | "FELL" | "HELD";
+    marketProvider: string;
+    marketFeed: string;
+    marketQuality: string;
+    marketObservedAt: string;
+    simulatedAt: string;
+  }>;
   paperExecutionSideCosts?: Array<{
     side: "BUY" | "SELL";
     totalFees: string;
@@ -4443,6 +4464,9 @@ function paperExecutionCostsAvailable(item: StrategyFleetItem) {
         item.paperExecutionMarketProviders &&
         item.paperExecutionMarketFeeds &&
         item.paperExecutionMarketQualities &&
+        item.paperExecutionTimelineSampleCount !== undefined &&
+        item.paperExecutionTimelineCapped !== undefined &&
+        item.paperExecutionTimeline &&
         item.paperExecutionSideCosts &&
         item.paperExecutionSymbolCosts,
     )
@@ -5026,6 +5050,100 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                   ) : (
                     <p>No simulated fills yet · exact execution costs $0.</p>
                   )}
+                  {(item.paperExecutionTimeline ?? []).length > 0 ? (
+                    <details
+                      className="strategy-fleet-paper-outcome-timeline"
+                      aria-label={
+                        item.title +
+                        " immutable Paper cost and turnover timeline"
+                      }
+                    >
+                      <summary>
+                        <span>
+                          <strong>Cost + turnover changes</strong>
+                          <small>
+                            Latest {item.paperExecutionTimeline!.length} of{" "}
+                            {item.paperExecutionTimelineSampleCount} immutable
+                            checkpoints
+                          </small>
+                        </span>
+                        <span>
+                          {item.paperExecutionTimeline!.at(-1)!
+                            .cumulativeRateChange === "FIRST"
+                            ? "First saved rate"
+                            : `${item.paperExecutionTimeline!.at(-1)!.cumulativeRateChange.toLowerCase()} vs prior`}
+                        </span>
+                      </summary>
+                      <ol>
+                        {item.paperExecutionTimeline!.map((checkpoint) => (
+                          <li key={checkpoint.fillID}>
+                            <header>
+                              <strong>
+                                {checkpoint.side === "SELL" ? "SALE" : "BUY"}{" "}
+                                {checkpoint.symbol}
+                              </strong>
+                              <time dateTime={checkpoint.simulatedAt}>
+                                {readableTime(checkpoint.simulatedAt)}
+                              </time>
+                            </header>
+                            <span>
+                              {capitalMoney(
+                                item.paperCurrency,
+                                checkpoint.explicitCost,
+                              )}
+                              {" fill cost · "}
+                              {capitalMoney(
+                                item.paperCurrency,
+                                checkpoint.providerReferenceNotional,
+                              )}
+                              {" turnover"}
+                            </span>
+                            <small>
+                              Cumulative{" "}
+                              {capitalMoney(
+                                item.paperCurrency,
+                                checkpoint.cumulativeExplicitCost,
+                              )}{" "}
+                              ·{" "}
+                              {conciseCapitalDecimal(
+                                checkpoint.cumulativeAllInCostRateBPS,
+                              )}{" "}
+                              bps ·{" "}
+                              {checkpoint.cumulativeRateChange.toLowerCase()}
+                            </small>
+                            <footer>
+                              <span>
+                                {checkpoint.marketProvider} ·{" "}
+                                {checkpoint.marketFeed} ·{" "}
+                                {readable(checkpoint.marketQuality)}
+                              </span>
+                              <span>
+                                <Link
+                                  href={`/automations/${encodeURIComponent(item.id)}#paper-fill-${encodeURIComponent(checkpoint.fillID)}`}
+                                >
+                                  Fill #{checkpoint.sequence}
+                                </Link>{" "}
+                                ·{" "}
+                                <Link
+                                  href={`/automations/${encodeURIComponent(item.id)}#decision-journal`}
+                                >
+                                  decision
+                                </Link>{" "}
+                                · <Link href={detailHref}>risk</Link>
+                              </span>
+                            </footer>
+                          </li>
+                        ))}
+                      </ol>
+                      <p>
+                        {item.paperExecutionTimelineCapped
+                          ? `Latest ${item.paperExecutionTimeline!.length} shown; cumulative values replay all ${item.paperExecutionTimelineSampleCount} fills from genesis.`
+                          : `All ${item.paperExecutionTimelineSampleCount} checkpoints shown from genesis.`}{" "}
+                        Direction compares saved cumulative cost rates only—not
+                        performance, decision quality, or causality.
+                      </p>
+                    </details>
+                  ) : null}
                   <p className="strategy-fleet-outcome-note">
                     Exact immutable fill evidence from portfolio genesis:{" "}
                     {item.paperExecutionFillCount} simulated fill

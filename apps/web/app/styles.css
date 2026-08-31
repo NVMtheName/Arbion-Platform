@@ -2658,6 +2658,79 @@ button:disabled {
 .strategy-fleet-outcome-timeline > p {
   margin: 0;
 }
+.strategy-fleet-paper-outcome-timeline {
+  padding: 10px;
+  border: 1px solid rgba(25, 201, 214, 0.14);
+  border-radius: 10px;
+  background: rgba(3, 17, 21, 0.62);
+}
+.strategy-fleet-paper-outcome-timeline > summary,
+.strategy-fleet-paper-outcome-timeline > summary > span:first-child,
+.strategy-fleet-paper-outcome-timeline li > header,
+.strategy-fleet-paper-outcome-timeline li > footer {
+  display: flex;
+  align-items: center;
+}
+.strategy-fleet-paper-outcome-timeline > summary {
+  justify-content: space-between;
+  gap: 10px;
+  color: #b8dadd;
+  cursor: pointer;
+  font-size: 0.59rem;
+  list-style-position: inside;
+}
+.strategy-fleet-paper-outcome-timeline > summary > span:first-child {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+}
+.strategy-fleet-paper-outcome-timeline summary small,
+.strategy-fleet-paper-outcome-timeline > summary > span:last-child,
+.strategy-fleet-paper-outcome-timeline > p,
+.strategy-fleet-paper-outcome-timeline li > footer {
+  color: #708990;
+  font-size: 0.54rem;
+  line-height: 1.5;
+}
+.strategy-fleet-paper-outcome-timeline > summary > span:last-child {
+  color: #7ce5ec;
+  font-weight: 740;
+  text-transform: uppercase;
+}
+.strategy-fleet-paper-outcome-timeline > ol {
+  display: grid;
+  gap: 7px;
+  margin: 9px 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-fleet-paper-outcome-timeline > ol > li {
+  display: grid;
+  gap: 6px;
+  padding: 9px;
+  border-radius: 8px;
+  background: rgba(25, 201, 214, 0.055);
+  color: #b8dadd;
+  font-size: 0.57rem;
+}
+.strategy-fleet-paper-outcome-timeline li > header,
+.strategy-fleet-paper-outcome-timeline li > footer {
+  justify-content: space-between;
+  gap: 9px;
+}
+.strategy-fleet-paper-outcome-timeline time {
+  color: #b9d3d7;
+  font-size: 0.54rem;
+  font-weight: 700;
+}
+.strategy-fleet-paper-outcome-timeline a {
+  color: #7ce5ec;
+  font-weight: 700;
+  text-decoration: none;
+}
+.strategy-fleet-paper-outcome-timeline > p {
+  margin: 0;
+}
 .strategy-fleet-command-deck > ol > li > footer {
   justify-content: space-between;
   gap: 12px;
@@ -6090,6 +6163,8 @@ button:disabled {
   }
   .strategy-fleet-outcome-timeline > header,
   .strategy-fleet-outcome-timeline > ol > li > footer,
+  .strategy-fleet-paper-outcome-timeline > summary,
+  .strategy-fleet-paper-outcome-timeline li > footer,
   .strategy-fleet-shadow-outcome-point {
     align-items: flex-start;
     flex-direction: column;
