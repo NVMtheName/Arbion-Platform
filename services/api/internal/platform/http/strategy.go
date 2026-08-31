@@ -617,7 +617,13 @@ func (h *authHandler) strategyPaperPortfolio(w stdhttp.ResponseWriter, r *stdhtt
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 200, map[string]any{"paper_portfolio": v, "live_execution_available": false})
+	writeJSON(w, 200, map[string]any{
+		"paper_portfolio":                v,
+		"realized_outcome_semantics":     "EXACT_IMMUTABLE_AVERAGE_COST_SIMULATION",
+		"realized_outcome_includes_fees": true,
+		"broker_action_available":        false,
+		"live_execution_available":       false,
+	})
 }
 
 func (h *authHandler) strategyAIPaperFills(w stdhttp.ResponseWriter, r *stdhttp.Request) {

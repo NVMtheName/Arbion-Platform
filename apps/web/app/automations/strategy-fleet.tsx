@@ -146,6 +146,26 @@ export type StrategyFleetItem = {
   paperExposureHeadroom?: string;
   paperSymbolCeiling?: string;
   paperProposalHeadroom?: string;
+  paperRealizedContractAvailable?: boolean;
+  paperRealizedOutcomeStatus?:
+    | "AVAILABLE"
+    | "NO_REALIZED_SALES"
+    | "UNAVAILABLE";
+  paperRealizedProfitLoss?: string;
+  paperRealizedFillCount?: number;
+  paperRealizedSellFillCount?: number;
+  paperRealizedFirstFillAt?: string;
+  paperRealizedLastFillAt?: string;
+  paperRealizedSymbolOutcomes?: Array<{
+    symbol: string;
+    instrument: "EQUITY" | "CRYPTO";
+    realizedProfitLoss: string;
+    buyFillCount: number;
+    sellFillCount: number;
+    totalFees: string;
+    endingPositionQuantity: string;
+    endingAverageCost?: string;
+  }>;
   paperPositionOutcomes?: Array<{
     symbol: string;
     marketValue: string;
@@ -1510,7 +1530,9 @@ function needsReview(item: StrategyFleetItem) {
     (requiresOperationalData(item) &&
       item.executionMode === "PAPER" &&
       (item.paperPortfolioAvailable === false ||
-        item.paperPerformanceStatus === "UNAVAILABLE")) ||
+        item.paperPerformanceStatus === "UNAVAILABLE" ||
+        item.paperRealizedContractAvailable === false ||
+        item.paperRealizedOutcomeStatus === "UNAVAILABLE")) ||
     paperOutcomeLimitBreach(item) ||
     item.decisionAvailable === false ||
     item.scheduleStatus === "FAILED" ||
@@ -4293,6 +4315,23 @@ function paperOutcomeEvidenceAvailable(item: StrategyFleetItem) {
   );
 }
 
+function paperRealizedEvidenceAvailable(item: StrategyFleetItem) {
+  return (
+    item.executionMode === "PAPER" &&
+    item.paperRealizedContractAvailable === true &&
+    ["AVAILABLE", "NO_REALIZED_SALES"].includes(
+      item.paperRealizedOutcomeStatus ?? "",
+    ) &&
+    Boolean(
+      item.paperCurrency &&
+        item.paperRealizedProfitLoss &&
+        item.paperRealizedFillCount !== undefined &&
+        item.paperRealizedSellFillCount !== undefined &&
+        item.paperRealizedSymbolOutcomes,
+    )
+  );
+}
+
 function shadowOutcomeEvidenceAvailable(item: StrategyFleetItem) {
   return (
     item.executionMode === "SHADOW" &&
@@ -4571,12 +4610,13 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
   const available = paper
     ? paperOutcomeEvidenceAvailable(item)
     : shadowOutcomeEvidenceAvailable(item);
+  const realizedAvailable = paper && paperRealizedEvidenceAvailable(item);
   const limitBreach = paper && available && paperOutcomeLimitBreach(item);
   const detailHref = `/automations/${encodeURIComponent(item.id)}#runtime-evidence`;
   return (
     <details
       className={`strategy-fleet-exposure-outcomes is-${item.executionMode.toLowerCase()}${available ? "" : " is-unavailable"}${limitBreach ? " is-attention" : ""}`}
-      open={!available || limitBreach}
+      open={!available || (paper && !realizedAvailable) || limitBreach}
     >
       <summary>
         <span>
@@ -4590,11 +4630,13 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
         <span>
           {!available
             ? "Evidence unavailable"
-            : limitBreach
-              ? "Limit review required"
-              : paper
-                ? `${capitalMoney(item.paperCurrency, item.paperCash)} cash · ${capitalMoney(item.paperCurrency, item.paperInvestedExposure)} marked`
-                : `${item.oneHourSampleSize} one-hour · ${item.twentyFourHourSampleSize} 24-hour`}
+            : paper && !realizedAvailable
+              ? "Realized evidence unavailable"
+              : limitBreach
+                ? "Limit review required"
+                : paper
+                  ? `${capitalMoney(item.paperCurrency, item.paperCash)} cash · ${capitalMoney(item.paperCurrency, item.paperInvestedExposure)} marked`
+                  : `${item.oneHourSampleSize} one-hour · ${item.twentyFourHourSampleSize} 24-hour`}
         </span>
       </summary>
       {paper ? (
@@ -4716,10 +4758,64 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                 )}
               </section>
               <StrategyFleetOutcomeTimeline item={item} />
+              {realizedAvailable ? (
+                <section className="strategy-fleet-symbol-outcomes">
+                  <header>
+                    <strong>Exact simulated realized outcome</strong>
+                    <span>
+                      {signedCapitalMoney(
+                        item.paperCurrency,
+                        item.paperRealizedProfitLoss,
+                      )}
+                    </span>
+                  </header>
+                  {(item.paperRealizedSymbolOutcomes ?? []).length > 0 ? (
+                    <ol>
+                      {item.paperRealizedSymbolOutcomes!.map((symbol) => (
+                        <li key={`${symbol.instrument}:${symbol.symbol}`}>
+                          <strong>{symbol.symbol}</strong>
+                          <span>
+                            {signedCapitalMoney(
+                              item.paperCurrency,
+                              symbol.realizedProfitLoss,
+                            )}
+                          </span>
+                          <small>
+                            {symbol.sellFillCount} simulated sale
+                            {symbol.sellFillCount === 1 ? "" : "s"}
+                            {" · "}
+                            {capitalMoney(item.paperCurrency, symbol.totalFees)}
+                            {" total fees"}
+                          </small>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p>No simulated fills yet · exact realized outcome $0.</p>
+                  )}
+                  <p className="strategy-fleet-outcome-note">
+                    Exact average-cost replay from all{" "}
+                    {item.paperRealizedFillCount} immutable simulated fill
+                    {item.paperRealizedFillCount === 1 ? "" : "s"}; buy and sell
+                    fees are included. Realized, unrealized, and total simulated
+                    outcomes remain separate. Latest fill{" "}
+                    {item.paperRealizedLastFillAt
+                      ? readableTime(item.paperRealizedLastFillAt)
+                      : "not yet recorded"}
+                    .
+                  </p>
+                </section>
+              ) : (
+                <p className="strategy-fleet-outcome-note">
+                  Realized P&amp;L: <strong>Unavailable</strong> · the complete
+                  immutable simulated fill chain could not be proven. Arbion
+                  leaves the value unavailable instead of reconstructing or
+                  inferring it.
+                </p>
+              )}
               <p className="strategy-fleet-outcome-note">
-                Realized P&amp;L: <strong>Unavailable</strong> · Arbion does not
-                reconstruct realized performance from fills. Values above use
-                the latest complete immutable AI market snapshot
+                Marked and unrealized values use the latest complete immutable
+                AI market snapshot
                 {item.paperValuedAt
                   ? ` saved ${readableTime(item.paperValuedAt)}`
                   : ""}

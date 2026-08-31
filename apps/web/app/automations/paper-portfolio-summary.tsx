@@ -42,6 +42,29 @@ export type AIPaperSpotFill = {
   simulation_only: boolean;
 };
 
+export type PaperRealizedSymbolOutcome = {
+  symbol: string;
+  instrument: "EQUITY" | "CRYPTO";
+  realized_profit_loss: string;
+  buy_fill_count: number;
+  sell_fill_count: number;
+  total_fees: string;
+  ending_position_quantity: string;
+  ending_average_cost?: string;
+};
+
+export type PaperRealizedOutcome = {
+  status: "AVAILABLE" | "NO_REALIZED_SALES" | "UNAVAILABLE";
+  calculation_method?: "AVERAGE_COST_INCLUDED_FEES";
+  historical_coverage?: "COMPLETE_FROM_PORTFOLIO_GENESIS";
+  total_realized_profit_loss?: string;
+  fill_count: number;
+  sell_fill_count: number;
+  first_fill_at?: string;
+  last_fill_at?: string;
+  symbols: PaperRealizedSymbolOutcome[];
+};
+
 export type PaperPortfolio = {
   strategy_instance_id: string;
   currency: string;
@@ -49,6 +72,7 @@ export type PaperPortfolio = {
   cash: string;
   version: number;
   positions: PaperPosition[];
+  realized_outcome?: PaperRealizedOutcome;
   updated_at: string;
 };
 

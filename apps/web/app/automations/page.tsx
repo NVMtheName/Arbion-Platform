@@ -17,7 +17,12 @@ import {
   calculatePaperPerformance,
   extractLatestPaperMarketSnapshots,
 } from "./paper-performance";
-import type { PaperPortfolio, PaperPosition } from "./paper-portfolio-summary";
+import type {
+  PaperPortfolio,
+  PaperPosition,
+  PaperRealizedOutcome,
+  PaperRealizedSymbolOutcome,
+} from "./paper-portfolio-summary";
 import {
   projectPinnedAIRuntime,
   scheduleMatchesPinnedAIRuntime,
@@ -59,6 +64,14 @@ type ScheduleRunWindow = {
 type ReconciliationEnvelope = {
   reconciliation?: RecordValue;
   autonomy_enforcement_active?: boolean;
+  live_execution_available?: boolean;
+};
+
+type PaperPortfolioEnvelope = {
+  paper_portfolio?: RecordValue;
+  realized_outcome_semantics?: string;
+  realized_outcome_includes_fees?: boolean;
+  broker_action_available?: boolean;
   live_execution_available?: boolean;
 };
 
@@ -108,6 +121,152 @@ function exactDecimal(value: unknown) {
     : undefined;
 }
 
+function nonnegativeInteger(value: unknown) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function normalizedPaperRealizedOutcome(
+  value: unknown,
+): PaperRealizedOutcome | undefined {
+  const outcome = record(value);
+  const status = text(outcome, "status", "Status");
+  const fillCount = nonnegativeInteger(
+    outcome?.fill_count ?? outcome?.FillCount,
+  );
+  const sellFillCount = nonnegativeInteger(
+    outcome?.sell_fill_count ?? outcome?.SellFillCount,
+  );
+  const rawSymbols = outcome?.symbols ?? outcome?.Symbols;
+  if (
+    !["AVAILABLE", "NO_REALIZED_SALES", "UNAVAILABLE"].includes(status ?? "") ||
+    fillCount === undefined ||
+    sellFillCount === undefined ||
+    sellFillCount > fillCount ||
+    !Array.isArray(rawSymbols)
+  )
+    return;
+  if (status === "UNAVAILABLE") {
+    if (rawSymbols.length !== 0) return;
+    return {
+      status: "UNAVAILABLE",
+      fill_count: fillCount,
+      sell_fill_count: sellFillCount,
+      symbols: [],
+    };
+  }
+  const calculationMethod = text(
+    outcome,
+    "calculation_method",
+    "CalculationMethod",
+  );
+  const historicalCoverage = text(
+    outcome,
+    "historical_coverage",
+    "HistoricalCoverage",
+  );
+  const totalRealizedProfitLoss = exactDecimal(
+    outcome?.total_realized_profit_loss ?? outcome?.TotalRealizedProfitLoss,
+  );
+  const firstFillAt = text(outcome, "first_fill_at", "FirstFillAt");
+  const lastFillAt = text(outcome, "last_fill_at", "LastFillAt");
+  if (
+    calculationMethod !== "AVERAGE_COST_INCLUDED_FEES" ||
+    historicalCoverage !== "COMPLETE_FROM_PORTFOLIO_GENESIS" ||
+    !totalRealizedProfitLoss ||
+    (status === "AVAILABLE" && sellFillCount === 0) ||
+    (status === "NO_REALIZED_SALES" && sellFillCount !== 0) ||
+    (fillCount > 0 &&
+      (!firstFillAt ||
+        !lastFillAt ||
+        Number.isNaN(Date.parse(firstFillAt)) ||
+        Number.isNaN(Date.parse(lastFillAt)))) ||
+    (fillCount === 0 && (firstFillAt || lastFillAt))
+  )
+    return;
+  const symbols: PaperRealizedSymbolOutcome[] = [];
+  const seenSymbols = new Set<string>();
+  for (const rawSymbol of rawSymbols) {
+    const symbolOutcome = record(rawSymbol);
+    const symbol = text(symbolOutcome, "symbol", "Symbol");
+    const instrument = text(symbolOutcome, "instrument", "Instrument");
+    const realizedProfitLoss = exactDecimal(
+      symbolOutcome?.realized_profit_loss ?? symbolOutcome?.RealizedProfitLoss,
+    );
+    const buyFillCount = nonnegativeInteger(
+      symbolOutcome?.buy_fill_count ?? symbolOutcome?.BuyFillCount,
+    );
+    const symbolSellFillCount = nonnegativeInteger(
+      symbolOutcome?.sell_fill_count ?? symbolOutcome?.SellFillCount,
+    );
+    const totalFees = exactDecimal(
+      symbolOutcome?.total_fees ?? symbolOutcome?.TotalFees,
+    );
+    const endingPositionQuantity = exactDecimal(
+      symbolOutcome?.ending_position_quantity ??
+        symbolOutcome?.EndingPositionQuantity,
+    );
+    const endingAverageCost = exactDecimal(
+      symbolOutcome?.ending_average_cost ?? symbolOutcome?.EndingAverageCost,
+    );
+    if (
+      !symbol ||
+      !["EQUITY", "CRYPTO"].includes(instrument ?? "") ||
+      !realizedProfitLoss ||
+      buyFillCount === undefined ||
+      symbolSellFillCount === undefined ||
+      !totalFees ||
+      !endingPositionQuantity ||
+      (compareExactDecimals(totalFees, "0") ?? -1) < 0 ||
+      (compareExactDecimals(endingPositionQuantity, "0") ?? -1) < 0 ||
+      (compareExactDecimals(endingPositionQuantity, "0") === 1 &&
+        !endingAverageCost) ||
+      seenSymbols.has(`${instrument}:${symbol}`)
+    )
+      return;
+    seenSymbols.add(`${instrument}:${symbol}`);
+    symbols.push({
+      symbol,
+      instrument: instrument as PaperRealizedSymbolOutcome["instrument"],
+      realized_profit_loss: realizedProfitLoss,
+      buy_fill_count: buyFillCount,
+      sell_fill_count: symbolSellFillCount,
+      total_fees: totalFees,
+      ending_position_quantity: endingPositionQuantity,
+      ending_average_cost: endingAverageCost,
+    });
+  }
+  const attributedRealizedProfitLoss = sumUSD(
+    symbols.map((symbol) => symbol.realized_profit_loss),
+  );
+  if (
+    symbols.reduce((count, symbol) => count + symbol.sell_fill_count, 0) !==
+      sellFillCount ||
+    symbols.reduce(
+      (count, symbol) => count + symbol.buy_fill_count + symbol.sell_fill_count,
+      0,
+    ) !== fillCount ||
+    !attributedRealizedProfitLoss ||
+    compareExactDecimals(
+      attributedRealizedProfitLoss,
+      totalRealizedProfitLoss,
+    ) !== 0
+  )
+    return;
+  return {
+    status: status as PaperRealizedOutcome["status"],
+    calculation_method: calculationMethod,
+    historical_coverage: historicalCoverage,
+    total_realized_profit_loss: totalRealizedProfitLoss,
+    fill_count: fillCount,
+    sell_fill_count: sellFillCount,
+    first_fill_at: firstFillAt,
+    last_fill_at: lastFillAt,
+    symbols,
+  };
+}
+
 function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
   const portfolio = record(value);
   const rawPositions = portfolio?.positions ?? portfolio?.Positions;
@@ -122,6 +281,9 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
     portfolio,
     "strategy_instance_id",
     "StrategyInstanceID",
+  );
+  const realizedOutcome = normalizedPaperRealizedOutcome(
+    portfolio?.realized_outcome ?? portfolio?.RealizedOutcome,
   );
   if (
     !currency ||
@@ -178,6 +340,7 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
     cash,
     version,
     positions,
+    realized_outcome: realizedOutcome,
     updated_at: updatedAt,
   };
 }
@@ -819,7 +982,7 @@ async function fleetItem(
         )
       : Promise.resolve({ available: true as const, payload: undefined }),
     expectsOperationalData && runtimeExecutionMode === "PAPER"
-      ? fetchOptional<{ paper_portfolio?: RecordValue }>(
+      ? fetchOptional<PaperPortfolioEnvelope>(
           `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/paper-portfolio`,
           headers,
         )
@@ -967,6 +1130,14 @@ async function fleetItem(
     runtimeExecutionMode === "PAPER"
       ? normalizedPaperPortfolio(paperPortfolioResult.payload?.paper_portfolio)
       : undefined;
+  const paperRealizedContractAvailable =
+    runtimeExecutionMode === "PAPER" &&
+    paperPortfolioResult.payload?.realized_outcome_semantics ===
+      "EXACT_IMMUTABLE_AVERAGE_COST_SIMULATION" &&
+    paperPortfolioResult.payload?.realized_outcome_includes_fees === true &&
+    paperPortfolioResult.payload?.broker_action_available === false &&
+    paperPortfolioResult.payload?.live_execution_available === false &&
+    Boolean(paperPortfolio?.realized_outcome);
   const paperPortfolioAvailable =
     expectsOperationalData &&
     runtimeExecutionMode === "PAPER" &&
@@ -1221,6 +1392,30 @@ async function fleetItem(
     paperExposureHeadroom,
     paperSymbolCeiling,
     paperProposalHeadroom,
+    paperRealizedContractAvailable:
+      runtimeExecutionMode === "PAPER"
+        ? paperRealizedContractAvailable
+        : undefined,
+    paperRealizedOutcomeStatus: paperPortfolio?.realized_outcome?.status,
+    paperRealizedProfitLoss:
+      paperPortfolio?.realized_outcome?.total_realized_profit_loss,
+    paperRealizedFillCount: paperPortfolio?.realized_outcome?.fill_count,
+    paperRealizedSellFillCount:
+      paperPortfolio?.realized_outcome?.sell_fill_count,
+    paperRealizedFirstFillAt: paperPortfolio?.realized_outcome?.first_fill_at,
+    paperRealizedLastFillAt: paperPortfolio?.realized_outcome?.last_fill_at,
+    paperRealizedSymbolOutcomes: paperPortfolio?.realized_outcome?.symbols.map(
+      (symbol) => ({
+        symbol: symbol.symbol,
+        instrument: symbol.instrument,
+        realizedProfitLoss: symbol.realized_profit_loss,
+        buyFillCount: symbol.buy_fill_count,
+        sellFillCount: symbol.sell_fill_count,
+        totalFees: symbol.total_fees,
+        endingPositionQuantity: symbol.ending_position_quantity,
+        endingAverageCost: symbol.ending_average_cost,
+      }),
+    ),
     paperPositionOutcomes: paperPerformance?.positions.map((position) => ({
       symbol: position.symbol,
       marketValue: position.marketValue,

@@ -130,6 +130,14 @@ func TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected(t *testing.T)
 	if err != nil || len(fills) != 1 || fills[0].ExecutionRecordID == "" || fills[0].MarketProvider != "coinbase" || fills[0].MarketFeed != "advanced_trade" || !fills[0].SimulationOnly {
 		t.Fatalf("owner AI Paper fill projection is wrong: fills=%#v err=%v", fills, err)
 	}
+	portfolio, err := store.PaperPortfolio(ctx, userID, instance.ID)
+	if err != nil || portfolio.RealizedOutcome.Status != PaperRealizedNoSales || portfolio.RealizedOutcome.TotalRealizedProfitLoss != "0.0000000000" || portfolio.RealizedOutcome.FillCount != 1 || portfolio.RealizedOutcome.SellFillCount != 0 || len(portfolio.RealizedOutcome.Symbols) != 1 {
+		t.Fatalf("exact realized projection is wrong: portfolio=%#v err=%v", portfolio, err)
+	}
+	realizedBTC := portfolio.RealizedOutcome.Symbols[0]
+	if realizedBTC.Symbol != "BTC" || realizedBTC.RealizedProfitLoss != "0.0000000000" || realizedBTC.TotalFees != fill.Fee || realizedBTC.EndingPositionQuantity != fill.ResultingPositionQuantity || realizedBTC.EndingAverageCost != "100.7512500000" {
+		t.Fatalf("exact realized symbol attribution is wrong: %#v", realizedBTC)
+	}
 	otherOwnerFills, err := store.AIPaperSpotFills(ctx, "99999999-9999-4999-8999-999999999999", instance.ID, 25, nil)
 	if err != nil || len(otherOwnerFills) != 0 {
 		t.Fatalf("AI Paper fill projection crossed owners: fills=%#v err=%v", otherOwnerFills, err)
