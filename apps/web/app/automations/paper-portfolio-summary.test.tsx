@@ -645,6 +645,7 @@ describe("PaperPortfolioSummary", () => {
             as_of: "2026-08-31T15:00:00Z",
             twenty_four_hours: {
               status: "AVAILABLE",
+              coverage_status: "COMPLETE",
               horizon_hours: 24,
               window_started_at: "2026-08-30T15:00:00Z",
               window_ended_at: "2026-08-31T15:00:00Z",
@@ -659,6 +660,29 @@ describe("PaperPortfolioSummary", () => {
                 { code: "INSUFFICIENT_POSITION", count: 1 },
               ],
               failed_check_codes: [{ code: "INSUFFICIENT_POSITION", count: 1 }],
+              expected_check_codes: [
+                "AUTHORIZATION_DENIED",
+                "INSUFFICIENT_POSITION",
+              ],
+              check_results: [
+                {
+                  code: "AUTHORIZATION_DENIED",
+                  evaluation_count: 2,
+                  pass_count: 2,
+                  fail_count: 0,
+                  warn_count: 0,
+                },
+                {
+                  code: "INSUFFICIENT_POSITION",
+                  evaluation_count: 2,
+                  pass_count: 1,
+                  fail_count: 1,
+                  warn_count: 0,
+                },
+              ],
+              fully_evaluated_count: 1,
+              fail_closed_prefix_count: 1,
+              check_set_drift_count: 0,
               symbols: [
                 {
                   symbol: "BTC",
@@ -694,6 +718,12 @@ describe("PaperPortfolioSummary", () => {
                   execution_status: "RISK_DENIED",
                   denial_reason_codes: ["INSUFFICIENT_POSITION"],
                   failed_check_codes: ["INSUFFICIENT_POSITION"],
+                  checks: [
+                    { code: "AUTHORIZATION_DENIED", result: "PASS" },
+                    { code: "INSUFFICIENT_POSITION", result: "FAIL" },
+                  ],
+                  coverage_status: "FAIL_CLOSED_PREFIX",
+                  terminal_check_stage: "INSUFFICIENT_POSITION",
                   financial_provider: "coinbase",
                   market_feed: "rest_ticker",
                   market_quality: "REAL_TIME_SINGLE_VENUE",
@@ -713,6 +743,12 @@ describe("PaperPortfolioSummary", () => {
                   execution_status: "SIMULATED_FILLED",
                   denial_reason_codes: [],
                   failed_check_codes: [],
+                  checks: [
+                    { code: "AUTHORIZATION_DENIED", result: "PASS" },
+                    { code: "INSUFFICIENT_POSITION", result: "PASS" },
+                  ],
+                  coverage_status: "FULL_EVALUATION",
+                  terminal_check_stage: "ALL_REQUIRED_CHECKS",
                   financial_provider: "coinbase",
                   market_feed: "rest_ticker",
                   market_quality: "REAL_TIME_SINGLE_VENUE",
@@ -722,6 +758,7 @@ describe("PaperPortfolioSummary", () => {
             },
             seven_days: {
               status: "UNAVAILABLE",
+              coverage_status: "UNAVAILABLE",
               horizon_hours: 168,
               proposal_count: 0,
               allow_count: 0,
@@ -729,6 +766,11 @@ describe("PaperPortfolioSummary", () => {
               simulated_fill_count: 0,
               denial_reason_codes: [],
               failed_check_codes: [],
+              expected_check_codes: [],
+              check_results: [],
+              fully_evaluated_count: 0,
+              fail_closed_prefix_count: 0,
+              check_set_drift_count: 0,
               symbols: [],
               proposals: [],
             },
@@ -748,6 +790,15 @@ describe("PaperPortfolioSummary", () => {
     ).toBeInTheDocument();
     expect(
       within(guardrails).getByText(/INSUFFICIENT_POSITION \(1\)/),
+    ).toBeInTheDocument();
+    expect(within(guardrails).getByText("Complete")).toBeInTheDocument();
+    expect(
+      within(guardrails).getByRole("table", {
+        name: /deterministic check coverage/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(guardrails).getByText(/2 required checks completed/i),
     ).toBeInTheDocument();
     expect(within(guardrails).getByText(/decision-denied/)).toBeInTheDocument();
     expect(

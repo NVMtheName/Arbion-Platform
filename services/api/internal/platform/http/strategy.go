@@ -629,6 +629,8 @@ func (h *authHandler) strategyPaperPortfolio(w stdhttp.ResponseWriter, r *stdhtt
 		"disposition_funnel_read_only":    true,
 		"guardrail_evidence_semantics":    "EXACT_IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION",
 		"guardrail_evidence_read_only":    true,
+		"guardrail_coverage_semantics":    "EXACT_ORDERED_PAPER_CHECK_PLAN_AND_FAIL_CLOSED_PREFIX_ATTESTATION",
+		"guardrail_coverage_read_only":    true,
 		"broker_action_available":         false,
 		"live_execution_available":        false,
 	})

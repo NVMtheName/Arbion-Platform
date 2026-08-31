@@ -284,6 +284,19 @@ export type PaperGuardrailCodeCount = {
   count: number;
 };
 
+export type PaperGuardrailCheckCount = {
+  code: string;
+  evaluation_count: number;
+  pass_count: number;
+  fail_count: number;
+  warn_count: number;
+};
+
+export type PaperGuardrailCheckFact = {
+  code: string;
+  result: "PASS" | "FAIL" | "WARN";
+};
+
 export type PaperGuardrailSymbol = {
   symbol: string;
   instrument: "EQUITY" | "CRYPTO";
@@ -308,6 +321,9 @@ export type PaperGuardrailProposalFact = {
   execution_status: "SIMULATED_FILLED" | "RISK_DENIED";
   denial_reason_codes: string[];
   failed_check_codes: string[];
+  checks: PaperGuardrailCheckFact[];
+  coverage_status: "FULL_EVALUATION" | "FAIL_CLOSED_PREFIX" | "DRIFT_DETECTED";
+  terminal_check_stage: string;
   financial_provider: string;
   market_feed: string;
   market_quality: string;
@@ -316,6 +332,7 @@ export type PaperGuardrailProposalFact = {
 
 export type PaperGuardrailEvidenceWindow = {
   status: "AVAILABLE" | "UNAVAILABLE";
+  coverage_status: "COMPLETE" | "DRIFT_DETECTED" | "UNAVAILABLE";
   horizon_hours: number;
   window_started_at?: string;
   window_ended_at?: string;
@@ -328,6 +345,11 @@ export type PaperGuardrailEvidenceWindow = {
   maximum_proposed_notional?: string;
   denial_reason_codes: PaperGuardrailCodeCount[];
   failed_check_codes: PaperGuardrailCodeCount[];
+  expected_check_codes: string[];
+  check_results: PaperGuardrailCheckCount[];
+  fully_evaluated_count: number;
+  fail_closed_prefix_count: number;
+  check_set_drift_count: number;
   symbols: PaperGuardrailSymbol[];
   proposals: PaperGuardrailProposalFact[];
 };
@@ -1126,6 +1148,8 @@ export function PaperPortfolioSummary({
   );
   const guardrail = portfolio.guardrail_evidence;
   const guardrailWindow = guardrail?.twenty_four_hours;
+  const guardrailCoverageAttention =
+    guardrailWindow?.coverage_status === "DRIFT_DETECTED";
   const guardrailAvailable = Boolean(
     guardrail?.status === "AVAILABLE" &&
       guardrail.calculation_method ===
@@ -1797,7 +1821,7 @@ export function PaperPortfolioSummary({
       <details
         className="paper-performance-card"
         aria-label="Exact Paper guardrail disposition"
-        open={!guardrailAvailable}
+        open={!guardrailAvailable || guardrailCoverageAttention}
       >
         <summary className="paper-performance-header">
           <span>
@@ -1808,7 +1832,9 @@ export function PaperPortfolioSummary({
           </span>
           <span>
             {guardrailAvailable
-              ? `${guardrailWindow!.allow_count} allowed · ${guardrailWindow!.deny_count} denied / 24h`
+              ? guardrailCoverageAttention
+                ? "Check-set drift · review"
+                : `${guardrailWindow!.allow_count} allowed · ${guardrailWindow!.deny_count} denied / 24h`
               : "Unavailable"}
           </span>
         </summary>
@@ -1856,6 +1882,27 @@ export function PaperPortfolioSummary({
                     : "Not complete yet"}
                 </strong>
               </article>
+              <article>
+                <span>Deterministic check coverage</span>
+                <strong>
+                  {guardrailWindow!.coverage_status === "COMPLETE"
+                    ? "Complete"
+                    : "Drift detected"}
+                </strong>
+                <small>
+                  {guardrailWindow!.expected_check_codes.length} ordered stages
+                </small>
+              </article>
+              <article>
+                <span>Saved evaluation paths</span>
+                <strong>
+                  {guardrailWindow!.fully_evaluated_count} full ·{" "}
+                  {guardrailWindow!.fail_closed_prefix_count} fail-closed
+                </strong>
+                <small>
+                  {guardrailWindow!.check_set_drift_count} check-set drift
+                </small>
+              </article>
             </div>
             {guardrailWindow!.denial_reason_codes.length > 0 && (
               <p className="paper-market-source">
@@ -1896,6 +1943,42 @@ export function PaperPortfolioSummary({
               </table>
             </section>
             <details className="paper-execution-timeline">
+              <summary>Review exact deterministic check coverage</summary>
+              <p className="paper-market-source">
+                Allowed proposals must contain all ordered stages. Denied
+                proposals must contain the exact prefix through their first
+                failed stage; later checks are not run after a fail-closed
+                denial.
+              </p>
+              <section className="paper-position-table-wrap">
+                <table
+                  className="paper-position-table"
+                  aria-label="Exact Paper deterministic check coverage"
+                >
+                  <thead>
+                    <tr>
+                      <th>Saved check</th>
+                      <th>Evaluated</th>
+                      <th>Pass</th>
+                      <th>Fail</th>
+                      <th>Warn</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {guardrailWindow!.check_results.map((check) => (
+                      <tr key={check.code}>
+                        <td>{check.code}</td>
+                        <td>{check.evaluation_count}</td>
+                        <td>{check.pass_count}</td>
+                        <td>{check.fail_count}</td>
+                        <td>{check.warn_count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            </details>
+            <details className="paper-execution-timeline">
               <summary>Review immutable proposal identities</summary>
               <ol>
                 {guardrailWindow!.proposals.map((proposal) => (
@@ -1916,6 +1999,13 @@ export function PaperPortfolioSummary({
                       {proposal.financial_provider} · {proposal.market_feed} ·{" "}
                       {proposal.market_quality} ·{" "}
                       {new Date(proposal.market_observed_at).toLocaleString()}
+                    </small>
+                    <small>
+                      {proposal.coverage_status === "FULL_EVALUATION"
+                        ? `${proposal.checks.length} required checks completed`
+                        : proposal.coverage_status === "FAIL_CLOSED_PREFIX"
+                          ? `${proposal.checks.length}-stage fail-closed prefix · terminal ${proposal.terminal_check_stage}`
+                          : "Saved check-set drift requires review"}
                     </small>
                   </li>
                 ))}
