@@ -625,6 +625,8 @@ func (h *authHandler) strategyPaperPortfolio(w stdhttp.ResponseWriter, r *stdhtt
 		"execution_costs_broker_reported": false,
 		"activity_cadence_semantics":      "EXACT_IMMUTABLE_SCHEDULE_AND_SIMULATION_CHRONOLOGY",
 		"activity_cadence_read_only":      true,
+		"disposition_funnel_semantics":    "EXACT_IMMUTABLE_PAPER_EVALUATION_DISPOSITION_FUNNEL",
+		"disposition_funnel_read_only":    true,
 		"broker_action_available":         false,
 		"live_execution_available":        false,
 	})

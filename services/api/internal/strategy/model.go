@@ -400,8 +400,45 @@ type PaperActivityCadence struct {
 	ScheduleIntervalMinutes int                         `json:"schedule_interval_minutes"`
 	TwentyFourHours         PaperActivityWindow         `json:"twenty_four_hours"`
 	SevenDays               PaperActivityWindow         `json:"seven_days"`
+	DispositionFunnel       PaperDispositionFunnel      `json:"disposition_funnel"`
 	FillTiming              PaperFillTimingEvidence     `json:"fill_timing"`
 	LongestNoFillInterval   PaperNoFillIntervalEvidence `json:"longest_no_fill_interval"`
+}
+
+// PaperDispositionFunnel describes only the exact saved terminal path of each
+// scheduled Paper evaluation. Rates do not imply decision quality, trading
+// performance, missed opportunity, causality, or readiness for live trading.
+type PaperDispositionFunnel struct {
+	Status            string                       `json:"status"`
+	CalculationMethod string                       `json:"calculation_method,omitempty"`
+	TwentyFourHours   PaperDispositionFunnelWindow `json:"twenty_four_hours"`
+	SevenDays         PaperDispositionFunnelWindow `json:"seven_days"`
+}
+
+type PaperDispositionFunnelWindow struct {
+	Status                          string     `json:"status"`
+	HorizonHours                    int        `json:"horizon_hours"`
+	WindowStartedAt                 *time.Time `json:"window_started_at,omitempty"`
+	WindowEndedAt                   *time.Time `json:"window_ended_at,omitempty"`
+	ScheduledCycleCount             int        `json:"scheduled_cycle_count"`
+	CompletedCycleCount             int        `json:"completed_cycle_count"`
+	SucceededEvaluationCount        int        `json:"succeeded_evaluation_count"`
+	FailedCycleCount                int        `json:"failed_cycle_count"`
+	SafeWaitCycleCount              int        `json:"safe_wait_cycle_count"`
+	DecisionCount                   int        `json:"decision_count"`
+	AbstentionCount                 int        `json:"abstention_count"`
+	ProposalCount                   int        `json:"proposal_count"`
+	DeterministicDenyCount          int        `json:"deterministic_deny_count"`
+	SimulatedFillCount              int        `json:"simulated_fill_count"`
+	OtherProposalOutcomeCount       int        `json:"other_proposal_outcome_count"`
+	CompletionRatePercent           *string    `json:"completion_rate_percent,omitempty"`
+	SucceededEvaluationRatePercent  *string    `json:"succeeded_evaluation_rate_percent,omitempty"`
+	DecisionRatePercent             *string    `json:"decision_rate_percent,omitempty"`
+	AbstentionRatePercent           *string    `json:"abstention_rate_percent,omitempty"`
+	ProposalRatePercent             *string    `json:"proposal_rate_percent,omitempty"`
+	DeterministicDenyRatePercent    *string    `json:"deterministic_deny_rate_percent,omitempty"`
+	SimulatedFillRatePercent        *string    `json:"simulated_fill_rate_percent,omitempty"`
+	OtherProposalOutcomeRatePercent *string    `json:"other_proposal_outcome_rate_percent,omitempty"`
 }
 
 type PaperActivityWindow struct {

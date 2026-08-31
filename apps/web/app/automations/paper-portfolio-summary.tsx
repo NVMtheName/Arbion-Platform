@@ -206,6 +206,39 @@ export type PaperActivityWindow = {
   other_succeeded_count: number;
 };
 
+export type PaperDispositionFunnelWindow = {
+  status: "AVAILABLE" | "UNAVAILABLE";
+  horizon_hours: number;
+  window_started_at?: string;
+  window_ended_at?: string;
+  scheduled_cycle_count: number;
+  completed_cycle_count: number;
+  succeeded_evaluation_count: number;
+  failed_cycle_count: number;
+  safe_wait_cycle_count: number;
+  decision_count: number;
+  abstention_count: number;
+  proposal_count: number;
+  deterministic_deny_count: number;
+  simulated_fill_count: number;
+  other_proposal_outcome_count: number;
+  completion_rate_percent?: string;
+  succeeded_evaluation_rate_percent?: string;
+  decision_rate_percent?: string;
+  abstention_rate_percent?: string;
+  proposal_rate_percent?: string;
+  deterministic_deny_rate_percent?: string;
+  simulated_fill_rate_percent?: string;
+  other_proposal_outcome_rate_percent?: string;
+};
+
+export type PaperDispositionFunnel = {
+  status: "AVAILABLE" | "UNAVAILABLE";
+  calculation_method?: "IMMUTABLE_PAPER_EVALUATION_DISPOSITION_FUNNEL";
+  twenty_four_hours: PaperDispositionFunnelWindow;
+  seven_days: PaperDispositionFunnelWindow;
+};
+
 export type PaperFillTimingSymbol = {
   status: "AVAILABLE" | "INSUFFICIENT_INTERVALS";
   symbol: string;
@@ -225,6 +258,7 @@ export type PaperActivityCadence = {
   schedule_interval_minutes: number;
   twenty_four_hours: PaperActivityWindow;
   seven_days: PaperActivityWindow;
+  disposition_funnel: PaperDispositionFunnel;
   fill_timing: {
     status: "AVAILABLE" | "NO_FILLS" | "INSUFFICIENT_INTERVALS" | "UNAVAILABLE";
     historical_coverage?: "COMPLETE_FROM_PORTFOLIO_GENESIS";
@@ -306,6 +340,22 @@ function performanceClass(value?: string) {
 
 function isExactDecimal(value?: string) {
   return Boolean(value && /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value));
+}
+
+function exactDispositionRateMatches(
+  count: number,
+  total: number,
+  value?: string,
+) {
+  if (total === 0) return value === undefined;
+  const expected = divideExactDecimals(
+    multiplyExactDecimals(String(count), "100") ?? "invalid",
+    String(total),
+    10,
+  );
+  return Boolean(
+    expected && value && compareExactDecimals(expected, value) === 0,
+  );
 }
 
 function marketSource(market: PaperMarketSnapshot) {
@@ -869,6 +919,80 @@ export function PaperPortfolioSummary({
             !Number.isNaN(Date.parse(window.window_ended_at!)))),
     );
   const cadenceFillTiming = cadence?.fill_timing;
+  const disposition = cadence?.disposition_funnel;
+  const dispositionWindowValid = (
+    window: PaperDispositionFunnelWindow | undefined,
+  ) =>
+    Boolean(
+      window &&
+        ["AVAILABLE", "UNAVAILABLE"].includes(window.status) &&
+        [24, 168].includes(window.horizon_hours) &&
+        Number.isSafeInteger(window.scheduled_cycle_count) &&
+        Number.isSafeInteger(window.completed_cycle_count) &&
+        Number.isSafeInteger(window.succeeded_evaluation_count) &&
+        Number.isSafeInteger(window.failed_cycle_count) &&
+        Number.isSafeInteger(window.safe_wait_cycle_count) &&
+        Number.isSafeInteger(window.decision_count) &&
+        Number.isSafeInteger(window.abstention_count) &&
+        Number.isSafeInteger(window.proposal_count) &&
+        Number.isSafeInteger(window.deterministic_deny_count) &&
+        Number.isSafeInteger(window.simulated_fill_count) &&
+        Number.isSafeInteger(window.other_proposal_outcome_count) &&
+        (window.status === "UNAVAILABLE" ||
+          (window.scheduled_cycle_count > 0 &&
+            window.completed_cycle_count === window.scheduled_cycle_count &&
+            window.scheduled_cycle_count ===
+              window.succeeded_evaluation_count +
+                window.failed_cycle_count +
+                window.safe_wait_cycle_count &&
+            window.decision_count === window.succeeded_evaluation_count &&
+            window.decision_count ===
+              window.abstention_count + window.proposal_count &&
+            window.proposal_count ===
+              window.deterministic_deny_count +
+                window.simulated_fill_count +
+                window.other_proposal_outcome_count &&
+            exactDispositionRateMatches(
+              window.completed_cycle_count,
+              window.scheduled_cycle_count,
+              window.completion_rate_percent,
+            ) &&
+            exactDispositionRateMatches(
+              window.succeeded_evaluation_count,
+              window.scheduled_cycle_count,
+              window.succeeded_evaluation_rate_percent,
+            ) &&
+            exactDispositionRateMatches(
+              window.decision_count,
+              window.scheduled_cycle_count,
+              window.decision_rate_percent,
+            ) &&
+            exactDispositionRateMatches(
+              window.abstention_count,
+              window.decision_count,
+              window.abstention_rate_percent,
+            ) &&
+            exactDispositionRateMatches(
+              window.proposal_count,
+              window.decision_count,
+              window.proposal_rate_percent,
+            ) &&
+            exactDispositionRateMatches(
+              window.deterministic_deny_count,
+              window.proposal_count,
+              window.deterministic_deny_rate_percent,
+            ) &&
+            exactDispositionRateMatches(
+              window.simulated_fill_count,
+              window.proposal_count,
+              window.simulated_fill_rate_percent,
+            ) &&
+            exactDispositionRateMatches(
+              window.other_proposal_outcome_count,
+              window.proposal_count,
+              window.other_proposal_outcome_rate_percent,
+            ))),
+    );
   const cadenceAvailable = Boolean(
     cadence &&
       cadence.status === "AVAILABLE" &&
@@ -881,6 +1005,12 @@ export function PaperPortfolioSummary({
       cadenceWindowValid(cadence.twenty_four_hours) &&
       cadence.twenty_four_hours.status === "AVAILABLE" &&
       cadenceWindowValid(cadence.seven_days) &&
+      disposition?.status === "AVAILABLE" &&
+      disposition.calculation_method ===
+        "IMMUTABLE_PAPER_EVALUATION_DISPOSITION_FUNNEL" &&
+      dispositionWindowValid(disposition.twenty_four_hours) &&
+      disposition.twenty_four_hours.status === "AVAILABLE" &&
+      dispositionWindowValid(disposition.seven_days) &&
       cadenceFillTiming &&
       cadenceFillTiming.status !== "UNAVAILABLE" &&
       cadenceFillTiming.historical_coverage ===
@@ -1585,16 +1715,35 @@ export function PaperPortfolioSummary({
                 </small>
               </article>
               <article>
-                <span>24-hour conclusions</span>
+                <span>24-hour decision path</span>
                 <strong>
-                  {cadence!.twenty_four_hours.abstention_count} abstain ·{" "}
-                  {cadence!.twenty_four_hours.simulated_fill_count} fill
+                  {disposition!.twenty_four_hours.abstention_count} abstain ·{" "}
+                  {disposition!.twenty_four_hours.proposal_count} propose
                 </strong>
                 <small>
-                  {cadence!.twenty_four_hours.deterministic_deny_count}{" "}
-                  deterministic denials ·{" "}
-                  {cadence!.twenty_four_hours.other_succeeded_count} other safe
-                  completions
+                  {formatExactDecimal(
+                    disposition!.twenty_four_hours.abstention_rate_percent,
+                    { maximumFractionDigits: 2, suffix: "%" },
+                  )}{" "}
+                  abstain ·{" "}
+                  {formatExactDecimal(
+                    disposition!.twenty_four_hours.proposal_rate_percent,
+                    { maximumFractionDigits: 2, suffix: "%" },
+                  )}{" "}
+                  propose of exact saved decisions
+                </small>
+              </article>
+              <article>
+                <span>24-hour proposal outcomes</span>
+                <strong>
+                  {disposition!.twenty_four_hours.simulated_fill_count} fill ·{" "}
+                  {disposition!.twenty_four_hours.deterministic_deny_count}{" "}
+                  denied
+                </strong>
+                <small>
+                  {disposition!.twenty_four_hours.proposal_count > 0
+                    ? `${formatExactDecimal(disposition!.twenty_four_hours.simulated_fill_rate_percent, { maximumFractionDigits: 2, suffix: "%" })} filled · ${formatExactDecimal(disposition!.twenty_four_hours.deterministic_deny_rate_percent, { maximumFractionDigits: 2, suffix: "%" })} denied of proposals`
+                    : "No exact saved proposals in this window"}
                 </small>
               </article>
               <article>
@@ -1697,9 +1846,13 @@ export function PaperPortfolioSummary({
                   : "Unavailable until one complete seven-day window is saved"}
               </strong>
               . Schedule cadence and simulated trading activity remain separate.
-              These exact timestamps do not establish overtrading, inactivity
-              quality, intent, performance, missed opportunity, or causality. No
-              model or financial provider was rerun to create this view.
+              Funnel rates use scheduled cycles for completion and successful
+              evaluation rates, saved decisions for abstain/propose rates, and
+              saved proposals for denial/fill rates. They do not establish
+              conversion quality, overtrading, inactivity quality, intent,
+              performance, missed opportunity, causality, or readiness for live
+              trading. No model or financial provider was rerun to create this
+              view.
             </p>
           </>
         ) : (
