@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { compareExactDecimals } from "../exact-money";
+import type { PaperTradeSequenceEvidence } from "./paper-portfolio-summary";
 
 export type StrategyFleetDecisionInputCoverageSnapshot = {
   decisionID?: string;
@@ -187,6 +188,7 @@ export type StrategyFleetItem = {
   paperExecutionMarketQualities?: string[];
   paperExecutionTimelineSampleCount?: number;
   paperExecutionTimelineCapped?: boolean;
+  paperTradeSequence?: PaperTradeSequenceEvidence;
   paperExecutionTimeline?: Array<{
     sequence: number;
     fillID: string;
@@ -200,6 +202,10 @@ export type StrategyFleetItem = {
     cumulativeProviderReferenceNotional: string;
     cumulativeAllInCostRateBPS: string;
     cumulativeRateChange: "FIRST" | "ROSE" | "FELL" | "HELD";
+    symbolSequence: number;
+    sameSideStreak: number;
+    sideTransition: "FIRST" | "SAME_SIDE" | "BUY_TO_SELL" | "SELL_TO_BUY";
+    oppositeSideElapsedSeconds?: string;
     marketProvider: string;
     marketFeed: string;
     marketQuality: string;
@@ -4466,6 +4472,8 @@ function paperExecutionCostsAvailable(item: StrategyFleetItem) {
         item.paperExecutionMarketQualities &&
         item.paperExecutionTimelineSampleCount !== undefined &&
         item.paperExecutionTimelineCapped !== undefined &&
+        item.paperTradeSequence &&
+        ["AVAILABLE", "NO_FILLS"].includes(item.paperTradeSequence.status) &&
         item.paperExecutionTimeline &&
         item.paperExecutionSideCosts &&
         item.paperExecutionSymbolCosts,
@@ -5050,6 +5058,90 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                   ) : (
                     <p>No simulated fills yet · exact execution costs $0.</p>
                   )}
+                  <details
+                    className="strategy-fleet-paper-outcome-timeline"
+                    aria-label={
+                      item.title +
+                      " exact immutable Paper trade sequence and churn evidence"
+                    }
+                  >
+                    <summary>
+                      <span>
+                        <strong>Trade sequence + churn context</strong>
+                        <small>Complete immutable simulation fill chain</small>
+                      </span>
+                      <span>
+                        {
+                          item.paperTradeSequence!
+                            .opposite_side_transition_count
+                        }{" "}
+                        reversal
+                        {item.paperTradeSequence!
+                          .opposite_side_transition_count === 1
+                          ? ""
+                          : "s"}
+                      </span>
+                    </summary>
+                    <dl>
+                      <div>
+                        <dt>Turnover / starting cash</dt>
+                        <dd>
+                          {conciseCapitalDecimal(
+                            item.paperTradeSequence!
+                              .provider_reference_turnover_to_starting_cash_bps,
+                          )}{" "}
+                          bps
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Explicit cost / starting cash</dt>
+                        <dd>
+                          {conciseCapitalDecimal(
+                            item.paperTradeSequence!
+                              .explicit_cost_to_starting_cash_bps,
+                          )}{" "}
+                          bps
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Buy → sale / sale → buy</dt>
+                        <dd>
+                          {item.paperTradeSequence!.buy_to_sell_reversal_count}{" "}
+                          /{" "}
+                          {item.paperTradeSequence!.sell_to_buy_reversal_count}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Same-side transitions</dt>
+                        <dd>
+                          {item.paperTradeSequence!.same_side_transition_count}
+                        </dd>
+                      </div>
+                    </dl>
+                    <ol>
+                      {item.paperTradeSequence!.symbols.map((symbol) => (
+                        <li key={`${symbol.instrument}:${symbol.symbol}`}>
+                          <strong>{symbol.symbol}</strong>
+                          <span>
+                            {symbol.first_side} → {symbol.last_side} ·{" "}
+                            {symbol.fill_count} fills
+                          </span>
+                          <small>
+                            {symbol.same_side_transition_count} same-side ·{" "}
+                            {symbol.opposite_side_transition_count}{" "}
+                            opposite-side · longest same-side streak{" "}
+                            {symbol.longest_same_side_streak}
+                          </small>
+                        </li>
+                      ))}
+                    </ol>
+                    <p>
+                      Exact chronology only. These counts do not establish
+                      intent, overtrading, performance, decision quality, or
+                      causality. Deterministic repeat-action cooldown checks
+                      remain separate immutable risk evidence.
+                    </p>
+                  </details>
                   {(item.paperExecutionTimeline ?? []).length > 0 ? (
                     <details
                       className="strategy-fleet-paper-outcome-timeline"
@@ -5099,6 +5191,12 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                               {" turnover"}
                             </span>
                             <small>
+                              {checkpoint.sideTransition === "FIRST"
+                                ? "First saved symbol fill"
+                                : checkpoint.sideTransition === "SAME_SIDE"
+                                  ? `Same side · streak ${checkpoint.sameSideStreak}`
+                                  : `${checkpoint.sideTransition === "BUY_TO_SELL" ? "Buy → sale" : "Sale → buy"} · ${conciseCapitalDecimal(checkpoint.oppositeSideElapsedSeconds)} sec`}
+                              {" · "}
                               Cumulative{" "}
                               {capitalMoney(
                                 item.paperCurrency,

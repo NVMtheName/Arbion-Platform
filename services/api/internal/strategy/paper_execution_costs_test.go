@@ -21,7 +21,7 @@ func TestProjectPaperExecutionCostsAttributesExactFeesAndAdverseSlippage(t *test
 		exactExecutionFill("buy", "BTC", "BUY", "1.0000000000", "100.0000000000", "100.2500000000", "100.2500000000", "0.5012500000", now),
 		exactExecutionFill("sell", "BTC", "SELL", "0.5000000000", "110.0000000000", "109.7250000000", "54.8625000000", "0.2743125000", now.Add(time.Hour)),
 	}
-	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedAvailable, FillCount: 2}, fills)
+	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedAvailable, FillCount: 2}, "1000", fills)
 	if outcome.Status != PaperExecutionCostsAvailable || outcome.CalculationMethod != PaperExecutionCostMethod || outcome.HistoricalCoverage != PaperCoverageCompleteGenesis {
 		t.Fatalf("execution cost contract unavailable: %#v", outcome)
 	}
@@ -43,9 +43,16 @@ func TestProjectPaperExecutionCostsAttributesExactFeesAndAdverseSlippage(t *test
 		t.Fatalf("side attribution changed: %#v", outcome.Sides)
 	}
 	if outcome.TimelineSampleCount != 2 || outcome.TimelineCapped || len(outcome.Timeline) != 2 ||
-		outcome.Timeline[0].Sequence != 1 || outcome.Timeline[0].FillID != "buy" || outcome.Timeline[0].CumulativeAllInCostRateBPS != "75.1250000000" || outcome.Timeline[0].CumulativeRateChange != "FIRST" ||
-		outcome.Timeline[1].Sequence != 2 || outcome.Timeline[1].FillID != "sell" || outcome.Timeline[1].ExplicitCost != "0.4118125000" || outcome.Timeline[1].CumulativeAllInCostRateBPS != outcome.AllInCostRateBPS || outcome.Timeline[1].CumulativeRateChange != "FELL" {
+		outcome.Timeline[0].Sequence != 1 || outcome.Timeline[0].FillID != "buy" || outcome.Timeline[0].CumulativeAllInCostRateBPS != "75.1250000000" || outcome.Timeline[0].CumulativeRateChange != "FIRST" || outcome.Timeline[0].SideTransition != "FIRST" || outcome.Timeline[0].SameSideStreak != 1 ||
+		outcome.Timeline[1].Sequence != 2 || outcome.Timeline[1].FillID != "sell" || outcome.Timeline[1].ExplicitCost != "0.4118125000" || outcome.Timeline[1].CumulativeAllInCostRateBPS != outcome.AllInCostRateBPS || outcome.Timeline[1].CumulativeRateChange != "FELL" || outcome.Timeline[1].SideTransition != "BUY_TO_SELL" || outcome.Timeline[1].OppositeSideElapsedSeconds != "3600.0000000000" {
 		t.Fatalf("execution cost timeline changed: %#v", outcome.Timeline)
+	}
+	if outcome.TradeSequence.Status != PaperExecutionCostsAvailable || outcome.TradeSequence.CalculationMethod != PaperTradeSequenceMethod ||
+		outcome.TradeSequence.StartingCash != "1000.0000000000" || outcome.TradeSequence.ProviderReferenceTurnoverToStartingCashBPS != "1550.0000000000" ||
+		outcome.TradeSequence.ExplicitCostToStartingCashBPS != "11.6306250000" || outcome.TradeSequence.OppositeSideTransitionCount != 1 ||
+		outcome.TradeSequence.BuyToSellReversalCount != 1 || outcome.TradeSequence.SellToBuyReversalCount != 0 || len(outcome.TradeSequence.Symbols) != 1 ||
+		outcome.TradeSequence.Symbols[0].LongestSameSideStreak != 1 || outcome.TradeSequence.Symbols[0].FirstSide != "BUY" || outcome.TradeSequence.Symbols[0].LastSide != "SELL" {
+		t.Fatalf("trade sequence contract changed: %#v", outcome.TradeSequence)
 	}
 	if len(outcome.MarketProviders) != 1 || outcome.MarketProviders[0] != "coinbase" || len(outcome.MarketFeeds) != 1 || outcome.MarketFeeds[0] != "rest_ticker" {
 		t.Fatalf("market attribution changed: %#v", outcome)
@@ -53,11 +60,21 @@ func TestProjectPaperExecutionCostsAttributesExactFeesAndAdverseSlippage(t *test
 }
 
 func TestProjectPaperExecutionCostsProvesEmptyGenesis(t *testing.T) {
-	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedNoSales}, nil)
+	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedNoSales}, "1000", nil)
 	if outcome.Status != PaperExecutionCostsNoFills || outcome.TotalFees != "0.0000000000" || outcome.TotalAdverseSlippage != "0.0000000000" ||
 		outcome.TotalExplicitCost != "0.0000000000" || outcome.ProviderReferenceNotional != "0.0000000000" || outcome.AllInCostRateBPS != "0.0000000000" ||
-		outcome.FillNotionalResidual != "0.0000000000" || outcome.MaximumAbsoluteFillResidual != "0.0000000000" || len(outcome.Sides) != 0 || len(outcome.Timeline) != 0 || outcome.TimelineSampleCount != 0 || outcome.TimelineCapped || outcome.FillCount != 0 {
+		outcome.FillNotionalResidual != "0.0000000000" || outcome.MaximumAbsoluteFillResidual != "0.0000000000" || len(outcome.Sides) != 0 || len(outcome.Timeline) != 0 || outcome.TimelineSampleCount != 0 || outcome.TimelineCapped || outcome.FillCount != 0 ||
+		outcome.TradeSequence.Status != PaperExecutionCostsNoFills || outcome.TradeSequence.StartingCash != "1000.0000000000" || len(outcome.TradeSequence.Symbols) != 0 {
 		t.Fatalf("empty execution cost contract changed: %#v", outcome)
+	}
+}
+
+func TestProjectPaperExecutionCostsFailsClosedWithoutExactStartingCash(t *testing.T) {
+	now := time.Date(2026, 8, 31, 8, 0, 0, 0, time.UTC)
+	fill := exactExecutionFill("buy", "BTC", "BUY", "1.0000000000", "100.0000000000", "100.2500000000", "100.2500000000", "0.5012500000", now)
+	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedAvailable, FillCount: 1}, "", []paperRealizedFill{fill})
+	if outcome.Status != PaperExecutionCostsUnavailable || outcome.TradeSequence.Status != PaperExecutionCostsUnavailable {
+		t.Fatalf("missing starting cash did not fail closed: %#v", outcome)
 	}
 }
 
@@ -68,7 +85,7 @@ func TestProjectPaperExecutionCostsBoundsTimelineWithoutTruncatingTotals(t *test
 		id := time.Duration(index).String()
 		fills = append(fills, exactExecutionFill(id, "BTC", "BUY", "1.0000000000", "100.0000000000", "100.2500000000", "100.2500000000", "0.5012500000", now.Add(time.Duration(index)*time.Hour)))
 	}
-	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedAvailable, FillCount: len(fills)}, fills)
+	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedAvailable, FillCount: len(fills)}, "1000", fills)
 	if outcome.Status != PaperExecutionCostsAvailable || outcome.FillCount != 13 || outcome.TimelineSampleCount != 13 || !outcome.TimelineCapped || len(outcome.Timeline) != PaperExecutionTimelineLimit {
 		t.Fatalf("bounded timeline contract changed: %#v", outcome)
 	}
@@ -80,7 +97,7 @@ func TestProjectPaperExecutionCostsBoundsTimelineWithoutTruncatingTotals(t *test
 func TestProjectPaperExecutionCostsFailsClosedWhenStoredNotionalResidualExceedsBound(t *testing.T) {
 	now := time.Date(2026, 8, 31, 8, 0, 0, 0, time.UTC)
 	fill := exactExecutionFill("buy", "BTC", "BUY", "1.0000000000", "100.0000000000", "100.2500000000", "100.2499999998", "0.5012500000", now)
-	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedAvailable, FillCount: 1}, []paperRealizedFill{fill})
+	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedAvailable, FillCount: 1}, "1000", []paperRealizedFill{fill})
 	if outcome.Status != PaperExecutionCostsUnavailable || outcome.TotalExplicitCost != "" || len(outcome.Sides) != 0 || len(outcome.Symbols) != 0 {
 		t.Fatalf("excess fill-notional residual was inferred: %#v", outcome)
 	}
@@ -90,7 +107,7 @@ func TestProjectPaperExecutionCostsFailsClosedOnInconsistentAttribution(t *testi
 	now := time.Date(2026, 8, 31, 8, 0, 0, 0, time.UTC)
 	fill := exactExecutionFill("buy", "BTC", "BUY", "1.0000000000", "100.0000000000", "100.2500000000", "100.2500000000", "0.5012500000", now)
 	fill.MarketProvider = ""
-	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedAvailable, FillCount: 1}, []paperRealizedFill{fill})
+	outcome := projectPaperExecutionCosts(PaperRealizedOutcome{Status: PaperRealizedAvailable, FillCount: 1}, "1000", []paperRealizedFill{fill})
 	if outcome.Status != PaperExecutionCostsUnavailable || outcome.TotalFees != "" || len(outcome.Symbols) != 0 {
 		t.Fatalf("inconsistent attribution was inferred: %#v", outcome)
 	}

@@ -117,11 +117,47 @@ export type PaperExecutionCheckpoint = {
   cumulative_gross_notional: string;
   cumulative_all_in_cost_rate_bps: string;
   cumulative_rate_change: "FIRST" | "ROSE" | "FELL" | "HELD";
+  symbol_sequence: number;
+  same_side_streak: number;
+  side_transition: "FIRST" | "SAME_SIDE" | "BUY_TO_SELL" | "SELL_TO_BUY";
+  opposite_side_elapsed_seconds?: string;
   market_provider: string;
   market_feed: string;
   market_quality: string;
   market_observed_at: string;
   simulated_at: string;
+};
+
+export type PaperTradeSequenceSymbol = {
+  symbol: string;
+  instrument: "EQUITY" | "CRYPTO";
+  fill_count: number;
+  buy_fill_count: number;
+  sell_fill_count: number;
+  same_side_transition_count: number;
+  opposite_side_transition_count: number;
+  buy_to_sell_reversal_count: number;
+  sell_to_buy_reversal_count: number;
+  longest_same_side_streak: number;
+  first_side: "BUY" | "SELL";
+  last_side: "BUY" | "SELL";
+  first_fill_at: string;
+  last_fill_at: string;
+};
+
+export type PaperTradeSequenceEvidence = {
+  status: "AVAILABLE" | "NO_FILLS" | "UNAVAILABLE";
+  calculation_method?: "COMPLETE_IMMUTABLE_FILL_SEQUENCE";
+  historical_coverage?: "COMPLETE_FROM_PORTFOLIO_GENESIS";
+  starting_cash?: string;
+  provider_reference_turnover_to_starting_cash_bps?: string;
+  explicit_cost_to_starting_cash_bps?: string;
+  fill_count: number;
+  same_side_transition_count: number;
+  opposite_side_transition_count: number;
+  buy_to_sell_reversal_count: number;
+  sell_to_buy_reversal_count: number;
+  symbols: PaperTradeSequenceSymbol[];
 };
 
 export type PaperExecutionCosts = {
@@ -150,6 +186,7 @@ export type PaperExecutionCosts = {
   timeline_sample_count: number;
   timeline_capped: boolean;
   timeline: PaperExecutionCheckpoint[];
+  trade_sequence: PaperTradeSequenceEvidence;
 };
 
 export type PaperPortfolio = {
@@ -436,6 +473,95 @@ export function PaperPortfolioSummary({
         10,
       )
     : undefined;
+  const tradeSequence = executionCosts?.trade_sequence;
+  const tradeSequenceSymbols = Array.isArray(tradeSequence?.symbols)
+    ? tradeSequence.symbols
+    : [];
+  const expectedTurnoverToStartingCash =
+    executionCosts && tradeSequence?.starting_cash
+      ? divideExactDecimals(
+          multiplyExactDecimals(
+            executionCosts.provider_reference_notional ?? "invalid",
+            "10000",
+          ) ?? "invalid",
+          tradeSequence.starting_cash,
+          10,
+        )
+      : undefined;
+  const expectedCostToStartingCash =
+    executionCosts && tradeSequence?.starting_cash
+      ? divideExactDecimals(
+          multiplyExactDecimals(
+            executionCosts.total_explicit_cost ?? "invalid",
+            "10000",
+          ) ?? "invalid",
+          tradeSequence.starting_cash,
+          10,
+        )
+      : undefined;
+  const tradeSequenceAvailable = Boolean(
+    tradeSequence &&
+      ["AVAILABLE", "NO_FILLS"].includes(tradeSequence.status) &&
+      tradeSequence.calculation_method === "COMPLETE_IMMUTABLE_FILL_SEQUENCE" &&
+      tradeSequence.historical_coverage === "COMPLETE_FROM_PORTFOLIO_GENESIS" &&
+      tradeSequence.fill_count === executionCosts?.fill_count &&
+      isExactDecimal(tradeSequence.starting_cash) &&
+      compareExactDecimals(
+        tradeSequence.starting_cash!,
+        portfolio.starting_cash,
+      ) === 0 &&
+      isExactDecimal(
+        tradeSequence.provider_reference_turnover_to_starting_cash_bps,
+      ) &&
+      isExactDecimal(tradeSequence.explicit_cost_to_starting_cash_bps) &&
+      compareExactDecimals(
+        expectedTurnoverToStartingCash ?? "invalid",
+        tradeSequence.provider_reference_turnover_to_starting_cash_bps!,
+      ) === 0 &&
+      compareExactDecimals(
+        expectedCostToStartingCash ?? "invalid",
+        tradeSequence.explicit_cost_to_starting_cash_bps!,
+      ) === 0 &&
+      Number.isSafeInteger(tradeSequence.same_side_transition_count) &&
+      Number.isSafeInteger(tradeSequence.opposite_side_transition_count) &&
+      Number.isSafeInteger(tradeSequence.buy_to_sell_reversal_count) &&
+      Number.isSafeInteger(tradeSequence.sell_to_buy_reversal_count) &&
+      tradeSequence.buy_to_sell_reversal_count +
+        tradeSequence.sell_to_buy_reversal_count ===
+        tradeSequence.opposite_side_transition_count &&
+      tradeSequenceSymbols.every(
+        (symbol) =>
+          Boolean(symbol.symbol) &&
+          ["EQUITY", "CRYPTO"].includes(symbol.instrument) &&
+          symbol.fill_count > 0 &&
+          symbol.buy_fill_count + symbol.sell_fill_count ===
+            symbol.fill_count &&
+          symbol.same_side_transition_count +
+            symbol.opposite_side_transition_count ===
+            symbol.fill_count - 1 &&
+          symbol.buy_to_sell_reversal_count +
+            symbol.sell_to_buy_reversal_count ===
+            symbol.opposite_side_transition_count &&
+          symbol.longest_same_side_streak >= 1 &&
+          symbol.longest_same_side_streak <= symbol.fill_count &&
+          ["BUY", "SELL"].includes(symbol.first_side) &&
+          ["BUY", "SELL"].includes(symbol.last_side) &&
+          !Number.isNaN(Date.parse(symbol.first_fill_at)) &&
+          !Number.isNaN(Date.parse(symbol.last_fill_at)),
+      ) &&
+      tradeSequenceSymbols.reduce(
+        (count, symbol) => count + symbol.fill_count,
+        0,
+      ) === tradeSequence.fill_count &&
+      tradeSequenceSymbols.reduce(
+        (count, symbol) => count + symbol.same_side_transition_count,
+        0,
+      ) === tradeSequence.same_side_transition_count &&
+      tradeSequenceSymbols.reduce(
+        (count, symbol) => count + symbol.opposite_side_transition_count,
+        0,
+      ) === tradeSequence.opposite_side_transition_count,
+  );
   const executionCostsAvailable = Boolean(
     executionCosts &&
       ["AVAILABLE", "NO_FILLS"].includes(executionCosts.status) &&
@@ -443,6 +569,7 @@ export function PaperPortfolioSummary({
         "SAVED_REFERENCE_VERSUS_SIMULATED_FILL" &&
       executionCosts.historical_coverage ===
         "COMPLETE_FROM_PORTFOLIO_GENESIS" &&
+      tradeSequenceAvailable &&
       Array.isArray(executionCosts.market_providers) &&
       Array.isArray(executionCosts.market_feeds) &&
       Array.isArray(executionCosts.market_qualities) &&
@@ -527,6 +654,17 @@ export function PaperPortfolioSummary({
           ["FIRST", "ROSE", "FELL", "HELD"].includes(
             checkpoint.cumulative_rate_change,
           ) &&
+          ["FIRST", "SAME_SIDE", "BUY_TO_SELL", "SELL_TO_BUY"].includes(
+            checkpoint.side_transition,
+          ) &&
+          Number.isSafeInteger(checkpoint.symbol_sequence) &&
+          checkpoint.symbol_sequence >= 1 &&
+          Number.isSafeInteger(checkpoint.same_side_streak) &&
+          checkpoint.same_side_streak >= 1 &&
+          checkpoint.same_side_streak <= checkpoint.symbol_sequence &&
+          (["BUY_TO_SELL", "SELL_TO_BUY"].includes(checkpoint.side_transition)
+            ? isExactDecimal(checkpoint.opposite_side_elapsed_seconds)
+            : checkpoint.opposite_side_elapsed_seconds === undefined) &&
           isExactDecimal(checkpoint.fee) &&
           isExactDecimal(checkpoint.adverse_slippage) &&
           isExactDecimal(checkpoint.explicit_cost) &&
@@ -1009,6 +1147,104 @@ export function PaperPortfolioSummary({
                 $0.
               </p>
             )}
+            <details
+              className="paper-fill-ledger"
+              aria-label="Exact immutable Paper trade sequence and churn evidence"
+            >
+              <summary className="paper-performance-header">
+                <span>
+                  <strong>Trade sequence + churn context</strong>
+                  <small>Complete immutable simulation fill chain</small>
+                </span>
+                <span>
+                  {tradeSequence!.opposite_side_transition_count} reversal
+                  {tradeSequence!.opposite_side_transition_count === 1
+                    ? ""
+                    : "s"}
+                </span>
+              </summary>
+              <div className="paper-performance-grid">
+                <article>
+                  <span>Reference turnover / starting cash</span>
+                  <strong>
+                    {formatExactDecimal(
+                      tradeSequence!
+                        .provider_reference_turnover_to_starting_cash_bps!,
+                      { maximumFractionDigits: 4, suffix: " bps" },
+                    )}
+                  </strong>
+                </article>
+                <article>
+                  <span>Explicit cost / starting cash</span>
+                  <strong>
+                    {formatExactDecimal(
+                      tradeSequence!.explicit_cost_to_starting_cash_bps!,
+                      { maximumFractionDigits: 4, suffix: " bps" },
+                    )}
+                  </strong>
+                </article>
+                <article>
+                  <span>Buy → sale / sale → buy</span>
+                  <strong>
+                    {tradeSequence!.buy_to_sell_reversal_count} /{" "}
+                    {tradeSequence!.sell_to_buy_reversal_count}
+                  </strong>
+                </article>
+                <article>
+                  <span>Same-side transitions</span>
+                  <strong>{tradeSequence!.same_side_transition_count}</strong>
+                </article>
+              </div>
+              {tradeSequence!.symbols.length > 0 ? (
+                <div className="paper-position-table-wrap">
+                  <table
+                    className="paper-position-table"
+                    aria-label="Exact per-symbol Paper trade sequence"
+                  >
+                    <thead>
+                      <tr>
+                        <th>Symbol</th>
+                        <th>Fill sequence</th>
+                        <th>Same-side transitions</th>
+                        <th>Opposite-side transitions</th>
+                        <th>Longest same-side streak</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tradeSequence!.symbols.map((symbol) => (
+                        <tr key={`${symbol.instrument}:${symbol.symbol}`}>
+                          <td>{symbol.symbol}</td>
+                          <td>
+                            {symbol.first_side} → {symbol.last_side} ·{" "}
+                            {symbol.fill_count} fills
+                          </td>
+                          <td>{symbol.same_side_transition_count}</td>
+                          <td>
+                            {symbol.opposite_side_transition_count} ·{" "}
+                            {symbol.buy_to_sell_reversal_count} buy → sale /{" "}
+                            {symbol.sell_to_buy_reversal_count} sale → buy
+                          </td>
+                          <td>{symbol.longest_same_side_streak}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="security-note">
+                  No simulated fills yet; transition counts are exactly zero.
+                </p>
+              )}
+              <p className="paper-market-source">
+                Exact chronology only. Turnover and explicit simulated cost are
+                compared with the immutable{" "}
+                {money(tradeSequence!.starting_cash!, portfolio.currency)}{" "}
+                starting ledger. Same-side streaks and side reversals do not
+                establish intent, overtrading, performance, decision quality, or
+                causality. Deterministic repeat-action cooldown checks remain
+                separate risk evidence.
+              </p>
+            </details>
             {executionCosts!.timeline.length > 0 ? (
               <details
                 className="paper-fill-ledger"
@@ -1051,6 +1287,14 @@ export function PaperPortfolioSummary({
                             <br />
                             {checkpoint.side === "SELL" ? "SALE" : "BUY"}{" "}
                             {checkpoint.symbol}
+                            <br />
+                            <small>
+                              {checkpoint.side_transition === "FIRST"
+                                ? "First saved symbol fill"
+                                : checkpoint.side_transition === "SAME_SIDE"
+                                  ? `Same side · streak ${checkpoint.same_side_streak}`
+                                  : `${checkpoint.side_transition === "BUY_TO_SELL" ? "Buy → sale" : "Sale → buy"} · ${formatExactDecimal(checkpoint.opposite_side_elapsed_seconds!, { maximumFractionDigits: 2, suffix: " sec" })}`}
+                            </small>
                           </td>
                           <td>
                             {money(

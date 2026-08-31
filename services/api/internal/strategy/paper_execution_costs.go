@@ -13,11 +13,20 @@ const (
 	PaperExecutionCostsUnavailable = "UNAVAILABLE"
 	PaperExecutionCostMethod       = "SAVED_REFERENCE_VERSUS_SIMULATED_FILL"
 	PaperExecutionTimelineLimit    = 12
+	PaperTradeSequenceMethod       = "COMPLETE_IMMUTABLE_FILL_SEQUENCE"
 )
 
 type paperExecutionSymbolState struct {
 	fees, slippage, reference, gross *big.Rat
 	fillCount, buyCount, sellCount   int
+}
+
+type paperTradeSequenceState struct {
+	symbol, instrument, firstSide, lastSide        string
+	fillCount, buyCount, sellCount                 int
+	sameCount, oppositeCount, buyToSell, sellToBuy int
+	currentSameSideStreak, longestSameSideStreak   int
+	firstFillAt, lastFillAt                        time.Time
 }
 
 func paperValueIsUnique(seen map[string]struct{}, value string) bool {
@@ -32,6 +41,7 @@ func unavailablePaperExecutionCosts(fillCount int) PaperExecutionCosts {
 	return PaperExecutionCosts{
 		Status: PaperExecutionCostsUnavailable, FillCount: fillCount,
 		MarketProviders: []string{}, MarketFeeds: []string{}, MarketQualities: []string{}, Sides: []PaperExecutionSideCost{}, Symbols: []PaperExecutionSymbolCost{}, Timeline: []PaperExecutionCheckpoint{},
+		TradeSequence: PaperTradeSequenceEvidence{Status: PaperExecutionCostsUnavailable, FillCount: fillCount, Symbols: []PaperTradeSequenceSymbol{}},
 	}
 }
 
@@ -54,8 +64,12 @@ func sortedPaperSet(values map[string]struct{}) []string {
 
 // projectPaperExecutionCosts attributes only explicit simulation costs saved in
 // immutable fill evidence. It never estimates spreads, fees, or broker costs.
-func projectPaperExecutionCosts(realized PaperRealizedOutcome, fills []paperRealizedFill) PaperExecutionCosts {
+func projectPaperExecutionCosts(realized PaperRealizedOutcome, startingCash string, fills []paperRealizedFill) PaperExecutionCosts {
 	if realized.Status == PaperRealizedUnavailable || realized.FillCount != len(fills) {
+		return unavailablePaperExecutionCosts(len(fills))
+	}
+	startingCashValue, startingCashOK := paperRat(startingCash)
+	if !startingCashOK || startingCashValue.Sign() <= 0 {
 		return unavailablePaperExecutionCosts(len(fills))
 	}
 	if len(fills) == 0 {
@@ -65,6 +79,8 @@ func projectPaperExecutionCosts(realized PaperRealizedOutcome, fills []paperReal
 			ProviderReferenceNotional: "0.0000000000", GrossNotional: "0.0000000000", AllInCostRateBPS: "0.0000000000",
 			FillNotionalResidual: "0.0000000000", MaximumAbsoluteFillResidual: "0.0000000000", ResidualBoundPerFill: "0.0000000001",
 			MarketProviders: []string{}, MarketFeeds: []string{}, MarketQualities: []string{}, Sides: []PaperExecutionSideCost{}, Symbols: []PaperExecutionSymbolCost{}, Timeline: []PaperExecutionCheckpoint{},
+			TradeSequence: PaperTradeSequenceEvidence{Status: PaperExecutionCostsNoFills, CalculationMethod: PaperTradeSequenceMethod, HistoricalCoverage: PaperCoverageCompleteGenesis,
+				StartingCash: paperDecimal(startingCashValue), ProviderReferenceTurnoverToStartingCashBPS: "0.0000000000", ExplicitCostToStartingCashBPS: "0.0000000000", Symbols: []PaperTradeSequenceSymbol{}},
 		}
 	}
 
@@ -73,6 +89,7 @@ func projectPaperExecutionCosts(realized PaperRealizedOutcome, fills []paperReal
 	timeline := make([]PaperExecutionCheckpoint, 0, len(fills))
 	var previousCumulativeRate *big.Rat
 	states := map[string]*paperExecutionSymbolState{}
+	sequenceStates := map[string]*paperTradeSequenceState{}
 	sideStates := map[string]*paperExecutionSymbolState{}
 	providers, feeds, qualities := map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}
 	seenFill, seenExecution, seenAction, seenRisk := map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}
@@ -167,6 +184,39 @@ func projectPaperExecutionCosts(realized PaperRealizedOutcome, fills []paperReal
 		totalSlippage = paperAdd(totalSlippage, slippage)
 		totalReference = paperAdd(totalReference, referenceNotional)
 		totalGross = paperAdd(totalGross, gross)
+		sequenceState := sequenceStates[key]
+		sideTransition, oppositeSideElapsed := "FIRST", ""
+		if sequenceState == nil {
+			sequenceState = &paperTradeSequenceState{symbol: fill.Symbol, instrument: fill.Instrument, firstSide: fill.Side, lastSide: fill.Side,
+				currentSameSideStreak: 1, longestSameSideStreak: 1, firstFillAt: fill.SimulatedAt, lastFillAt: fill.SimulatedAt}
+			sequenceStates[key] = sequenceState
+		} else if fill.Side == sequenceState.lastSide {
+			sideTransition = "SAME_SIDE"
+			sequenceState.sameCount++
+			sequenceState.currentSameSideStreak++
+			if sequenceState.currentSameSideStreak > sequenceState.longestSameSideStreak {
+				sequenceState.longestSameSideStreak = sequenceState.currentSameSideStreak
+			}
+		} else {
+			oppositeSideElapsed = paperDecimal(new(big.Rat).SetFrac(big.NewInt(fill.SimulatedAt.Sub(sequenceState.lastFillAt).Nanoseconds()), big.NewInt(int64(time.Second))))
+			sequenceState.oppositeCount++
+			sequenceState.currentSameSideStreak = 1
+			if sequenceState.lastSide == "BUY" {
+				sideTransition = "BUY_TO_SELL"
+				sequenceState.buyToSell++
+			} else {
+				sideTransition = "SELL_TO_BUY"
+				sequenceState.sellToBuy++
+			}
+		}
+		sequenceState.fillCount++
+		if fill.Side == "BUY" {
+			sequenceState.buyCount++
+		} else {
+			sequenceState.sellCount++
+		}
+		sequenceState.lastSide = fill.Side
+		sequenceState.lastFillAt = fill.SimulatedAt
 		fillExplicitCost := paperAdd(fee, slippage)
 		cumulativeExplicitCost := paperAdd(totalFees, totalSlippage)
 		cumulativeRate := new(big.Rat).Mul(new(big.Rat).Quo(cumulativeExplicitCost, totalReference), big.NewRat(10000, 1))
@@ -193,6 +243,7 @@ func projectPaperExecutionCosts(realized PaperRealizedOutcome, fills []paperReal
 			ExplicitCost: paperDecimal(fillExplicitCost), ProviderReferenceNotional: paperDecimal(referenceNotional), GrossNotional: paperDecimal(gross), FillNotionalResidual: paperDecimal(signedFillResidual),
 			CumulativeFees: paperDecimal(totalFees), CumulativeAdverseSlippage: paperDecimal(totalSlippage), CumulativeExplicitCost: paperDecimal(cumulativeExplicitCost),
 			CumulativeProviderReferenceNotional: paperDecimal(totalReference), CumulativeGrossNotional: paperDecimal(totalGross), CumulativeAllInCostRateBPS: cumulativeRateText, CumulativeRateChange: rateChange,
+			SymbolSequence: sequenceState.fillCount, SameSideStreak: sequenceState.currentSameSideStreak, SideTransition: sideTransition, OppositeSideElapsedSeconds: oppositeSideElapsed,
 			MarketProvider: fill.MarketProvider, MarketFeed: fill.MarketFeed, MarketQuality: fill.MarketQuality, MarketObservedAt: fill.MarketObservedAt, SimulatedAt: fill.SimulatedAt,
 		})
 		providers[fill.MarketProvider] = struct{}{}
@@ -239,6 +290,22 @@ func projectPaperExecutionCosts(realized PaperRealizedOutcome, fills []paperReal
 	if timelineCapped {
 		timeline = append([]PaperExecutionCheckpoint(nil), timeline[timelineSampleCount-PaperExecutionTimelineLimit:]...)
 	}
+	sequenceSymbols := make([]PaperTradeSequenceSymbol, 0, len(sequenceStates))
+	totalSameSideTransitions, totalOppositeSideTransitions, totalBuyToSell, totalSellToBuy := 0, 0, 0, 0
+	for _, key := range keys {
+		state := sequenceStates[key]
+		firstFillAt, lastFillAt := state.firstFillAt, state.lastFillAt
+		sequenceSymbols = append(sequenceSymbols, PaperTradeSequenceSymbol{Symbol: state.symbol, Instrument: state.instrument, FillCount: state.fillCount,
+			BuyFillCount: state.buyCount, SellFillCount: state.sellCount, SameSideTransitionCount: state.sameCount, OppositeSideTransitionCount: state.oppositeCount,
+			BuyToSellReversalCount: state.buyToSell, SellToBuyReversalCount: state.sellToBuy, LongestSameSideStreak: state.longestSameSideStreak,
+			FirstSide: state.firstSide, LastSide: state.lastSide, FirstFillAt: &firstFillAt, LastFillAt: &lastFillAt})
+		totalSameSideTransitions += state.sameCount
+		totalOppositeSideTransitions += state.oppositeCount
+		totalBuyToSell += state.buyToSell
+		totalSellToBuy += state.sellToBuy
+	}
+	turnoverToStartingCash := new(big.Rat).Mul(new(big.Rat).Quo(totalReference, startingCashValue), big.NewRat(10000, 1))
+	explicitCostToStartingCash := new(big.Rat).Mul(new(big.Rat).Quo(totalExplicitCost, startingCashValue), big.NewRat(10000, 1))
 	return PaperExecutionCosts{
 		Status: PaperExecutionCostsAvailable, CalculationMethod: PaperExecutionCostMethod, HistoricalCoverage: PaperCoverageCompleteGenesis,
 		TotalFees: paperDecimal(totalFees), TotalAdverseSlippage: paperDecimal(totalSlippage), TotalExplicitCost: paperDecimal(totalExplicitCost),
@@ -247,5 +314,9 @@ func projectPaperExecutionCosts(realized PaperRealizedOutcome, fills []paperReal
 		FillCount: len(fills), BuyFillCount: buyCount, SellFillCount: sellCount, FirstFillAt: &firstFillAt, LastFillAt: &lastFillAt,
 		MarketProviders: sortedPaperSet(providers), MarketFeeds: sortedPaperSet(feeds), MarketQualities: sortedPaperSet(qualities), Sides: sides, Symbols: symbols,
 		TimelineSampleCount: timelineSampleCount, TimelineCapped: timelineCapped, Timeline: timeline,
+		TradeSequence: PaperTradeSequenceEvidence{Status: PaperExecutionCostsAvailable, CalculationMethod: PaperTradeSequenceMethod, HistoricalCoverage: PaperCoverageCompleteGenesis,
+			StartingCash: paperDecimal(startingCashValue), ProviderReferenceTurnoverToStartingCashBPS: paperDecimal(turnoverToStartingCash), ExplicitCostToStartingCashBPS: paperDecimal(explicitCostToStartingCash),
+			FillCount: len(fills), SameSideTransitionCount: totalSameSideTransitions, OppositeSideTransitionCount: totalOppositeSideTransitions,
+			BuyToSellReversalCount: totalBuyToSell, SellToBuyReversalCount: totalSellToBuy, Symbols: sequenceSymbols},
 	}
 }

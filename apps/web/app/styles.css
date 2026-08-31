@@ -2704,6 +2704,30 @@ button:disabled {
   padding: 0;
   list-style: none;
 }
+.strategy-fleet-paper-outcome-timeline > dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 9px 0;
+}
+.strategy-fleet-paper-outcome-timeline > dl > div {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border-radius: 8px;
+  background: rgba(25, 201, 214, 0.055);
+}
+.strategy-fleet-paper-outcome-timeline > dl dt {
+  color: #708990;
+  font-size: 0.52rem;
+  text-transform: uppercase;
+}
+.strategy-fleet-paper-outcome-timeline > dl dd {
+  margin: 0;
+  color: #b8dadd;
+  font-size: 0.59rem;
+  font-weight: 730;
+}
 .strategy-fleet-paper-outcome-timeline > ol > li {
   display: grid;
   gap: 6px;
@@ -6156,6 +6180,9 @@ button:disabled {
   .strategy-fleet-exposure-outcomes > div > dl,
   .strategy-fleet-symbol-outcomes > ol,
   .strategy-fleet-outcome-timeline dl {
+    grid-template-columns: 1fr;
+  }
+  .strategy-fleet-paper-outcome-timeline > dl {
     grid-template-columns: 1fr;
   }
   .strategy-fleet-paper-outcome-symbols {

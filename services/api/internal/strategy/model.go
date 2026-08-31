@@ -444,6 +444,7 @@ type PaperExecutionCosts struct {
 	TimelineSampleCount         int                        `json:"timeline_sample_count"`
 	TimelineCapped              bool                       `json:"timeline_capped"`
 	Timeline                    []PaperExecutionCheckpoint `json:"timeline"`
+	TradeSequence               PaperTradeSequenceEvidence `json:"trade_sequence"`
 }
 
 type PaperExecutionSymbolCost struct {
@@ -496,11 +497,50 @@ type PaperExecutionCheckpoint struct {
 	CumulativeGrossNotional             string    `json:"cumulative_gross_notional"`
 	CumulativeAllInCostRateBPS          string    `json:"cumulative_all_in_cost_rate_bps"`
 	CumulativeRateChange                string    `json:"cumulative_rate_change"`
+	SymbolSequence                      int       `json:"symbol_sequence"`
+	SameSideStreak                      int       `json:"same_side_streak"`
+	SideTransition                      string    `json:"side_transition"`
+	OppositeSideElapsedSeconds          string    `json:"opposite_side_elapsed_seconds,omitempty"`
 	MarketProvider                      string    `json:"market_provider"`
 	MarketFeed                          string    `json:"market_feed"`
 	MarketQuality                       string    `json:"market_quality"`
 	MarketObservedAt                    time.Time `json:"market_observed_at"`
 	SimulatedAt                         time.Time `json:"simulated_at"`
+}
+
+// PaperTradeSequenceEvidence describes only exact chronology in the complete
+// immutable simulation fill chain. It does not classify trading behavior or
+// infer intent, performance, decision quality, or causality.
+type PaperTradeSequenceEvidence struct {
+	Status                                     string                     `json:"status"`
+	CalculationMethod                          string                     `json:"calculation_method,omitempty"`
+	HistoricalCoverage                         string                     `json:"historical_coverage,omitempty"`
+	StartingCash                               string                     `json:"starting_cash,omitempty"`
+	ProviderReferenceTurnoverToStartingCashBPS string                     `json:"provider_reference_turnover_to_starting_cash_bps,omitempty"`
+	ExplicitCostToStartingCashBPS              string                     `json:"explicit_cost_to_starting_cash_bps,omitempty"`
+	FillCount                                  int                        `json:"fill_count"`
+	SameSideTransitionCount                    int                        `json:"same_side_transition_count"`
+	OppositeSideTransitionCount                int                        `json:"opposite_side_transition_count"`
+	BuyToSellReversalCount                     int                        `json:"buy_to_sell_reversal_count"`
+	SellToBuyReversalCount                     int                        `json:"sell_to_buy_reversal_count"`
+	Symbols                                    []PaperTradeSequenceSymbol `json:"symbols"`
+}
+
+type PaperTradeSequenceSymbol struct {
+	Symbol                      string     `json:"symbol"`
+	Instrument                  string     `json:"instrument"`
+	FillCount                   int        `json:"fill_count"`
+	BuyFillCount                int        `json:"buy_fill_count"`
+	SellFillCount               int        `json:"sell_fill_count"`
+	SameSideTransitionCount     int        `json:"same_side_transition_count"`
+	OppositeSideTransitionCount int        `json:"opposite_side_transition_count"`
+	BuyToSellReversalCount      int        `json:"buy_to_sell_reversal_count"`
+	SellToBuyReversalCount      int        `json:"sell_to_buy_reversal_count"`
+	LongestSameSideStreak       int        `json:"longest_same_side_streak"`
+	FirstSide                   string     `json:"first_side"`
+	LastSide                    string     `json:"last_side"`
+	FirstFillAt                 *time.Time `json:"first_fill_at,omitempty"`
+	LastFillAt                  *time.Time `json:"last_fill_at,omitempty"`
 }
 
 // PaperPosition contains only normalized simulated position facts.
