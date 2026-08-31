@@ -26,6 +26,7 @@ type Props = {
   instance?: Entity;
   schedule?: Entity;
   paperPortfolio?: PaperPortfolio;
+  evidenceReadinessContractAvailable: boolean;
   automationBreaker?: Entity;
   schedulerEnabled: boolean;
   decisions?: Entity[];
@@ -471,6 +472,13 @@ export function PaperAutonomyReadinessControlPlane(props: Props) {
     : collecting
       ? "PAPER MONITORING"
       : "PAPER VERIFIED";
+  const evidenceGate = props.paperPortfolio?.evidence_readiness;
+  const evidenceGateAvailable =
+    props.evidenceReadinessContractAvailable && Boolean(evidenceGate);
+  const evidenceGateAttention =
+    !evidenceGateAvailable ||
+    evidenceGate?.status === "REVIEW_REQUIRED" ||
+    evidenceGate?.status === "UNAVAILABLE";
 
   return (
     <section
@@ -514,6 +522,110 @@ export function PaperAutonomyReadinessControlPlane(props: Props) {
           </article>
         ))}
       </div>
+
+      <details
+        className={`strategy-fleet-exposure-outcomes is-paper${evidenceGateAttention ? " is-attention" : ""}`}
+        open={evidenceGateAttention}
+      >
+        <summary>
+          <span>
+            <strong>Paper autonomy evidence gate</strong>
+            <small>Seven days and 20 automatic decisions</small>
+          </span>
+          <span>
+            {!evidenceGateAvailable
+              ? "Evidence unavailable"
+              : evidenceGate!.status === "COLLECTING_EVIDENCE"
+                ? "Collecting evidence"
+                : evidenceGate!.status === "EVIDENCE_REVIEWABLE"
+                  ? "Owner reviewable"
+                  : evidenceGate!.status === "REVIEW_REQUIRED"
+                    ? "Review required"
+                    : "Unavailable"}
+          </span>
+        </summary>
+        {!evidenceGateAvailable ? (
+          <p>
+            The exact immutable decision, scheduler, ledger, and no-live
+            contract could not be verified. Arbion does not infer readiness.
+          </p>
+        ) : (
+          <div>
+            <dl>
+              <div>
+                <dt>Saved evidence window</dt>
+                <dd>
+                  {evidenceGate!.evidence_window_hours} /{" "}
+                  {evidenceGate!.minimum_evidence_window_hours} hours
+                </dd>
+              </div>
+              <div>
+                <dt>Automatic decisions</dt>
+                <dd>
+                  {evidenceGate!.decision_count} /{" "}
+                  {evidenceGate!.minimum_decision_count}
+                </dd>
+                <small>
+                  {evidenceGate!.abstention_count} abstain ·{" "}
+                  {evidenceGate!.proposal_count} propose
+                </small>
+              </div>
+              <div>
+                <dt>Provenance</dt>
+                <dd>
+                  {evidenceGate!.attributed_decision_count} /{" "}
+                  {evidenceGate!.decision_count} attributable
+                </dd>
+                <small>
+                  {evidenceGate!.telemetry_complete_count} telemetry complete ·{" "}
+                  {evidenceGate!.bounded_memory_count} bounded-memory
+                </small>
+              </div>
+              <div>
+                <dt>Current scheduler</dt>
+                <dd>
+                  {evidenceGate!.last_schedule_status || "UNAVAILABLE"} ·{" "}
+                  {evidenceGate!.consecutive_schedule_failures} failures
+                </dd>
+              </div>
+              <div>
+                <dt>Isolated ledger</dt>
+                <dd>
+                  {evidenceGate!.ledger_contracts_reconciled
+                    ? "Reconciled"
+                    : "Review required"}
+                </dd>
+              </div>
+              <div>
+                <dt>No-live invariant</dt>
+                <dd>{evidenceGate!.safety.status}</dd>
+                <small>
+                  {evidenceGate!.safety.live_mandate_count} live mandates ·{" "}
+                  {evidenceGate!.safety.ai_order_intent_count} AI order intents
+                  · {evidenceGate!.safety.non_simulation_fill_count}{" "}
+                  non-simulation fills
+                </small>
+              </div>
+            </dl>
+            {evidenceGate!.blockers.length > 0 && (
+              <ol>
+                {evidenceGate!.blockers.map((blocker) => (
+                  <li key={`${blocker.category}:${blocker.code}`}>
+                    <strong>{blocker.code.replaceAll("_", " ")}</strong>
+                    <span>{blocker.detail}</span>
+                    <small>{blocker.category}</small>
+                  </li>
+                ))}
+              </ol>
+            )}
+            <p>
+              Collection is normal until both thresholds are met. Proposals,
+              fills, and profit are not required. Reviewability does not grant
+              live authority or enable promotion.
+            </p>
+          </div>
+        )}
+      </details>
 
       <footer>
         <div>

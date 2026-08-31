@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { compareExactDecimals } from "../exact-money";
 import type {
   PaperActivityCadence,
+  PaperAutonomyEvidenceGate,
   PaperGuardrailEvidence,
   PaperTradeSequenceEvidence,
 } from "./paper-portfolio-summary";
@@ -196,6 +197,8 @@ export type StrategyFleetItem = {
   paperActivityCadence?: PaperActivityCadence;
   paperGuardrailEvidenceContractAvailable?: boolean;
   paperGuardrailEvidence?: PaperGuardrailEvidence;
+  paperEvidenceReadinessContractAvailable?: boolean;
+  paperEvidenceReadiness?: PaperAutonomyEvidenceGate;
   paperTradeSequence?: PaperTradeSequenceEvidence;
   paperExecutionTimeline?: Array<{
     sequence: number;
@@ -1630,6 +1633,9 @@ function needsReview(item: StrategyFleetItem) {
         item.paperRealizedOutcomeStatus === "UNAVAILABLE" ||
         item.paperExecutionCostsContractAvailable === false ||
         item.paperExecutionCostsStatus === "UNAVAILABLE" ||
+        item.paperEvidenceReadinessContractAvailable === false ||
+        item.paperEvidenceReadiness?.status === "REVIEW_REQUIRED" ||
+        item.paperEvidenceReadiness?.status === "UNAVAILABLE" ||
         item.paperOutcomeReconciliationStatus === "UNAVAILABLE" ||
         item.paperOutcomeReconciliationStatus === "MISMATCH")) ||
     paperOutcomeLimitBreach(item) ||
@@ -5969,6 +5975,152 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
   );
 }
 
+function StrategyFleetPaperEvidenceGate({ item }: { item: StrategyFleetItem }) {
+  if (item.executionMode !== "PAPER") return null;
+  if (
+    item.paperEvidenceReadinessContractAvailable === undefined &&
+    item.paperEvidenceReadiness === undefined
+  )
+    return null;
+  const gate = item.paperEvidenceReadiness;
+  const available =
+    item.paperEvidenceReadinessContractAvailable === true && Boolean(gate);
+  const attention =
+    !available ||
+    gate?.status === "REVIEW_REQUIRED" ||
+    gate?.status === "UNAVAILABLE";
+  const statusLabel = !available
+    ? "Evidence unavailable"
+    : gate!.status === "COLLECTING_EVIDENCE"
+      ? "Collecting evidence"
+      : gate!.status === "EVIDENCE_REVIEWABLE"
+        ? "Owner reviewable"
+        : gate!.status === "REVIEW_REQUIRED"
+          ? "Review required"
+          : "Unavailable";
+  return (
+    <details
+      className={`strategy-fleet-exposure-outcomes is-paper${attention ? " is-attention" : ""}`}
+      open={attention}
+    >
+      <summary>
+        <span>
+          <strong>Paper autonomy evidence gate</strong>
+          <small>Seven-day / 20-decision owner-review threshold</small>
+        </span>
+        <span>{statusLabel}</span>
+      </summary>
+      {!available ? (
+        <div className="strategy-fleet-exposure-unavailable">
+          <strong>The exact readiness contract is unavailable</strong>
+          <p>
+            Arbion cannot prove the bounded schedule, decision, ledger, and
+            no-live evidence as one immutable owner-review record. No readiness
+            is inferred.
+          </p>
+        </div>
+      ) : (
+        <div>
+          <dl>
+            <div>
+              <dt>Evidence window</dt>
+              <dd>
+                {gate!.evidence_window_hours} /{" "}
+                {gate!.minimum_evidence_window_hours} hours
+              </dd>
+              <small>
+                Exact saved window through {readableTime(gate!.as_of)}
+              </small>
+            </div>
+            <div>
+              <dt>Automatic decisions</dt>
+              <dd>
+                {gate!.decision_count} / {gate!.minimum_decision_count}
+              </dd>
+              <small>
+                {gate!.abstention_count} abstain · {gate!.proposal_count}{" "}
+                propose · {gate!.deterministic_deny_count} denied ·{" "}
+                {gate!.simulated_fill_count} simulated fills
+              </small>
+            </div>
+            <div>
+              <dt>Attribution + telemetry</dt>
+              <dd>
+                {gate!.attributed_decision_count} / {gate!.decision_count}{" "}
+                attributed
+              </dd>
+              <small>
+                {gate!.telemetry_complete_count} telemetry complete ·{" "}
+                {gate!.bounded_memory_count} bounded-memory
+              </small>
+            </div>
+            <div>
+              <dt>Current scheduler</dt>
+              <dd>
+                {readable(gate!.last_schedule_status ?? "UNAVAILABLE")} ·{" "}
+                {gate!.consecutive_schedule_failures} failures
+              </dd>
+            </div>
+            <div>
+              <dt>Exact isolated ledger</dt>
+              <dd>
+                {gate!.ledger_contracts_reconciled
+                  ? "Reconciled"
+                  : "Review required"}
+              </dd>
+            </div>
+            <div>
+              <dt>No-live safety</dt>
+              <dd>{readable(gate!.safety.status)}</dd>
+              <small>
+                {gate!.safety.live_mandate_count} live mandates ·{" "}
+                {gate!.safety.ai_order_intent_count} AI order intents ·{" "}
+                {gate!.safety.non_simulation_fill_count} non-simulation fills
+              </small>
+            </div>
+          </dl>
+          {gate!.routes.length > 0 && (
+            <p>
+              Exact saved routes:{" "}
+              {gate!.routes
+                .map(
+                  (route) =>
+                    `${route.ai_provider} / ${route.model_id} / ${route.profile} · ${route.financial_provider} (${route.decision_count})`,
+                )
+                .join(" · ")}
+            </p>
+          )}
+          {gate!.blockers.length > 0 && (
+            <ol>
+              {gate!.blockers.map((blocker) => (
+                <li key={`${blocker.category}:${blocker.code}`}>
+                  <strong>{readable(blocker.code)}</strong>
+                  <span>{blocker.detail}</span>
+                  <small>{readable(blocker.category)}</small>
+                </li>
+              ))}
+            </ol>
+          )}
+          <p>
+            This gate decides only whether non-live Paper evidence is ready for
+            owner review. It does not require trading activity, score
+            performance, grant execution authority, or promote an engine to live
+            trading.
+          </p>
+        </div>
+      )}
+      <footer>
+        <Link
+          href={`/automations/${encodeURIComponent(item.id)}#runtime-evidence`}
+        >
+          Open immutable gate evidence →
+        </Link>
+        <span>Paper simulation only · live promotion unavailable</span>
+      </footer>
+    </details>
+  );
+}
+
 function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
   const engines = items.filter(isAI).sort((left, right) => {
     const activeOrder =
@@ -6060,6 +6212,7 @@ function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
                   <dd>{readableTime(item.nextRunAt)}</dd>
                 </div>
               </dl>
+              <StrategyFleetPaperEvidenceGate item={item} />
               <StrategyFleetExposureOutcomes item={item} />
               <footer>
                 <span className={healthClass(item)}>

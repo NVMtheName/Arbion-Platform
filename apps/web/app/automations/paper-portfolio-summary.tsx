@@ -501,6 +501,58 @@ export type PaperDenialEligibility = {
   denials: PaperDenialEligibilityFact[];
 };
 
+export type PaperAutonomyEvidenceBlocker = {
+  code: string;
+  category: "COLLECTION" | "REVIEW" | "UNAVAILABLE";
+  detail: string;
+};
+
+export type PaperAutonomyEvidenceGate = {
+  status:
+    | "COLLECTING_EVIDENCE"
+    | "EVIDENCE_REVIEWABLE"
+    | "REVIEW_REQUIRED"
+    | "UNAVAILABLE";
+  calculation_method: "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_READINESS_GATE";
+  as_of?: string;
+  review_scope: "OWNER_REVIEW_EVIDENCE_ONLY";
+  execution_boundary: "PAPER_SIMULATION_ONLY";
+  minimum_decision_count: number;
+  minimum_evidence_window_hours: number;
+  evidence_window_hours: number;
+  decision_count: number;
+  abstention_count: number;
+  proposal_count: number;
+  deterministic_deny_count: number;
+  simulated_fill_count: number;
+  first_decision_at?: string;
+  latest_decision_at?: string;
+  last_schedule_status?: string;
+  consecutive_schedule_failures: number;
+  attributed_decision_count: number;
+  telemetry_complete_count: number;
+  bounded_memory_count: number;
+  routes: Array<{
+    ai_provider: string;
+    model_id: string;
+    profile: string;
+    financial_provider: string;
+    decision_count: number;
+  }>;
+  ledger_contracts_reconciled: boolean;
+  safety: {
+    status: "CLEAR" | "REVIEW_REQUIRED";
+    live_mandate_count: number;
+    ai_order_intent_count: number;
+    invalid_strategy_mode_count: number;
+    invalid_execution_mode_count: number;
+    platform_executable_risk_count: number;
+    non_simulation_fill_count: number;
+  };
+  blockers: PaperAutonomyEvidenceBlocker[];
+  live_execution_available: false;
+};
+
 export type PaperPortfolio = {
   strategy_instance_id: string;
   currency: string;
@@ -512,6 +564,7 @@ export type PaperPortfolio = {
   execution_costs?: PaperExecutionCosts;
   activity_cadence?: PaperActivityCadence;
   guardrail_evidence?: PaperGuardrailEvidence;
+  evidence_readiness?: PaperAutonomyEvidenceGate;
   updated_at: string;
 };
 

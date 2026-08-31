@@ -507,12 +507,14 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 	var instanceStartedAt time.Time
 	var intervalMinutes int
 	var latestScheduleCompletedAt *time.Time
+	var latestScheduleStatus string
+	var consecutiveScheduleFailures int
 	portfolio := PaperPortfolio{StrategyInstanceID: instanceID, Positions: []PaperPosition{}}
-	err = tx.QueryRow(c, `SELECT f.id::text,f.currency,f.starting_cash::text,f.cash::text,f.version,f.updated_at,i.started_at,COALESCE(s.interval_minutes,0),s.last_completed_at
+	err = tx.QueryRow(c, `SELECT f.id::text,f.currency,f.starting_cash::text,f.cash::text,f.version,f.updated_at,i.started_at,COALESCE(s.interval_minutes,0),s.last_completed_at,COALESCE(s.last_status,''),COALESCE(s.consecutive_failures,0)
 		FROM paper_portfolios f JOIN strategy_instances i ON i.id=f.strategy_instance_id AND i.user_id=f.user_id
 		LEFT JOIN nonlive_strategy_schedules s ON s.strategy_instance_id=i.id AND s.user_id=i.user_id
 		WHERE f.strategy_instance_id=$1 AND f.user_id=$2 AND i.execution_mode='PAPER'`, instanceID, userID).Scan(
-		&portfolioID, &portfolio.Currency, &portfolio.StartingCash, &portfolio.Cash, &portfolio.Version, &portfolio.UpdatedAt, &instanceStartedAt, &intervalMinutes, &latestScheduleCompletedAt,
+		&portfolioID, &portfolio.Currency, &portfolio.StartingCash, &portfolio.Cash, &portfolio.Version, &portfolio.UpdatedAt, &instanceStartedAt, &intervalMinutes, &latestScheduleCompletedAt, &latestScheduleStatus, &consecutiveScheduleFailures,
 	)
 	if err != nil {
 		return PaperPortfolio{}, err
@@ -569,6 +571,7 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 	portfolio.ExecutionCosts = projectPaperExecutionCosts(portfolio.RealizedOutcome, portfolio.StartingCash, fills)
 	runs := []ScheduleRun{}
 	guardrailRows := []paperGuardrailProposalRow{}
+	decisionEvidenceRows := []paperAutonomyDecisionRow{}
 	if latestScheduleCompletedAt != nil && intervalMinutes >= 30 {
 		cadenceStart := latestScheduleCompletedAt.Add(-7*24*time.Hour - time.Duration(intervalMinutes)*time.Minute)
 		const runColumns = `r.id::text,r.strategy_instance_id::text,r.mandate_id::text,r.mandate_version,
@@ -627,9 +630,45 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 			return PaperPortfolio{}, guardrailErr
 		}
 		guardrailQueryRows.Close()
+		decisionQueryRows, decisionErr := tx.Query(c, `SELECT d.id::text,d.decision_type,d.structured_rationale,d.created_at
+			FROM decision_journal_entries d
+			WHERE d.strategy_instance_id=$1 AND d.user_id=$2 AND d.source='AI'
+			  AND d.decision_type IN ('ABSTAIN','ALLOW_SIMULATED_FILLED','ALLOW_SIMULATED_REJECTED','DENY_RISK_DENIED')
+			  AND d.created_at >= $3 AND d.created_at <= $4
+			ORDER BY d.created_at,d.id`, instanceID, userID, cadenceStart, *latestScheduleCompletedAt)
+		if decisionErr != nil {
+			return PaperPortfolio{}, decisionErr
+		}
+		for decisionQueryRows.Next() {
+			var row paperAutonomyDecisionRow
+			if decisionErr = decisionQueryRows.Scan(&row.ID, &row.DecisionType, &row.Rationale, &row.CreatedAt); decisionErr != nil {
+				decisionQueryRows.Close()
+				return PaperPortfolio{}, decisionErr
+			}
+			decisionEvidenceRows = append(decisionEvidenceRows, row)
+		}
+		if decisionErr = decisionQueryRows.Err(); decisionErr != nil {
+			decisionQueryRows.Close()
+			return PaperPortfolio{}, decisionErr
+		}
+		decisionQueryRows.Close()
 	}
 	portfolio.ActivityCadence = projectPaperActivityCadence(instanceID, instanceStartedAt, intervalMinutes, runs, fills, portfolio.ExecutionCosts.Status != PaperExecutionCostsUnavailable)
 	portfolio.GuardrailEvidence = projectPaperGuardrailEvidence(portfolio.ActivityCadence, guardrailRows, fills)
+	var safety paperAutonomySafetyCounts
+	if err = tx.QueryRow(c, `SELECT
+		(SELECT count(*) FROM automation_mandates WHERE user_id=$1 AND execution_mode='LIVE'),
+		(SELECT count(*) FROM order_intents WHERE user_id=$1 AND source='AI'),
+		(SELECT count(*) FROM strategy_instances WHERE user_id=$1 AND execution_mode NOT IN ('PAPER','SHADOW')),
+		(SELECT count(*) FROM nonlive_execution_records WHERE user_id=$1 AND mode NOT IN ('PAPER','SHADOW')),
+		(SELECT count(*) FROM risk_evaluations WHERE user_id=$1 AND platform_execution_available),
+		(SELECT count(*) FROM ai_paper_spot_fills WHERE user_id=$1 AND NOT simulation_only)`, userID).Scan(
+		&safety.LiveMandates, &safety.AIOrderIntents, &safety.InvalidStrategyModes,
+		&safety.InvalidExecutionModes, &safety.PlatformExecutableRisks, &safety.NonSimulationFills,
+	); err != nil {
+		return PaperPortfolio{}, err
+	}
+	portfolio.EvidenceReadiness = projectPaperAutonomyEvidenceGate(instanceStartedAt, latestScheduleStatus, consecutiveScheduleFailures, runs, decisionEvidenceRows, portfolio, safety)
 	if err = tx.Commit(c); err != nil {
 		return PaperPortfolio{}, err
 	}

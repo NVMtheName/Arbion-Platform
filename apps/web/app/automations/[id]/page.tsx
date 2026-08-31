@@ -271,6 +271,15 @@ export default async function MandateReview({
   const paperPortfolio = portfolioResponse.paper_portfolio as
     | PaperPortfolio
     | undefined;
+  const paperEvidenceReadinessContractAvailable =
+    portfolioResponse.paper_evidence_readiness_semantics ===
+      "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_READINESS_GATE" &&
+    portfolioResponse.paper_evidence_readiness_read_only === true &&
+    portfolioResponse.paper_evidence_readiness_grants_authority === false &&
+    portfolioResponse.broker_action_available === false &&
+    portfolioResponse.live_promotion_available === false &&
+    portfolioResponse.live_execution_available === false &&
+    Boolean(paperPortfolio?.evidence_readiness);
   const paperFills = Array.isArray(paperFillsResponse.fills)
     ? (paperFillsResponse.fills as AIPaperSpotFill[])
     : [];
@@ -435,6 +444,9 @@ export default async function MandateReview({
           instance={instance}
           schedule={scheduleResponse.schedule as Record<string, unknown>}
           paperPortfolio={paperPortfolio}
+          evidenceReadinessContractAvailable={
+            paperEvidenceReadinessContractAvailable
+          }
           automationBreaker={breaker as unknown as Record<string, unknown>}
           schedulerEnabled={Boolean(scheduleResponse.scheduler_enabled)}
           decisions={paperDecisions}
