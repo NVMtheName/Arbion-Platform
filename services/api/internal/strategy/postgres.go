@@ -568,6 +568,7 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 	portfolio.RealizedOutcome = projectPaperRealizedOutcome(portfolio.StartingCash, portfolio, fills)
 	portfolio.ExecutionCosts = projectPaperExecutionCosts(portfolio.RealizedOutcome, portfolio.StartingCash, fills)
 	runs := []ScheduleRun{}
+	guardrailRows := []paperGuardrailProposalRow{}
 	if latestScheduleCompletedAt != nil && intervalMinutes >= 30 {
 		cadenceStart := latestScheduleCompletedAt.Add(-7*24*time.Hour - time.Duration(intervalMinutes)*time.Minute)
 		const runColumns = `r.id::text,r.strategy_instance_id::text,r.mandate_id::text,r.mandate_version,
@@ -593,8 +594,42 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 			return PaperPortfolio{}, runErr
 		}
 		runRows.Close()
+		guardrailQueryRows, guardrailErr := tx.Query(c, `SELECT d.id::text,d.created_at,d.decision_type,d.proposed_action_id,
+			r.id::text,x.id::text,d.structured_rationale,r.decision,r.approval_required,r.execution_mode,r.platform_execution_available,r.reason_codes,r.checks,
+			x.mode,x.status,x.symbol,x.instrument,x.side,x.notional::text
+			FROM decision_journal_entries d
+			JOIN risk_evaluations r ON r.id=d.risk_evaluation_id AND r.user_id=d.user_id
+			  AND r.proposed_action_id=d.proposed_action_id AND r.financial_account_id=d.financial_account_id
+			  AND r.mandate_id=d.mandate_id AND r.mandate_version=d.mandate_version
+			JOIN nonlive_execution_records x ON x.id=d.execution_record_id AND x.user_id=d.user_id AND x.risk_evaluation_id=r.id
+			  AND x.proposed_action_id=d.proposed_action_id AND x.strategy_instance_id=d.strategy_instance_id
+			  AND x.mandate_id=d.mandate_id AND x.mandate_version=d.mandate_version
+			WHERE d.strategy_instance_id=$1 AND d.user_id=$2 AND d.source='AI'
+			  AND d.decision_type IN ('ALLOW_SIMULATED_FILLED','DENY_RISK_DENIED')
+			  AND d.created_at >= $3 AND d.created_at <= $4
+			ORDER BY d.created_at,d.id`, instanceID, userID, cadenceStart, *latestScheduleCompletedAt)
+		if guardrailErr != nil {
+			return PaperPortfolio{}, guardrailErr
+		}
+		for guardrailQueryRows.Next() {
+			var row paperGuardrailProposalRow
+			if guardrailErr = guardrailQueryRows.Scan(&row.DecisionJournalEntryID, &row.CreatedAt, &row.DecisionType, &row.ProposedActionID,
+				&row.RiskEvaluationID, &row.ExecutionRecordID, &row.Rationale, &row.RiskDecision, &row.ApprovalRequired,
+				&row.RiskExecutionMode, &row.PlatformExecutionAvailable, &row.ReasonCodes, &row.Checks,
+				&row.ExecutionMode, &row.ExecutionStatus, &row.Symbol, &row.Instrument, &row.Side, &row.ExecutionNotional); guardrailErr != nil {
+				guardrailQueryRows.Close()
+				return PaperPortfolio{}, guardrailErr
+			}
+			guardrailRows = append(guardrailRows, row)
+		}
+		if guardrailErr = guardrailQueryRows.Err(); guardrailErr != nil {
+			guardrailQueryRows.Close()
+			return PaperPortfolio{}, guardrailErr
+		}
+		guardrailQueryRows.Close()
 	}
 	portfolio.ActivityCadence = projectPaperActivityCadence(instanceID, instanceStartedAt, intervalMinutes, runs, fills, portfolio.ExecutionCosts.Status != PaperExecutionCostsUnavailable)
+	portfolio.GuardrailEvidence = projectPaperGuardrailEvidence(portfolio.ActivityCadence, guardrailRows, fills)
 	if err = tx.Commit(c); err != nil {
 		return PaperPortfolio{}, err
 	}

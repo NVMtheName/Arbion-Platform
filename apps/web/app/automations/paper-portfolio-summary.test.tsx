@@ -630,4 +630,128 @@ describe("PaperPortfolioSummary", () => {
       within(reconciliation).getByText(/provider coinbase/i),
     ).toBeInTheDocument();
   });
+
+  it("shows exact immutable Paper guardrail attribution without implying live readiness", () => {
+    render(
+      <PaperPortfolioSummary
+        executionMode="PAPER"
+        portfolio={{
+          ...portfolio,
+          positions: [],
+          guardrail_evidence: {
+            status: "AVAILABLE",
+            calculation_method:
+              "IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION",
+            as_of: "2026-08-31T15:00:00Z",
+            twenty_four_hours: {
+              status: "AVAILABLE",
+              horizon_hours: 24,
+              window_started_at: "2026-08-30T15:00:00Z",
+              window_ended_at: "2026-08-31T15:00:00Z",
+              proposal_count: 2,
+              allow_count: 1,
+              deny_count: 1,
+              simulated_fill_count: 1,
+              minimum_proposed_notional: "50.0000000000",
+              median_proposed_notional: "75.0000000000",
+              maximum_proposed_notional: "100.0000000000",
+              denial_reason_codes: [
+                { code: "INSUFFICIENT_POSITION", count: 1 },
+              ],
+              failed_check_codes: [{ code: "INSUFFICIENT_POSITION", count: 1 }],
+              symbols: [
+                {
+                  symbol: "BTC",
+                  instrument: "CRYPTO",
+                  proposal_count: 1,
+                  allow_count: 1,
+                  deny_count: 0,
+                  simulated_fill_count: 1,
+                  proposed_notional: "100.0000000000",
+                },
+                {
+                  symbol: "ETH",
+                  instrument: "CRYPTO",
+                  proposal_count: 1,
+                  allow_count: 0,
+                  deny_count: 1,
+                  simulated_fill_count: 0,
+                  proposed_notional: "50.0000000000",
+                },
+              ],
+              proposals: [
+                {
+                  decision_journal_entry_id: "decision-denied",
+                  proposed_action_id: "action-denied",
+                  risk_evaluation_id: "risk-denied",
+                  execution_record_id: "execution-denied",
+                  created_at: "2026-08-31T13:00:00Z",
+                  symbol: "ETH",
+                  instrument: "CRYPTO",
+                  side: "SELL",
+                  proposed_notional: "50.0000000000",
+                  risk_decision: "DENY",
+                  execution_status: "RISK_DENIED",
+                  denial_reason_codes: ["INSUFFICIENT_POSITION"],
+                  failed_check_codes: ["INSUFFICIENT_POSITION"],
+                  financial_provider: "coinbase",
+                  market_feed: "rest_ticker",
+                  market_quality: "REAL_TIME_SINGLE_VENUE",
+                  market_observed_at: "2026-08-31T12:59:59Z",
+                },
+                {
+                  decision_journal_entry_id: "decision-allowed",
+                  proposed_action_id: "action-allowed",
+                  risk_evaluation_id: "risk-allowed",
+                  execution_record_id: "execution-allowed",
+                  created_at: "2026-08-31T14:00:00Z",
+                  symbol: "BTC",
+                  instrument: "CRYPTO",
+                  side: "BUY",
+                  proposed_notional: "100.0000000000",
+                  risk_decision: "ALLOW",
+                  execution_status: "SIMULATED_FILLED",
+                  denial_reason_codes: [],
+                  failed_check_codes: [],
+                  financial_provider: "coinbase",
+                  market_feed: "rest_ticker",
+                  market_quality: "REAL_TIME_SINGLE_VENUE",
+                  market_observed_at: "2026-08-31T13:59:59Z",
+                },
+              ],
+            },
+            seven_days: {
+              status: "UNAVAILABLE",
+              horizon_hours: 168,
+              proposal_count: 0,
+              allow_count: 0,
+              deny_count: 0,
+              simulated_fill_count: 0,
+              denial_reason_codes: [],
+              failed_check_codes: [],
+              symbols: [],
+              proposals: [],
+            },
+          },
+        }}
+      />,
+    );
+
+    const guardrails = screen.getByLabelText(
+      /exact paper guardrail disposition/i,
+    );
+    expect(
+      within(guardrails).getByText("1 allowed · 1 denied / 24h"),
+    ).toBeInTheDocument();
+    expect(
+      within(guardrails).getByText("$75.00 exact median"),
+    ).toBeInTheDocument();
+    expect(
+      within(guardrails).getByText(/INSUFFICIENT_POSITION \(1\)/),
+    ).toBeInTheDocument();
+    expect(within(guardrails).getByText(/decision-denied/)).toBeInTheDocument();
+    expect(
+      within(guardrails).getByText(/does not infer model intent/i),
+    ).toBeInTheDocument();
+  });
 });

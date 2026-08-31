@@ -3867,4 +3867,120 @@ describe("StrategyFleet", () => {
       screen.getByRole("link", { name: "Return to dashboard" }),
     ).toHaveAttribute("href", "/dashboard");
   });
+
+  it("surfaces exact Paper guardrail attribution in the command deck", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            id: "paper-mandate",
+            title: "Coinbase AI Paper",
+            executionMode: "PAPER",
+            paperPortfolioAvailable: true,
+            paperPerformanceStatus: "AVAILABLE",
+            paperCurrency: "USD",
+            paperStartingCash: "1000.0000000000",
+            paperCash: "900.0000000000",
+            paperSimulatedEquity: "1000.0000000000",
+            paperInvestedExposure: "100.0000000000",
+            paperTotalProfitLoss: "0.0000000000",
+            paperTotalReturnPercent: "0.0000000000",
+            paperCashReserve: "200.0000000000",
+            paperCashHeadroom: "700.0000000000",
+            paperExposureCeiling: "800.0000000000",
+            paperExposureHeadroom: "700.0000000000",
+            paperSymbolCeiling: "300.0000000000",
+            paperProposalHeadroom: "100.0000000000",
+            paperPositionOutcomes: [],
+            paperGuardrailEvidenceContractAvailable: true,
+            paperGuardrailEvidence: {
+              status: "AVAILABLE",
+              calculation_method:
+                "IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION",
+              as_of: "2026-08-31T15:00:00Z",
+              twenty_four_hours: {
+                status: "AVAILABLE",
+                horizon_hours: 24,
+                window_started_at: "2026-08-30T15:00:00Z",
+                window_ended_at: "2026-08-31T15:00:00Z",
+                proposal_count: 1,
+                allow_count: 0,
+                deny_count: 1,
+                simulated_fill_count: 0,
+                minimum_proposed_notional: "50.0000000000",
+                median_proposed_notional: "50.0000000000",
+                maximum_proposed_notional: "50.0000000000",
+                denial_reason_codes: [
+                  { code: "INSUFFICIENT_POSITION", count: 1 },
+                ],
+                failed_check_codes: [
+                  { code: "INSUFFICIENT_POSITION", count: 1 },
+                ],
+                symbols: [
+                  {
+                    symbol: "ETH",
+                    instrument: "CRYPTO",
+                    proposal_count: 1,
+                    allow_count: 0,
+                    deny_count: 1,
+                    simulated_fill_count: 0,
+                    proposed_notional: "50.0000000000",
+                  },
+                ],
+                proposals: [
+                  {
+                    decision_journal_entry_id: "decision-denied",
+                    proposed_action_id: "action-denied",
+                    risk_evaluation_id: "risk-denied",
+                    execution_record_id: "execution-denied",
+                    created_at: "2026-08-31T14:00:00Z",
+                    symbol: "ETH",
+                    instrument: "CRYPTO",
+                    side: "SELL",
+                    proposed_notional: "50.0000000000",
+                    risk_decision: "DENY",
+                    execution_status: "RISK_DENIED",
+                    denial_reason_codes: ["INSUFFICIENT_POSITION"],
+                    failed_check_codes: ["INSUFFICIENT_POSITION"],
+                    financial_provider: "coinbase",
+                    market_feed: "rest_ticker",
+                    market_quality: "REAL_TIME_SINGLE_VENUE",
+                    market_observed_at: "2026-08-31T13:59:59Z",
+                  },
+                ],
+              },
+              seven_days: {
+                status: "UNAVAILABLE",
+                horizon_hours: 168,
+                proposal_count: 0,
+                allow_count: 0,
+                deny_count: 0,
+                simulated_fill_count: 0,
+                denial_reason_codes: [],
+                failed_check_codes: [],
+                symbols: [],
+                proposals: [],
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    const guardrails = screen.getByLabelText(
+      /coinbase ai paper exact paper guardrail disposition/i,
+    );
+    expect(within(guardrails).getAllByText(/1 denied/i).length).toBeGreaterThan(
+      0,
+    );
+    expect(
+      within(guardrails).getByText(/insufficient position \(1\)/i),
+    ).toBeInTheDocument();
+    expect(
+      within(guardrails).getByRole("link", {
+        name: /review immutable evidence/i,
+      }),
+    ).toHaveAttribute("href", "/automations/paper-mandate#decision-journal");
+  });
 });

@@ -378,16 +378,81 @@ type ShadowEvidenceGate struct {
 // PaperPortfolio is the owner-facing, provider-independent projection of one
 // simulated ledger. It deliberately excludes provider and account identifiers.
 type PaperPortfolio struct {
-	StrategyInstanceID string               `json:"strategy_instance_id"`
-	Currency           string               `json:"currency"`
-	StartingCash       string               `json:"starting_cash"`
-	Cash               string               `json:"cash"`
-	Version            int64                `json:"version"`
-	Positions          []PaperPosition      `json:"positions"`
-	RealizedOutcome    PaperRealizedOutcome `json:"realized_outcome"`
-	ExecutionCosts     PaperExecutionCosts  `json:"execution_costs"`
-	ActivityCadence    PaperActivityCadence `json:"activity_cadence"`
-	UpdatedAt          time.Time            `json:"updated_at"`
+	StrategyInstanceID string                 `json:"strategy_instance_id"`
+	Currency           string                 `json:"currency"`
+	StartingCash       string                 `json:"starting_cash"`
+	Cash               string                 `json:"cash"`
+	Version            int64                  `json:"version"`
+	Positions          []PaperPosition        `json:"positions"`
+	RealizedOutcome    PaperRealizedOutcome   `json:"realized_outcome"`
+	ExecutionCosts     PaperExecutionCosts    `json:"execution_costs"`
+	ActivityCadence    PaperActivityCadence   `json:"activity_cadence"`
+	GuardrailEvidence  PaperGuardrailEvidence `json:"guardrail_evidence"`
+	UpdatedAt          time.Time              `json:"updated_at"`
+}
+
+// PaperGuardrailEvidence attributes each saved Paper proposal to its exact
+// deterministic risk and simulation-only terminal evidence. It describes
+// control disposition only and cannot imply performance or live readiness.
+type PaperGuardrailEvidence struct {
+	Status            string                       `json:"status"`
+	CalculationMethod string                       `json:"calculation_method,omitempty"`
+	AsOf              *time.Time                   `json:"as_of,omitempty"`
+	TwentyFourHours   PaperGuardrailEvidenceWindow `json:"twenty_four_hours"`
+	SevenDays         PaperGuardrailEvidenceWindow `json:"seven_days"`
+}
+
+type PaperGuardrailEvidenceWindow struct {
+	Status                  string                       `json:"status"`
+	HorizonHours            int                          `json:"horizon_hours"`
+	WindowStartedAt         *time.Time                   `json:"window_started_at,omitempty"`
+	WindowEndedAt           *time.Time                   `json:"window_ended_at,omitempty"`
+	ProposalCount           int                          `json:"proposal_count"`
+	AllowCount              int                          `json:"allow_count"`
+	DenyCount               int                          `json:"deny_count"`
+	SimulatedFillCount      int                          `json:"simulated_fill_count"`
+	MinimumProposedNotional string                       `json:"minimum_proposed_notional,omitempty"`
+	MedianProposedNotional  string                       `json:"median_proposed_notional,omitempty"`
+	MaximumProposedNotional string                       `json:"maximum_proposed_notional,omitempty"`
+	DenialReasonCodes       []PaperGuardrailCodeCount    `json:"denial_reason_codes"`
+	FailedCheckCodes        []PaperGuardrailCodeCount    `json:"failed_check_codes"`
+	Symbols                 []PaperGuardrailSymbol       `json:"symbols"`
+	Proposals               []PaperGuardrailProposalFact `json:"proposals"`
+}
+
+type PaperGuardrailCodeCount struct {
+	Code  string `json:"code"`
+	Count int    `json:"count"`
+}
+
+type PaperGuardrailSymbol struct {
+	Symbol             string `json:"symbol"`
+	Instrument         string `json:"instrument"`
+	ProposalCount      int    `json:"proposal_count"`
+	AllowCount         int    `json:"allow_count"`
+	DenyCount          int    `json:"deny_count"`
+	SimulatedFillCount int    `json:"simulated_fill_count"`
+	ProposedNotional   string `json:"proposed_notional"`
+}
+
+type PaperGuardrailProposalFact struct {
+	DecisionJournalEntryID string    `json:"decision_journal_entry_id"`
+	ProposedActionID       string    `json:"proposed_action_id"`
+	RiskEvaluationID       string    `json:"risk_evaluation_id"`
+	ExecutionRecordID      string    `json:"execution_record_id"`
+	CreatedAt              time.Time `json:"created_at"`
+	Symbol                 string    `json:"symbol"`
+	Instrument             string    `json:"instrument"`
+	Side                   string    `json:"side"`
+	ProposedNotional       string    `json:"proposed_notional"`
+	RiskDecision           string    `json:"risk_decision"`
+	ExecutionStatus        string    `json:"execution_status"`
+	DenialReasonCodes      []string  `json:"denial_reason_codes"`
+	FailedCheckCodes       []string  `json:"failed_check_codes"`
+	FinancialProvider      string    `json:"financial_provider"`
+	MarketFeed             string    `json:"market_feed"`
+	MarketQuality          string    `json:"market_quality"`
+	MarketObservedAt       time.Time `json:"market_observed_at"`
 }
 
 // PaperActivityCadence is read-only chronology from immutable scheduler and
