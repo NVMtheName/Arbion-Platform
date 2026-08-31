@@ -3283,6 +3283,7 @@ function normalizedPaperEvidenceReadiness(
   const rawRoutes = gate?.routes ?? gate?.Routes;
   const rawBlockers = gate?.blockers ?? gate?.Blockers;
   const safety = record(gate?.safety ?? gate?.Safety);
+  const reviewPacket = record(gate?.review_packet ?? gate?.ReviewPacket);
   const ledgerReconciled = flag(
     gate,
     "ledger_contracts_reconciled",
@@ -3446,6 +3447,174 @@ function normalizedPaperEvidenceReadiness(
     nonSimulationFills;
   if ((safetyStatus === "CLEAR") !== (safetyTotal === 0)) return;
 
+  const packetCount = (key: string, legacy: string) => {
+    const value = number(reviewPacket, key, legacy);
+    return value !== undefined && Number.isInteger(value) && value >= 0
+      ? value
+      : undefined;
+  };
+  const packetStatus = text(reviewPacket, "status", "Status");
+  const packetMethod = text(
+    reviewPacket,
+    "calculation_method",
+    "CalculationMethod",
+  );
+  const evidenceStartedAt = text(
+    reviewPacket,
+    "evidence_started_at",
+    "EvidenceStartedAt",
+  );
+  const evidenceEligibleAt = text(
+    reviewPacket,
+    "evidence_eligible_at",
+    "EvidenceEligibleAt",
+  );
+  const packetAsOf = text(reviewPacket, "as_of", "AsOf");
+  const elapsedSeconds = packetCount("elapsed_seconds", "ElapsedSeconds");
+  const remainingSeconds = packetCount("remaining_seconds", "RemainingSeconds");
+  const schedulerSampleCount = packetCount(
+    "scheduler_sample_count",
+    "SchedulerSampleCount",
+  );
+  const schedulerSuccessCount = packetCount(
+    "scheduler_success_count",
+    "SchedulerSuccessCount",
+  );
+  const schedulerFailureCount = packetCount(
+    "scheduler_failure_count",
+    "SchedulerFailureCount",
+  );
+  const schedulerSafeWaitCount = packetCount(
+    "scheduler_safe_wait_count",
+    "SchedulerSafeWaitCount",
+  );
+  const freshnessThresholdSeconds = packetCount(
+    "freshness_threshold_seconds",
+    "FreshnessThresholdSeconds",
+  );
+  const marketObservationCount = packetCount(
+    "market_observation_count",
+    "MarketObservationCount",
+  );
+  const freshMarketDecisionCount = packetCount(
+    "fresh_market_decision_count",
+    "FreshMarketDecisionCount",
+  );
+  const maximumMarketAgeSeconds = packetCount(
+    "maximum_market_age_seconds",
+    "MaximumMarketAgeSeconds",
+  );
+  const firstMarketObservedAt = text(
+    reviewPacket,
+    "first_market_observed_at",
+    "FirstMarketObservedAt",
+  );
+  const latestMarketObservedAt = text(
+    reviewPacket,
+    "latest_market_observed_at",
+    "LatestMarketObservedAt",
+  );
+  const routeContinuityStatus = text(
+    reviewPacket,
+    "route_continuity_status",
+    "RouteContinuityStatus",
+  );
+  const inputCoverageStatus = text(
+    reviewPacket,
+    "input_coverage_status",
+    "InputCoverageStatus",
+  );
+  const inputFreshnessStatus = text(
+    reviewPacket,
+    "input_freshness_status",
+    "InputFreshnessStatus",
+  );
+  const ledgerContractStatus = text(
+    reviewPacket,
+    "ledger_contract_status",
+    "LedgerContractStatus",
+  );
+  const noLiveSafetyStatus = text(
+    reviewPacket,
+    "no_live_safety_status",
+    "NoLiveSafetyStatus",
+  );
+  const evidenceReadyForHumanReview = flag(
+    reviewPacket,
+    "evidence_ready_for_human_review",
+    "EvidenceReadyForHumanReview",
+  );
+  const ownerGuidance = text(reviewPacket, "owner_guidance", "OwnerGuidance");
+  const grantsAuthority = flag(
+    reviewPacket,
+    "grants_authority",
+    "GrantsAuthority",
+  );
+  const livePromotionAvailable = flag(
+    reviewPacket,
+    "live_promotion_available",
+    "LivePromotionAvailable",
+  );
+  const startedMillis = evidenceStartedAt
+    ? Date.parse(evidenceStartedAt)
+    : Number.NaN;
+  const eligibleMillis = evidenceEligibleAt
+    ? Date.parse(evidenceEligibleAt)
+    : Number.NaN;
+  const asOfMillis = packetAsOf ? Date.parse(packetAsOf) : Number.NaN;
+  if (
+    packetStatus !== status ||
+    packetMethod !== "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_REVIEW_PACKET" ||
+    !evidenceStartedAt ||
+    !evidenceEligibleAt ||
+    !packetAsOf ||
+    Number.isNaN(startedMillis) ||
+    Number.isNaN(eligibleMillis) ||
+    Number.isNaN(asOfMillis) ||
+    packetAsOf !== asOf ||
+    Math.floor((eligibleMillis - startedMillis) / 1000) !== 168 * 60 * 60 ||
+    elapsedSeconds !== Math.floor((asOfMillis - startedMillis) / 1000) ||
+    remainingSeconds !==
+      Math.max(0, Math.floor((eligibleMillis - asOfMillis) / 1000)) ||
+    schedulerSampleCount === undefined ||
+    schedulerSuccessCount === undefined ||
+    schedulerFailureCount === undefined ||
+    schedulerSafeWaitCount === undefined ||
+    schedulerSampleCount !==
+      schedulerSuccessCount + schedulerFailureCount + schedulerSafeWaitCount ||
+    !["STABLE", "CONTEXT_CHANGED", "REVIEW_REQUIRED", "UNAVAILABLE"].includes(
+      routeContinuityStatus ?? "",
+    ) ||
+    !["COMPLETE", "REVIEW_REQUIRED", "UNAVAILABLE"].includes(
+      inputCoverageStatus ?? "",
+    ) ||
+    !["CURRENT_AT_DECISION", "REVIEW_REQUIRED", "UNAVAILABLE"].includes(
+      inputFreshnessStatus ?? "",
+    ) ||
+    freshnessThresholdSeconds !== 300 ||
+    marketObservationCount === undefined ||
+    freshMarketDecisionCount === undefined ||
+    freshMarketDecisionCount > decisionCount ||
+    maximumMarketAgeSeconds === undefined ||
+    !firstMarketObservedAt ||
+    !latestMarketObservedAt ||
+    Number.isNaN(Date.parse(firstMarketObservedAt)) ||
+    Number.isNaN(Date.parse(latestMarketObservedAt)) ||
+    !["RECONCILED", "REVIEW_REQUIRED", "UNAVAILABLE"].includes(
+      ledgerContractStatus ?? "",
+    ) ||
+    noLiveSafetyStatus !== safetyStatus ||
+    evidenceReadyForHumanReview !== (status === "EVIDENCE_REVIEWABLE") ||
+    !ownerGuidance ||
+    grantsAuthority !== false ||
+    livePromotionAvailable !== false ||
+    ledgerReconciled !== (ledgerContractStatus === "RECONCILED") ||
+    (attributed === decisionCount) !== (inputCoverageStatus === "COMPLETE") ||
+    (freshMarketDecisionCount === decisionCount) !==
+      (inputFreshnessStatus === "CURRENT_AT_DECISION")
+  )
+    return;
+
   return {
     status: status as PaperAutonomyEvidenceGate["status"],
     calculation_method: method,
@@ -3481,6 +3650,40 @@ function normalizedPaperEvidenceReadiness(
       invalid_execution_mode_count: invalidExecutionModes,
       platform_executable_risk_count: executableRisks,
       non_simulation_fill_count: nonSimulationFills,
+    },
+    review_packet: {
+      status:
+        packetStatus as PaperAutonomyEvidenceGate["review_packet"]["status"],
+      calculation_method: packetMethod,
+      evidence_started_at: evidenceStartedAt,
+      evidence_eligible_at: evidenceEligibleAt,
+      as_of: packetAsOf,
+      elapsed_seconds: elapsedSeconds,
+      remaining_seconds: remainingSeconds,
+      scheduler_sample_count: schedulerSampleCount,
+      scheduler_success_count: schedulerSuccessCount,
+      scheduler_failure_count: schedulerFailureCount,
+      scheduler_safe_wait_count: schedulerSafeWaitCount,
+      route_continuity_status:
+        routeContinuityStatus as PaperAutonomyEvidenceGate["review_packet"]["route_continuity_status"],
+      input_coverage_status:
+        inputCoverageStatus as PaperAutonomyEvidenceGate["review_packet"]["input_coverage_status"],
+      input_freshness_status:
+        inputFreshnessStatus as PaperAutonomyEvidenceGate["review_packet"]["input_freshness_status"],
+      freshness_threshold_seconds: freshnessThresholdSeconds,
+      market_observation_count: marketObservationCount,
+      fresh_market_decision_count: freshMarketDecisionCount,
+      maximum_market_age_seconds: maximumMarketAgeSeconds,
+      first_market_observed_at: firstMarketObservedAt,
+      latest_market_observed_at: latestMarketObservedAt,
+      ledger_contract_status:
+        ledgerContractStatus as PaperAutonomyEvidenceGate["review_packet"]["ledger_contract_status"],
+      no_live_safety_status:
+        noLiveSafetyStatus as PaperAutonomyEvidenceGate["review_packet"]["no_live_safety_status"],
+      evidence_ready_for_human_review: evidenceReadyForHumanReview,
+      owner_guidance: ownerGuidance,
+      grants_authority: false,
+      live_promotion_available: false,
     },
     blockers,
     live_execution_available: false,

@@ -122,6 +122,15 @@ function readableTime(value: string) {
   }).format(parsed);
 }
 
+function readableDuration(seconds: number) {
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  return [days ? `${days}d` : "", hours ? `${hours}h` : "", `${minutes}m`]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function buildSignals(props: Props): ReadinessSignal[] {
   const accountID = read(props.financialAccount, "id", "ID");
   const accountStatus = read(props.financialAccount, "status", "Status");
@@ -551,6 +560,90 @@ export function PaperAutonomyReadinessControlPlane(props: Props) {
           </p>
         ) : (
           <div>
+            <section
+              className="paper-evidence-review-packet"
+              aria-label="Paper autonomy evidence review packet"
+            >
+              <h3>Owner evidence review packet</h3>
+              <p>{evidenceGate!.review_packet.owner_guidance}</p>
+              <dl>
+                <div>
+                  <dt>Collection timeline</dt>
+                  <dd>
+                    {readableDuration(
+                      evidenceGate!.review_packet.elapsed_seconds,
+                    )}{" "}
+                    collected
+                  </dd>
+                  <small>
+                    {evidenceGate!.review_packet.remaining_seconds > 0
+                      ? `${readableDuration(evidenceGate!.review_packet.remaining_seconds)} remaining · eligible ${readableTime(evidenceGate!.review_packet.evidence_eligible_at!)}`
+                      : `Threshold reached ${readableTime(evidenceGate!.review_packet.evidence_eligible_at!)}`}
+                  </small>
+                </div>
+                <div>
+                  <dt>Automatic scheduler evidence</dt>
+                  <dd>
+                    {evidenceGate!.review_packet.scheduler_success_count} /{" "}
+                    {evidenceGate!.review_packet.scheduler_sample_count}{" "}
+                    succeeded
+                  </dd>
+                  <small>
+                    {evidenceGate!.review_packet.scheduler_failure_count} failed
+                    · {evidenceGate!.review_packet.scheduler_safe_wait_count}{" "}
+                    safe waits
+                  </small>
+                </div>
+                <div>
+                  <dt>Route + input continuity</dt>
+                  <dd>
+                    {evidenceGate!.review_packet.route_continuity_status.replaceAll(
+                      "_",
+                      " ",
+                    )}
+                  </dd>
+                  <small>
+                    {evidenceGate!.review_packet.input_coverage_status.replaceAll(
+                      "_",
+                      " ",
+                    )}{" "}
+                    coverage ·{" "}
+                    {evidenceGate!.review_packet.market_observation_count} saved
+                    market observations
+                  </small>
+                </div>
+                <div>
+                  <dt>Saved input freshness</dt>
+                  <dd>
+                    {evidenceGate!.review_packet.input_freshness_status.replaceAll(
+                      "_",
+                      " ",
+                    )}
+                  </dd>
+                  <small>
+                    {evidenceGate!.review_packet.fresh_market_decision_count} /{" "}
+                    {evidenceGate!.decision_count} decisions within the{" "}
+                    {evidenceGate!.review_packet.freshness_threshold_seconds}
+                    -second policy · max age{" "}
+                    {evidenceGate!.review_packet.maximum_market_age_seconds}s
+                  </small>
+                </div>
+                <div>
+                  <dt>Ledger + no-live boundary</dt>
+                  <dd>
+                    {evidenceGate!.review_packet.ledger_contract_status.replaceAll(
+                      "_",
+                      " ",
+                    )}
+                  </dd>
+                  <small>
+                    No-live safety{" "}
+                    {evidenceGate!.review_packet.no_live_safety_status.toLowerCase()}
+                    . Review grants no authority.
+                  </small>
+                </div>
+              </dl>
+            </section>
             <dl>
               <div>
                 <dt>Saved evidence window</dt>

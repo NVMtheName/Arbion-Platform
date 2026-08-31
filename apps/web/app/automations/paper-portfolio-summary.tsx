@@ -507,6 +507,46 @@ export type PaperAutonomyEvidenceBlocker = {
   detail: string;
 };
 
+export type PaperAutonomyEvidenceReviewPacket = {
+  status:
+    | "COLLECTING_EVIDENCE"
+    | "EVIDENCE_REVIEWABLE"
+    | "REVIEW_REQUIRED"
+    | "UNAVAILABLE";
+  calculation_method: "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_REVIEW_PACKET";
+  evidence_started_at?: string;
+  evidence_eligible_at?: string;
+  as_of?: string;
+  elapsed_seconds: number;
+  remaining_seconds: number;
+  scheduler_sample_count: number;
+  scheduler_success_count: number;
+  scheduler_failure_count: number;
+  scheduler_safe_wait_count: number;
+  route_continuity_status:
+    | "STABLE"
+    | "CONTEXT_CHANGED"
+    | "REVIEW_REQUIRED"
+    | "UNAVAILABLE";
+  input_coverage_status: "COMPLETE" | "REVIEW_REQUIRED" | "UNAVAILABLE";
+  input_freshness_status:
+    | "CURRENT_AT_DECISION"
+    | "REVIEW_REQUIRED"
+    | "UNAVAILABLE";
+  freshness_threshold_seconds: number;
+  market_observation_count: number;
+  fresh_market_decision_count: number;
+  maximum_market_age_seconds: number;
+  first_market_observed_at?: string;
+  latest_market_observed_at?: string;
+  ledger_contract_status: "RECONCILED" | "REVIEW_REQUIRED" | "UNAVAILABLE";
+  no_live_safety_status: "CLEAR" | "REVIEW_REQUIRED";
+  evidence_ready_for_human_review: boolean;
+  owner_guidance: string;
+  grants_authority: false;
+  live_promotion_available: false;
+};
+
 export type PaperAutonomyEvidenceGate = {
   status:
     | "COLLECTING_EVIDENCE"
@@ -549,6 +589,7 @@ export type PaperAutonomyEvidenceGate = {
     platform_executable_risk_count: number;
     non_simulation_fill_count: number;
   };
+  review_packet: PaperAutonomyEvidenceReviewPacket;
   blockers: PaperAutonomyEvidenceBlocker[];
   live_execution_available: false;
 };

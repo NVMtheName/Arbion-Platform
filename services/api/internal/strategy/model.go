@@ -396,31 +396,64 @@ type PaperPortfolio struct {
 // evidence set is ready for owner review. It grants no execution authority and
 // deliberately does not require proposals, fills, or profitable outcomes.
 type PaperAutonomyEvidenceGate struct {
-	Status                      string                         `json:"status"`
-	CalculationMethod           string                         `json:"calculation_method"`
-	AsOf                        *time.Time                     `json:"as_of,omitempty"`
-	ReviewScope                 string                         `json:"review_scope"`
-	ExecutionBoundary           string                         `json:"execution_boundary"`
-	MinimumDecisionCount        int                            `json:"minimum_decision_count"`
-	MinimumEvidenceWindowHours  int                            `json:"minimum_evidence_window_hours"`
-	EvidenceWindowHours         int64                          `json:"evidence_window_hours"`
-	DecisionCount               int                            `json:"decision_count"`
-	AbstentionCount             int                            `json:"abstention_count"`
-	ProposalCount               int                            `json:"proposal_count"`
-	DeterministicDenyCount      int                            `json:"deterministic_deny_count"`
-	SimulatedFillCount          int                            `json:"simulated_fill_count"`
-	FirstDecisionAt             *time.Time                     `json:"first_decision_at,omitempty"`
-	LatestDecisionAt            *time.Time                     `json:"latest_decision_at,omitempty"`
-	LastScheduleStatus          string                         `json:"last_schedule_status,omitempty"`
-	ConsecutiveScheduleFailures int                            `json:"consecutive_schedule_failures"`
-	AttributedDecisionCount     int                            `json:"attributed_decision_count"`
-	TelemetryCompleteCount      int                            `json:"telemetry_complete_count"`
-	BoundedMemoryCount          int                            `json:"bounded_memory_count"`
-	Routes                      []PaperAutonomyEvidenceRoute   `json:"routes"`
-	LedgerContractsReconciled   bool                           `json:"ledger_contracts_reconciled"`
-	Safety                      PaperNoLiveSafetyEvidence      `json:"safety"`
-	Blockers                    []PaperAutonomyEvidenceBlocker `json:"blockers"`
-	LiveExecutionAvailable      bool                           `json:"live_execution_available"`
+	Status                      string                            `json:"status"`
+	CalculationMethod           string                            `json:"calculation_method"`
+	AsOf                        *time.Time                        `json:"as_of,omitempty"`
+	ReviewScope                 string                            `json:"review_scope"`
+	ExecutionBoundary           string                            `json:"execution_boundary"`
+	MinimumDecisionCount        int                               `json:"minimum_decision_count"`
+	MinimumEvidenceWindowHours  int                               `json:"minimum_evidence_window_hours"`
+	EvidenceWindowHours         int64                             `json:"evidence_window_hours"`
+	DecisionCount               int                               `json:"decision_count"`
+	AbstentionCount             int                               `json:"abstention_count"`
+	ProposalCount               int                               `json:"proposal_count"`
+	DeterministicDenyCount      int                               `json:"deterministic_deny_count"`
+	SimulatedFillCount          int                               `json:"simulated_fill_count"`
+	FirstDecisionAt             *time.Time                        `json:"first_decision_at,omitempty"`
+	LatestDecisionAt            *time.Time                        `json:"latest_decision_at,omitempty"`
+	LastScheduleStatus          string                            `json:"last_schedule_status,omitempty"`
+	ConsecutiveScheduleFailures int                               `json:"consecutive_schedule_failures"`
+	AttributedDecisionCount     int                               `json:"attributed_decision_count"`
+	TelemetryCompleteCount      int                               `json:"telemetry_complete_count"`
+	BoundedMemoryCount          int                               `json:"bounded_memory_count"`
+	Routes                      []PaperAutonomyEvidenceRoute      `json:"routes"`
+	LedgerContractsReconciled   bool                              `json:"ledger_contracts_reconciled"`
+	Safety                      PaperNoLiveSafetyEvidence         `json:"safety"`
+	ReviewPacket                PaperAutonomyEvidenceReviewPacket `json:"review_packet"`
+	Blockers                    []PaperAutonomyEvidenceBlocker    `json:"blockers"`
+	LiveExecutionAvailable      bool                              `json:"live_execution_available"`
+}
+
+// PaperAutonomyEvidenceReviewPacket is a concise, immutable owner-review
+// projection of the readiness gate. It cannot score performance, recommend
+// promotion, grant authority, or expose a live execution path.
+type PaperAutonomyEvidenceReviewPacket struct {
+	Status                      string     `json:"status"`
+	CalculationMethod           string     `json:"calculation_method"`
+	EvidenceStartedAt           *time.Time `json:"evidence_started_at,omitempty"`
+	EvidenceEligibleAt          *time.Time `json:"evidence_eligible_at,omitempty"`
+	AsOf                        *time.Time `json:"as_of,omitempty"`
+	ElapsedSeconds              int64      `json:"elapsed_seconds"`
+	RemainingSeconds            int64      `json:"remaining_seconds"`
+	SchedulerSampleCount        int        `json:"scheduler_sample_count"`
+	SchedulerSuccessCount       int        `json:"scheduler_success_count"`
+	SchedulerFailureCount       int        `json:"scheduler_failure_count"`
+	SchedulerSafeWaitCount      int        `json:"scheduler_safe_wait_count"`
+	RouteContinuityStatus       string     `json:"route_continuity_status"`
+	InputCoverageStatus         string     `json:"input_coverage_status"`
+	InputFreshnessStatus        string     `json:"input_freshness_status"`
+	FreshnessThresholdSeconds   int64      `json:"freshness_threshold_seconds"`
+	MarketObservationCount      int        `json:"market_observation_count"`
+	FreshMarketDecisionCount    int        `json:"fresh_market_decision_count"`
+	MaximumMarketAgeSeconds     int64      `json:"maximum_market_age_seconds"`
+	FirstMarketObservedAt       *time.Time `json:"first_market_observed_at,omitempty"`
+	LatestMarketObservedAt      *time.Time `json:"latest_market_observed_at,omitempty"`
+	LedgerContractStatus        string     `json:"ledger_contract_status"`
+	NoLiveSafetyStatus          string     `json:"no_live_safety_status"`
+	EvidenceReadyForHumanReview bool       `json:"evidence_ready_for_human_review"`
+	OwnerGuidance               string     `json:"owner_guidance"`
+	GrantsAuthority             bool       `json:"grants_authority"`
+	LivePromotionAvailable      bool       `json:"live_promotion_available"`
 }
 
 type PaperAutonomyEvidenceRoute struct {
