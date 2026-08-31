@@ -279,6 +279,67 @@ export type PaperActivityCadence = {
   };
 };
 
+export type PaperGuardrailCodeCount = {
+  code: string;
+  count: number;
+};
+
+export type PaperGuardrailSymbol = {
+  symbol: string;
+  instrument: "EQUITY" | "CRYPTO";
+  proposal_count: number;
+  allow_count: number;
+  deny_count: number;
+  simulated_fill_count: number;
+  proposed_notional: string;
+};
+
+export type PaperGuardrailProposalFact = {
+  decision_journal_entry_id: string;
+  proposed_action_id: string;
+  risk_evaluation_id: string;
+  execution_record_id: string;
+  created_at: string;
+  symbol: string;
+  instrument: "EQUITY" | "CRYPTO";
+  side: "BUY" | "SELL";
+  proposed_notional: string;
+  risk_decision: "ALLOW" | "DENY";
+  execution_status: "SIMULATED_FILLED" | "RISK_DENIED";
+  denial_reason_codes: string[];
+  failed_check_codes: string[];
+  financial_provider: string;
+  market_feed: string;
+  market_quality: string;
+  market_observed_at: string;
+};
+
+export type PaperGuardrailEvidenceWindow = {
+  status: "AVAILABLE" | "UNAVAILABLE";
+  horizon_hours: number;
+  window_started_at?: string;
+  window_ended_at?: string;
+  proposal_count: number;
+  allow_count: number;
+  deny_count: number;
+  simulated_fill_count: number;
+  minimum_proposed_notional?: string;
+  median_proposed_notional?: string;
+  maximum_proposed_notional?: string;
+  denial_reason_codes: PaperGuardrailCodeCount[];
+  failed_check_codes: PaperGuardrailCodeCount[];
+  symbols: PaperGuardrailSymbol[];
+  proposals: PaperGuardrailProposalFact[];
+};
+
+export type PaperGuardrailEvidence = {
+  status: "AVAILABLE" | "UNAVAILABLE";
+  calculation_method?: "IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION";
+  as_of?: string;
+  twenty_four_hours: PaperGuardrailEvidenceWindow;
+  seven_days: PaperGuardrailEvidenceWindow;
+};
+
 export type PaperPortfolio = {
   strategy_instance_id: string;
   currency: string;
@@ -289,6 +350,7 @@ export type PaperPortfolio = {
   realized_outcome?: PaperRealizedOutcome;
   execution_costs?: PaperExecutionCosts;
   activity_cadence?: PaperActivityCadence;
+  guardrail_evidence?: PaperGuardrailEvidence;
   updated_at: string;
 };
 
@@ -1062,6 +1124,56 @@ export function PaperPortfolioSummary({
             ),
           ))),
   );
+  const guardrail = portfolio.guardrail_evidence;
+  const guardrailWindow = guardrail?.twenty_four_hours;
+  const guardrailAvailable = Boolean(
+    guardrail?.status === "AVAILABLE" &&
+      guardrail.calculation_method ===
+        "IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION" &&
+      guardrail.as_of &&
+      !Number.isNaN(Date.parse(guardrail.as_of)) &&
+      guardrailWindow?.status === "AVAILABLE" &&
+      guardrailWindow.horizon_hours === 24 &&
+      guardrailWindow.proposal_count ===
+        guardrailWindow.allow_count + guardrailWindow.deny_count &&
+      guardrailWindow.allow_count === guardrailWindow.simulated_fill_count &&
+      guardrailWindow.proposals.length === guardrailWindow.proposal_count &&
+      guardrailWindow.symbols.reduce(
+        (count, symbol) => count + symbol.proposal_count,
+        0,
+      ) === guardrailWindow.proposal_count &&
+      (guardrailWindow.proposal_count === 0 ||
+        (isExactDecimal(guardrailWindow.minimum_proposed_notional) &&
+          isExactDecimal(guardrailWindow.median_proposed_notional) &&
+          isExactDecimal(guardrailWindow.maximum_proposed_notional))) &&
+      guardrailWindow.proposals.every(
+        (proposal) =>
+          Boolean(
+            proposal.decision_journal_entry_id &&
+              proposal.proposed_action_id &&
+              proposal.risk_evaluation_id &&
+              proposal.execution_record_id &&
+              proposal.symbol &&
+              proposal.financial_provider &&
+              proposal.market_feed &&
+              proposal.market_quality,
+          ) &&
+          ["EQUITY", "CRYPTO"].includes(proposal.instrument) &&
+          ["BUY", "SELL"].includes(proposal.side) &&
+          isExactDecimal(proposal.proposed_notional) &&
+          !Number.isNaN(Date.parse(proposal.created_at)) &&
+          !Number.isNaN(Date.parse(proposal.market_observed_at)) &&
+          ((proposal.risk_decision === "ALLOW" &&
+            proposal.execution_status === "SIMULATED_FILLED" &&
+            proposal.denial_reason_codes.length === 0 &&
+            proposal.failed_check_codes.length === 0) ||
+            (proposal.risk_decision === "DENY" &&
+              proposal.execution_status === "RISK_DENIED" &&
+              proposal.denial_reason_codes.length > 0 &&
+              proposal.denial_reason_codes.join("|") ===
+                proposal.failed_check_codes.join("|"))),
+      ),
+  );
   return (
     <section className="paper-portfolio-card" aria-label="Paper portfolio">
       <p className="eyebrow">PAPER PORTFOLIO · SIMULATION ONLY</p>
@@ -1678,6 +1790,155 @@ export function PaperPortfolioSummary({
               Arbion could not prove one complete immutable simulation fill and
               market-attribution chain. Fees and slippage are left unavailable
               rather than estimated.
+            </p>
+          </div>
+        )}
+      </details>
+      <details
+        className="paper-performance-card"
+        aria-label="Exact Paper guardrail disposition"
+        open={!guardrailAvailable}
+      >
+        <summary className="paper-performance-header">
+          <span>
+            <span className="eyebrow">
+              PAPER GUARDRAILS · IMMUTABLE ATTRIBUTION
+            </span>
+            <strong>Proposal, risk, and simulation evidence</strong>
+          </span>
+          <span>
+            {guardrailAvailable
+              ? `${guardrailWindow!.allow_count} allowed · ${guardrailWindow!.deny_count} denied / 24h`
+              : "Unavailable"}
+          </span>
+        </summary>
+        {guardrailAvailable ? (
+          <>
+            <div className="paper-performance-grid">
+              <article>
+                <span>Exact proposals</span>
+                <strong>{guardrailWindow!.proposal_count}</strong>
+                <small>Complete eligible 24-hour window</small>
+              </article>
+              <article>
+                <span>Proposed notional range</span>
+                <strong>
+                  {money(
+                    guardrailWindow!.minimum_proposed_notional!,
+                    portfolio.currency,
+                  )}{" "}
+                  –{" "}
+                  {money(
+                    guardrailWindow!.maximum_proposed_notional!,
+                    portfolio.currency,
+                  )}
+                </strong>
+                <small>
+                  {money(
+                    guardrailWindow!.median_proposed_notional!,
+                    portfolio.currency,
+                  )}{" "}
+                  exact median
+                </small>
+              </article>
+              <article>
+                <span>Deterministic outcomes</span>
+                <strong>
+                  {guardrailWindow!.simulated_fill_count} simulated fills ·{" "}
+                  {guardrailWindow!.deny_count} holds
+                </strong>
+              </article>
+              <article>
+                <span>Seven-day evidence</span>
+                <strong>
+                  {guardrail!.seven_days.status === "AVAILABLE"
+                    ? `${guardrail!.seven_days.proposal_count} proposals`
+                    : "Not complete yet"}
+                </strong>
+              </article>
+            </div>
+            {guardrailWindow!.denial_reason_codes.length > 0 && (
+              <p className="paper-market-source">
+                Exact deterministic holds:{" "}
+                {guardrailWindow!.denial_reason_codes
+                  .map((reason) => `${reason.code} (${reason.count})`)
+                  .join(" · ")}
+                . Each reason is matched to the same failed saved risk check.
+              </p>
+            )}
+            <section className="paper-position-table-wrap">
+              <table
+                className="paper-position-table"
+                aria-label="Exact per-symbol Paper guardrail evidence"
+              >
+                <thead>
+                  <tr>
+                    <th>Symbol</th>
+                    <th>Proposals</th>
+                    <th>Allowed</th>
+                    <th>Denied</th>
+                    <th>Proposed notional</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {guardrailWindow!.symbols.map((symbol) => (
+                    <tr key={`${symbol.instrument}:${symbol.symbol}`}>
+                      <td>{symbol.symbol}</td>
+                      <td>{symbol.proposal_count}</td>
+                      <td>{symbol.allow_count}</td>
+                      <td>{symbol.deny_count}</td>
+                      <td>
+                        {money(symbol.proposed_notional, portfolio.currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+            <details className="paper-execution-timeline">
+              <summary>Review immutable proposal identities</summary>
+              <ol>
+                {guardrailWindow!.proposals.map((proposal) => (
+                  <li key={proposal.decision_journal_entry_id}>
+                    <strong>
+                      {proposal.symbol} {proposal.side} ·{" "}
+                      {money(proposal.proposed_notional, portfolio.currency)}
+                    </strong>{" "}
+                    <span>
+                      {proposal.risk_decision} · {proposal.execution_status}
+                    </span>
+                    <small>
+                      Decision {proposal.decision_journal_entry_id} · risk{" "}
+                      {proposal.risk_evaluation_id} · execution{" "}
+                      {proposal.execution_record_id}
+                    </small>
+                    <small>
+                      {proposal.financial_provider} · {proposal.market_feed} ·{" "}
+                      {proposal.market_quality} ·{" "}
+                      {new Date(proposal.market_observed_at).toLocaleString()}
+                    </small>
+                  </li>
+                ))}
+              </ol>
+              <p className="paper-market-source">
+                <a href="#decision-journal">Decision evidence</a> ·{" "}
+                <a href="#runtime-evidence">risk and execution evidence</a>
+              </p>
+            </details>
+            <p className="paper-market-source">
+              This is exact saved Paper control disposition. Proposed notional,
+              execution costs, capital use, and performance remain separate. It
+              does not infer model intent, causality, decision quality, or
+              readiness for live trading. No model or provider was rerun.
+            </p>
+          </>
+        ) : (
+          <div className="paper-performance-unavailable">
+            <strong>Guardrail attribution unavailable</strong>
+            <p>
+              Arbion could not prove one complete proposal, deterministic risk,
+              simulation-only execution, and market-attribution chain. No
+              guardrail outcome or notional distribution is inferred.
             </p>
           </div>
         )}

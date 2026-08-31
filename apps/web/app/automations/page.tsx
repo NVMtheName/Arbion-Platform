@@ -29,6 +29,11 @@ import type {
   PaperExecutionCheckpoint,
   PaperExecutionSideCost,
   PaperExecutionSymbolCost,
+  PaperGuardrailCodeCount,
+  PaperGuardrailEvidence,
+  PaperGuardrailEvidenceWindow,
+  PaperGuardrailProposalFact,
+  PaperGuardrailSymbol,
   PaperPortfolio,
   PaperPosition,
   PaperRealizedOutcome,
@@ -90,6 +95,8 @@ type PaperPortfolioEnvelope = {
   activity_cadence_read_only?: boolean;
   disposition_funnel_semantics?: string;
   disposition_funnel_read_only?: boolean;
+  guardrail_evidence_semantics?: string;
+  guardrail_evidence_read_only?: boolean;
   broker_action_available?: boolean;
   live_execution_available?: boolean;
 };
@@ -1503,6 +1510,398 @@ function normalizedPaperDispositionFunnel(
   };
 }
 
+function normalizedPaperGuardrailCodeCounts(
+  value: unknown,
+): PaperGuardrailCodeCount[] | undefined {
+  if (!Array.isArray(value)) return;
+  const result: PaperGuardrailCodeCount[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    const item = record(raw);
+    const code = text(item, "code", "Code");
+    const count = nonnegativeInteger(item?.count ?? item?.Count);
+    if (!code || count === undefined || count < 1 || seen.has(code)) return;
+    seen.add(code);
+    result.push({ code, count });
+  }
+  if (
+    result.some(
+      (item, index) => index > 0 && result[index - 1].code >= item.code,
+    )
+  )
+    return;
+  return result;
+}
+
+function normalizedPaperGuardrailWindow(
+  value: unknown,
+  expectedHorizon: 24 | 168,
+): PaperGuardrailEvidenceWindow | undefined {
+  const window = record(value);
+  const status = text(window, "status", "Status");
+  const horizon = nonnegativeInteger(
+    window?.horizon_hours ?? window?.HorizonHours,
+  );
+  const startedAt = text(window, "window_started_at", "WindowStartedAt");
+  const endedAt = text(window, "window_ended_at", "WindowEndedAt");
+  const proposalCount = nonnegativeInteger(
+    window?.proposal_count ?? window?.ProposalCount,
+  );
+  const allowCount = nonnegativeInteger(
+    window?.allow_count ?? window?.AllowCount,
+  );
+  const denyCount = nonnegativeInteger(window?.deny_count ?? window?.DenyCount);
+  const fillCount = nonnegativeInteger(
+    window?.simulated_fill_count ?? window?.SimulatedFillCount,
+  );
+  const minimum = exactDecimal(
+    window?.minimum_proposed_notional ?? window?.MinimumProposedNotional,
+  );
+  const median = exactDecimal(
+    window?.median_proposed_notional ?? window?.MedianProposedNotional,
+  );
+  const maximum = exactDecimal(
+    window?.maximum_proposed_notional ?? window?.MaximumProposedNotional,
+  );
+  const reasonCounts = normalizedPaperGuardrailCodeCounts(
+    window?.denial_reason_codes ?? window?.DenialReasonCodes,
+  );
+  const failedCounts = normalizedPaperGuardrailCodeCounts(
+    window?.failed_check_codes ?? window?.FailedCheckCodes,
+  );
+  const rawSymbols = window?.symbols ?? window?.Symbols;
+  const rawProposals = window?.proposals ?? window?.Proposals;
+  if (
+    !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
+    horizon !== expectedHorizon ||
+    proposalCount === undefined ||
+    allowCount === undefined ||
+    denyCount === undefined ||
+    fillCount === undefined ||
+    !reasonCounts ||
+    !failedCounts ||
+    !Array.isArray(rawSymbols) ||
+    !Array.isArray(rawProposals)
+  )
+    return;
+  const unavailable = {
+    status: "UNAVAILABLE" as const,
+    horizon_hours: expectedHorizon,
+    window_started_at: startedAt,
+    window_ended_at: endedAt,
+    proposal_count: 0,
+    allow_count: 0,
+    deny_count: 0,
+    simulated_fill_count: 0,
+    denial_reason_codes: [] as PaperGuardrailCodeCount[],
+    failed_check_codes: [] as PaperGuardrailCodeCount[],
+    symbols: [] as PaperGuardrailSymbol[],
+    proposals: [] as PaperGuardrailProposalFact[],
+  };
+  if (status === "UNAVAILABLE") return unavailable;
+  if (
+    !startedAt ||
+    !endedAt ||
+    Number.isNaN(Date.parse(startedAt)) ||
+    Number.isNaN(Date.parse(endedAt)) ||
+    Date.parse(startedAt) >= Date.parse(endedAt) ||
+    proposalCount !== allowCount + denyCount ||
+    allowCount !== fillCount ||
+    (proposalCount === 0
+      ? minimum !== undefined || median !== undefined || maximum !== undefined
+      : !minimum || !median || !maximum) ||
+    (minimum &&
+      median &&
+      maximum &&
+      (compareExactDecimals(minimum, median) === 1 ||
+        compareExactDecimals(median, maximum) === 1)) ||
+    rawProposals.length !== proposalCount
+  )
+    return;
+  const proposals: PaperGuardrailProposalFact[] = [];
+  const identities = [
+    new Set<string>(),
+    new Set<string>(),
+    new Set<string>(),
+    new Set<string>(),
+  ];
+  for (const raw of rawProposals) {
+    const item = record(raw);
+    const decisionID = text(
+      item,
+      "decision_journal_entry_id",
+      "DecisionJournalEntryID",
+    );
+    const actionID = text(item, "proposed_action_id", "ProposedActionID");
+    const riskID = text(item, "risk_evaluation_id", "RiskEvaluationID");
+    const executionID = text(item, "execution_record_id", "ExecutionRecordID");
+    const createdAt = text(item, "created_at", "CreatedAt");
+    const symbol = text(item, "symbol", "Symbol");
+    const instrument = text(item, "instrument", "Instrument");
+    const side = text(item, "side", "Side");
+    const notional = exactDecimal(
+      item?.proposed_notional ?? item?.ProposedNotional,
+    );
+    const riskDecision = text(item, "risk_decision", "RiskDecision");
+    const executionStatus = text(item, "execution_status", "ExecutionStatus");
+    const denialReasons = stringList(
+      item?.denial_reason_codes ?? item?.DenialReasonCodes,
+    );
+    const failedChecks = stringList(
+      item?.failed_check_codes ?? item?.FailedCheckCodes,
+    );
+    const provider = text(item, "financial_provider", "FinancialProvider");
+    const feed = text(item, "market_feed", "MarketFeed");
+    const quality = text(item, "market_quality", "MarketQuality");
+    const marketAt = text(item, "market_observed_at", "MarketObservedAt");
+    const ids = [decisionID, actionID, riskID, executionID];
+    if (
+      ids.some((id) => !id) ||
+      ids.some((id, index) => identities[index].has(id!)) ||
+      !createdAt ||
+      Number.isNaN(Date.parse(createdAt)) ||
+      Date.parse(createdAt) < Date.parse(startedAt) ||
+      Date.parse(createdAt) > Date.parse(endedAt) ||
+      !symbol ||
+      !["EQUITY", "CRYPTO"].includes(instrument ?? "") ||
+      !["BUY", "SELL"].includes(side ?? "") ||
+      !notional ||
+      compareExactDecimals(notional, "0") !== 1 ||
+      !provider ||
+      !feed ||
+      !quality ||
+      !marketAt ||
+      Number.isNaN(Date.parse(marketAt)) ||
+      Date.parse(marketAt) > Date.parse(createdAt) ||
+      !(
+        (riskDecision === "ALLOW" &&
+          executionStatus === "SIMULATED_FILLED" &&
+          denialReasons.length === 0 &&
+          failedChecks.length === 0) ||
+        (riskDecision === "DENY" &&
+          executionStatus === "RISK_DENIED" &&
+          denialReasons.length > 0 &&
+          denialReasons.join("|") === failedChecks.join("|"))
+      )
+    )
+      return;
+    ids.forEach((id, index) => identities[index].add(id!));
+    proposals.push({
+      decision_journal_entry_id: decisionID!,
+      proposed_action_id: actionID!,
+      risk_evaluation_id: riskID!,
+      execution_record_id: executionID!,
+      created_at: createdAt,
+      symbol,
+      instrument: instrument as "EQUITY" | "CRYPTO",
+      side: side as "BUY" | "SELL",
+      proposed_notional: notional,
+      risk_decision: riskDecision as "ALLOW" | "DENY",
+      execution_status: executionStatus as "SIMULATED_FILLED" | "RISK_DENIED",
+      denial_reason_codes: denialReasons,
+      failed_check_codes: failedChecks,
+      financial_provider: provider,
+      market_feed: feed,
+      market_quality: quality,
+      market_observed_at: marketAt,
+    });
+  }
+  if (
+    proposals.filter((item) => item.risk_decision === "ALLOW").length !==
+      allowCount ||
+    proposals.filter((item) => item.risk_decision === "DENY").length !==
+      denyCount ||
+    proposals.some(
+      (item, index) =>
+        index > 0 &&
+        (Date.parse(proposals[index - 1].created_at) >
+          Date.parse(item.created_at) ||
+          (proposals[index - 1].created_at === item.created_at &&
+            proposals[index - 1].decision_journal_entry_id >=
+              item.decision_journal_entry_id)),
+    )
+  )
+    return;
+  const sortedNotionals = proposals
+    .map((item) => item.proposed_notional)
+    .sort((left, right) => compareExactDecimals(left, right) ?? 0);
+  if (proposalCount > 0) {
+    const middle = Math.floor(sortedNotionals.length / 2);
+    const expectedMedian =
+      sortedNotionals.length % 2 === 1
+        ? sortedNotionals[middle]
+        : divideExactDecimals(
+            sumExactMoney([
+              { amount: sortedNotionals[middle - 1], currency: "USD" },
+              { amount: sortedNotionals[middle], currency: "USD" },
+            ])?.amount ?? "invalid",
+            "2",
+            10,
+          );
+    if (
+      compareExactDecimals(sortedNotionals[0], minimum!) !== 0 ||
+      compareExactDecimals(
+        sortedNotionals[sortedNotionals.length - 1],
+        maximum!,
+      ) !== 0 ||
+      !expectedMedian ||
+      compareExactDecimals(expectedMedian, median!) !== 0
+    )
+      return;
+  }
+  const exactReasonCounts = new Map<string, number>();
+  const exactFailedCounts = new Map<string, number>();
+  for (const proposal of proposals) {
+    proposal.denial_reason_codes.forEach((code) =>
+      exactReasonCounts.set(code, (exactReasonCounts.get(code) ?? 0) + 1),
+    );
+    proposal.failed_check_codes.forEach((code) =>
+      exactFailedCounts.set(code, (exactFailedCounts.get(code) ?? 0) + 1),
+    );
+  }
+  if (
+    reasonCounts.length !== exactReasonCounts.size ||
+    failedCounts.length !== exactFailedCounts.size ||
+    reasonCounts.some(
+      (item) => exactReasonCounts.get(item.code) !== item.count,
+    ) ||
+    failedCounts.some((item) => exactFailedCounts.get(item.code) !== item.count)
+  )
+    return;
+  const symbols: PaperGuardrailSymbol[] = [];
+  for (const raw of rawSymbols) {
+    const item = record(raw);
+    const symbol = text(item, "symbol", "Symbol");
+    const instrument = text(item, "instrument", "Instrument");
+    const symbolProposals = nonnegativeInteger(
+      item?.proposal_count ?? item?.ProposalCount,
+    );
+    const symbolAllows = nonnegativeInteger(
+      item?.allow_count ?? item?.AllowCount,
+    );
+    const symbolDenies = nonnegativeInteger(
+      item?.deny_count ?? item?.DenyCount,
+    );
+    const symbolFills = nonnegativeInteger(
+      item?.simulated_fill_count ?? item?.SimulatedFillCount,
+    );
+    const symbolNotional = exactDecimal(
+      item?.proposed_notional ?? item?.ProposedNotional,
+    );
+    if (
+      !symbol ||
+      !["EQUITY", "CRYPTO"].includes(instrument ?? "") ||
+      symbolProposals === undefined ||
+      symbolAllows === undefined ||
+      symbolDenies === undefined ||
+      symbolFills === undefined ||
+      !symbolNotional ||
+      symbolProposals < 1 ||
+      symbolProposals !== symbolAllows + symbolDenies ||
+      symbolAllows !== symbolFills
+    )
+      return;
+    symbols.push({
+      symbol,
+      instrument: instrument as "EQUITY" | "CRYPTO",
+      proposal_count: symbolProposals,
+      allow_count: symbolAllows,
+      deny_count: symbolDenies,
+      simulated_fill_count: symbolFills,
+      proposed_notional: symbolNotional,
+    });
+  }
+  if (
+    symbols.reduce((sum, item) => sum + item.proposal_count, 0) !==
+      proposalCount ||
+    symbols.some(
+      (item, index) =>
+        index > 0 &&
+        `${symbols[index - 1].instrument}:${symbols[index - 1].symbol}` >=
+          `${item.instrument}:${item.symbol}`,
+    )
+  )
+    return;
+  for (const symbol of symbols) {
+    const facts = proposals.filter(
+      (proposal) =>
+        proposal.symbol === symbol.symbol &&
+        proposal.instrument === symbol.instrument,
+    );
+    const exactSymbolNotional = sumExactMoney(
+      facts.map((proposal) => ({
+        amount: proposal.proposed_notional,
+        currency: "USD",
+      })),
+    )?.amount;
+    if (
+      facts.length !== symbol.proposal_count ||
+      facts.filter((fact) => fact.risk_decision === "ALLOW").length !==
+        symbol.allow_count ||
+      facts.filter((fact) => fact.risk_decision === "DENY").length !==
+        symbol.deny_count ||
+      !exactSymbolNotional ||
+      compareExactDecimals(exactSymbolNotional, symbol.proposed_notional) !== 0
+    )
+      return;
+  }
+  return {
+    status: "AVAILABLE",
+    horizon_hours: expectedHorizon,
+    window_started_at: startedAt,
+    window_ended_at: endedAt,
+    proposal_count: proposalCount,
+    allow_count: allowCount,
+    deny_count: denyCount,
+    simulated_fill_count: fillCount,
+    minimum_proposed_notional: minimum,
+    median_proposed_notional: median,
+    maximum_proposed_notional: maximum,
+    denial_reason_codes: reasonCounts,
+    failed_check_codes: failedCounts,
+    symbols,
+    proposals,
+  };
+}
+
+function normalizedPaperGuardrailEvidence(
+  value: unknown,
+): PaperGuardrailEvidence | undefined {
+  const evidence = record(value);
+  const status = text(evidence, "status", "Status");
+  const method = text(evidence, "calculation_method", "CalculationMethod");
+  const asOf = text(evidence, "as_of", "AsOf");
+  const twentyFour = normalizedPaperGuardrailWindow(
+    evidence?.twenty_four_hours ?? evidence?.TwentyFourHours,
+    24,
+  );
+  const sevenDays = normalizedPaperGuardrailWindow(
+    evidence?.seven_days ?? evidence?.SevenDays,
+    168,
+  );
+  if (
+    !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
+    !twentyFour ||
+    !sevenDays
+  )
+    return;
+  if (
+    status === "AVAILABLE" &&
+    (method !== "IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION" ||
+      !asOf ||
+      Number.isNaN(Date.parse(asOf)) ||
+      twentyFour.status !== "AVAILABLE")
+  )
+    return;
+  return {
+    status: status as "AVAILABLE" | "UNAVAILABLE",
+    calculation_method: method as PaperGuardrailEvidence["calculation_method"],
+    as_of: asOf,
+    twenty_four_hours: twentyFour,
+    seven_days: sevenDays,
+  };
+}
+
 function normalizedPaperActivityCadence(
   value: unknown,
   expectedFillCount?: number,
@@ -1737,6 +2136,9 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
     portfolio?.activity_cadence ?? portfolio?.ActivityCadence,
     executionCosts?.fill_count,
   );
+  const guardrailEvidence = normalizedPaperGuardrailEvidence(
+    portfolio?.guardrail_evidence ?? portfolio?.GuardrailEvidence,
+  );
   if (
     !currency ||
     !startingCash ||
@@ -1795,6 +2197,7 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
     realized_outcome: realizedOutcome,
     execution_costs: executionCosts,
     activity_cadence: activityCadence,
+    guardrail_evidence: guardrailEvidence,
     updated_at: updatedAt,
   };
 }
@@ -2611,6 +3014,14 @@ async function fleetItem(
     paperPortfolioResult.payload?.broker_action_available === false &&
     paperPortfolioResult.payload?.live_execution_available === false &&
     Boolean(paperPortfolio?.activity_cadence);
+  const paperGuardrailEvidenceContractAvailable =
+    runtimeExecutionMode === "PAPER" &&
+    paperPortfolioResult.payload?.guardrail_evidence_semantics ===
+      "EXACT_IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION" &&
+    paperPortfolioResult.payload?.guardrail_evidence_read_only === true &&
+    paperPortfolioResult.payload?.broker_action_available === false &&
+    paperPortfolioResult.payload?.live_execution_available === false &&
+    Boolean(paperPortfolio?.guardrail_evidence);
   const paperPortfolioAvailable =
     expectsOperationalData &&
     runtimeExecutionMode === "PAPER" &&
@@ -2909,6 +3320,11 @@ async function fleetItem(
         ? paperActivityCadenceContractAvailable
         : undefined,
     paperActivityCadence: paperPortfolio?.activity_cadence,
+    paperGuardrailEvidenceContractAvailable:
+      runtimeExecutionMode === "PAPER"
+        ? paperGuardrailEvidenceContractAvailable
+        : undefined,
+    paperGuardrailEvidence: paperPortfolio?.guardrail_evidence,
     paperExecutionTotalFees: paperPortfolio?.execution_costs?.total_fees,
     paperExecutionTotalAdverseSlippage:
       paperPortfolio?.execution_costs?.total_adverse_slippage,

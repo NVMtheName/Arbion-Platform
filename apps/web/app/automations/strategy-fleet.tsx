@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { compareExactDecimals } from "../exact-money";
 import type {
   PaperActivityCadence,
+  PaperGuardrailEvidence,
   PaperTradeSequenceEvidence,
 } from "./paper-portfolio-summary";
 
@@ -193,6 +194,8 @@ export type StrategyFleetItem = {
   paperExecutionTimelineCapped?: boolean;
   paperActivityCadenceContractAvailable?: boolean;
   paperActivityCadence?: PaperActivityCadence;
+  paperGuardrailEvidenceContractAvailable?: boolean;
+  paperGuardrailEvidence?: PaperGuardrailEvidence;
   paperTradeSequence?: PaperTradeSequenceEvidence;
   paperExecutionTimeline?: Array<{
     sequence: number;
@@ -4500,6 +4503,16 @@ function paperActivityCadenceAvailable(item: StrategyFleetItem) {
   );
 }
 
+function paperGuardrailEvidenceAvailable(item: StrategyFleetItem) {
+  const evidence = item.paperGuardrailEvidence;
+  return Boolean(
+    item.executionMode === "PAPER" &&
+      item.paperGuardrailEvidenceContractAvailable === true &&
+      evidence?.status === "AVAILABLE" &&
+      evidence.twenty_four_hours.status === "AVAILABLE",
+  );
+}
+
 function shadowOutcomeEvidenceAvailable(item: StrategyFleetItem) {
   return (
     item.executionMode === "SHADOW" &&
@@ -4781,6 +4794,8 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
   const realizedAvailable = paper && paperRealizedEvidenceAvailable(item);
   const executionCostsAvailable = paper && paperExecutionCostsAvailable(item);
   const activityCadenceAvailable = paper && paperActivityCadenceAvailable(item);
+  const guardrailEvidenceAvailable =
+    paper && paperGuardrailEvidenceAvailable(item);
   const outcomeReconciliationAvailable =
     paper && paperOutcomeReconciliationAvailable(item);
   const outcomeReconciliationAttention =
@@ -5471,6 +5486,123 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                   continuous 24-hour scheduler window and complete immutable
                   fill history could not both be proven. No timing or
                   disposition is inferred.
+                </p>
+              )}
+              {guardrailEvidenceAvailable ? (
+                <details
+                  className="strategy-fleet-paper-outcome-timeline"
+                  aria-label={item.title + " exact Paper guardrail disposition"}
+                >
+                  <summary>
+                    <span>
+                      <strong>Proposal guardrails</strong>
+                      <small>Exact saved risk and simulation attribution</small>
+                    </span>
+                    <span>
+                      {capitalMoney(
+                        item.paperCurrency,
+                        item.paperGuardrailEvidence!.twenty_four_hours
+                          .minimum_proposed_notional,
+                      )}{" "}
+                      to{" "}
+                      {capitalMoney(
+                        item.paperCurrency,
+                        item.paperGuardrailEvidence!.twenty_four_hours
+                          .maximum_proposed_notional,
+                      )}
+                    </span>
+                  </summary>
+                  <dl>
+                    <div>
+                      <dt>24-hour exact outcomes</dt>
+                      <dd>
+                        {
+                          item.paperGuardrailEvidence!.twenty_four_hours
+                            .allow_count
+                        }{" "}
+                        allowed ·{" "}
+                        {
+                          item.paperGuardrailEvidence!.twenty_four_hours
+                            .deny_count
+                        }{" "}
+                        denied
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Proposed notional</dt>
+                      <dd>
+                        {capitalMoney(
+                          item.paperCurrency,
+                          item.paperGuardrailEvidence!.twenty_four_hours
+                            .median_proposed_notional,
+                        )}{" "}
+                        median
+                      </dd>
+                      <small>
+                        Exact min / median / max from saved proposals
+                      </small>
+                    </div>
+                    <div>
+                      <dt>Seven-day evidence</dt>
+                      <dd>
+                        {item.paperGuardrailEvidence!.seven_days.status ===
+                        "AVAILABLE"
+                          ? `${item.paperGuardrailEvidence!.seven_days.proposal_count} exact proposals`
+                          : "Awaiting one complete window"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {item.paperGuardrailEvidence!.twenty_four_hours
+                    .denial_reason_codes.length > 0 && (
+                    <p>
+                      Deterministic holds:{" "}
+                      {item
+                        .paperGuardrailEvidence!.twenty_four_hours.denial_reason_codes.map(
+                          (reason) =>
+                            `${readable(reason.code)} (${reason.count})`,
+                        )
+                        .join(" · ")}
+                    </p>
+                  )}
+                  <ol>
+                    {item.paperGuardrailEvidence!.twenty_four_hours.symbols.map(
+                      (symbol) => (
+                        <li key={`${symbol.instrument}:${symbol.symbol}`}>
+                          <strong>{symbol.symbol}</strong>
+                          <span>
+                            {symbol.proposal_count} proposals ·{" "}
+                            {symbol.allow_count} allowed · {symbol.deny_count}{" "}
+                            denied
+                          </span>
+                          <small>
+                            {capitalMoney(
+                              item.paperCurrency,
+                              symbol.proposed_notional,
+                            )}{" "}
+                            total proposed notional
+                          </small>
+                        </li>
+                      ),
+                    )}
+                  </ol>
+                  <p>
+                    Each proposal preserves its decision, action, risk,
+                    execution, provider, feed, quality, and market time. These
+                    controls describe saved Paper disposition only—not model
+                    intent, performance, causality, or readiness for live
+                    trading.{" "}
+                    <Link
+                      href={`/automations/${encodeURIComponent(item.id)}#decision-journal`}
+                    >
+                      Review immutable evidence →
+                    </Link>
+                  </p>
+                </details>
+              ) : (
+                <p className="strategy-fleet-outcome-note">
+                  Proposal guardrails: <strong>Unavailable</strong> · the exact
+                  proposal, risk, execution, and market-attribution chain could
+                  not be proven. No guardrail disposition is inferred.
                 </p>
               )}
               {outcomeReconciliationAvailable ? (
