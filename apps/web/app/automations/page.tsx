@@ -21,6 +21,7 @@ import {
 } from "./paper-performance";
 import { reconcilePaperOutcome } from "./paper-outcome-reconciliation";
 import type {
+  PaperAutonomyEvidenceGate,
   PaperActivityCadence,
   PaperActivityWindow,
   PaperDenialEligibility,
@@ -112,7 +113,11 @@ type PaperPortfolioEnvelope = {
   guardrail_coverage_change_read_only?: boolean;
   denial_eligibility_semantics?: string;
   denial_eligibility_read_only?: boolean;
+  paper_evidence_readiness_semantics?: string;
+  paper_evidence_readiness_read_only?: boolean;
+  paper_evidence_readiness_grants_authority?: boolean;
   broker_action_available?: boolean;
+  live_promotion_available?: boolean;
   live_execution_available?: boolean;
 };
 
@@ -3231,6 +3236,257 @@ function normalizedPaperActivityCadence(
   };
 }
 
+function normalizedPaperEvidenceReadiness(
+  value: unknown,
+): PaperAutonomyEvidenceGate | undefined {
+  const gate = record(value);
+  const status = text(gate, "status", "Status");
+  const method = text(gate, "calculation_method", "CalculationMethod");
+  const reviewScope = text(gate, "review_scope", "ReviewScope");
+  const boundary = text(gate, "execution_boundary", "ExecutionBoundary");
+  const asOf = text(gate, "as_of", "AsOf");
+  const firstDecisionAt = text(gate, "first_decision_at", "FirstDecisionAt");
+  const latestDecisionAt = text(gate, "latest_decision_at", "LatestDecisionAt");
+  const count = (key: string, legacy: string) => {
+    const value = number(gate, key, legacy);
+    return value !== undefined && Number.isInteger(value) && value >= 0
+      ? value
+      : undefined;
+  };
+  const minimumDecisionCount = count(
+    "minimum_decision_count",
+    "MinimumDecisionCount",
+  );
+  const minimumWindowHours = count(
+    "minimum_evidence_window_hours",
+    "MinimumEvidenceWindowHours",
+  );
+  const evidenceWindowHours = count(
+    "evidence_window_hours",
+    "EvidenceWindowHours",
+  );
+  const decisionCount = count("decision_count", "DecisionCount");
+  const abstentionCount = count("abstention_count", "AbstentionCount");
+  const proposalCount = count("proposal_count", "ProposalCount");
+  const denyCount = count("deterministic_deny_count", "DeterministicDenyCount");
+  const fillCount = count("simulated_fill_count", "SimulatedFillCount");
+  const failures = count(
+    "consecutive_schedule_failures",
+    "ConsecutiveScheduleFailures",
+  );
+  const attributed = count(
+    "attributed_decision_count",
+    "AttributedDecisionCount",
+  );
+  const telemetry = count("telemetry_complete_count", "TelemetryCompleteCount");
+  const boundedMemory = count("bounded_memory_count", "BoundedMemoryCount");
+  const rawRoutes = gate?.routes ?? gate?.Routes;
+  const rawBlockers = gate?.blockers ?? gate?.Blockers;
+  const safety = record(gate?.safety ?? gate?.Safety);
+  const ledgerReconciled = flag(
+    gate,
+    "ledger_contracts_reconciled",
+    "LedgerContractsReconciled",
+  );
+  const liveExecutionAvailable = flag(
+    gate,
+    "live_execution_available",
+    "LiveExecutionAvailable",
+  );
+  if (
+    ![
+      "COLLECTING_EVIDENCE",
+      "EVIDENCE_REVIEWABLE",
+      "REVIEW_REQUIRED",
+      "UNAVAILABLE",
+    ].includes(status ?? "") ||
+    method !== "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_READINESS_GATE" ||
+    reviewScope !== "OWNER_REVIEW_EVIDENCE_ONLY" ||
+    boundary !== "PAPER_SIMULATION_ONLY" ||
+    minimumDecisionCount !== 20 ||
+    minimumWindowHours !== 168 ||
+    evidenceWindowHours === undefined ||
+    decisionCount === undefined ||
+    abstentionCount === undefined ||
+    proposalCount === undefined ||
+    denyCount === undefined ||
+    fillCount === undefined ||
+    failures === undefined ||
+    attributed === undefined ||
+    telemetry === undefined ||
+    boundedMemory === undefined ||
+    ledgerReconciled === undefined ||
+    liveExecutionAvailable !== false ||
+    !Array.isArray(rawRoutes) ||
+    !Array.isArray(rawBlockers) ||
+    decisionCount !== abstentionCount + proposalCount ||
+    denyCount + fillCount > proposalCount ||
+    attributed > decisionCount ||
+    telemetry > decisionCount ||
+    boundedMemory > decisionCount ||
+    (asOf && Number.isNaN(Date.parse(asOf))) ||
+    (firstDecisionAt && Number.isNaN(Date.parse(firstDecisionAt))) ||
+    (latestDecisionAt && Number.isNaN(Date.parse(latestDecisionAt)))
+  )
+    return;
+
+  const routes: PaperAutonomyEvidenceGate["routes"] = [];
+  let routeDecisionCount = 0;
+  for (const rawRoute of rawRoutes) {
+    const route = record(rawRoute);
+    const routeCount = number(route, "decision_count", "DecisionCount");
+    const aiProvider = text(route, "ai_provider", "AIProvider");
+    const modelID = text(route, "model_id", "ModelID");
+    const profile = text(route, "profile", "Profile");
+    const financialProvider = text(
+      route,
+      "financial_provider",
+      "FinancialProvider",
+    );
+    if (
+      !aiProvider ||
+      !modelID ||
+      !profile ||
+      !financialProvider ||
+      routeCount === undefined ||
+      !Number.isInteger(routeCount) ||
+      routeCount <= 0
+    )
+      return;
+    routeDecisionCount += routeCount;
+    routes.push({
+      ai_provider: aiProvider,
+      model_id: modelID,
+      profile,
+      financial_provider: financialProvider,
+      decision_count: routeCount,
+    });
+  }
+  if (routeDecisionCount !== attributed) return;
+
+  const blockers: PaperAutonomyEvidenceGate["blockers"] = [];
+  for (const rawBlocker of rawBlockers) {
+    const blocker = record(rawBlocker);
+    const code = text(blocker, "code", "Code");
+    const category = text(blocker, "category", "Category");
+    const detail = text(blocker, "detail", "Detail");
+    if (
+      !code ||
+      !["COLLECTION", "REVIEW", "UNAVAILABLE"].includes(category ?? "") ||
+      !detail
+    )
+      return;
+    blockers.push({
+      code,
+      category:
+        category as PaperAutonomyEvidenceGate["blockers"][number]["category"],
+      detail,
+    });
+  }
+  const hasUnavailable = blockers.some(
+    (blocker) => blocker.category === "UNAVAILABLE",
+  );
+  const hasReview = blockers.some((blocker) => blocker.category === "REVIEW");
+  const hasCollection = blockers.some(
+    (blocker) => blocker.category === "COLLECTION",
+  );
+  if (
+    (status === "EVIDENCE_REVIEWABLE" && blockers.length !== 0) ||
+    (status === "COLLECTING_EVIDENCE" &&
+      (!hasCollection || hasReview || hasUnavailable)) ||
+    (status === "REVIEW_REQUIRED" && (!hasReview || hasUnavailable)) ||
+    (status === "UNAVAILABLE" && !hasUnavailable)
+  )
+    return;
+
+  const safetyCount = (key: string, legacy: string) => {
+    const value = number(safety, key, legacy);
+    return value !== undefined && Number.isInteger(value) && value >= 0
+      ? value
+      : undefined;
+  };
+  const safetyStatus = text(safety, "status", "Status");
+  const liveMandates = safetyCount("live_mandate_count", "LiveMandateCount");
+  const aiOrderIntents = safetyCount(
+    "ai_order_intent_count",
+    "AIOrderIntentCount",
+  );
+  const invalidStrategyModes = safetyCount(
+    "invalid_strategy_mode_count",
+    "InvalidStrategyModeCount",
+  );
+  const invalidExecutionModes = safetyCount(
+    "invalid_execution_mode_count",
+    "InvalidExecutionModeCount",
+  );
+  const executableRisks = safetyCount(
+    "platform_executable_risk_count",
+    "PlatformExecutableRiskCount",
+  );
+  const nonSimulationFills = safetyCount(
+    "non_simulation_fill_count",
+    "NonSimulationFillCount",
+  );
+  if (
+    !["CLEAR", "REVIEW_REQUIRED"].includes(safetyStatus ?? "") ||
+    liveMandates === undefined ||
+    aiOrderIntents === undefined ||
+    invalidStrategyModes === undefined ||
+    invalidExecutionModes === undefined ||
+    executableRisks === undefined ||
+    nonSimulationFills === undefined
+  )
+    return;
+  const safetyTotal =
+    liveMandates +
+    aiOrderIntents +
+    invalidStrategyModes +
+    invalidExecutionModes +
+    executableRisks +
+    nonSimulationFills;
+  if ((safetyStatus === "CLEAR") !== (safetyTotal === 0)) return;
+
+  return {
+    status: status as PaperAutonomyEvidenceGate["status"],
+    calculation_method: method,
+    as_of: asOf,
+    review_scope: reviewScope,
+    execution_boundary: boundary,
+    minimum_decision_count: minimumDecisionCount,
+    minimum_evidence_window_hours: minimumWindowHours,
+    evidence_window_hours: evidenceWindowHours,
+    decision_count: decisionCount,
+    abstention_count: abstentionCount,
+    proposal_count: proposalCount,
+    deterministic_deny_count: denyCount,
+    simulated_fill_count: fillCount,
+    first_decision_at: firstDecisionAt,
+    latest_decision_at: latestDecisionAt,
+    last_schedule_status: text(
+      gate,
+      "last_schedule_status",
+      "LastScheduleStatus",
+    ),
+    consecutive_schedule_failures: failures,
+    attributed_decision_count: attributed,
+    telemetry_complete_count: telemetry,
+    bounded_memory_count: boundedMemory,
+    routes,
+    ledger_contracts_reconciled: ledgerReconciled,
+    safety: {
+      status: safetyStatus as PaperAutonomyEvidenceGate["safety"]["status"],
+      live_mandate_count: liveMandates,
+      ai_order_intent_count: aiOrderIntents,
+      invalid_strategy_mode_count: invalidStrategyModes,
+      invalid_execution_mode_count: invalidExecutionModes,
+      platform_executable_risk_count: executableRisks,
+      non_simulation_fill_count: nonSimulationFills,
+    },
+    blockers,
+    live_execution_available: false,
+  };
+}
+
 function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
   const portfolio = record(value);
   const rawPositions = portfolio?.positions ?? portfolio?.Positions;
@@ -3258,6 +3514,9 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
   );
   const guardrailEvidence = normalizedPaperGuardrailEvidence(
     portfolio?.guardrail_evidence ?? portfolio?.GuardrailEvidence,
+  );
+  const evidenceReadiness = normalizedPaperEvidenceReadiness(
+    portfolio?.evidence_readiness ?? portfolio?.EvidenceReadiness,
   );
   if (
     !currency ||
@@ -3318,6 +3577,7 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
     execution_costs: executionCosts,
     activity_cadence: activityCadence,
     guardrail_evidence: guardrailEvidence,
+    evidence_readiness: evidenceReadiness,
     updated_at: updatedAt,
   };
 }
@@ -4152,6 +4412,17 @@ async function fleetItem(
     paperPortfolioResult.payload?.broker_action_available === false &&
     paperPortfolioResult.payload?.live_execution_available === false &&
     Boolean(paperPortfolio?.guardrail_evidence);
+  const paperEvidenceReadinessContractAvailable =
+    runtimeExecutionMode === "PAPER" &&
+    paperPortfolioResult.payload?.paper_evidence_readiness_semantics ===
+      "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_READINESS_GATE" &&
+    paperPortfolioResult.payload?.paper_evidence_readiness_read_only === true &&
+    paperPortfolioResult.payload?.paper_evidence_readiness_grants_authority ===
+      false &&
+    paperPortfolioResult.payload?.broker_action_available === false &&
+    paperPortfolioResult.payload?.live_promotion_available === false &&
+    paperPortfolioResult.payload?.live_execution_available === false &&
+    Boolean(paperPortfolio?.evidence_readiness);
   const paperPortfolioAvailable =
     expectsOperationalData &&
     runtimeExecutionMode === "PAPER" &&
@@ -4455,6 +4726,11 @@ async function fleetItem(
         ? paperGuardrailEvidenceContractAvailable
         : undefined,
     paperGuardrailEvidence: paperPortfolio?.guardrail_evidence,
+    paperEvidenceReadinessContractAvailable:
+      runtimeExecutionMode === "PAPER"
+        ? paperEvidenceReadinessContractAvailable
+        : undefined,
+    paperEvidenceReadiness: paperPortfolio?.evidence_readiness,
     paperExecutionTotalFees: paperPortfolio?.execution_costs?.total_fees,
     paperExecutionTotalAdverseSlippage:
       paperPortfolio?.execution_costs?.total_adverse_slippage,

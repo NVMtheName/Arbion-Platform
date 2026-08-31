@@ -58,6 +58,7 @@ const base = {
     positions: [],
     updated_at: "2026-08-29T21:27:00Z",
   },
+  evidenceReadinessContractAvailable: false,
   automationBreaker: null,
   schedulerEnabled: true,
   allowedSymbols: ["BTC", "ETH", "XRP"],
@@ -197,6 +198,72 @@ describe("Paper autonomy readiness control plane", () => {
     expect(screen.getByText("8/10")).toBeInTheDocument();
     expect(
       screen.getByText(/Waiting for the first automatic AI decision/i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows normal evidence collection without requiring a proposal or fill", () => {
+    render(
+      <PaperAutonomyReadinessControlPlane
+        {...base}
+        evidenceReadinessContractAvailable
+        paperPortfolio={{
+          ...base.paperPortfolio,
+          evidence_readiness: {
+            status: "COLLECTING_EVIDENCE",
+            calculation_method:
+              "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_READINESS_GATE",
+            as_of: "2026-08-31T12:00:00Z",
+            review_scope: "OWNER_REVIEW_EVIDENCE_ONLY",
+            execution_boundary: "PAPER_SIMULATION_ONLY",
+            minimum_decision_count: 20,
+            minimum_evidence_window_hours: 168,
+            evidence_window_hours: 48,
+            decision_count: 20,
+            abstention_count: 20,
+            proposal_count: 0,
+            deterministic_deny_count: 0,
+            simulated_fill_count: 0,
+            consecutive_schedule_failures: 0,
+            last_schedule_status: "SUCCEEDED",
+            attributed_decision_count: 20,
+            telemetry_complete_count: 20,
+            bounded_memory_count: 20,
+            routes: [
+              {
+                ai_provider: "openai",
+                model_id: "gpt-5.6-sol",
+                profile: "deep",
+                financial_provider: "coinbase",
+                decision_count: 20,
+              },
+            ],
+            ledger_contracts_reconciled: true,
+            safety: {
+              status: "CLEAR",
+              live_mandate_count: 0,
+              ai_order_intent_count: 0,
+              invalid_strategy_mode_count: 0,
+              invalid_execution_mode_count: 0,
+              platform_executable_risk_count: 0,
+              non_simulation_fill_count: 0,
+            },
+            blockers: [
+              {
+                code: "EVIDENCE_WINDOW_INCOMPLETE",
+                category: "COLLECTION",
+                detail: "Seven days have not elapsed yet.",
+              },
+            ],
+            live_execution_available: false,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Collecting evidence")).toBeInTheDocument();
+    expect(screen.getAllByText(/20 \/ 20/)).toHaveLength(2);
+    expect(
+      screen.getByText(/Proposals, fills, and profit are not required/i),
     ).toBeInTheDocument();
   });
 });

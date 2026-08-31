@@ -378,17 +378,73 @@ type ShadowEvidenceGate struct {
 // PaperPortfolio is the owner-facing, provider-independent projection of one
 // simulated ledger. It deliberately excludes provider and account identifiers.
 type PaperPortfolio struct {
-	StrategyInstanceID string                 `json:"strategy_instance_id"`
-	Currency           string                 `json:"currency"`
-	StartingCash       string                 `json:"starting_cash"`
-	Cash               string                 `json:"cash"`
-	Version            int64                  `json:"version"`
-	Positions          []PaperPosition        `json:"positions"`
-	RealizedOutcome    PaperRealizedOutcome   `json:"realized_outcome"`
-	ExecutionCosts     PaperExecutionCosts    `json:"execution_costs"`
-	ActivityCadence    PaperActivityCadence   `json:"activity_cadence"`
-	GuardrailEvidence  PaperGuardrailEvidence `json:"guardrail_evidence"`
-	UpdatedAt          time.Time              `json:"updated_at"`
+	StrategyInstanceID string                    `json:"strategy_instance_id"`
+	Currency           string                    `json:"currency"`
+	StartingCash       string                    `json:"starting_cash"`
+	Cash               string                    `json:"cash"`
+	Version            int64                     `json:"version"`
+	Positions          []PaperPosition           `json:"positions"`
+	RealizedOutcome    PaperRealizedOutcome      `json:"realized_outcome"`
+	ExecutionCosts     PaperExecutionCosts       `json:"execution_costs"`
+	ActivityCadence    PaperActivityCadence      `json:"activity_cadence"`
+	GuardrailEvidence  PaperGuardrailEvidence    `json:"guardrail_evidence"`
+	EvidenceReadiness  PaperAutonomyEvidenceGate `json:"evidence_readiness"`
+	UpdatedAt          time.Time                 `json:"updated_at"`
+}
+
+// PaperAutonomyEvidenceGate determines only whether a bounded immutable Paper
+// evidence set is ready for owner review. It grants no execution authority and
+// deliberately does not require proposals, fills, or profitable outcomes.
+type PaperAutonomyEvidenceGate struct {
+	Status                      string                         `json:"status"`
+	CalculationMethod           string                         `json:"calculation_method"`
+	AsOf                        *time.Time                     `json:"as_of,omitempty"`
+	ReviewScope                 string                         `json:"review_scope"`
+	ExecutionBoundary           string                         `json:"execution_boundary"`
+	MinimumDecisionCount        int                            `json:"minimum_decision_count"`
+	MinimumEvidenceWindowHours  int                            `json:"minimum_evidence_window_hours"`
+	EvidenceWindowHours         int64                          `json:"evidence_window_hours"`
+	DecisionCount               int                            `json:"decision_count"`
+	AbstentionCount             int                            `json:"abstention_count"`
+	ProposalCount               int                            `json:"proposal_count"`
+	DeterministicDenyCount      int                            `json:"deterministic_deny_count"`
+	SimulatedFillCount          int                            `json:"simulated_fill_count"`
+	FirstDecisionAt             *time.Time                     `json:"first_decision_at,omitempty"`
+	LatestDecisionAt            *time.Time                     `json:"latest_decision_at,omitempty"`
+	LastScheduleStatus          string                         `json:"last_schedule_status,omitempty"`
+	ConsecutiveScheduleFailures int                            `json:"consecutive_schedule_failures"`
+	AttributedDecisionCount     int                            `json:"attributed_decision_count"`
+	TelemetryCompleteCount      int                            `json:"telemetry_complete_count"`
+	BoundedMemoryCount          int                            `json:"bounded_memory_count"`
+	Routes                      []PaperAutonomyEvidenceRoute   `json:"routes"`
+	LedgerContractsReconciled   bool                           `json:"ledger_contracts_reconciled"`
+	Safety                      PaperNoLiveSafetyEvidence      `json:"safety"`
+	Blockers                    []PaperAutonomyEvidenceBlocker `json:"blockers"`
+	LiveExecutionAvailable      bool                           `json:"live_execution_available"`
+}
+
+type PaperAutonomyEvidenceRoute struct {
+	AIProvider        string `json:"ai_provider"`
+	ModelID           string `json:"model_id"`
+	Profile           string `json:"profile"`
+	FinancialProvider string `json:"financial_provider"`
+	DecisionCount     int    `json:"decision_count"`
+}
+
+type PaperNoLiveSafetyEvidence struct {
+	Status                      string `json:"status"`
+	LiveMandateCount            int    `json:"live_mandate_count"`
+	AIOrderIntentCount          int    `json:"ai_order_intent_count"`
+	InvalidStrategyModeCount    int    `json:"invalid_strategy_mode_count"`
+	InvalidExecutionModeCount   int    `json:"invalid_execution_mode_count"`
+	PlatformExecutableRiskCount int    `json:"platform_executable_risk_count"`
+	NonSimulationFillCount      int    `json:"non_simulation_fill_count"`
+}
+
+type PaperAutonomyEvidenceBlocker struct {
+	Code     string `json:"code"`
+	Category string `json:"category"`
+	Detail   string `json:"detail"`
 }
 
 // PaperGuardrailEvidence attributes each saved Paper proposal to its exact

@@ -2467,6 +2467,83 @@ describe("StrategyFleet", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the exact Paper evidence gate as normal collection without a live promotion", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            title: "AI Paper Engine",
+            executionMode: "PAPER",
+            evidenceAvailable: undefined,
+            evidenceStatus: undefined,
+            paperEvidenceReadinessContractAvailable: true,
+            paperEvidenceReadiness: {
+              status: "COLLECTING_EVIDENCE",
+              calculation_method:
+                "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_READINESS_GATE",
+              as_of: "2026-08-31T21:43:07Z",
+              review_scope: "OWNER_REVIEW_EVIDENCE_ONLY",
+              execution_boundary: "PAPER_SIMULATION_ONLY",
+              minimum_decision_count: 20,
+              minimum_evidence_window_hours: 168,
+              evidence_window_hours: 48,
+              decision_count: 24,
+              abstention_count: 24,
+              proposal_count: 0,
+              deterministic_deny_count: 0,
+              simulated_fill_count: 0,
+              last_schedule_status: "SUCCEEDED",
+              consecutive_schedule_failures: 0,
+              attributed_decision_count: 24,
+              telemetry_complete_count: 24,
+              bounded_memory_count: 24,
+              routes: [
+                {
+                  ai_provider: "openai",
+                  model_id: "gpt-5.6-sol",
+                  profile: "deep",
+                  financial_provider: "coinbase",
+                  decision_count: 24,
+                },
+              ],
+              ledger_contracts_reconciled: true,
+              safety: {
+                status: "CLEAR",
+                live_mandate_count: 0,
+                ai_order_intent_count: 0,
+                invalid_strategy_mode_count: 0,
+                invalid_execution_mode_count: 0,
+                platform_executable_risk_count: 0,
+                non_simulation_fill_count: 0,
+              },
+              blockers: [
+                {
+                  code: "EVIDENCE_WINDOW_INCOMPLETE",
+                  category: "COLLECTION",
+                  detail: "Seven days have not elapsed yet.",
+                },
+              ],
+              live_execution_available: false,
+            },
+          },
+        ]}
+      />,
+    );
+
+    const gate = screen
+      .getByText("Paper autonomy evidence gate")
+      .closest("details");
+    expect(gate).not.toHaveAttribute("open");
+    expect(gate).toHaveTextContent("Collecting evidence");
+    expect(gate).toHaveTextContent("48 / 168 hours");
+    expect(gate).toHaveTextContent("24 / 20");
+    expect(gate).toHaveTextContent("24 abstain · 0 propose");
+    expect(gate).toHaveTextContent(
+      "Paper simulation only · live promotion unavailable",
+    );
+  });
+
   it("shows exact Paper exposure, headroom, and immutable realized outcomes", () => {
     render(
       <StrategyFleet
