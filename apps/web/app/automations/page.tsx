@@ -23,6 +23,9 @@ import { reconcilePaperOutcome } from "./paper-outcome-reconciliation";
 import type {
   PaperActivityCadence,
   PaperActivityWindow,
+  PaperDenialEligibility,
+  PaperDenialEligibilityFact,
+  PaperDenialRiskResultChange,
   PaperDispositionFunnel,
   PaperDispositionFunnelWindow,
   PaperExecutionCosts,
@@ -107,6 +110,8 @@ type PaperPortfolioEnvelope = {
   guardrail_coverage_read_only?: boolean;
   guardrail_coverage_change_semantics?: string;
   guardrail_coverage_change_read_only?: boolean;
+  denial_eligibility_semantics?: string;
+  denial_eligibility_read_only?: boolean;
   broker_action_available?: boolean;
   live_execution_available?: boolean;
 };
@@ -1736,6 +1741,8 @@ function normalizedPaperGuardrailWindow(
     const symbol = text(item, "symbol", "Symbol");
     const instrument = text(item, "instrument", "Instrument");
     const side = text(item, "side", "Side");
+    const rawQuantity = item?.proposed_quantity ?? item?.ProposedQuantity;
+    const quantity = exactDecimal(rawQuantity);
     const notional = exactDecimal(
       item?.proposed_notional ?? item?.ProposedNotional,
     );
@@ -1789,6 +1796,8 @@ function normalizedPaperGuardrailWindow(
       !symbol ||
       !["EQUITY", "CRYPTO"].includes(instrument ?? "") ||
       !["BUY", "SELL"].includes(side ?? "") ||
+      (rawQuantity !== undefined &&
+        (!quantity || compareExactDecimals(quantity, "0") !== 1)) ||
       !notional ||
       compareExactDecimals(notional, "0") !== 1 ||
       !provider ||
@@ -1824,6 +1833,7 @@ function normalizedPaperGuardrailWindow(
       symbol,
       instrument: instrument as "EQUITY" | "CRYPTO",
       side: side as "BUY" | "SELL",
+      proposed_quantity: quantity ?? "",
       proposed_notional: notional,
       risk_decision: riskDecision as "ALLOW" | "DENY",
       execution_status: executionStatus as "SIMULATED_FILLED" | "RISK_DENIED",
@@ -2559,6 +2569,401 @@ function normalizedPaperGuardrailCoverageChange(
   };
 }
 
+function normalizedPaperDenialEligibility(
+  value: unknown,
+  source: PaperGuardrailEvidenceWindow,
+): PaperDenialEligibility | undefined {
+  const ledger = record(value);
+  const status = text(ledger, "status", "Status");
+  const method = text(ledger, "calculation_method", "CalculationMethod");
+  const horizon = nonnegativeInteger(
+    ledger?.horizon_hours ?? ledger?.HorizonHours,
+  );
+  const startedAt = text(ledger, "window_started_at", "WindowStartedAt");
+  const endedAt = text(ledger, "window_ended_at", "WindowEndedAt");
+  const denialCount = nonnegativeInteger(
+    ledger?.denial_count ?? ledger?.DenialCount,
+  );
+  const laterAllowedCount = nonnegativeInteger(
+    ledger?.later_allowed_count ?? ledger?.LaterAllowedCount,
+  );
+  const laterDeniedCount = nonnegativeInteger(
+    ledger?.later_denied_count ?? ledger?.LaterDeniedCount,
+  );
+  const noLaterCount = nonnegativeInteger(
+    ledger?.no_later_comparable_proposal_count ??
+      ledger?.NoLaterComparableProposalCount,
+  );
+  const providers = stringList(
+    ledger?.financial_providers ?? ledger?.FinancialProviders,
+  );
+  const firstDenialAt = text(ledger, "first_denial_at", "FirstDenialAt");
+  const latestDenialAt = text(ledger, "latest_denial_at", "LatestDenialAt");
+  const rawDenials = ledger?.denials ?? ledger?.Denials;
+  if (
+    !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
+    horizon === undefined ||
+    denialCount === undefined ||
+    laterAllowedCount === undefined ||
+    laterDeniedCount === undefined ||
+    noLaterCount === undefined ||
+    !providers ||
+    new Set(providers).size !== providers.length ||
+    !Array.isArray(rawDenials)
+  )
+    return;
+  const unavailable: PaperDenialEligibility = {
+    status: "UNAVAILABLE",
+    horizon_hours: horizon,
+    window_started_at: startedAt,
+    window_ended_at: endedAt,
+    denial_count: 0,
+    later_allowed_count: 0,
+    later_denied_count: 0,
+    no_later_comparable_proposal_count: 0,
+    financial_providers: [],
+    denials: [],
+  };
+  if (status === "UNAVAILABLE") {
+    if (
+      denialCount !== 0 ||
+      laterAllowedCount !== 0 ||
+      laterDeniedCount !== 0 ||
+      noLaterCount !== 0 ||
+      providers.length !== 0 ||
+      rawDenials.length !== 0
+    )
+      return;
+    return unavailable;
+  }
+  if (
+    method !== "IMMUTABLE_PAPER_DETERMINISTIC_DENIAL_AND_LATER_ELIGIBILITY" ||
+    source.status !== "AVAILABLE" ||
+    source.coverage_status !== "COMPLETE" ||
+    horizon !== source.horizon_hours ||
+    !startedAt ||
+    !endedAt ||
+    startedAt !== source.window_started_at ||
+    endedAt !== source.window_ended_at ||
+    Number.isNaN(Date.parse(startedAt)) ||
+    Number.isNaN(Date.parse(endedAt)) ||
+    denialCount !== source.deny_count ||
+    rawDenials.length !== denialCount ||
+    laterAllowedCount + laterDeniedCount + noLaterCount !== denialCount
+  )
+    return;
+
+  const denials: PaperDenialEligibilityFact[] = [];
+  const evidenceProviders = new Set<string>();
+  for (const raw of rawDenials) {
+    const item = record(raw);
+    const decisionID = text(
+      item,
+      "decision_journal_entry_id",
+      "DecisionJournalEntryID",
+    );
+    const actionID = text(item, "proposed_action_id", "ProposedActionID");
+    const riskID = text(item, "risk_evaluation_id", "RiskEvaluationID");
+    const executionID = text(item, "execution_record_id", "ExecutionRecordID");
+    const createdAt = text(item, "created_at", "CreatedAt");
+    const symbol = text(item, "symbol", "Symbol");
+    const instrument = text(item, "instrument", "Instrument");
+    const side = text(item, "side", "Side");
+    const quantity = exactDecimal(
+      item?.proposed_quantity ?? item?.ProposedQuantity,
+    );
+    const notional = exactDecimal(
+      item?.proposed_notional ?? item?.ProposedNotional,
+    );
+    const reasons = stringList(
+      item?.denial_reason_codes ?? item?.DenialReasonCodes,
+    );
+    const failed = stringList(
+      item?.failed_check_codes ?? item?.FailedCheckCodes,
+    );
+    const terminal = text(item, "terminal_check_stage", "TerminalCheckStage");
+    const provider = text(item, "financial_provider", "FinancialProvider");
+    const feed = text(item, "market_feed", "MarketFeed");
+    const quality = text(item, "market_quality", "MarketQuality");
+    const marketAt = text(item, "market_observed_at", "MarketObservedAt");
+    const disposition = text(item, "later_disposition", "LaterDisposition");
+    const sourceIndex = source.proposals.findIndex(
+      (proposal) => proposal.decision_journal_entry_id === decisionID,
+    );
+    const sourceDenial = source.proposals[sourceIndex];
+    if (
+      !decisionID ||
+      !actionID ||
+      !riskID ||
+      !executionID ||
+      !createdAt ||
+      Number.isNaN(Date.parse(createdAt)) ||
+      !symbol ||
+      !["EQUITY", "CRYPTO"].includes(instrument ?? "") ||
+      !["BUY", "SELL"].includes(side ?? "") ||
+      !quantity ||
+      compareExactDecimals(quantity, "0") !== 1 ||
+      !notional ||
+      compareExactDecimals(notional, "0") !== 1 ||
+      reasons.length < 1 ||
+      reasons.join("|") !== failed.join("|") ||
+      !terminal ||
+      !provider ||
+      !feed ||
+      !quality ||
+      !marketAt ||
+      Number.isNaN(Date.parse(marketAt)) ||
+      Date.parse(marketAt) > Date.parse(createdAt) ||
+      ![
+        "LATER_ALLOWED",
+        "LATER_DENIED",
+        "NO_LATER_COMPARABLE_PROPOSAL",
+      ].includes(disposition ?? "") ||
+      !sourceDenial ||
+      sourceDenial.risk_decision !== "DENY" ||
+      sourceDenial.coverage_status !== "FAIL_CLOSED_PREFIX" ||
+      sourceDenial.proposed_action_id !== actionID ||
+      sourceDenial.risk_evaluation_id !== riskID ||
+      sourceDenial.execution_record_id !== executionID ||
+      sourceDenial.created_at !== createdAt ||
+      sourceDenial.symbol !== symbol ||
+      sourceDenial.instrument !== instrument ||
+      sourceDenial.side !== side ||
+      sourceDenial.proposed_quantity !== quantity ||
+      sourceDenial.proposed_notional !== notional ||
+      sourceDenial.denial_reason_codes.join("|") !== reasons.join("|") ||
+      sourceDenial.failed_check_codes.join("|") !== failed.join("|") ||
+      sourceDenial.terminal_check_stage !== terminal ||
+      sourceDenial.financial_provider !== provider ||
+      sourceDenial.market_feed !== feed ||
+      sourceDenial.market_quality !== quality ||
+      sourceDenial.market_observed_at !== marketAt
+    )
+      return;
+    evidenceProviders.add(provider);
+    const firstLater = source.proposals
+      .slice(sourceIndex + 1)
+      .find(
+        (proposal) =>
+          proposal.symbol === symbol &&
+          proposal.instrument === instrument &&
+          proposal.side === side,
+      );
+    const rawChanges = item?.changed_risk_results ?? item?.ChangedRiskResults;
+    if (!Array.isArray(rawChanges)) return;
+    const changes: PaperDenialRiskResultChange[] = [];
+    for (const rawChange of rawChanges) {
+      const change = record(rawChange);
+      const stage = text(change, "stage", "Stage");
+      const previousCode = text(change, "previous_code", "PreviousCode");
+      const laterCode = text(change, "later_code", "LaterCode");
+      const previousResult = text(change, "previous_result", "PreviousResult");
+      const laterResult = text(change, "later_result", "LaterResult");
+      if (
+        !stage ||
+        !previousCode ||
+        !laterCode ||
+        !["PASS", "FAIL", "WARN"].includes(previousResult ?? "") ||
+        !["PASS", "FAIL", "WARN"].includes(laterResult ?? "") ||
+        (previousCode === laterCode && previousResult === laterResult)
+      )
+        return;
+      changes.push({
+        stage,
+        previous_code: previousCode,
+        later_code: laterCode,
+        previous_result: previousResult as "PASS" | "FAIL" | "WARN",
+        later_result: laterResult as "PASS" | "FAIL" | "WARN",
+      });
+    }
+    const expectedChanges: PaperDenialRiskResultChange[] = [];
+    if (firstLater) {
+      const comparableCheckCount = Math.min(
+        sourceDenial.checks.length,
+        firstLater.checks.length,
+      );
+      for (let index = 0; index < comparableCheckCount; index += 1) {
+        const previous = sourceDenial.checks[index];
+        const later = firstLater.checks[index];
+        if (previous.code !== later.code || previous.result !== later.result) {
+          const stage = source.expected_check_codes[index];
+          if (!stage) return;
+          expectedChanges.push({
+            stage,
+            previous_code: previous.code,
+            later_code: later.code,
+            previous_result: previous.result,
+            later_result: later.result,
+          });
+        }
+      }
+    }
+    if (JSON.stringify(changes) !== JSON.stringify(expectedChanges)) return;
+    const fact: PaperDenialEligibilityFact = {
+      decision_journal_entry_id: decisionID,
+      proposed_action_id: actionID,
+      risk_evaluation_id: riskID,
+      execution_record_id: executionID,
+      created_at: createdAt,
+      symbol,
+      instrument: instrument as "EQUITY" | "CRYPTO",
+      side: side as "BUY" | "SELL",
+      proposed_quantity: quantity,
+      proposed_notional: notional,
+      denial_reason_codes: reasons,
+      failed_check_codes: failed,
+      terminal_check_stage: terminal,
+      financial_provider: provider,
+      market_feed: feed,
+      market_quality: quality,
+      market_observed_at: marketAt,
+      later_disposition:
+        disposition as PaperDenialEligibilityFact["later_disposition"],
+      changed_risk_results: changes,
+    };
+    if (disposition === "NO_LATER_COMPARABLE_PROPOSAL") {
+      if (firstLater || changes.length !== 0) return;
+    } else {
+      const laterDecisionID = text(
+        item,
+        "later_decision_journal_entry_id",
+        "LaterDecisionJournalEntryID",
+      );
+      const laterActionID = text(
+        item,
+        "later_proposed_action_id",
+        "LaterProposedActionID",
+      );
+      const laterRiskID = text(
+        item,
+        "later_risk_evaluation_id",
+        "LaterRiskEvaluationID",
+      );
+      const laterExecutionID = text(
+        item,
+        "later_execution_record_id",
+        "LaterExecutionRecordID",
+      );
+      const laterCreatedAt = text(item, "later_created_at", "LaterCreatedAt");
+      const laterQuantity = exactDecimal(
+        item?.later_proposed_quantity ?? item?.LaterProposedQuantity,
+      );
+      const laterNotional = exactDecimal(
+        item?.later_proposed_notional ?? item?.LaterProposedNotional,
+      );
+      const laterRiskDecision = text(
+        item,
+        "later_risk_decision",
+        "LaterRiskDecision",
+      );
+      const laterExecutionStatus = text(
+        item,
+        "later_execution_status",
+        "LaterExecutionStatus",
+      );
+      const laterProvider = text(
+        item,
+        "later_financial_provider",
+        "LaterFinancialProvider",
+      );
+      const laterFeed = text(item, "later_market_feed", "LaterMarketFeed");
+      const laterQuality = text(
+        item,
+        "later_market_quality",
+        "LaterMarketQuality",
+      );
+      const laterMarketAt = text(
+        item,
+        "later_market_observed_at",
+        "LaterMarketObservedAt",
+      );
+      const elapsed = nonnegativeInteger(
+        item?.elapsed_seconds ?? item?.ElapsedSeconds,
+      );
+      if (
+        !firstLater ||
+        !laterDecisionID ||
+        firstLater.decision_journal_entry_id !== laterDecisionID ||
+        firstLater.proposed_action_id !== laterActionID ||
+        firstLater.risk_evaluation_id !== laterRiskID ||
+        firstLater.execution_record_id !== laterExecutionID ||
+        firstLater.created_at !== laterCreatedAt ||
+        firstLater.proposed_quantity !== laterQuantity ||
+        firstLater.proposed_notional !== laterNotional ||
+        firstLater.risk_decision !== laterRiskDecision ||
+        firstLater.execution_status !== laterExecutionStatus ||
+        firstLater.financial_provider !== laterProvider ||
+        firstLater.market_feed !== laterFeed ||
+        firstLater.market_quality !== laterQuality ||
+        firstLater.market_observed_at !== laterMarketAt ||
+        elapsed === undefined ||
+        elapsed <= 0 ||
+        Math.floor(
+          (Date.parse(laterCreatedAt!) - Date.parse(createdAt)) / 1000,
+        ) !== elapsed ||
+        (disposition === "LATER_ALLOWED"
+          ? laterRiskDecision !== "ALLOW" ||
+            laterExecutionStatus !== "SIMULATED_FILLED"
+          : laterRiskDecision !== "DENY" ||
+            laterExecutionStatus !== "RISK_DENIED")
+      )
+        return;
+      evidenceProviders.add(laterProvider!);
+      Object.assign(fact, {
+        later_decision_journal_entry_id: laterDecisionID,
+        later_proposed_action_id: laterActionID,
+        later_risk_evaluation_id: laterRiskID,
+        later_execution_record_id: laterExecutionID,
+        later_created_at: laterCreatedAt,
+        later_proposed_quantity: laterQuantity,
+        later_proposed_notional: laterNotional,
+        later_risk_decision: laterRiskDecision,
+        later_execution_status: laterExecutionStatus,
+        later_financial_provider: laterProvider,
+        later_market_feed: laterFeed,
+        later_market_quality: laterQuality,
+        later_market_observed_at: laterMarketAt,
+        elapsed_seconds: elapsed,
+      });
+    }
+    denials.push(fact);
+  }
+  const exactProviders = [...evidenceProviders].sort();
+  const denialTimes = denials.map((item) => item.created_at).sort();
+  if (
+    exactProviders.join("|") !== providers.join("|") ||
+    (denialCount === 0
+      ? firstDenialAt !== undefined || latestDenialAt !== undefined
+      : !firstDenialAt ||
+        !latestDenialAt ||
+        firstDenialAt !== denialTimes[0] ||
+        latestDenialAt !== denialTimes[denialTimes.length - 1]) ||
+    denials.filter((item) => item.later_disposition === "LATER_ALLOWED")
+      .length !== laterAllowedCount ||
+    denials.filter((item) => item.later_disposition === "LATER_DENIED")
+      .length !== laterDeniedCount ||
+    denials.filter(
+      (item) => item.later_disposition === "NO_LATER_COMPARABLE_PROPOSAL",
+    ).length !== noLaterCount
+  )
+    return;
+  return {
+    status: "AVAILABLE",
+    calculation_method: method as PaperDenialEligibility["calculation_method"],
+    horizon_hours: horizon,
+    window_started_at: startedAt,
+    window_ended_at: endedAt,
+    denial_count: denialCount,
+    later_allowed_count: laterAllowedCount,
+    later_denied_count: laterDeniedCount,
+    no_later_comparable_proposal_count: noLaterCount,
+    financial_providers: providers,
+    first_denial_at: firstDenialAt,
+    latest_denial_at: latestDenialAt,
+    denials,
+  };
+}
+
 function normalizedPaperGuardrailEvidence(
   value: unknown,
 ): PaperGuardrailEvidence | undefined {
@@ -2582,11 +2987,20 @@ function normalizedPaperGuardrailEvidence(
           sevenDays,
         )
       : undefined;
+  const denialSource =
+    sevenDays?.status === "AVAILABLE" ? sevenDays : twentyFour;
+  const denialEligibility = denialSource
+    ? normalizedPaperDenialEligibility(
+        evidence?.denial_eligibility ?? evidence?.DenialEligibility,
+        denialSource,
+      )
+    : undefined;
   if (
     !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
     !twentyFour ||
     !sevenDays ||
-    !coverageChange
+    !coverageChange ||
+    !denialEligibility
   )
     return;
   if (
@@ -2604,6 +3018,7 @@ function normalizedPaperGuardrailEvidence(
     twenty_four_hours: twentyFour,
     seven_days: sevenDays,
     coverage_change: coverageChange,
+    denial_eligibility: denialEligibility,
   };
 }
 
@@ -3731,6 +4146,9 @@ async function fleetItem(
       "EXACT_IMMUTABLE_24_HOUR_AND_SEVEN_DAY_COVERAGE_COMPARISON" &&
     paperPortfolioResult.payload?.guardrail_coverage_change_read_only ===
       true &&
+    paperPortfolioResult.payload?.denial_eligibility_semantics ===
+      "EXACT_IMMUTABLE_PAPER_DETERMINISTIC_DENIAL_AND_LATER_ELIGIBILITY" &&
+    paperPortfolioResult.payload?.denial_eligibility_read_only === true &&
     paperPortfolioResult.payload?.broker_action_available === false &&
     paperPortfolioResult.payload?.live_execution_available === false &&
     Boolean(paperPortfolio?.guardrail_evidence);

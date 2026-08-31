@@ -732,6 +732,7 @@ describe("PaperPortfolioSummary", () => {
                   symbol: "ETH",
                   instrument: "CRYPTO",
                   side: "SELL",
+                  proposed_quantity: "1.0000000000",
                   proposed_notional: "50.0000000000",
                   risk_decision: "DENY",
                   execution_status: "RISK_DENIED",
@@ -757,6 +758,7 @@ describe("PaperPortfolioSummary", () => {
                   symbol: "BTC",
                   instrument: "CRYPTO",
                   side: "BUY",
+                  proposed_quantity: "0.0010000000",
                   proposed_notional: "100.0000000000",
                   risk_decision: "ALLOW",
                   execution_status: "SIMULATED_FILLED",
@@ -805,6 +807,44 @@ describe("PaperPortfolioSummary", () => {
               check_changes: [],
               symbol_changes: [],
             },
+            denial_eligibility: {
+              status: "AVAILABLE",
+              calculation_method:
+                "IMMUTABLE_PAPER_DETERMINISTIC_DENIAL_AND_LATER_ELIGIBILITY",
+              horizon_hours: 24,
+              window_started_at: "2026-08-30T15:00:00Z",
+              window_ended_at: "2026-08-31T15:00:00Z",
+              denial_count: 1,
+              later_allowed_count: 0,
+              later_denied_count: 0,
+              no_later_comparable_proposal_count: 1,
+              financial_providers: ["coinbase"],
+              first_denial_at: "2026-08-31T13:00:00Z",
+              latest_denial_at: "2026-08-31T13:00:00Z",
+              denials: [
+                {
+                  decision_journal_entry_id: "decision-denied",
+                  proposed_action_id: "action-denied",
+                  risk_evaluation_id: "risk-denied",
+                  execution_record_id: "execution-denied",
+                  created_at: "2026-08-31T13:00:00Z",
+                  symbol: "ETH",
+                  instrument: "CRYPTO",
+                  side: "SELL",
+                  proposed_quantity: "1.0000000000",
+                  proposed_notional: "50.0000000000",
+                  denial_reason_codes: ["INSUFFICIENT_POSITION"],
+                  failed_check_codes: ["INSUFFICIENT_POSITION"],
+                  terminal_check_stage: "INSUFFICIENT_POSITION",
+                  financial_provider: "coinbase",
+                  market_feed: "rest_ticker",
+                  market_quality: "REAL_TIME_SINGLE_VENUE",
+                  market_observed_at: "2026-08-31T12:59:59Z",
+                  later_disposition: "NO_LATER_COMPARABLE_PROPOSAL",
+                  changed_risk_results: [],
+                },
+              ],
+            },
           },
         }}
       />,
@@ -833,6 +873,14 @@ describe("PaperPortfolioSummary", () => {
     ).toBeInTheDocument();
     expect(within(guardrails).getByText(/decision-denied/)).toBeInTheDocument();
     expect(
+      within(guardrails).getByRole("table", {
+        name: /deterministic denial and later eligibility/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(guardrails).getByText(/none in this saved window/i),
+    ).toBeInTheDocument();
+    expect(
       within(guardrails).getByText(/does not infer model intent/i),
     ).toBeInTheDocument();
   });
@@ -847,6 +895,7 @@ describe("PaperPortfolioSummary", () => {
       symbol: "BTC",
       instrument: "CRYPTO",
       side: "BUY",
+      proposed_quantity: "0.0010000000",
       proposed_notional: "100.0000000000",
       risk_decision: "ALLOW",
       execution_status: "SIMULATED_FILLED",
@@ -1068,6 +1117,20 @@ describe("PaperPortfolioSummary", () => {
             proposed_notional_delta: "-50.0000000000",
           },
         ],
+      },
+      denial_eligibility: {
+        status: "AVAILABLE",
+        calculation_method:
+          "IMMUTABLE_PAPER_DETERMINISTIC_DENIAL_AND_LATER_ELIGIBILITY",
+        horizon_hours: 168,
+        window_started_at: "2026-08-24T15:00:00Z",
+        window_ended_at: "2026-08-31T15:00:00Z",
+        denial_count: 0,
+        later_allowed_count: 0,
+        later_denied_count: 0,
+        no_later_comparable_proposal_count: 0,
+        financial_providers: [],
+        denials: [],
       },
     };
     render(

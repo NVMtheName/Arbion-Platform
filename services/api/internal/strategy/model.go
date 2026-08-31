@@ -401,6 +401,70 @@ type PaperGuardrailEvidence struct {
 	TwentyFourHours   PaperGuardrailEvidenceWindow `json:"twenty_four_hours"`
 	SevenDays         PaperGuardrailEvidenceWindow `json:"seven_days"`
 	CoverageChange    PaperGuardrailCoverageChange `json:"coverage_change"`
+	DenialEligibility PaperDenialEligibility       `json:"denial_eligibility"`
+}
+
+// PaperDenialEligibility connects each exact deterministic denial to the first
+// later comparable saved proposal inside one bounded immutable window. It does
+// not describe recovery, model learning, performance, or causality.
+type PaperDenialEligibility struct {
+	Status                         string                       `json:"status"`
+	CalculationMethod              string                       `json:"calculation_method,omitempty"`
+	HorizonHours                   int                          `json:"horizon_hours"`
+	WindowStartedAt                *time.Time                   `json:"window_started_at,omitempty"`
+	WindowEndedAt                  *time.Time                   `json:"window_ended_at,omitempty"`
+	DenialCount                    int                          `json:"denial_count"`
+	LaterAllowedCount              int                          `json:"later_allowed_count"`
+	LaterDeniedCount               int                          `json:"later_denied_count"`
+	NoLaterComparableProposalCount int                          `json:"no_later_comparable_proposal_count"`
+	FinancialProviders             []string                     `json:"financial_providers"`
+	FirstDenialAt                  *time.Time                   `json:"first_denial_at,omitempty"`
+	LatestDenialAt                 *time.Time                   `json:"latest_denial_at,omitempty"`
+	Denials                        []PaperDenialEligibilityFact `json:"denials"`
+}
+
+type PaperDenialEligibilityFact struct {
+	DecisionJournalEntryID      string                        `json:"decision_journal_entry_id"`
+	ProposedActionID            string                        `json:"proposed_action_id"`
+	RiskEvaluationID            string                        `json:"risk_evaluation_id"`
+	ExecutionRecordID           string                        `json:"execution_record_id"`
+	CreatedAt                   time.Time                     `json:"created_at"`
+	Symbol                      string                        `json:"symbol"`
+	Instrument                  string                        `json:"instrument"`
+	Side                        string                        `json:"side"`
+	ProposedQuantity            string                        `json:"proposed_quantity"`
+	ProposedNotional            string                        `json:"proposed_notional"`
+	DenialReasonCodes           []string                      `json:"denial_reason_codes"`
+	FailedCheckCodes            []string                      `json:"failed_check_codes"`
+	TerminalCheckStage          string                        `json:"terminal_check_stage"`
+	FinancialProvider           string                        `json:"financial_provider"`
+	MarketFeed                  string                        `json:"market_feed"`
+	MarketQuality               string                        `json:"market_quality"`
+	MarketObservedAt            time.Time                     `json:"market_observed_at"`
+	LaterDisposition            string                        `json:"later_disposition"`
+	LaterDecisionJournalEntryID string                        `json:"later_decision_journal_entry_id,omitempty"`
+	LaterProposedActionID       string                        `json:"later_proposed_action_id,omitempty"`
+	LaterRiskEvaluationID       string                        `json:"later_risk_evaluation_id,omitempty"`
+	LaterExecutionRecordID      string                        `json:"later_execution_record_id,omitempty"`
+	LaterCreatedAt              *time.Time                    `json:"later_created_at,omitempty"`
+	LaterProposedQuantity       string                        `json:"later_proposed_quantity,omitempty"`
+	LaterProposedNotional       string                        `json:"later_proposed_notional,omitempty"`
+	LaterRiskDecision           string                        `json:"later_risk_decision,omitempty"`
+	LaterExecutionStatus        string                        `json:"later_execution_status,omitempty"`
+	LaterFinancialProvider      string                        `json:"later_financial_provider,omitempty"`
+	LaterMarketFeed             string                        `json:"later_market_feed,omitempty"`
+	LaterMarketQuality          string                        `json:"later_market_quality,omitempty"`
+	LaterMarketObservedAt       *time.Time                    `json:"later_market_observed_at,omitempty"`
+	ElapsedSeconds              *int64                        `json:"elapsed_seconds,omitempty"`
+	ChangedRiskResults          []PaperDenialRiskResultChange `json:"changed_risk_results"`
+}
+
+type PaperDenialRiskResultChange struct {
+	Stage          string `json:"stage"`
+	PreviousCode   string `json:"previous_code"`
+	LaterCode      string `json:"later_code"`
+	PreviousResult string `json:"previous_result"`
+	LaterResult    string `json:"later_result"`
 }
 
 // PaperGuardrailCoverageChange compares two complete, overlapping immutable
@@ -540,6 +604,7 @@ type PaperGuardrailProposalFact struct {
 	Symbol                 string                    `json:"symbol"`
 	Instrument             string                    `json:"instrument"`
 	Side                   string                    `json:"side"`
+	ProposedQuantity       string                    `json:"proposed_quantity"`
 	ProposedNotional       string                    `json:"proposed_notional"`
 	RiskDecision           string                    `json:"risk_decision"`
 	ExecutionStatus        string                    `json:"execution_status"`

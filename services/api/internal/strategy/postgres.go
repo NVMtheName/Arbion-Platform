@@ -596,7 +596,7 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 		runRows.Close()
 		guardrailQueryRows, guardrailErr := tx.Query(c, `SELECT d.id::text,d.created_at,d.decision_type,d.proposed_action_id,
 			r.id::text,x.id::text,d.structured_rationale,r.decision,r.approval_required,r.execution_mode,r.platform_execution_available,r.reason_codes,r.checks,
-			x.mode,x.status,x.symbol,x.instrument,x.side,x.notional::text
+			x.mode,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.notional::text
 			FROM decision_journal_entries d
 			JOIN risk_evaluations r ON r.id=d.risk_evaluation_id AND r.user_id=d.user_id
 			  AND r.proposed_action_id=d.proposed_action_id AND r.financial_account_id=d.financial_account_id
@@ -616,7 +616,7 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 			if guardrailErr = guardrailQueryRows.Scan(&row.DecisionJournalEntryID, &row.CreatedAt, &row.DecisionType, &row.ProposedActionID,
 				&row.RiskEvaluationID, &row.ExecutionRecordID, &row.Rationale, &row.RiskDecision, &row.ApprovalRequired,
 				&row.RiskExecutionMode, &row.PlatformExecutionAvailable, &row.ReasonCodes, &row.Checks,
-				&row.ExecutionMode, &row.ExecutionStatus, &row.Symbol, &row.Instrument, &row.Side, &row.ExecutionNotional); guardrailErr != nil {
+				&row.ExecutionMode, &row.ExecutionStatus, &row.Symbol, &row.Instrument, &row.Side, &row.ExecutionQuantity, &row.ExecutionNotional); guardrailErr != nil {
 				guardrailQueryRows.Close()
 				return PaperPortfolio{}, guardrailErr
 			}

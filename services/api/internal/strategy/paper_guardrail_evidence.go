@@ -14,6 +14,8 @@ const PaperGuardrailEvidenceMethod = "IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATI
 
 const PaperGuardrailCoverageChangeMethod = "IMMUTABLE_24_HOUR_AND_SEVEN_DAY_GUARDRAIL_COVERAGE_COMPARISON"
 
+const PaperDenialEligibilityMethod = "IMMUTABLE_PAPER_DETERMINISTIC_DENIAL_AND_LATER_ELIGIBILITY"
+
 const (
 	paperGuardrailCoverageComplete         = "COMPLETE"
 	paperGuardrailCoverageDriftDetected    = "DRIFT_DETECTED"
@@ -22,6 +24,9 @@ const (
 	paperGuardrailShareIncreased           = "INCREASED"
 	paperGuardrailShareDecreased           = "DECREASED"
 	paperGuardrailShareUnchanged           = "UNCHANGED"
+	paperDenialLaterAllowed                = "LATER_ALLOWED"
+	paperDenialLaterDenied                 = "LATER_DENIED"
+	paperDenialNoLaterComparable           = "NO_LATER_COMPARABLE_PROPOSAL"
 )
 
 type paperGuardrailProposalRow struct {
@@ -43,6 +48,7 @@ type paperGuardrailProposalRow struct {
 	Symbol                     string
 	Instrument                 string
 	Side                       string
+	ExecutionQuantity          string
 	ExecutionNotional          string
 }
 
@@ -409,6 +415,151 @@ func paperGuardrailCoverageChange(twentyFour, sevenDays PaperGuardrailEvidenceWi
 	return result
 }
 
+func unavailablePaperDenialEligibility(window PaperGuardrailEvidenceWindow) PaperDenialEligibility {
+	return PaperDenialEligibility{
+		Status: PaperActivityCadenceUnavailable, HorizonHours: window.HorizonHours,
+		WindowStartedAt: window.WindowStartedAt, WindowEndedAt: window.WindowEndedAt,
+		FinancialProviders: []string{}, Denials: []PaperDenialEligibilityFact{},
+	}
+}
+
+func paperDenialRiskChanges(previous, later PaperGuardrailProposalFact) ([]PaperDenialRiskResultChange, bool) {
+	plan := risk.AIAutonomousPaperCheckPlan()
+	if len(previous.Checks) == 0 || len(previous.Checks) > len(plan) || len(later.Checks) == 0 || len(later.Checks) > len(plan) {
+		return nil, false
+	}
+	limit := len(previous.Checks)
+	if len(later.Checks) < limit {
+		limit = len(later.Checks)
+	}
+	changes := []PaperDenialRiskResultChange{}
+	for index := 0; index < limit; index++ {
+		before, after := previous.Checks[index], later.Checks[index]
+		if !paperGuardrailStageAccepts(plan[index], before.Code) || !paperGuardrailStageAccepts(plan[index], after.Code) {
+			return nil, false
+		}
+		if before.Code != after.Code || before.Result != after.Result {
+			changes = append(changes, PaperDenialRiskResultChange{
+				Stage: string(plan[index].CanonicalCode), PreviousCode: before.Code, LaterCode: after.Code,
+				PreviousResult: before.Result, LaterResult: after.Result,
+			})
+		}
+	}
+	return changes, true
+}
+
+func paperDenialEligibility(window PaperGuardrailEvidenceWindow) PaperDenialEligibility {
+	result := unavailablePaperDenialEligibility(window)
+	if window.Status != PaperActivityCadenceAvailable || window.WindowStartedAt == nil || window.WindowEndedAt == nil ||
+		window.HorizonHours <= 0 || len(window.Proposals) != window.ProposalCount || window.AllowCount+window.DenyCount != window.ProposalCount {
+		return result
+	}
+	providers := map[string]struct{}{}
+	seen := map[string]struct{}{}
+	for index, proposal := range window.Proposals {
+		if proposal.DecisionJournalEntryID == "" || proposal.ProposedActionID == "" || proposal.RiskEvaluationID == "" || proposal.ExecutionRecordID == "" ||
+			proposal.Symbol == "" || (proposal.Instrument != "EQUITY" && proposal.Instrument != "CRYPTO") || (proposal.Side != "BUY" && proposal.Side != "SELL") ||
+			proposal.FinancialProvider == "" || proposal.MarketFeed == "" || proposal.MarketQuality == "" || proposal.CreatedAt.Before(*window.WindowStartedAt) ||
+			proposal.CreatedAt.After(*window.WindowEndedAt) || proposal.MarketObservedAt.IsZero() || proposal.MarketObservedAt.After(proposal.CreatedAt) ||
+			proposal.CoverageStatus == paperGuardrailCoverageDriftDetected {
+			return unavailablePaperDenialEligibility(window)
+		}
+		if _, ok := paperGuardrailDecimal(proposal.ProposedQuantity); !ok {
+			return unavailablePaperDenialEligibility(window)
+		}
+		if _, ok := paperGuardrailDecimal(proposal.ProposedNotional); !ok {
+			return unavailablePaperDenialEligibility(window)
+		}
+		if _, duplicate := seen[proposal.DecisionJournalEntryID]; duplicate {
+			return unavailablePaperDenialEligibility(window)
+		}
+		seen[proposal.DecisionJournalEntryID] = struct{}{}
+		if index > 0 && !proposal.CreatedAt.After(window.Proposals[index-1].CreatedAt) {
+			return unavailablePaperDenialEligibility(window)
+		}
+	}
+
+	for index, denial := range window.Proposals {
+		if denial.RiskDecision != "DENY" {
+			continue
+		}
+		if denial.ExecutionStatus != "RISK_DENIED" || denial.CoverageStatus != paperGuardrailCoverageFailClosedPrefix ||
+			len(denial.DenialReasonCodes) == 0 || len(denial.FailedCheckCodes) == 0 || denial.TerminalCheckStage == "" {
+			return unavailablePaperDenialEligibility(window)
+		}
+		fact := PaperDenialEligibilityFact{
+			DecisionJournalEntryID: denial.DecisionJournalEntryID, ProposedActionID: denial.ProposedActionID,
+			RiskEvaluationID: denial.RiskEvaluationID, ExecutionRecordID: denial.ExecutionRecordID,
+			CreatedAt: denial.CreatedAt, Symbol: denial.Symbol, Instrument: denial.Instrument, Side: denial.Side,
+			ProposedQuantity: denial.ProposedQuantity, ProposedNotional: denial.ProposedNotional,
+			DenialReasonCodes: append([]string(nil), denial.DenialReasonCodes...), FailedCheckCodes: append([]string(nil), denial.FailedCheckCodes...),
+			TerminalCheckStage: denial.TerminalCheckStage, FinancialProvider: denial.FinancialProvider,
+			MarketFeed: denial.MarketFeed, MarketQuality: denial.MarketQuality, MarketObservedAt: denial.MarketObservedAt,
+			LaterDisposition: paperDenialNoLaterComparable, ChangedRiskResults: []PaperDenialRiskResultChange{},
+		}
+		providers[denial.FinancialProvider] = struct{}{}
+		if result.FirstDenialAt == nil || denial.CreatedAt.Before(*result.FirstDenialAt) {
+			value := denial.CreatedAt
+			result.FirstDenialAt = &value
+		}
+		if result.LatestDenialAt == nil || denial.CreatedAt.After(*result.LatestDenialAt) {
+			value := denial.CreatedAt
+			result.LatestDenialAt = &value
+		}
+
+		for laterIndex := index + 1; laterIndex < len(window.Proposals); laterIndex++ {
+			later := window.Proposals[laterIndex]
+			if later.Symbol != denial.Symbol || later.Instrument != denial.Instrument || later.Side != denial.Side {
+				continue
+			}
+			if !later.CreatedAt.After(denial.CreatedAt) {
+				return unavailablePaperDenialEligibility(window)
+			}
+			changes, ok := paperDenialRiskChanges(denial, later)
+			if !ok {
+				return unavailablePaperDenialEligibility(window)
+			}
+			fact.LaterDecisionJournalEntryID, fact.LaterProposedActionID = later.DecisionJournalEntryID, later.ProposedActionID
+			fact.LaterRiskEvaluationID, fact.LaterExecutionRecordID = later.RiskEvaluationID, later.ExecutionRecordID
+			laterCreatedAt, laterMarketObservedAt := later.CreatedAt, later.MarketObservedAt
+			fact.LaterCreatedAt, fact.LaterMarketObservedAt = &laterCreatedAt, &laterMarketObservedAt
+			fact.LaterProposedQuantity, fact.LaterProposedNotional = later.ProposedQuantity, later.ProposedNotional
+			fact.LaterRiskDecision, fact.LaterExecutionStatus = later.RiskDecision, later.ExecutionStatus
+			fact.LaterFinancialProvider, fact.LaterMarketFeed, fact.LaterMarketQuality = later.FinancialProvider, later.MarketFeed, later.MarketQuality
+			elapsed := int64(later.CreatedAt.Sub(denial.CreatedAt) / time.Second)
+			if elapsed <= 0 {
+				return unavailablePaperDenialEligibility(window)
+			}
+			fact.ElapsedSeconds, fact.ChangedRiskResults = &elapsed, changes
+			providers[later.FinancialProvider] = struct{}{}
+			switch {
+			case later.RiskDecision == "ALLOW" && later.ExecutionStatus == "SIMULATED_FILLED" && later.CoverageStatus == paperGuardrailCoverageFullEvaluation:
+				fact.LaterDisposition = paperDenialLaterAllowed
+				result.LaterAllowedCount++
+			case later.RiskDecision == "DENY" && later.ExecutionStatus == "RISK_DENIED" && later.CoverageStatus == paperGuardrailCoverageFailClosedPrefix:
+				fact.LaterDisposition = paperDenialLaterDenied
+				result.LaterDeniedCount++
+			default:
+				return unavailablePaperDenialEligibility(window)
+			}
+			break
+		}
+		if fact.LaterDisposition == paperDenialNoLaterComparable {
+			result.NoLaterComparableProposalCount++
+		}
+		result.Denials = append(result.Denials, fact)
+	}
+	if len(result.Denials) != window.DenyCount || result.LaterAllowedCount+result.LaterDeniedCount+result.NoLaterComparableProposalCount != len(result.Denials) {
+		return unavailablePaperDenialEligibility(window)
+	}
+	for provider := range providers {
+		result.FinancialProviders = append(result.FinancialProviders, provider)
+	}
+	sort.Strings(result.FinancialProviders)
+	result.Status, result.CalculationMethod, result.DenialCount = PaperActivityCadenceAvailable, PaperDenialEligibilityMethod, len(result.Denials)
+	return result
+}
+
 func paperGuardrailProposalFact(row paperGuardrailProposalRow, fills map[string]paperRealizedFill) (PaperGuardrailProposalFact, *big.Rat, bool) {
 	if row.DecisionJournalEntryID == "" || row.ProposedActionID == "" || row.RiskEvaluationID == "" || row.ExecutionRecordID == "" || row.CreatedAt.IsZero() ||
 		row.ApprovalRequired || row.RiskExecutionMode != "PAPER" || row.PlatformExecutionAvailable || row.ExecutionMode != "PAPER" ||
@@ -423,6 +574,10 @@ func paperGuardrailProposalFact(row paperGuardrailProposalRow, fills map[string]
 		return PaperGuardrailProposalFact{}, nil, false
 	}
 	notional, ok := paperGuardrailDecimal(rationale.ProposedNotional)
+	if !ok {
+		return PaperGuardrailProposalFact{}, nil, false
+	}
+	quantity, ok := paperGuardrailDecimal(row.ExecutionQuantity)
 	if !ok {
 		return PaperGuardrailProposalFact{}, nil, false
 	}
@@ -464,7 +619,7 @@ func paperGuardrailProposalFact(row paperGuardrailProposalRow, fills map[string]
 		DecisionJournalEntryID: row.DecisionJournalEntryID, ProposedActionID: row.ProposedActionID,
 		RiskEvaluationID: row.RiskEvaluationID, ExecutionRecordID: row.ExecutionRecordID,
 		CreatedAt: row.CreatedAt, Symbol: row.Symbol, Instrument: row.Instrument, Side: row.Side,
-		ProposedNotional: paperDecimal(notional), RiskDecision: row.RiskDecision, ExecutionStatus: row.ExecutionStatus,
+		ProposedQuantity: paperDecimal(quantity), ProposedNotional: paperDecimal(notional), RiskDecision: row.RiskDecision, ExecutionStatus: row.ExecutionStatus,
 		FinancialProvider: rationale.InputEvidence.Provider, MarketFeed: marketFeed, MarketQuality: marketQuality, MarketObservedAt: marketObservedAt,
 	}
 	for _, check := range checks {
@@ -478,7 +633,7 @@ func paperGuardrailProposalFact(row paperGuardrailProposalRow, fills map[string]
 		}
 		fill, exists := fills[row.ExecutionRecordID]
 		if !exists || fill.ProposedActionID != row.ProposedActionID || fill.RiskEvaluationID != row.RiskEvaluationID || fill.Symbol != row.Symbol || fill.Instrument != row.Instrument || fill.Side != row.Side ||
-			!fill.SimulatedAt.Equal(row.CreatedAt) || !sameAIPaperDecimal(fill.RequestedNotional, rationale.ProposedNotional) ||
+			!fill.SimulatedAt.Equal(row.CreatedAt) || !sameAIPaperDecimal(fill.Quantity, row.ExecutionQuantity) || !sameAIPaperDecimal(fill.RequestedNotional, rationale.ProposedNotional) ||
 			fill.MarketProvider != fact.FinancialProvider || fill.MarketFeed != fact.MarketFeed || fill.MarketQuality != fact.MarketQuality || !fill.MarketObservedAt.Equal(fact.MarketObservedAt) || !fill.SimulationOnly {
 			return PaperGuardrailProposalFact{}, nil, false
 		}
@@ -630,8 +785,12 @@ func paperGuardrailWindow(window PaperDispositionFunnelWindow, rows []paperGuard
 func projectPaperGuardrailEvidence(cadence PaperActivityCadence, rows []paperGuardrailProposalRow, fills []paperRealizedFill) PaperGuardrailEvidence {
 	twentyFour := paperGuardrailWindow(cadence.DispositionFunnel.TwentyFourHours, rows, fills)
 	sevenDays := paperGuardrailWindow(cadence.DispositionFunnel.SevenDays, rows, fills)
+	denialWindow := twentyFour
+	if sevenDays.Status == PaperActivityCadenceAvailable {
+		denialWindow = sevenDays
+	}
 	result := PaperGuardrailEvidence{Status: PaperActivityCadenceUnavailable, TwentyFourHours: twentyFour, SevenDays: sevenDays,
-		CoverageChange: paperGuardrailCoverageChange(twentyFour, sevenDays)}
+		CoverageChange: paperGuardrailCoverageChange(twentyFour, sevenDays), DenialEligibility: paperDenialEligibility(denialWindow)}
 	if cadence.AsOf != nil {
 		value := *cadence.AsOf
 		result.AsOf = &value
