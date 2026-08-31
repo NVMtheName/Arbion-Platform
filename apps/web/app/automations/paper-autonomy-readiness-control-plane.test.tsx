@@ -247,6 +247,36 @@ describe("Paper autonomy readiness control plane", () => {
               platform_executable_risk_count: 0,
               non_simulation_fill_count: 0,
             },
+            review_packet: {
+              status: "COLLECTING_EVIDENCE",
+              calculation_method:
+                "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_REVIEW_PACKET",
+              evidence_started_at: "2026-08-29T12:00:00Z",
+              evidence_eligible_at: "2026-09-05T12:00:00Z",
+              as_of: "2026-08-31T12:00:00Z",
+              elapsed_seconds: 172800,
+              remaining_seconds: 432000,
+              scheduler_sample_count: 20,
+              scheduler_success_count: 20,
+              scheduler_failure_count: 0,
+              scheduler_safe_wait_count: 0,
+              route_continuity_status: "STABLE",
+              input_coverage_status: "COMPLETE",
+              input_freshness_status: "CURRENT_AT_DECISION",
+              freshness_threshold_seconds: 300,
+              market_observation_count: 60,
+              fresh_market_decision_count: 20,
+              maximum_market_age_seconds: 2,
+              first_market_observed_at: "2026-08-29T12:59:58Z",
+              latest_market_observed_at: "2026-08-31T11:59:58Z",
+              ledger_contract_status: "RECONCILED",
+              no_live_safety_status: "CLEAR",
+              evidence_ready_for_human_review: false,
+              owner_guidance:
+                "No owner action is required while evidence collects.",
+              grants_authority: false,
+              live_promotion_available: false,
+            },
             blockers: [
               {
                 code: "EVIDENCE_WINDOW_INCOMPLETE",
@@ -261,9 +291,16 @@ describe("Paper autonomy readiness control plane", () => {
     );
 
     expect(screen.getByText("Collecting evidence")).toBeInTheDocument();
-    expect(screen.getAllByText(/20 \/ 20/)).toHaveLength(2);
+    expect(
+      screen.getByText("Automatic decisions").closest("div"),
+    ).toHaveTextContent("20 / 20");
     expect(
       screen.getByText(/Proposals, fills, and profit are not required/i),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", {
+        name: "Paper autonomy evidence review packet",
+      }),
+    ).toHaveTextContent("5d 0m remaining");
   });
 });

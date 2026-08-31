@@ -7,15 +7,17 @@ import (
 )
 
 const (
-	PaperAutonomyEvidenceGateMethod       = "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_READINESS_GATE"
-	PaperAutonomyEvidenceCollecting       = "COLLECTING_EVIDENCE"
-	PaperAutonomyEvidenceReviewable       = "EVIDENCE_REVIEWABLE"
-	PaperAutonomyEvidenceReviewRequired   = "REVIEW_REQUIRED"
-	PaperAutonomyEvidenceUnavailable      = "UNAVAILABLE"
-	PaperAutonomyEvidenceMinimumDecisions = 20
-	PaperAutonomyEvidenceMinimumHours     = 168
-	PaperAutonomyEvidenceReviewScope      = "OWNER_REVIEW_EVIDENCE_ONLY"
-	PaperAutonomyEvidenceBoundary         = "PAPER_SIMULATION_ONLY"
+	PaperAutonomyEvidenceGateMethod               = "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_READINESS_GATE"
+	PaperAutonomyEvidenceCollecting               = "COLLECTING_EVIDENCE"
+	PaperAutonomyEvidenceReviewable               = "EVIDENCE_REVIEWABLE"
+	PaperAutonomyEvidenceReviewRequired           = "REVIEW_REQUIRED"
+	PaperAutonomyEvidenceUnavailable              = "UNAVAILABLE"
+	PaperAutonomyEvidenceMinimumDecisions         = 20
+	PaperAutonomyEvidenceMinimumHours             = 168
+	PaperAutonomyEvidenceReviewScope              = "OWNER_REVIEW_EVIDENCE_ONLY"
+	PaperAutonomyEvidenceBoundary                 = "PAPER_SIMULATION_ONLY"
+	PaperAutonomyEvidenceReviewPacketMethod       = "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_REVIEW_PACKET"
+	PaperAutonomyEvidenceFreshnessSeconds   int64 = 300
 )
 
 type paperAutonomyDecisionRow struct {
@@ -70,6 +72,27 @@ func paperAutonomyDecisionSemantics(decisionType, decision string) bool {
 	}
 }
 
+func finalizePaperAutonomyEvidenceGate(result PaperAutonomyEvidenceGate) PaperAutonomyEvidenceGate {
+	packet := &result.ReviewPacket
+	packet.Status = result.Status
+	packet.AsOf = result.AsOf
+	packet.NoLiveSafetyStatus = result.Safety.Status
+	packet.EvidenceReadyForHumanReview = result.Status == PaperAutonomyEvidenceReviewable
+	packet.GrantsAuthority = false
+	packet.LivePromotionAvailable = false
+	switch result.Status {
+	case PaperAutonomyEvidenceCollecting:
+		packet.OwnerGuidance = "No owner action is required while the exact time and decision evidence window continues collecting automatically."
+	case PaperAutonomyEvidenceReviewable:
+		packet.OwnerGuidance = "The bounded non-live evidence packet is ready for human review; reviewability does not authorize promotion or live execution."
+	case PaperAutonomyEvidenceReviewRequired:
+		packet.OwnerGuidance = "Review the exact saved integrity or scheduler blocker before relying on this non-live evidence packet."
+	default:
+		packet.OwnerGuidance = "The exact saved evidence packet is unavailable; Arbion does not infer missing facts or readiness."
+	}
+	return result
+}
+
 func projectPaperAutonomyEvidenceGate(
 	instanceStartedAt time.Time,
 	lastScheduleStatus string,
@@ -86,6 +109,12 @@ func projectPaperAutonomyEvidenceGate(
 		LastScheduleStatus: lastScheduleStatus, ConsecutiveScheduleFailures: consecutiveScheduleFailures,
 		Routes: []PaperAutonomyEvidenceRoute{}, Blockers: []PaperAutonomyEvidenceBlocker{}, LiveExecutionAvailable: false,
 	}
+	result.ReviewPacket = PaperAutonomyEvidenceReviewPacket{
+		Status: PaperAutonomyEvidenceUnavailable, CalculationMethod: PaperAutonomyEvidenceReviewPacketMethod,
+		FreshnessThresholdSeconds: PaperAutonomyEvidenceFreshnessSeconds,
+		RouteContinuityStatus:     "UNAVAILABLE", InputCoverageStatus: "UNAVAILABLE", InputFreshnessStatus: "UNAVAILABLE",
+		LedgerContractStatus: "UNAVAILABLE", NoLiveSafetyStatus: "CLEAR", GrantsAuthority: false, LivePromotionAvailable: false,
+	}
 	result.Safety = PaperNoLiveSafetyEvidence{
 		Status: "CLEAR", LiveMandateCount: safetyCounts.LiveMandates, AIOrderIntentCount: safetyCounts.AIOrderIntents,
 		InvalidStrategyModeCount: safetyCounts.InvalidStrategyModes, InvalidExecutionModeCount: safetyCounts.InvalidExecutionModes,
@@ -93,15 +122,22 @@ func projectPaperAutonomyEvidenceGate(
 	}
 	if instanceStartedAt.IsZero() || len(runs) == 0 {
 		result.Blockers = append(result.Blockers, paperAutonomyBlocker("EVIDENCE_TIMELINE_UNAVAILABLE", "UNAVAILABLE", "The immutable Paper schedule timeline is not available."))
-		return result
+		return finalizePaperAutonomyEvidenceGate(result)
 	}
+	result.ReviewPacket.EvidenceStartedAt = &instanceStartedAt
+	eligibleAt := instanceStartedAt.Add(PaperAutonomyEvidenceMinimumHours * time.Hour)
+	result.ReviewPacket.EvidenceEligibleAt = &eligibleAt
 
 	asOf := runs[len(runs)-1].CompletedAt
 	if asOf.IsZero() || asOf.Before(instanceStartedAt) {
 		result.Blockers = append(result.Blockers, paperAutonomyBlocker("EVIDENCE_TIMELINE_INVALID", "UNAVAILABLE", "The saved Paper schedule timestamps are inconsistent."))
-		return result
+		return finalizePaperAutonomyEvidenceGate(result)
 	}
 	result.AsOf = &asOf
+	result.ReviewPacket.ElapsedSeconds = int64(asOf.Sub(instanceStartedAt) / time.Second)
+	if asOf.Before(eligibleAt) {
+		result.ReviewPacket.RemainingSeconds = int64(eligibleAt.Sub(asOf) / time.Second)
+	}
 	windowStart := asOf.Add(-PaperAutonomyEvidenceMinimumHours * time.Hour)
 	if instanceStartedAt.After(windowStart) {
 		windowStart = instanceStartedAt
@@ -113,8 +149,21 @@ func projectPaperAutonomyEvidenceGate(
 		if run.ScheduledFor.Before(windowStart) || run.CompletedAt.After(asOf) {
 			continue
 		}
-		if run.Status == "SUCCEEDED" {
+		result.ReviewPacket.SchedulerSampleCount++
+		switch run.Status {
+		case "SUCCEEDED":
 			expectedDecisionCount++
+			result.ReviewPacket.SchedulerSuccessCount++
+		case "FAILED":
+			result.ReviewPacket.SchedulerFailureCount++
+		case "SKIPPED":
+			if run.ErrorCode != nil && *run.ErrorCode == "OUTSIDE_SESSION" {
+				result.ReviewPacket.SchedulerSafeWaitCount++
+			} else {
+				result.ReviewPacket.SchedulerFailureCount++
+			}
+		default:
+			result.ReviewPacket.SchedulerFailureCount++
 		}
 	}
 
@@ -164,10 +213,28 @@ func projectPaperAutonomyEvidenceGate(
 			continue
 		}
 		marketsAttributed := len(rationale.InputEvidence.Markets) > 0
+		marketsFresh := marketsAttributed
 		for _, market := range rationale.InputEvidence.Markets {
 			if market.Symbol == "" || market.Feed == "" || market.Quality == "" || market.ObservedAt.IsZero() || market.ObservedAt.After(row.CreatedAt) {
 				marketsAttributed = false
+				marketsFresh = false
 				break
+			}
+			result.ReviewPacket.MarketObservationCount++
+			if result.ReviewPacket.FirstMarketObservedAt == nil || market.ObservedAt.Before(*result.ReviewPacket.FirstMarketObservedAt) {
+				value := market.ObservedAt
+				result.ReviewPacket.FirstMarketObservedAt = &value
+			}
+			if result.ReviewPacket.LatestMarketObservedAt == nil || market.ObservedAt.After(*result.ReviewPacket.LatestMarketObservedAt) {
+				value := market.ObservedAt
+				result.ReviewPacket.LatestMarketObservedAt = &value
+			}
+			ageSeconds := int64(row.CreatedAt.Sub(market.ObservedAt) / time.Second)
+			if ageSeconds > result.ReviewPacket.MaximumMarketAgeSeconds {
+				result.ReviewPacket.MaximumMarketAgeSeconds = ageSeconds
+			}
+			if ageSeconds > PaperAutonomyEvidenceFreshnessSeconds {
+				marketsFresh = false
 			}
 		}
 		if rationale.AIProvider != "" && rationale.ModelID != "" && rationale.Profile != "" && rationale.InputEvidence.Provider != "" && marketsAttributed {
@@ -182,6 +249,9 @@ func projectPaperAutonomyEvidenceGate(
 		}
 		if rationale.LatencyMS != nil && rationale.InputUsage != nil && rationale.OutputUsage != nil && *rationale.LatencyMS >= 0 && *rationale.InputUsage >= 0 && *rationale.OutputUsage >= 0 {
 			result.TelemetryCompleteCount++
+		}
+		if marketsFresh {
+			result.ReviewPacket.FreshMarketDecisionCount++
 		}
 		if rationale.InputEvidence.RecentDecisions != nil && len(*rationale.InputEvidence.RecentDecisions) <= 6 {
 			result.BoundedMemoryCount++
@@ -203,18 +273,42 @@ func projectPaperAutonomyEvidenceGate(
 		}
 		return left.FinancialProvider < right.FinancialProvider
 	})
+	if result.DecisionCount > 0 && result.AttributedDecisionCount == result.DecisionCount {
+		result.ReviewPacket.InputCoverageStatus = "COMPLETE"
+		if len(result.Routes) == 1 {
+			result.ReviewPacket.RouteContinuityStatus = "STABLE"
+		} else {
+			result.ReviewPacket.RouteContinuityStatus = "CONTEXT_CHANGED"
+		}
+	} else if result.DecisionCount > 0 {
+		result.ReviewPacket.InputCoverageStatus = "REVIEW_REQUIRED"
+		result.ReviewPacket.RouteContinuityStatus = "REVIEW_REQUIRED"
+	}
+	if result.DecisionCount > 0 && result.ReviewPacket.FreshMarketDecisionCount == result.DecisionCount {
+		result.ReviewPacket.InputFreshnessStatus = "CURRENT_AT_DECISION"
+	} else if result.DecisionCount > 0 {
+		result.ReviewPacket.InputFreshnessStatus = "REVIEW_REQUIRED"
+	}
 
 	result.LedgerContractsReconciled = portfolio.RealizedOutcome.Status != PaperRealizedUnavailable &&
 		portfolio.ExecutionCosts.Status != PaperExecutionCostsUnavailable &&
 		portfolio.ActivityCadence.Status == PaperActivityCadenceAvailable &&
 		portfolio.GuardrailEvidence.Status == PaperActivityCadenceAvailable &&
 		portfolio.RealizedOutcome.FillCount == portfolio.ExecutionCosts.FillCount
+	if result.LedgerContractsReconciled {
+		result.ReviewPacket.LedgerContractStatus = "RECONCILED"
+	} else {
+		result.ReviewPacket.LedgerContractStatus = "REVIEW_REQUIRED"
+	}
 
 	if malformed || result.DecisionCount != expectedDecisionCount || result.DecisionCount != result.AbstentionCount+result.ProposalCount {
 		result.Blockers = append(result.Blockers, paperAutonomyBlocker("DECISION_EVIDENCE_INCONSISTENT", "UNAVAILABLE", "Saved Paper decisions do not reconcile exactly with the successful scheduler history."))
 	}
 	if result.AttributedDecisionCount != result.DecisionCount {
 		result.Blockers = append(result.Blockers, paperAutonomyBlocker("DECISION_PROVENANCE_INCOMPLETE", "REVIEW", "One or more saved decisions lack exact AI-route, financial-provider, or market provenance."))
+	}
+	if result.ReviewPacket.FreshMarketDecisionCount != result.DecisionCount {
+		result.Blockers = append(result.Blockers, paperAutonomyBlocker("MARKET_INPUT_FRESHNESS_REVIEW_REQUIRED", "REVIEW", "One or more saved decisions lack provider-market evidence observed within five minutes of that decision."))
 	}
 	if result.TelemetryCompleteCount != result.DecisionCount {
 		result.Blockers = append(result.Blockers, paperAutonomyBlocker("DECISION_TELEMETRY_INCOMPLETE", "REVIEW", "One or more saved decisions lack nonnegative latency or usage telemetry."))
@@ -243,17 +337,17 @@ func projectPaperAutonomyEvidenceGate(
 	for _, blocker := range result.Blockers {
 		if blocker.Category == "UNAVAILABLE" {
 			result.Status = PaperAutonomyEvidenceUnavailable
-			return result
+			return finalizePaperAutonomyEvidenceGate(result)
 		}
 	}
 	for _, blocker := range result.Blockers {
 		if blocker.Category == "REVIEW" {
 			result.Status = PaperAutonomyEvidenceReviewRequired
-			return result
+			return finalizePaperAutonomyEvidenceGate(result)
 		}
 	}
 	if len(result.Blockers) > 0 {
 		result.Status = PaperAutonomyEvidenceCollecting
 	}
-	return result
+	return finalizePaperAutonomyEvidenceGate(result)
 }

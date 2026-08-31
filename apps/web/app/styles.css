@@ -2413,6 +2413,48 @@ button:disabled {
   border-radius: 10px;
   background: rgba(6, 12, 25, 0.74);
 }
+.paper-evidence-review-packet {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid rgba(25, 201, 214, 0.18);
+  border-radius: 12px;
+  background: linear-gradient(
+    145deg,
+    rgba(8, 22, 34, 0.92),
+    rgba(7, 13, 28, 0.82)
+  );
+}
+.paper-evidence-review-packet > h3,
+.paper-evidence-review-packet > p {
+  margin: 0;
+}
+.paper-evidence-review-packet > h3 {
+  color: #d9f7f8;
+  font-size: 0.76rem;
+}
+.paper-evidence-review-packet > p {
+  color: #8ba1aa;
+  font-size: 0.62rem;
+  line-height: 1.55;
+}
+.paper-evidence-review-packet > dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0;
+}
+.paper-evidence-review-packet > dl > div {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(116, 144, 255, 0.12);
+  border-radius: 9px;
+  background: rgba(4, 10, 22, 0.56);
+}
 .strategy-fleet-exposure-outcomes dt,
 .strategy-fleet-exposure-outcomes dd {
   margin: 0;
@@ -6191,6 +6233,7 @@ button:disabled {
     text-align: left;
   }
   .strategy-fleet-exposure-outcomes > div > dl,
+  .paper-evidence-review-packet > dl,
   .strategy-fleet-symbol-outcomes > ol,
   .strategy-fleet-outcome-timeline dl {
     grid-template-columns: 1fr;

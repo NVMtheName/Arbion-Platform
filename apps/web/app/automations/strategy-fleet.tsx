@@ -1212,6 +1212,15 @@ function readableTime(value?: string) {
   }).format(date);
 }
 
+function readableEvidenceDuration(seconds: number) {
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  return [days ? `${days}d` : "", hours ? `${hours}h` : "", `${minutes}m`]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export function reconciliationFreshWithinTwentyFourHours(
   value: string | undefined,
   now: Date,
@@ -6021,6 +6030,68 @@ function StrategyFleetPaperEvidenceGate({ item }: { item: StrategyFleetItem }) {
         </div>
       ) : (
         <div>
+          <section
+            className="paper-evidence-review-packet"
+            aria-label="Paper autonomy evidence review packet"
+          >
+            <h3>Owner evidence review packet</h3>
+            <p>{gate!.review_packet.owner_guidance}</p>
+            <dl>
+              <div>
+                <dt>Collection timeline</dt>
+                <dd>
+                  {readableEvidenceDuration(
+                    gate!.review_packet.elapsed_seconds,
+                  )}{" "}
+                  collected
+                </dd>
+                <small>
+                  {gate!.review_packet.remaining_seconds > 0
+                    ? `${readableEvidenceDuration(gate!.review_packet.remaining_seconds)} remaining · eligible ${readableTime(gate!.review_packet.evidence_eligible_at)}`
+                    : `Threshold reached ${readableTime(gate!.review_packet.evidence_eligible_at)}`}
+                </small>
+              </div>
+              <div>
+                <dt>Scheduler record</dt>
+                <dd>
+                  {gate!.review_packet.scheduler_success_count} /{" "}
+                  {gate!.review_packet.scheduler_sample_count} succeeded
+                </dd>
+                <small>
+                  {gate!.review_packet.scheduler_failure_count} failed ·{" "}
+                  {gate!.review_packet.scheduler_safe_wait_count} safe waits
+                </small>
+              </div>
+              <div>
+                <dt>Route + inputs</dt>
+                <dd>{readable(gate!.review_packet.route_continuity_status)}</dd>
+                <small>
+                  {readable(gate!.review_packet.input_coverage_status)} coverage
+                  · {gate!.review_packet.market_observation_count} exact market
+                  observations
+                </small>
+              </div>
+              <div>
+                <dt>Saved input freshness</dt>
+                <dd>{readable(gate!.review_packet.input_freshness_status)}</dd>
+                <small>
+                  {gate!.review_packet.fresh_market_decision_count} /{" "}
+                  {gate!.decision_count} decisions inside{" "}
+                  {gate!.review_packet.freshness_threshold_seconds}s · max age{" "}
+                  {gate!.review_packet.maximum_market_age_seconds}s
+                </small>
+              </div>
+              <div>
+                <dt>Evidence boundary</dt>
+                <dd>{readable(gate!.review_packet.ledger_contract_status)}</dd>
+                <small>
+                  No-live safety{" "}
+                  {readable(gate!.review_packet.no_live_safety_status)} · grants
+                  no authority
+                </small>
+              </div>
+            </dl>
+          </section>
           <dl>
             <div>
               <dt>Evidence window</dt>

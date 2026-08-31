@@ -2517,6 +2517,36 @@ describe("StrategyFleet", () => {
                 platform_executable_risk_count: 0,
                 non_simulation_fill_count: 0,
               },
+              review_packet: {
+                status: "COLLECTING_EVIDENCE",
+                calculation_method:
+                  "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_REVIEW_PACKET",
+                evidence_started_at: "2026-08-29T21:43:07Z",
+                evidence_eligible_at: "2026-09-05T21:43:07Z",
+                as_of: "2026-08-31T21:43:07Z",
+                elapsed_seconds: 172800,
+                remaining_seconds: 432000,
+                scheduler_sample_count: 24,
+                scheduler_success_count: 24,
+                scheduler_failure_count: 0,
+                scheduler_safe_wait_count: 0,
+                route_continuity_status: "STABLE",
+                input_coverage_status: "COMPLETE",
+                input_freshness_status: "CURRENT_AT_DECISION",
+                freshness_threshold_seconds: 300,
+                market_observation_count: 72,
+                fresh_market_decision_count: 24,
+                maximum_market_age_seconds: 2,
+                first_market_observed_at: "2026-08-29T22:43:05Z",
+                latest_market_observed_at: "2026-08-31T21:43:05Z",
+                ledger_contract_status: "RECONCILED",
+                no_live_safety_status: "CLEAR",
+                evidence_ready_for_human_review: false,
+                owner_guidance:
+                  "No owner action is required while evidence collects.",
+                grants_authority: false,
+                live_promotion_available: false,
+              },
               blockers: [
                 {
                   code: "EVIDENCE_WINDOW_INCOMPLETE",
@@ -2539,6 +2569,9 @@ describe("StrategyFleet", () => {
     expect(gate).toHaveTextContent("48 / 168 hours");
     expect(gate).toHaveTextContent("24 / 20");
     expect(gate).toHaveTextContent("24 abstain · 0 propose");
+    expect(gate).toHaveTextContent("Owner evidence review packet");
+    expect(gate).toHaveTextContent("24 / 24 succeeded");
+    expect(gate).toHaveTextContent("5d 0m remaining");
     expect(gate).toHaveTextContent(
       "Paper simulation only · live promotion unavailable",
     );

@@ -49,6 +49,10 @@ func TestPaperAutonomyEvidenceGateBecomesReviewableWithoutTrades(t *testing.T) {
 	if gate.AttributedDecisionCount != 20 || gate.TelemetryCompleteCount != 20 || gate.BoundedMemoryCount != 20 || len(gate.Routes) != 1 || gate.Safety.Status != "CLEAR" || !gate.LedgerContractsReconciled || gate.LiveExecutionAvailable {
 		t.Fatalf("reviewable gate lost exact provenance or safety evidence: %#v", gate)
 	}
+	packet := gate.ReviewPacket
+	if packet.Status != PaperAutonomyEvidenceReviewable || !packet.EvidenceReadyForHumanReview || packet.ElapsedSeconds != 169*60*60 || packet.RemainingSeconds != 0 || packet.SchedulerSampleCount != 20 || packet.SchedulerSuccessCount != 20 || packet.SchedulerFailureCount != 0 || packet.RouteContinuityStatus != "STABLE" || packet.InputCoverageStatus != "COMPLETE" || packet.InputFreshnessStatus != "CURRENT_AT_DECISION" || packet.MarketObservationCount != 20 || packet.FreshMarketDecisionCount != 20 || packet.MaximumMarketAgeSeconds != 1 || packet.LedgerContractStatus != "RECONCILED" || packet.NoLiveSafetyStatus != "CLEAR" || packet.GrantsAuthority || packet.LivePromotionAvailable {
+		t.Fatalf("review packet lost exact owner-review evidence: %#v", packet)
+	}
 }
 
 func TestPaperAutonomyEvidenceGateCollectsBeforeThresholds(t *testing.T) {
@@ -63,6 +67,9 @@ func TestPaperAutonomyEvidenceGateCollectsBeforeThresholds(t *testing.T) {
 		if blocker.Category != "COLLECTION" {
 			t.Fatalf("normal threshold blocker was misclassified: %#v", gate.Blockers)
 		}
+	}
+	if gate.ReviewPacket.Status != PaperAutonomyEvidenceCollecting || gate.ReviewPacket.ElapsedSeconds != 48*60*60 || gate.ReviewPacket.RemainingSeconds != 120*60*60 || gate.ReviewPacket.EvidenceReadyForHumanReview {
+		t.Fatalf("collecting packet must expose the exact remaining window without granting review authority: %#v", gate.ReviewPacket)
 	}
 }
 
@@ -83,5 +90,32 @@ func TestPaperAutonomyEvidenceGateFailsClosedOnDecisionScheduleMismatch(t *testi
 	gate := projectPaperAutonomyEvidenceGate(startedAt, "SUCCEEDED", 0, runs, decisions[:19], paperEvidencePortfolio(), paperAutonomySafetyCounts{})
 	if gate.Status != PaperAutonomyEvidenceUnavailable || len(gate.Blockers) == 0 || gate.Blockers[0].Code != "DECISION_EVIDENCE_INCONSISTENT" {
 		t.Fatalf("mismatched immutable evidence must fail closed: %#v", gate)
+	}
+}
+
+func TestPaperAutonomyEvidenceGateRequiresReviewForStaleSavedMarketInput(t *testing.T) {
+	asOf := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+	startedAt := asOf.Add(-169 * time.Hour)
+	runs, decisions := paperEvidenceFixture(asOf, 20, startedAt)
+	var rationale map[string]any
+	if err := json.Unmarshal(decisions[0].Rationale, &rationale); err != nil {
+		t.Fatal(err)
+	}
+	inputEvidence := rationale["input_evidence"].(map[string]any)
+	markets := inputEvidence["markets"].([]any)
+	market := markets[0].(map[string]any)
+	market["observed_at"] = decisions[0].CreatedAt.Add(-10 * time.Minute)
+	decisions[0].Rationale, _ = json.Marshal(rationale)
+
+	gate := projectPaperAutonomyEvidenceGate(startedAt, "SUCCEEDED", 0, runs, decisions, paperEvidencePortfolio(), paperAutonomySafetyCounts{})
+	if gate.Status != PaperAutonomyEvidenceReviewRequired || gate.ReviewPacket.InputFreshnessStatus != "REVIEW_REQUIRED" || gate.ReviewPacket.FreshMarketDecisionCount != 19 {
+		t.Fatalf("stale saved market input must remain exact and require review: %#v", gate)
+	}
+	found := false
+	for _, blocker := range gate.Blockers {
+		found = found || blocker.Code == "MARKET_INPUT_FRESHNESS_REVIEW_REQUIRED"
+	}
+	if !found {
+		t.Fatalf("stale saved market input blocker missing: %#v", gate.Blockers)
 	}
 }
