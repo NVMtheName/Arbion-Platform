@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { AppPageHeader } from "../app-page-header";
 import {
   compareExactDecimals,
+  divideExactDecimals,
+  multiplyExactDecimals,
   subtractExactDecimals,
   sumExactMoney,
 } from "../exact-money";
@@ -20,6 +22,7 @@ import {
 import { reconcilePaperOutcome } from "./paper-outcome-reconciliation";
 import type {
   PaperExecutionCosts,
+  PaperExecutionSideCost,
   PaperExecutionSymbolCost,
   PaperPortfolio,
   PaperPosition,
@@ -92,6 +95,7 @@ function normalizedPaperExecutionCosts(
   const sellFillCount = nonnegativeInteger(
     costs?.sell_fill_count ?? costs?.SellFillCount,
   );
+  const rawSides = costs?.sides ?? costs?.Sides;
   const rawSymbols = costs?.symbols ?? costs?.Symbols;
   const marketProviders = stringList(
     costs?.market_providers ?? costs?.MarketProviders,
@@ -106,11 +110,12 @@ function normalizedPaperExecutionCosts(
     buyFillCount === undefined ||
     sellFillCount === undefined ||
     buyFillCount + sellFillCount !== fillCount ||
+    !Array.isArray(rawSides) ||
     !Array.isArray(rawSymbols)
   )
     return;
   if (status === "UNAVAILABLE") {
-    if (rawSymbols.length !== 0) return;
+    if (rawSides.length !== 0 || rawSymbols.length !== 0) return;
     return {
       status: "UNAVAILABLE",
       fill_count: fillCount,
@@ -119,6 +124,7 @@ function normalizedPaperExecutionCosts(
       market_providers: marketProviders,
       market_feeds: marketFeeds,
       market_qualities: marketQualities,
+      sides: [],
       symbols: [],
     };
   }
@@ -136,9 +142,39 @@ function normalizedPaperExecutionCosts(
   const totalAdverseSlippage = exactDecimal(
     costs?.total_adverse_slippage ?? costs?.TotalAdverseSlippage,
   );
+  const totalExplicitCost = exactDecimal(
+    costs?.total_explicit_cost ?? costs?.TotalExplicitCost,
+  );
+  const providerReferenceNotional = exactDecimal(
+    costs?.provider_reference_notional ?? costs?.ProviderReferenceNotional,
+  );
   const grossNotional = exactDecimal(
     costs?.gross_notional ?? costs?.GrossNotional,
   );
+  const allInCostRateBPS = exactDecimal(
+    costs?.all_in_cost_rate_bps ?? costs?.AllInCostRateBPS,
+  );
+  const fillNotionalResidual = exactDecimal(
+    costs?.fill_notional_residual ?? costs?.FillNotionalResidual,
+  );
+  const maximumAbsoluteFillResidual = exactDecimal(
+    costs?.maximum_absolute_fill_residual ?? costs?.MaximumAbsoluteFillResidual,
+  );
+  const residualBoundPerFill = exactDecimal(
+    costs?.residual_bound_per_fill ?? costs?.ResidualBoundPerFill,
+  );
+  const expectedExplicitCost =
+    totalFees && totalAdverseSlippage
+      ? sumUSD([totalFees, totalAdverseSlippage])
+      : undefined;
+  const expectedRate =
+    totalExplicitCost && providerReferenceNotional
+      ? divideExactDecimals(
+          multiplyExactDecimals(totalExplicitCost, "10000") ?? "invalid",
+          providerReferenceNotional,
+          10,
+        )
+      : undefined;
   const firstFillAt = text(costs, "first_fill_at", "FirstFillAt");
   const lastFillAt = text(costs, "last_fill_at", "LastFillAt");
   if (
@@ -146,10 +182,42 @@ function normalizedPaperExecutionCosts(
     historicalCoverage !== "COMPLETE_FROM_PORTFOLIO_GENESIS" ||
     !totalFees ||
     !totalAdverseSlippage ||
+    !totalExplicitCost ||
+    !providerReferenceNotional ||
     !grossNotional ||
+    !allInCostRateBPS ||
+    !fillNotionalResidual ||
+    !maximumAbsoluteFillResidual ||
+    !residualBoundPerFill ||
     (compareExactDecimals(totalFees, "0") ?? -1) < 0 ||
     (compareExactDecimals(totalAdverseSlippage, "0") ?? -1) < 0 ||
+    (compareExactDecimals(totalExplicitCost, "0") ?? -1) < 0 ||
+    (compareExactDecimals(providerReferenceNotional, "0") ?? -1) < 0 ||
     (compareExactDecimals(grossNotional, "0") ?? -1) < 0 ||
+    (compareExactDecimals(allInCostRateBPS, "0") ?? -1) < 0 ||
+    (compareExactDecimals(maximumAbsoluteFillResidual, "0") ?? -1) < 0 ||
+    (compareExactDecimals(residualBoundPerFill, "0") ?? 1) <= 0 ||
+    compareExactDecimals(maximumAbsoluteFillResidual, residualBoundPerFill) ===
+      1 ||
+    compareExactDecimals(
+      fillNotionalResidual,
+      multiplyExactDecimals(residualBoundPerFill, String(-fillCount)) ??
+        "invalid",
+    ) === -1 ||
+    compareExactDecimals(
+      fillNotionalResidual,
+      multiplyExactDecimals(residualBoundPerFill, String(fillCount)) ??
+        "invalid",
+    ) === 1 ||
+    compareExactDecimals(
+      expectedExplicitCost ?? "invalid",
+      totalExplicitCost,
+    ) !== 0 ||
+    (fillCount === 0
+      ? compareExactDecimals(allInCostRateBPS, "0") !== 0 ||
+        compareExactDecimals(providerReferenceNotional, "0") !== 0
+      : compareExactDecimals(expectedRate ?? "invalid", allInCostRateBPS) !==
+        0) ||
     (status === "NO_FILLS" && fillCount !== 0) ||
     (status === "AVAILABLE" && fillCount === 0) ||
     (fillCount > 0 &&
@@ -159,6 +227,74 @@ function normalizedPaperExecutionCosts(
         Number.isNaN(Date.parse(lastFillAt))))
   )
     return;
+  const sides: PaperExecutionSideCost[] = [];
+  const seenSides = new Set<string>();
+  for (const rawSide of rawSides) {
+    const sideCost = record(rawSide);
+    const side = text(sideCost, "side", "Side");
+    const sideFees = exactDecimal(sideCost?.total_fees ?? sideCost?.TotalFees);
+    const sideSlippage = exactDecimal(
+      sideCost?.adverse_slippage ?? sideCost?.AdverseSlippage,
+    );
+    const sideExplicit = exactDecimal(
+      sideCost?.total_explicit_cost ?? sideCost?.TotalExplicitCost,
+    );
+    const sideReference = exactDecimal(
+      sideCost?.provider_reference_notional ??
+        sideCost?.ProviderReferenceNotional,
+    );
+    const sideGross = exactDecimal(
+      sideCost?.gross_notional ?? sideCost?.GrossNotional,
+    );
+    const sideRate = exactDecimal(
+      sideCost?.all_in_cost_rate_bps ?? sideCost?.AllInCostRateBPS,
+    );
+    const sideFillCount = nonnegativeInteger(
+      sideCost?.fill_count ?? sideCost?.FillCount,
+    );
+    const expectedSideExplicit =
+      sideFees && sideSlippage ? sumUSD([sideFees, sideSlippage]) : undefined;
+    const expectedSideRate =
+      sideExplicit && sideReference
+        ? divideExactDecimals(
+            multiplyExactDecimals(sideExplicit, "10000") ?? "invalid",
+            sideReference,
+            10,
+          )
+        : undefined;
+    if (
+      !side ||
+      !["BUY", "SELL"].includes(side) ||
+      !sideFees ||
+      !sideSlippage ||
+      !sideExplicit ||
+      !sideReference ||
+      !sideGross ||
+      !sideRate ||
+      sideFillCount === undefined ||
+      sideFillCount < 1 ||
+      (compareExactDecimals(sideFees, "0") ?? -1) < 0 ||
+      (compareExactDecimals(sideSlippage, "0") ?? -1) < 0 ||
+      (compareExactDecimals(sideReference, "0") ?? 0) <= 0 ||
+      (compareExactDecimals(sideGross, "0") ?? 0) <= 0 ||
+      compareExactDecimals(expectedSideExplicit ?? "invalid", sideExplicit) !==
+        0 ||
+      compareExactDecimals(expectedSideRate ?? "invalid", sideRate) !== 0 ||
+      seenSides.has(side)
+    )
+      return;
+    seenSides.add(side);
+    sides.push({
+      side: side as PaperExecutionSideCost["side"],
+      total_fees: sideFees,
+      adverse_slippage: sideSlippage,
+      total_explicit_cost: sideExplicit,
+      provider_reference_notional: sideReference,
+      gross_notional: sideGross,
+      all_in_cost_rate_bps: sideRate,
+      fill_count: sideFillCount,
+    });
+  }
   const symbols: PaperExecutionSymbolCost[] = [];
   const seenSymbols = new Set<string>();
   for (const rawSymbol of rawSymbols) {
@@ -171,8 +307,18 @@ function normalizedPaperExecutionCosts(
     const adverseSlippage = exactDecimal(
       symbolCost?.adverse_slippage ?? symbolCost?.AdverseSlippage,
     );
+    const symbolExplicit = exactDecimal(
+      symbolCost?.total_explicit_cost ?? symbolCost?.TotalExplicitCost,
+    );
+    const symbolReference = exactDecimal(
+      symbolCost?.provider_reference_notional ??
+        symbolCost?.ProviderReferenceNotional,
+    );
     const symbolGross = exactDecimal(
       symbolCost?.gross_notional ?? symbolCost?.GrossNotional,
+    );
+    const symbolRate = exactDecimal(
+      symbolCost?.all_in_cost_rate_bps ?? symbolCost?.AllInCostRateBPS,
     );
     const symbolFillCount = nonnegativeInteger(
       symbolCost?.fill_count ?? symbolCost?.FillCount,
@@ -184,19 +330,40 @@ function normalizedPaperExecutionCosts(
       symbolCost?.sell_fill_count ?? symbolCost?.SellFillCount,
     );
     const key = `${instrument}:${symbol}`;
+    const expectedSymbolExplicit =
+      symbolFees && adverseSlippage
+        ? sumUSD([symbolFees, adverseSlippage])
+        : undefined;
+    const expectedSymbolRate =
+      symbolExplicit && symbolReference
+        ? divideExactDecimals(
+            multiplyExactDecimals(symbolExplicit, "10000") ?? "invalid",
+            symbolReference,
+            10,
+          )
+        : undefined;
     if (
       !symbol ||
       !["EQUITY", "CRYPTO"].includes(instrument ?? "") ||
       !symbolFees ||
       !adverseSlippage ||
+      !symbolExplicit ||
+      !symbolReference ||
       !symbolGross ||
+      !symbolRate ||
       symbolFillCount === undefined ||
       symbolBuyCount === undefined ||
       symbolSellCount === undefined ||
       symbolBuyCount + symbolSellCount !== symbolFillCount ||
       (compareExactDecimals(symbolFees, "0") ?? -1) < 0 ||
       (compareExactDecimals(adverseSlippage, "0") ?? -1) < 0 ||
+      (compareExactDecimals(symbolReference, "0") ?? 0) <= 0 ||
       (compareExactDecimals(symbolGross, "0") ?? -1) < 0 ||
+      compareExactDecimals(
+        expectedSymbolExplicit ?? "invalid",
+        symbolExplicit,
+      ) !== 0 ||
+      compareExactDecimals(expectedSymbolRate ?? "invalid", symbolRate) !== 0 ||
       seenSymbols.has(key)
     )
       return;
@@ -206,13 +373,43 @@ function normalizedPaperExecutionCosts(
       instrument: instrument as PaperExecutionSymbolCost["instrument"],
       total_fees: symbolFees,
       adverse_slippage: adverseSlippage,
+      total_explicit_cost: symbolExplicit,
+      provider_reference_notional: symbolReference,
       gross_notional: symbolGross,
+      all_in_cost_rate_bps: symbolRate,
       fill_count: symbolFillCount,
       buy_fill_count: symbolBuyCount,
       sell_fill_count: symbolSellCount,
     });
   }
   if (
+    sides.reduce((count, side) => count + side.fill_count, 0) !== fillCount ||
+    (fillCount === 0 ? sides.length !== 0 : sides.length === 0) ||
+    compareExactDecimals(
+      sumUSD(sides.map((side) => side.total_fees)) ??
+        (fillCount === 0 ? "0" : "invalid"),
+      totalFees,
+    ) !== 0 ||
+    compareExactDecimals(
+      sumUSD(sides.map((side) => side.adverse_slippage)) ??
+        (fillCount === 0 ? "0" : "invalid"),
+      totalAdverseSlippage,
+    ) !== 0 ||
+    compareExactDecimals(
+      sumUSD(sides.map((side) => side.total_explicit_cost)) ??
+        (fillCount === 0 ? "0" : "invalid"),
+      totalExplicitCost,
+    ) !== 0 ||
+    compareExactDecimals(
+      sumUSD(sides.map((side) => side.provider_reference_notional)) ??
+        (fillCount === 0 ? "0" : "invalid"),
+      providerReferenceNotional,
+    ) !== 0 ||
+    compareExactDecimals(
+      sumUSD(sides.map((side) => side.gross_notional)) ??
+        (fillCount === 0 ? "0" : "invalid"),
+      grossNotional,
+    ) !== 0 ||
     symbols.reduce((count, symbol) => count + symbol.fill_count, 0) !==
       fillCount ||
     compareExactDecimals(
@@ -222,6 +419,16 @@ function normalizedPaperExecutionCosts(
     compareExactDecimals(
       sumUSD(symbols.map((symbol) => symbol.adverse_slippage)) ?? "invalid",
       totalAdverseSlippage,
+    ) !== 0 ||
+    compareExactDecimals(
+      sumUSD(symbols.map((symbol) => symbol.total_explicit_cost)) ??
+        (fillCount === 0 ? "0" : "invalid"),
+      totalExplicitCost,
+    ) !== 0 ||
+    compareExactDecimals(
+      sumUSD(symbols.map((symbol) => symbol.provider_reference_notional)) ??
+        (fillCount === 0 ? "0" : "invalid"),
+      providerReferenceNotional,
     ) !== 0 ||
     compareExactDecimals(
       sumUSD(symbols.map((symbol) => symbol.gross_notional)) ?? "invalid",
@@ -235,7 +442,13 @@ function normalizedPaperExecutionCosts(
     historical_coverage: historicalCoverage,
     total_fees: totalFees,
     total_adverse_slippage: totalAdverseSlippage,
+    total_explicit_cost: totalExplicitCost,
+    provider_reference_notional: providerReferenceNotional,
     gross_notional: grossNotional,
+    all_in_cost_rate_bps: allInCostRateBPS,
+    fill_notional_residual: fillNotionalResidual,
+    maximum_absolute_fill_residual: maximumAbsoluteFillResidual,
+    residual_bound_per_fill: residualBoundPerFill,
     fill_count: fillCount,
     buy_fill_count: buyFillCount,
     sell_fill_count: sellFillCount,
@@ -244,6 +457,7 @@ function normalizedPaperExecutionCosts(
     market_providers: marketProviders,
     market_feeds: marketFeeds,
     market_qualities: marketQualities,
+    sides,
     symbols,
   };
 }
@@ -1619,8 +1833,20 @@ async function fleetItem(
     paperExecutionTotalFees: paperPortfolio?.execution_costs?.total_fees,
     paperExecutionTotalAdverseSlippage:
       paperPortfolio?.execution_costs?.total_adverse_slippage,
+    paperExecutionTotalExplicitCost:
+      paperPortfolio?.execution_costs?.total_explicit_cost,
+    paperExecutionProviderReferenceNotional:
+      paperPortfolio?.execution_costs?.provider_reference_notional,
     paperExecutionGrossNotional:
       paperPortfolio?.execution_costs?.gross_notional,
+    paperExecutionAllInCostRateBPS:
+      paperPortfolio?.execution_costs?.all_in_cost_rate_bps,
+    paperExecutionFillNotionalResidual:
+      paperPortfolio?.execution_costs?.fill_notional_residual,
+    paperExecutionMaximumAbsoluteFillResidual:
+      paperPortfolio?.execution_costs?.maximum_absolute_fill_residual,
+    paperExecutionResidualBoundPerFill:
+      paperPortfolio?.execution_costs?.residual_bound_per_fill,
     paperExecutionFillCount: paperPortfolio?.execution_costs?.fill_count,
     paperExecutionBuyFillCount: paperPortfolio?.execution_costs?.buy_fill_count,
     paperExecutionSellFillCount:
@@ -1632,13 +1858,28 @@ async function fleetItem(
     paperExecutionMarketFeeds: paperPortfolio?.execution_costs?.market_feeds,
     paperExecutionMarketQualities:
       paperPortfolio?.execution_costs?.market_qualities,
+    paperExecutionSideCosts: paperPortfolio?.execution_costs?.sides.map(
+      (side) => ({
+        side: side.side,
+        totalFees: side.total_fees,
+        adverseSlippage: side.adverse_slippage,
+        totalExplicitCost: side.total_explicit_cost,
+        providerReferenceNotional: side.provider_reference_notional,
+        grossNotional: side.gross_notional,
+        allInCostRateBPS: side.all_in_cost_rate_bps,
+        fillCount: side.fill_count,
+      }),
+    ),
     paperExecutionSymbolCosts: paperPortfolio?.execution_costs?.symbols.map(
       (symbol) => ({
         symbol: symbol.symbol,
         instrument: symbol.instrument,
         totalFees: symbol.total_fees,
         adverseSlippage: symbol.adverse_slippage,
+        totalExplicitCost: symbol.total_explicit_cost,
+        providerReferenceNotional: symbol.provider_reference_notional,
         grossNotional: symbol.gross_notional,
+        allInCostRateBPS: symbol.all_in_cost_rate_bps,
         fillCount: symbol.fill_count,
         buyFillCount: symbol.buy_fill_count,
         sellFillCount: symbol.sell_fill_count,

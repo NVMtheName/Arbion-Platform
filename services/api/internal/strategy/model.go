@@ -419,32 +419,53 @@ type PaperRealizedSymbolOutcome struct {
 // complete immutable fill chain. Fees and adverse slippage are deliberately
 // separate from realized, unrealized, and total simulated outcomes.
 type PaperExecutionCosts struct {
-	Status               string                     `json:"status"`
-	CalculationMethod    string                     `json:"calculation_method,omitempty"`
-	HistoricalCoverage   string                     `json:"historical_coverage,omitempty"`
-	TotalFees            string                     `json:"total_fees,omitempty"`
-	TotalAdverseSlippage string                     `json:"total_adverse_slippage,omitempty"`
-	GrossNotional        string                     `json:"gross_notional,omitempty"`
-	FillCount            int                        `json:"fill_count"`
-	BuyFillCount         int                        `json:"buy_fill_count"`
-	SellFillCount        int                        `json:"sell_fill_count"`
-	FirstFillAt          *time.Time                 `json:"first_fill_at,omitempty"`
-	LastFillAt           *time.Time                 `json:"last_fill_at,omitempty"`
-	MarketProviders      []string                   `json:"market_providers"`
-	MarketFeeds          []string                   `json:"market_feeds"`
-	MarketQualities      []string                   `json:"market_qualities"`
-	Symbols              []PaperExecutionSymbolCost `json:"symbols"`
+	Status                      string                     `json:"status"`
+	CalculationMethod           string                     `json:"calculation_method,omitempty"`
+	HistoricalCoverage          string                     `json:"historical_coverage,omitempty"`
+	TotalFees                   string                     `json:"total_fees,omitempty"`
+	TotalAdverseSlippage        string                     `json:"total_adverse_slippage,omitempty"`
+	TotalExplicitCost           string                     `json:"total_explicit_cost,omitempty"`
+	ProviderReferenceNotional   string                     `json:"provider_reference_notional,omitempty"`
+	GrossNotional               string                     `json:"gross_notional,omitempty"`
+	AllInCostRateBPS            string                     `json:"all_in_cost_rate_bps,omitempty"`
+	FillNotionalResidual        string                     `json:"fill_notional_residual,omitempty"`
+	MaximumAbsoluteFillResidual string                     `json:"maximum_absolute_fill_residual,omitempty"`
+	ResidualBoundPerFill        string                     `json:"residual_bound_per_fill,omitempty"`
+	FillCount                   int                        `json:"fill_count"`
+	BuyFillCount                int                        `json:"buy_fill_count"`
+	SellFillCount               int                        `json:"sell_fill_count"`
+	FirstFillAt                 *time.Time                 `json:"first_fill_at,omitempty"`
+	LastFillAt                  *time.Time                 `json:"last_fill_at,omitempty"`
+	MarketProviders             []string                   `json:"market_providers"`
+	MarketFeeds                 []string                   `json:"market_feeds"`
+	MarketQualities             []string                   `json:"market_qualities"`
+	Sides                       []PaperExecutionSideCost   `json:"sides"`
+	Symbols                     []PaperExecutionSymbolCost `json:"symbols"`
 }
 
 type PaperExecutionSymbolCost struct {
-	Symbol          string `json:"symbol"`
-	Instrument      string `json:"instrument"`
-	TotalFees       string `json:"total_fees"`
-	AdverseSlippage string `json:"adverse_slippage"`
-	GrossNotional   string `json:"gross_notional"`
-	FillCount       int    `json:"fill_count"`
-	BuyFillCount    int    `json:"buy_fill_count"`
-	SellFillCount   int    `json:"sell_fill_count"`
+	Symbol                    string `json:"symbol"`
+	Instrument                string `json:"instrument"`
+	TotalFees                 string `json:"total_fees"`
+	AdverseSlippage           string `json:"adverse_slippage"`
+	TotalExplicitCost         string `json:"total_explicit_cost"`
+	ProviderReferenceNotional string `json:"provider_reference_notional"`
+	GrossNotional             string `json:"gross_notional"`
+	AllInCostRateBPS          string `json:"all_in_cost_rate_bps"`
+	FillCount                 int    `json:"fill_count"`
+	BuyFillCount              int    `json:"buy_fill_count"`
+	SellFillCount             int    `json:"sell_fill_count"`
+}
+
+type PaperExecutionSideCost struct {
+	Side                      string `json:"side"`
+	TotalFees                 string `json:"total_fees"`
+	AdverseSlippage           string `json:"adverse_slippage"`
+	TotalExplicitCost         string `json:"total_explicit_cost"`
+	ProviderReferenceNotional string `json:"provider_reference_notional"`
+	GrossNotional             string `json:"gross_notional"`
+	AllInCostRateBPS          string `json:"all_in_cost_rate_bps"`
+	FillCount                 int    `json:"fill_count"`
 }
 
 // PaperPosition contains only normalized simulated position facts.

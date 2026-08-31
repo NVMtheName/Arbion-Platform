@@ -243,7 +243,13 @@ describe("PaperPortfolioSummary", () => {
             historical_coverage: "COMPLETE_FROM_PORTFOLIO_GENESIS",
             total_fees: "0.7755625000",
             total_adverse_slippage: "0.3875000000",
+            total_explicit_cost: "1.1630625000",
+            provider_reference_notional: "155.0000000000",
             gross_notional: "155.1125000000",
+            all_in_cost_rate_bps: "75.0362903226",
+            fill_notional_residual: "0.0000000000",
+            maximum_absolute_fill_residual: "0.0000000000",
+            residual_bound_per_fill: "0.0000000001",
             fill_count: 2,
             buy_fill_count: 1,
             sell_fill_count: 1,
@@ -252,13 +258,38 @@ describe("PaperPortfolioSummary", () => {
             market_providers: ["coinbase"],
             market_feeds: ["rest_ticker"],
             market_qualities: ["REAL_TIME_SINGLE_VENUE"],
+            sides: [
+              {
+                side: "BUY",
+                total_fees: "0.5012500000",
+                adverse_slippage: "0.2500000000",
+                total_explicit_cost: "0.7512500000",
+                provider_reference_notional: "100.0000000000",
+                gross_notional: "100.2500000000",
+                all_in_cost_rate_bps: "75.1250000000",
+                fill_count: 1,
+              },
+              {
+                side: "SELL",
+                total_fees: "0.2743125000",
+                adverse_slippage: "0.1375000000",
+                total_explicit_cost: "0.4118125000",
+                provider_reference_notional: "55.0000000000",
+                gross_notional: "54.8625000000",
+                all_in_cost_rate_bps: "74.8750000000",
+                fill_count: 1,
+              },
+            ],
             symbols: [
               {
                 symbol: "BTC",
                 instrument: "CRYPTO",
                 total_fees: "0.7755625000",
                 adverse_slippage: "0.3875000000",
+                total_explicit_cost: "1.1630625000",
+                provider_reference_notional: "155.0000000000",
                 gross_notional: "155.1125000000",
+                all_in_cost_rate_bps: "75.0362903226",
                 fill_count: 2,
                 buy_fill_count: 1,
                 sell_fill_count: 1,
@@ -270,9 +301,16 @@ describe("PaperPortfolioSummary", () => {
     );
 
     const costs = screen.getByLabelText(/exact paper execution costs/i);
-    expect(within(costs).getAllByText("$0.7756")).toHaveLength(2);
-    expect(within(costs).getAllByText("$0.3875")).toHaveLength(2);
-    expect(within(costs).getAllByText("$155.1125")).toHaveLength(2);
+    expect(within(costs).getByText("$0.7756")).toBeInTheDocument();
+    expect(within(costs).getByText("$0.3875")).toBeInTheDocument();
+    expect(within(costs).getAllByText("$1.1631").length).toBeGreaterThan(1);
+    expect(within(costs).getAllByText("75.0363 bps").length).toBeGreaterThan(1);
+    expect(within(costs).getAllByText("$155.00").length).toBeGreaterThan(1);
+    expect(
+      within(costs).getByRole("table", {
+        name: /exact buy-versus-sale paper execution costs/i,
+      }),
+    ).toBeInTheDocument();
     expect(within(costs).getByText(/not broker-reported/i)).toBeInTheDocument();
     expect(
       within(costs).getByText(/coinbase · rest_ticker/i),

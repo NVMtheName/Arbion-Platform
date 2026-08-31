@@ -2516,7 +2516,13 @@ describe("StrategyFleet", () => {
             paperExecutionCostsStatus: "AVAILABLE",
             paperExecutionTotalFees: "2.8500000000",
             paperExecutionTotalAdverseSlippage: "0.7500000000",
+            paperExecutionTotalExplicitCost: "3.6000000000",
+            paperExecutionProviderReferenceNotional: "300.0000000000",
             paperExecutionGrossNotional: "285.0000000000",
+            paperExecutionAllInCostRateBPS: "120.0000000000",
+            paperExecutionFillNotionalResidual: "0.0000000000",
+            paperExecutionMaximumAbsoluteFillResidual: "0.0000000000",
+            paperExecutionResidualBoundPerFill: "0.0000000001",
             paperExecutionFillCount: 3,
             paperExecutionBuyFillCount: 2,
             paperExecutionSellFillCount: 1,
@@ -2525,13 +2531,38 @@ describe("StrategyFleet", () => {
             paperExecutionMarketProviders: ["coinbase"],
             paperExecutionMarketFeeds: ["rest_ticker"],
             paperExecutionMarketQualities: ["REAL_TIME_SINGLE_VENUE"],
+            paperExecutionSideCosts: [
+              {
+                side: "BUY",
+                totalFees: "2.0000000000",
+                adverseSlippage: "0.5000000000",
+                totalExplicitCost: "2.5000000000",
+                providerReferenceNotional: "200.0000000000",
+                grossNotional: "190.0000000000",
+                allInCostRateBPS: "125.0000000000",
+                fillCount: 2,
+              },
+              {
+                side: "SELL",
+                totalFees: "0.8500000000",
+                adverseSlippage: "0.2500000000",
+                totalExplicitCost: "1.1000000000",
+                providerReferenceNotional: "100.0000000000",
+                grossNotional: "95.0000000000",
+                allInCostRateBPS: "110.0000000000",
+                fillCount: 1,
+              },
+            ],
             paperExecutionSymbolCosts: [
               {
                 symbol: "BTC",
                 instrument: "CRYPTO",
                 totalFees: "2.8500000000",
                 adverseSlippage: "0.7500000000",
+                totalExplicitCost: "3.6000000000",
+                providerReferenceNotional: "300.0000000000",
                 grossNotional: "285.0000000000",
+                allInCostRateBPS: "120.0000000000",
                 fillCount: 3,
                 buyFillCount: 2,
                 sellFillCount: 1,
@@ -2600,9 +2631,13 @@ describe("StrategyFleet", () => {
       name: /AI Paper Engine exact Paper execution costs/i,
       hidden: true,
     });
-    expect(within(executionCosts).getAllByText(/\$2.85 fees/i)).toHaveLength(2);
     expect(
-      within(executionCosts).getByText(/\$0.75 adverse slippage/i),
+      within(executionCosts).getAllByText(/\$3.6 all-in · 120 bps/i),
+    ).toHaveLength(2);
+    expect(
+      within(executionCosts).getByText(
+        /\$300 provider-reference turnover\. Explicit cost = \$2.85 fees \+ \$0.75 adverse slippage/i,
+      ),
     ).toBeInTheDocument();
     expect(
       within(executionCosts).getByText(/not broker-reported costs/i),

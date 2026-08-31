@@ -170,7 +170,13 @@ export type StrategyFleetItem = {
   paperExecutionCostsStatus?: "AVAILABLE" | "NO_FILLS" | "UNAVAILABLE";
   paperExecutionTotalFees?: string;
   paperExecutionTotalAdverseSlippage?: string;
+  paperExecutionTotalExplicitCost?: string;
+  paperExecutionProviderReferenceNotional?: string;
   paperExecutionGrossNotional?: string;
+  paperExecutionAllInCostRateBPS?: string;
+  paperExecutionFillNotionalResidual?: string;
+  paperExecutionMaximumAbsoluteFillResidual?: string;
+  paperExecutionResidualBoundPerFill?: string;
   paperExecutionFillCount?: number;
   paperExecutionBuyFillCount?: number;
   paperExecutionSellFillCount?: number;
@@ -179,12 +185,25 @@ export type StrategyFleetItem = {
   paperExecutionMarketProviders?: string[];
   paperExecutionMarketFeeds?: string[];
   paperExecutionMarketQualities?: string[];
+  paperExecutionSideCosts?: Array<{
+    side: "BUY" | "SELL";
+    totalFees: string;
+    adverseSlippage: string;
+    totalExplicitCost: string;
+    providerReferenceNotional: string;
+    grossNotional: string;
+    allInCostRateBPS: string;
+    fillCount: number;
+  }>;
   paperExecutionSymbolCosts?: Array<{
     symbol: string;
     instrument: "EQUITY" | "CRYPTO";
     totalFees: string;
     adverseSlippage: string;
+    totalExplicitCost: string;
+    providerReferenceNotional: string;
     grossNotional: string;
+    allInCostRateBPS: string;
     fillCount: number;
     buyFillCount: number;
     sellFillCount: number;
@@ -4411,13 +4430,20 @@ function paperExecutionCostsAvailable(item: StrategyFleetItem) {
       item.paperCurrency &&
         item.paperExecutionTotalFees &&
         item.paperExecutionTotalAdverseSlippage &&
+        item.paperExecutionTotalExplicitCost &&
+        item.paperExecutionProviderReferenceNotional &&
         item.paperExecutionGrossNotional &&
+        item.paperExecutionAllInCostRateBPS &&
+        item.paperExecutionFillNotionalResidual &&
+        item.paperExecutionMaximumAbsoluteFillResidual &&
+        item.paperExecutionResidualBoundPerFill &&
         item.paperExecutionFillCount !== undefined &&
         item.paperExecutionBuyFillCount !== undefined &&
         item.paperExecutionSellFillCount !== undefined &&
         item.paperExecutionMarketProviders &&
         item.paperExecutionMarketFeeds &&
         item.paperExecutionMarketQualities &&
+        item.paperExecutionSideCosts &&
         item.paperExecutionSymbolCosts,
     )
   );
@@ -4929,40 +4955,68 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                   aria-label={item.title + " exact Paper execution costs"}
                 >
                   <header>
-                    <strong>Exact simulated execution costs</strong>
+                    <strong>Exact simulated cost efficiency</strong>
                     <span>
                       {capitalMoney(
                         item.paperCurrency,
-                        item.paperExecutionTotalFees,
+                        item.paperExecutionTotalExplicitCost,
                       )}
-                      {" fees · "}
-                      {capitalMoney(
-                        item.paperCurrency,
-                        item.paperExecutionTotalAdverseSlippage,
+                      {" all-in · "}
+                      {conciseCapitalDecimal(
+                        item.paperExecutionAllInCostRateBPS,
                       )}
-                      {" slippage"}
+                      {" bps"}
                     </span>
                   </header>
+                  {(item.paperExecutionSideCosts ?? []).length > 0 ? (
+                    <ol>
+                      {item.paperExecutionSideCosts!.map((side) => (
+                        <li key={side.side}>
+                          <strong>
+                            {side.side === "SELL" ? "SALE" : side.side}
+                          </strong>
+                          <span>
+                            {capitalMoney(
+                              item.paperCurrency,
+                              side.totalExplicitCost,
+                            )}
+                            {" · "}
+                            {conciseCapitalDecimal(side.allInCostRateBPS)}
+                            {" bps"}
+                          </span>
+                          <small>
+                            {capitalMoney(
+                              item.paperCurrency,
+                              side.providerReferenceNotional,
+                            )}
+                            {" provider-reference turnover · "}
+                            {side.fillCount} fill
+                            {side.fillCount === 1 ? "" : "s"}
+                          </small>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : null}
                   {(item.paperExecutionSymbolCosts ?? []).length > 0 ? (
                     <ol>
                       {item.paperExecutionSymbolCosts!.map((symbol) => (
                         <li key={`${symbol.instrument}:${symbol.symbol}`}>
                           <strong>{symbol.symbol}</strong>
                           <span>
-                            {capitalMoney(item.paperCurrency, symbol.totalFees)}
-                            {" fees"}
+                            {capitalMoney(
+                              item.paperCurrency,
+                              symbol.totalExplicitCost,
+                            )}
+                            {" all-in · "}
+                            {conciseCapitalDecimal(symbol.allInCostRateBPS)}
+                            {" bps"}
                           </span>
                           <small>
                             {capitalMoney(
                               item.paperCurrency,
-                              symbol.adverseSlippage,
+                              symbol.providerReferenceNotional,
                             )}
-                            {" adverse slippage · "}
-                            {capitalMoney(
-                              item.paperCurrency,
-                              symbol.grossNotional,
-                            )}
-                            {" gross simulated notional · "}
+                            {" provider-reference turnover · "}
                             {symbol.buyFillCount} / {symbol.sellFillCount} buy /
                             sale fills
                           </small>
@@ -4978,9 +5032,34 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                     {item.paperExecutionFillCount === 1 ? "" : "s"},{" "}
                     {capitalMoney(
                       item.paperCurrency,
-                      item.paperExecutionGrossNotional,
+                      item.paperExecutionProviderReferenceNotional,
                     )}
-                    {" gross notional. "}
+                    {" provider-reference turnover. Explicit cost = "}
+                    {capitalMoney(
+                      item.paperCurrency,
+                      item.paperExecutionTotalFees,
+                    )}
+                    {" fees + "}
+                    {capitalMoney(
+                      item.paperCurrency,
+                      item.paperExecutionTotalAdverseSlippage,
+                    )}
+                    {" adverse slippage. Stored fill residual "}
+                    {capitalMoney(
+                      item.paperCurrency,
+                      item.paperExecutionFillNotionalResidual,
+                    )}
+                    {"; maximum absolute per fill "}
+                    {capitalMoney(
+                      item.paperCurrency,
+                      item.paperExecutionMaximumAbsoluteFillResidual,
+                    )}
+                    {" against a strict "}
+                    {capitalMoney(
+                      item.paperCurrency,
+                      item.paperExecutionResidualBoundPerFill,
+                    )}
+                    {" bound. "}
                     {item.paperExecutionMarketProviders?.join(", ") ||
                       "Provider unavailable"}
                     {item.paperExecutionMarketFeeds?.length
@@ -4990,8 +5069,9 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                       ? " · " + item.paperExecutionMarketQualities.join(", ")
                       : ""}
                     . Fees and adverse slippage remain separate from realized,
-                    unrealized, and total outcomes. Simulation only—not
-                    broker-reported costs or live execution.
+                    unrealized, and total outcomes. Spread, price impact, broker
+                    fees, performance, and causality are not inferred.
+                    Simulation only—not broker-reported costs or live execution.
                   </p>
                 </section>
               ) : (
