@@ -2467,7 +2467,7 @@ describe("StrategyFleet", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows exact Paper exposure, headroom, and marked outcomes without inferring realized performance", () => {
+  it("shows exact Paper exposure, headroom, and immutable realized outcomes", () => {
     render(
       <StrategyFleet
         items={[
@@ -2493,6 +2493,25 @@ describe("StrategyFleet", () => {
             paperExposureHeadroom: "655.0000000000",
             paperSymbolCeiling: "300.0000000000",
             paperProposalHeadroom: "100.0000000000",
+            paperRealizedContractAvailable: true,
+            paperRealizedOutcomeStatus: "AVAILABLE",
+            paperRealizedProfitLoss: "8.8000000000",
+            paperRealizedFillCount: 3,
+            paperRealizedSellFillCount: 1,
+            paperRealizedFirstFillAt: "2026-08-30T12:00:00Z",
+            paperRealizedLastFillAt: "2026-08-30T14:00:00Z",
+            paperRealizedSymbolOutcomes: [
+              {
+                symbol: "BTC",
+                instrument: "CRYPTO",
+                realizedProfitLoss: "8.8000000000",
+                buyFillCount: 2,
+                sellFillCount: 1,
+                totalFees: "2.8500000000",
+                endingPositionQuantity: "1.5000000000",
+                endingAverageCost: "111.1000000000",
+              },
+            ],
             paperPositionOutcomes: [
               {
                 symbol: "BTC",
@@ -2523,10 +2542,21 @@ describe("StrategyFleet", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Next proposal headroom")).toBeInTheDocument();
     expect(screen.getByText("−$5 · −0.5%")).toBeInTheDocument();
-    expect(screen.getByText("BTC")).toBeInTheDocument();
+    expect(screen.getAllByText("BTC")).toHaveLength(2);
     expect(screen.getByText("$95")).toBeInTheDocument();
     expect(screen.getByText("Unrealized −$4 · −4.0404%")).toBeInTheDocument();
-    expect(screen.getByText(/Realized P&L:/i)).toHaveTextContent("Unavailable");
+    expect(
+      screen.getByText("Exact simulated realized outcome"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("+$8.8")).toHaveLength(2);
+    expect(
+      screen.getByText("1 simulated sale · $2.85 total fees"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Exact average-cost replay from all 3 immutable simulated fills/i,
+      ),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("link", {
         name: /Open Paper evidence/i,

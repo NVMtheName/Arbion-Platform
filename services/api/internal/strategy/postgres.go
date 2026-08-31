@@ -534,6 +534,30 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 	if err = rows.Err(); err != nil {
 		return PaperPortfolio{}, err
 	}
+	rows.Close()
+	fillRows, err := tx.Query(c, `SELECT f.id::text,f.symbol,f.instrument,f.side,f.quantity::text,f.gross_notional::text,f.fee::text,
+		f.previous_cash::text,f.previous_position_quantity::text,f.resulting_cash::text,f.resulting_position_quantity::text,f.simulated_at,f.simulation_only
+		FROM ai_paper_spot_fills f
+		WHERE f.paper_portfolio_id=$1 AND f.strategy_instance_id=$2 AND f.user_id=$3
+		ORDER BY f.simulated_at,f.id`, portfolioID, instanceID, userID)
+	if err != nil {
+		return PaperPortfolio{}, err
+	}
+	defer fillRows.Close()
+	fills := []paperRealizedFill{}
+	for fillRows.Next() {
+		var fill paperRealizedFill
+		if err = fillRows.Scan(&fill.ID, &fill.Symbol, &fill.Instrument, &fill.Side, &fill.Quantity, &fill.GrossNotional, &fill.Fee,
+			&fill.PreviousCash, &fill.PreviousPositionQuantity, &fill.ResultingCash, &fill.ResultingPositionQuantity, &fill.SimulatedAt, &fill.SimulationOnly); err != nil {
+			return PaperPortfolio{}, err
+		}
+		fills = append(fills, fill)
+	}
+	if err = fillRows.Err(); err != nil {
+		return PaperPortfolio{}, err
+	}
+	fillRows.Close()
+	portfolio.RealizedOutcome = projectPaperRealizedOutcome(portfolio.StartingCash, portfolio, fills)
 	if err = tx.Commit(c); err != nil {
 		return PaperPortfolio{}, err
 	}

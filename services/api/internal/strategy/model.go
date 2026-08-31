@@ -378,13 +378,40 @@ type ShadowEvidenceGate struct {
 // PaperPortfolio is the owner-facing, provider-independent projection of one
 // simulated ledger. It deliberately excludes provider and account identifiers.
 type PaperPortfolio struct {
-	StrategyInstanceID string          `json:"strategy_instance_id"`
-	Currency           string          `json:"currency"`
-	StartingCash       string          `json:"starting_cash"`
-	Cash               string          `json:"cash"`
-	Version            int64           `json:"version"`
-	Positions          []PaperPosition `json:"positions"`
-	UpdatedAt          time.Time       `json:"updated_at"`
+	StrategyInstanceID string               `json:"strategy_instance_id"`
+	Currency           string               `json:"currency"`
+	StartingCash       string               `json:"starting_cash"`
+	Cash               string               `json:"cash"`
+	Version            int64                `json:"version"`
+	Positions          []PaperPosition      `json:"positions"`
+	RealizedOutcome    PaperRealizedOutcome `json:"realized_outcome"`
+	UpdatedAt          time.Time            `json:"updated_at"`
+}
+
+// PaperRealizedOutcome is an exact, read-only average-cost projection derived
+// from the complete immutable simulation fill chain. UNAVAILABLE is explicit:
+// legacy or inconsistent evidence is never repaired or inferred.
+type PaperRealizedOutcome struct {
+	Status                  string                       `json:"status"`
+	CalculationMethod       string                       `json:"calculation_method,omitempty"`
+	HistoricalCoverage      string                       `json:"historical_coverage,omitempty"`
+	TotalRealizedProfitLoss string                       `json:"total_realized_profit_loss,omitempty"`
+	FillCount               int                          `json:"fill_count"`
+	SellFillCount           int                          `json:"sell_fill_count"`
+	FirstFillAt             *time.Time                   `json:"first_fill_at,omitempty"`
+	LastFillAt              *time.Time                   `json:"last_fill_at,omitempty"`
+	Symbols                 []PaperRealizedSymbolOutcome `json:"symbols"`
+}
+
+type PaperRealizedSymbolOutcome struct {
+	Symbol                 string `json:"symbol"`
+	Instrument             string `json:"instrument"`
+	RealizedProfitLoss     string `json:"realized_profit_loss"`
+	BuyFillCount           int    `json:"buy_fill_count"`
+	SellFillCount          int    `json:"sell_fill_count"`
+	TotalFees              string `json:"total_fees"`
+	EndingPositionQuantity string `json:"ending_position_quantity"`
+	EndingAverageCost      string `json:"ending_average_cost,omitempty"`
 }
 
 // PaperPosition contains only normalized simulated position facts.
