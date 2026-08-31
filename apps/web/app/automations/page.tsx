@@ -3,7 +3,11 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../app-page-header";
-import { compareExactDecimals, subtractExactDecimals } from "../exact-money";
+import {
+  compareExactDecimals,
+  subtractExactDecimals,
+  sumExactMoney,
+} from "../exact-money";
 import {
   capitalReservationMatchesPolicy,
   paperCapitalReservationMatchesPolicy,
@@ -24,6 +28,7 @@ import {
   StrategyFleet,
   type StrategyFleetDecisionInputCoverageSnapshot,
   type StrategyFleetItem,
+  type StrategyFleetOutcomeHistorySnapshot,
 } from "./strategy-fleet";
 
 type RecordValue = Record<string, unknown>;
@@ -34,6 +39,13 @@ type DecisionWindow = {
   model_rerun?: boolean;
   financial_provider_called?: boolean;
   broker_action_available?: boolean;
+  live_execution_available?: boolean;
+};
+
+type ShadowOutcomeWindow = {
+  outcomes?: RecordValue[] | null;
+  performance_semantics?: string;
+  fees_and_slippage_included?: boolean;
   live_execution_available?: boolean;
 };
 
@@ -180,6 +192,191 @@ function minimumExactDecimals(values: Array<string | undefined>) {
     if (comparison < 0) minimum = value;
   }
   return minimum;
+}
+
+function sumUSD(values: string[]) {
+  if (values.length === 0) return "0";
+  return sumExactMoney(values.map((amount) => ({ amount, currency: "USD" })))
+    ?.amount;
+}
+
+function paperOutcomeSnapshot(
+  decision: RecordValue,
+  cashReserve?: string,
+  exposureCeiling?: string,
+): StrategyFleetOutcomeHistorySnapshot | undefined {
+  const rationale = record(
+    decision.structured_rationale ?? decision.StructuredRationale,
+  );
+  const input = record(rationale?.input_evidence ?? rationale?.InputEvidence);
+  const id = text(decision, "id", "ID");
+  const observedAt = text(decision, "created_at", "CreatedAt");
+  const cash = exactDecimal(
+    input?.available_cash_usd ?? input?.AvailableCashUSD,
+  );
+  const rawPositions = input?.positions ?? input?.Positions;
+  if (
+    !id ||
+    !observedAt ||
+    Number.isNaN(Date.parse(observedAt)) ||
+    !cash ||
+    !Array.isArray(rawPositions)
+  )
+    return;
+  const positions: NonNullable<
+    StrategyFleetOutcomeHistorySnapshot["paperPositions"]
+  > = [];
+  for (const rawPosition of rawPositions) {
+    const position = record(rawPosition);
+    const symbol = text(position, "symbol", "Symbol");
+    const marketValue = exactDecimal(
+      position?.market_value_usd ?? position?.MarketValueUSD,
+    );
+    const unrealizedProfitLoss = exactDecimal(
+      position?.open_profit_loss_usd ?? position?.OpenProfitLossUSD,
+    );
+    if (!symbol || !marketValue || !unrealizedProfitLoss) return;
+    positions.push({ symbol, marketValue, unrealizedProfitLoss });
+  }
+  const markedExposure = sumUSD(
+    positions.map((position) => position.marketValue),
+  );
+  const unrealizedProfitLoss = sumUSD(
+    positions.map((position) => position.unrealizedProfitLoss),
+  );
+  const simulatedEquity = markedExposure
+    ? sumUSD([cash, markedExposure])
+    : undefined;
+  if (!markedExposure || !unrealizedProfitLoss || !simulatedEquity) return;
+  const rawMarkets = input?.markets ?? input?.Markets;
+  const markets = Array.isArray(rawMarkets)
+    ? rawMarkets
+        .map(record)
+        .filter((market): market is RecordValue => Boolean(market))
+    : [];
+  const marketObservedTimes = markets
+    .map((market) => text(market, "observed_at", "ObservedAt"))
+    .filter((value): value is string => Boolean(value))
+    .sort();
+  const marketFeeds = Array.from(
+    new Set(
+      markets
+        .map((market) => text(market, "feed", "Feed"))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+  const marketQualities = Array.from(
+    new Set(
+      markets
+        .map((market) => text(market, "quality", "Quality"))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+  return {
+    id,
+    observedAt,
+    marketObservedAt: marketObservedTimes[0],
+    financialProvider: text(input, "provider", "Provider"),
+    marketFeed: marketFeeds.length === 1 ? marketFeeds[0] : undefined,
+    marketQuality:
+      marketQualities.length === 1 ? marketQualities[0] : undefined,
+    paperCash: cash,
+    paperMarkedExposure: markedExposure,
+    paperSimulatedEquity: simulatedEquity,
+    paperUnrealizedProfitLoss: unrealizedProfitLoss,
+    paperCashHeadroom:
+      cashReserve === undefined
+        ? undefined
+        : subtractExactDecimals(cash, cashReserve),
+    paperExposureHeadroom:
+      exposureCeiling === undefined
+        ? undefined
+        : subtractExactDecimals(exposureCeiling, markedExposure),
+    paperFillDisposition:
+      text(decision, "execution_status", "ExecutionStatus") ??
+      text(decision, "decision_type", "DecisionType"),
+    paperPositions: positions,
+  };
+}
+
+function shadowOutcomeHistory(
+  outcomes: RecordValue[],
+): StrategyFleetOutcomeHistorySnapshot[] | undefined {
+  if (outcomes.length === 0 || outcomes.length >= 200) return;
+  const normalized = outcomes
+    .map((outcome) => {
+      const id = text(outcome, "id", "ID");
+      const observedAt = text(outcome, "evaluated_at", "EvaluatedAt");
+      const marketObservedAt = text(
+        outcome,
+        "market_observed_at",
+        "MarketObservedAt",
+      );
+      const horizon = text(outcome, "horizon", "Horizon");
+      const symbol = text(outcome, "symbol", "Symbol");
+      const directionalChangePercent = exactDecimal(
+        outcome.directional_change_percent ?? outcome.DirectionalChangePercent,
+      );
+      const marketFeed = text(outcome, "market_feed", "MarketFeed");
+      const marketQuality = text(outcome, "market_quality", "MarketQuality");
+      if (
+        !id ||
+        !observedAt ||
+        Number.isNaN(Date.parse(observedAt)) ||
+        !marketObservedAt ||
+        Number.isNaN(Date.parse(marketObservedAt)) ||
+        !["ONE_HOUR", "TWENTY_FOUR_HOURS"].includes(horizon ?? "") ||
+        !symbol ||
+        !directionalChangePercent ||
+        !marketFeed ||
+        !marketQuality
+      )
+        return;
+      return {
+        id,
+        observedAt,
+        marketObservedAt,
+        horizon: horizon!,
+        symbol,
+        directionalChangePercent,
+        marketFeed,
+        marketQuality,
+      };
+    })
+    .filter((outcome): outcome is NonNullable<typeof outcome> =>
+      Boolean(outcome),
+    )
+    .sort(
+      (left, right) =>
+        left.observedAt.localeCompare(right.observedAt) ||
+        left.id.localeCompare(right.id),
+    );
+  if (normalized.length !== outcomes.length) return;
+  let oneHour = 0;
+  let twentyFourHour = 0;
+  const snapshots: StrategyFleetOutcomeHistorySnapshot[] = [];
+  for (const outcome of normalized) {
+    if (outcome.horizon === "ONE_HOUR") oneHour += 1;
+    else twentyFourHour += 1;
+    snapshots.push({
+      id: outcome.id,
+      observedAt: outcome.observedAt,
+      marketObservedAt: outcome.marketObservedAt,
+      marketFeed: outcome.marketFeed,
+      marketQuality: outcome.marketQuality,
+      shadowOneHourSamples: oneHour,
+      shadowTwentyFourHourSamples: twentyFourHour,
+      shadowNewMarks: [
+        {
+          id: outcome.id,
+          horizon: outcome.horizon,
+          symbol: outcome.symbol,
+          directionalChangePercent: outcome.directionalChangePercent,
+        },
+      ],
+    });
+  }
+  return snapshots.reverse().slice(0, 6);
 }
 
 function uniqueStrings(values: Array<string | undefined>) {
@@ -578,6 +775,7 @@ async function fleetItem(
     scheduleResult,
     scheduleHistoryResult,
     scorecardResult,
+    shadowOutcomesResult,
     decisionResult,
     paperPortfolioResult,
     reconciliationResult,
@@ -608,6 +806,12 @@ async function fleetItem(
           headers,
         )
       : Promise.resolve({ available: true as const, payload: undefined }),
+    expectsShadowEvidence
+      ? fetchOptional<ShadowOutcomeWindow>(
+          `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/shadow-outcomes`,
+          headers,
+        )
+      : Promise.resolve({ available: true as const, payload: undefined }),
     expectsDecisionEvidence
       ? fetchOptional<DecisionWindow>(
           `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/decisions?limit=10`,
@@ -633,6 +837,7 @@ async function fleetItem(
       scheduleResult,
       scheduleHistoryResult,
       scorecardResult,
+      shadowOutcomesResult,
       decisionResult,
       paperPortfolioResult,
       reconciliationResult,
@@ -699,6 +904,14 @@ async function fleetItem(
     | undefined;
   const evidenceAvailable =
     expectsShadowEvidence && scorecardResult.available && Boolean(evidenceGate);
+  const shadowOutcomeHistoryAvailable =
+    expectsShadowEvidence &&
+    shadowOutcomesResult.available &&
+    shadowOutcomesResult.payload?.performance_semantics ===
+      "HYPOTHETICAL_DIRECTIONAL_MARK" &&
+    shadowOutcomesResult.payload?.fees_and_slippage_included === false &&
+    shadowOutcomesResult.payload?.live_execution_available === false &&
+    Array.isArray(shadowOutcomesResult.payload?.outcomes);
   const decisionAvailable =
     expectsDecisionEvidence &&
     decisionResult.available &&
@@ -795,6 +1008,37 @@ async function fleetItem(
     paperExposureHeadroom,
     runtimeContract?.maxProposalNotional,
   ]);
+  const outcomeHistory =
+    runtimeExecutionMode === "PAPER"
+      ? decisionAvailable && paperCashReserve && paperExposureCeiling
+        ? aiDecisions
+            .slice(0, 6)
+            .map((decision) =>
+              paperOutcomeSnapshot(
+                decision,
+                paperCashReserve,
+                paperExposureCeiling,
+              ),
+            )
+            .filter(
+              (snapshot): snapshot is StrategyFleetOutcomeHistorySnapshot =>
+                Boolean(snapshot),
+            )
+        : undefined
+      : shadowOutcomeHistoryAvailable
+        ? shadowOutcomeHistory(
+            asList(shadowOutcomesResult.payload?.outcomes),
+          )?.map((snapshot) => ({
+            ...snapshot,
+            financialProvider: text(account, "provider", "Provider"),
+          }))
+        : undefined;
+  const outcomeHistoryAvailable =
+    expectsDecisionEvidence &&
+    Boolean(outcomeHistory && outcomeHistory.length >= 2) &&
+    (runtimeExecutionMode === "PAPER"
+      ? outcomeHistory?.length === Math.min(aiDecisions.length, 6)
+      : shadowOutcomeHistoryAvailable);
   const reconciliation = reconciliationResult.payload?.reconciliation;
   const reconciliationObservedAt = text(
     reconciliation,
@@ -983,6 +1227,8 @@ async function fleetItem(
       unrealizedProfitLoss: position.unrealizedProfitLoss,
       unrealizedProfitLossPercent: position.unrealizedProfitLossPercent,
     })),
+    outcomeHistoryAvailable,
+    outcomeHistory,
     decisionAvailable: expectsDecisionEvidence ? decisionAvailable : undefined,
     latestDecisionID: text(latestAIDecision, "id", "ID"),
     latestDecisionType: text(latestAIDecision, "decision_type", "DecisionType"),

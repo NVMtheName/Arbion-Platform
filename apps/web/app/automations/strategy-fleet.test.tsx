@@ -2566,6 +2566,171 @@ describe("StrategyFleet", () => {
     expect(screen.queryByText("$850 cash")).not.toBeInTheDocument();
   });
 
+  it("compares bounded exact Paper outcome snapshots without claiming realized performance", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            title: "AI Paper Engine",
+            executionMode: "PAPER",
+            evidenceAvailable: undefined,
+            evidenceStatus: undefined,
+            paperPortfolioAvailable: true,
+            paperPerformanceStatus: "AVAILABLE",
+            paperCurrency: "USD",
+            paperStartingCash: "1000",
+            paperCash: "850",
+            paperSimulatedEquity: "995",
+            paperInvestedExposure: "145",
+            paperTotalProfitLoss: "-5",
+            paperTotalReturnPercent: "-0.5",
+            paperValuedAt: "2026-08-31T03:35:57Z",
+            paperCashReserve: "200",
+            paperCashHeadroom: "650",
+            paperExposureCeiling: "800",
+            paperExposureHeadroom: "655",
+            paperSymbolCeiling: "300",
+            paperProposalHeadroom: "100",
+            paperPositionOutcomes: [],
+            outcomeHistoryAvailable: true,
+            outcomeHistory: [
+              {
+                id: "paper-now",
+                observedAt: "2026-08-31T03:35:58Z",
+                marketObservedAt: "2026-08-31T03:35:57Z",
+                financialProvider: "coinbase",
+                marketFeed: "rest_ticker",
+                marketQuality: "REAL_TIME_SINGLE_VENUE",
+                paperCash: "850",
+                paperMarkedExposure: "145",
+                paperSimulatedEquity: "995",
+                paperUnrealizedProfitLoss: "-5",
+                paperCashHeadroom: "650",
+                paperExposureHeadroom: "655",
+                paperFillDisposition: "RISK_DENIED",
+                paperPositions: [
+                  {
+                    symbol: "BTC",
+                    marketValue: "145",
+                    unrealizedProfitLoss: "-5",
+                  },
+                ],
+              },
+              {
+                id: "paper-prior",
+                observedAt: "2026-08-31T02:35:58Z",
+                marketObservedAt: "2026-08-31T02:35:57Z",
+                financialProvider: "coinbase",
+                marketFeed: "rest_ticker",
+                marketQuality: "REAL_TIME_SINGLE_VENUE",
+                paperCash: "848",
+                paperMarkedExposure: "140",
+                paperSimulatedEquity: "988",
+                paperUnrealizedProfitLoss: "-12",
+                paperCashHeadroom: "648",
+                paperExposureHeadroom: "660",
+                paperFillDisposition: "SIMULATED_FILLED",
+                paperPositions: [
+                  {
+                    symbol: "BTC",
+                    marketValue: "140",
+                    unrealizedProfitLoss: "-12",
+                  },
+                ],
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Outcome change timeline")).toBeInTheDocument();
+    expect(screen.getByText("2 saved points")).toBeInTheDocument();
+    expect(screen.getByText("$995")).toBeInTheDocument();
+    expect(screen.getByText("−$5")).toBeInTheDocument();
+    expect(
+      screen.getByText("$145 marked · −$5 unrealized"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Reserve headroom $650")).toBeInTheDocument();
+    expect(screen.getByText("Cycle result Risk Denied")).toBeInTheDocument();
+    expect(screen.getAllByText("Improved")).toHaveLength(2);
+    expect(screen.getAllByText(/coinbase · rest_ticker/i)).toHaveLength(2);
+    expect(
+      screen.getByText(/do not establish decision quality/i),
+    ).toHaveTextContent("realized performance");
+  });
+
+  it("shows exact Shadow mark maturity and fails closed without two saved points", () => {
+    const { rerender } = render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            outcomeHistoryAvailable: true,
+            outcomeHistory: [
+              {
+                id: "shadow-now",
+                observedAt: "2026-08-31T03:49:28Z",
+                marketObservedAt: "2026-08-31T03:49:27Z",
+                financialProvider: "coinbase",
+                marketFeed: "rest_ticker",
+                marketQuality: "REAL_TIME_SINGLE_VENUE",
+                shadowOneHourSamples: 13,
+                shadowTwentyFourHourSamples: 5,
+                shadowNewMarks: [
+                  {
+                    id: "mark-now",
+                    horizon: "ONE_HOUR",
+                    symbol: "XRP",
+                    directionalChangePercent: "1.25",
+                  },
+                ],
+              },
+              {
+                id: "shadow-prior",
+                observedAt: "2026-08-31T02:49:28Z",
+                marketObservedAt: "2026-08-31T02:49:27Z",
+                financialProvider: "coinbase",
+                marketFeed: "rest_ticker",
+                marketQuality: "REAL_TIME_SINGLE_VENUE",
+                shadowOneHourSamples: 12,
+                shadowTwentyFourHourSamples: 5,
+                shadowNewMarks: [
+                  {
+                    id: "mark-prior",
+                    horizon: "TWENTY_FOUR_HOURS",
+                    symbol: "BTC",
+                    directionalChangePercent: "-0.75",
+                  },
+                ],
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("13 one-hour · 5 24-hour")).toBeInTheDocument();
+    expect(screen.getByText("XRP One Hour +1.25%")).toBeInTheDocument();
+    expect(screen.getByText("Improved")).toBeInTheDocument();
+
+    rerender(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            outcomeHistoryAvailable: false,
+            outcomeHistory: [],
+          },
+        ]}
+      />,
+    );
+    expect(
+      screen.getByText(/needs at least two complete, attributable immutable/i),
+    ).toBeInTheDocument();
+  });
+
   it("surfaces a schedule outage instead of presenting healthy automation", () => {
     render(
       <StrategyFleet
