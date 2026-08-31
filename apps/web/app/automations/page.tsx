@@ -30,12 +30,16 @@ import type {
   PaperExecutionSideCost,
   PaperExecutionSymbolCost,
   PaperGuardrailCheckCount,
+  PaperGuardrailCheckChange,
   PaperGuardrailCheckFact,
   PaperGuardrailCodeCount,
+  PaperGuardrailCoverageChange,
+  PaperGuardrailCoverageMetricChange,
   PaperGuardrailEvidence,
   PaperGuardrailEvidenceWindow,
   PaperGuardrailProposalFact,
   PaperGuardrailSymbol,
+  PaperGuardrailSymbolChange,
   PaperPortfolio,
   PaperPosition,
   PaperRealizedOutcome,
@@ -101,6 +105,8 @@ type PaperPortfolioEnvelope = {
   guardrail_evidence_read_only?: boolean;
   guardrail_coverage_semantics?: string;
   guardrail_coverage_read_only?: boolean;
+  guardrail_coverage_change_semantics?: string;
+  guardrail_coverage_change_read_only?: boolean;
   broker_action_available?: boolean;
   live_execution_available?: boolean;
 };
@@ -1100,6 +1106,12 @@ function nonnegativeInteger(value: unknown) {
     : undefined;
 }
 
+function safeInteger(value: unknown) {
+  return typeof value === "number" && Number.isSafeInteger(value)
+    ? value
+    : undefined;
+}
+
 function normalizedPaperRealizedOutcome(
   value: unknown,
 ): PaperRealizedOutcome | undefined {
@@ -2045,6 +2057,508 @@ function normalizedPaperGuardrailWindow(
   };
 }
 
+function paperGuardrailShareDirection(
+  currentCount: number,
+  currentTotal: number,
+  baselineCount: number,
+  baselineTotal: number,
+) {
+  const current = currentCount * baselineTotal;
+  const baseline = baselineCount * currentTotal;
+  return current > baseline
+    ? "INCREASED"
+    : current < baseline
+      ? "DECREASED"
+      : "UNCHANGED";
+}
+
+function normalizedPaperGuardrailCoverageChange(
+  value: unknown,
+  twentyFour: PaperGuardrailEvidenceWindow,
+  sevenDays: PaperGuardrailEvidenceWindow,
+): PaperGuardrailCoverageChange | undefined {
+  const change = record(value);
+  const status = text(change, "status", "Status");
+  const method = text(change, "calculation_method", "CalculationMethod");
+  const baselineHorizon = nonnegativeInteger(
+    change?.baseline_horizon_hours ?? change?.BaselineHorizonHours,
+  );
+  const currentHorizon = nonnegativeInteger(
+    change?.current_horizon_hours ?? change?.CurrentHorizonHours,
+  );
+  const baselineStarted = text(
+    change,
+    "baseline_window_started_at",
+    "BaselineWindowStartedAt",
+  );
+  const baselineEnded = text(
+    change,
+    "baseline_window_ended_at",
+    "BaselineWindowEndedAt",
+  );
+  const currentStarted = text(
+    change,
+    "current_window_started_at",
+    "CurrentWindowStartedAt",
+  );
+  const currentEnded = text(
+    change,
+    "current_window_ended_at",
+    "CurrentWindowEndedAt",
+  );
+  const baselineProposalCount = nonnegativeInteger(
+    change?.baseline_proposal_count ?? change?.BaselineProposalCount,
+  );
+  const currentProposalCount = nonnegativeInteger(
+    change?.current_proposal_count ?? change?.CurrentProposalCount,
+  );
+  const proposalCountDelta = safeInteger(
+    change?.proposal_count_delta ?? change?.ProposalCountDelta,
+  );
+  const providers = stringList(
+    change?.financial_providers ?? change?.FinancialProviders,
+  );
+  const firstEvidenceAt = text(change, "first_evidence_at", "FirstEvidenceAt");
+  const latestEvidenceAt = text(
+    change,
+    "latest_evidence_at",
+    "LatestEvidenceAt",
+  );
+  const firstMarketObservedAt = text(
+    change,
+    "first_market_observed_at",
+    "FirstMarketObservedAt",
+  );
+  const latestMarketObservedAt = text(
+    change,
+    "latest_market_observed_at",
+    "LatestMarketObservedAt",
+  );
+  const firstDriftAt = text(
+    change,
+    "first_check_set_drift_at",
+    "FirstCheckSetDriftAt",
+  );
+  const latestDriftAt = text(
+    change,
+    "latest_check_set_drift_at",
+    "LatestCheckSetDriftAt",
+  );
+  const rawMetrics = change?.coverage_metrics ?? change?.CoverageMetrics;
+  const rawChecks = change?.check_changes ?? change?.CheckChanges;
+  const rawSymbols = change?.symbol_changes ?? change?.SymbolChanges;
+  if (
+    !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
+    baselineHorizon !== 168 ||
+    currentHorizon !== 24 ||
+    baselineProposalCount === undefined ||
+    currentProposalCount === undefined ||
+    proposalCountDelta === undefined ||
+    !Array.isArray(rawMetrics) ||
+    !Array.isArray(rawChecks) ||
+    !Array.isArray(rawSymbols)
+  )
+    return;
+  if (status === "UNAVAILABLE") {
+    if (rawMetrics.length || rawChecks.length || rawSymbols.length) return;
+    return {
+      status: "UNAVAILABLE",
+      baseline_horizon_hours: 168,
+      current_horizon_hours: 24,
+      baseline_window_started_at: baselineStarted,
+      baseline_window_ended_at: baselineEnded,
+      current_window_started_at: currentStarted,
+      current_window_ended_at: currentEnded,
+      baseline_proposal_count: baselineProposalCount,
+      current_proposal_count: currentProposalCount,
+      proposal_count_delta: proposalCountDelta,
+      financial_providers: [],
+      coverage_metrics: [],
+      check_changes: [],
+      symbol_changes: [],
+    };
+  }
+  if (
+    method !==
+      "IMMUTABLE_24_HOUR_AND_SEVEN_DAY_GUARDRAIL_COVERAGE_COMPARISON" ||
+    twentyFour.status !== "AVAILABLE" ||
+    sevenDays.status !== "AVAILABLE" ||
+    baselineProposalCount !== sevenDays.proposal_count ||
+    currentProposalCount !== twentyFour.proposal_count ||
+    baselineProposalCount <= 0 ||
+    currentProposalCount <= 0 ||
+    proposalCountDelta !== currentProposalCount - baselineProposalCount ||
+    baselineStarted !== sevenDays.window_started_at ||
+    baselineEnded !== sevenDays.window_ended_at ||
+    currentStarted !== twentyFour.window_started_at ||
+    currentEnded !== twentyFour.window_ended_at ||
+    !firstEvidenceAt ||
+    !latestEvidenceAt ||
+    !firstMarketObservedAt ||
+    !latestMarketObservedAt ||
+    [
+      baselineStarted,
+      baselineEnded,
+      currentStarted,
+      currentEnded,
+      firstEvidenceAt,
+      latestEvidenceAt,
+      firstMarketObservedAt,
+      latestMarketObservedAt,
+    ].some((timestamp) => Number.isNaN(Date.parse(timestamp ?? ""))) ||
+    providers.length === 0 ||
+    new Set(providers).size !== providers.length ||
+    providers.some((provider, index) =>
+      index > 0 ? providers[index - 1] >= provider : !provider,
+    ) ||
+    Boolean(firstDriftAt) !== Boolean(latestDriftAt) ||
+    (firstDriftAt &&
+      (Number.isNaN(Date.parse(firstDriftAt)) ||
+        Number.isNaN(Date.parse(latestDriftAt!)) ||
+        Date.parse(firstDriftAt) > Date.parse(latestDriftAt!)))
+  )
+    return;
+
+  const expectedMetrics = [
+    [
+      "FULL_EVALUATION",
+      sevenDays.fully_evaluated_count,
+      twentyFour.fully_evaluated_count,
+    ],
+    [
+      "FAIL_CLOSED_PREFIX",
+      sevenDays.fail_closed_prefix_count,
+      twentyFour.fail_closed_prefix_count,
+    ],
+    [
+      "CHECK_SET_DRIFT",
+      sevenDays.check_set_drift_count,
+      twentyFour.check_set_drift_count,
+    ],
+  ] as const;
+  const metrics: PaperGuardrailCoverageMetricChange[] = [];
+  for (const [index, expected] of expectedMetrics.entries()) {
+    const item = record(rawMetrics[index]);
+    const metric = text(item, "metric", "Metric");
+    const baselineCount = nonnegativeInteger(
+      item?.baseline_count ?? item?.BaselineCount,
+    );
+    const currentCount = nonnegativeInteger(
+      item?.current_count ?? item?.CurrentCount,
+    );
+    const countDelta = safeInteger(item?.count_delta ?? item?.CountDelta);
+    const baselineRate = exactDecimal(
+      item?.baseline_share_percent ?? item?.BaselineSharePercent,
+    );
+    const currentRate = exactDecimal(
+      item?.current_share_percent ?? item?.CurrentSharePercent,
+    );
+    const shareChange = text(item, "share_change", "ShareChange");
+    if (
+      metric !== expected[0] ||
+      baselineCount !== expected[1] ||
+      currentCount !== expected[2] ||
+      countDelta !== currentCount - baselineCount ||
+      !baselineRate ||
+      !currentRate ||
+      !exactDispositionRateMatches(
+        baselineCount,
+        baselineProposalCount,
+        baselineRate,
+      ) ||
+      !exactDispositionRateMatches(
+        currentCount,
+        currentProposalCount,
+        currentRate,
+      ) ||
+      shareChange !==
+        paperGuardrailShareDirection(
+          currentCount,
+          currentProposalCount,
+          baselineCount,
+          baselineProposalCount,
+        )
+    )
+      return;
+    metrics.push({
+      metric,
+      baseline_count: baselineCount,
+      current_count: currentCount,
+      count_delta: countDelta,
+      baseline_share_percent: baselineRate,
+      current_share_percent: currentRate,
+      share_change: shareChange,
+    } as PaperGuardrailCoverageMetricChange);
+  }
+  if (rawMetrics.length !== metrics.length) return;
+  const driftMetric = metrics[2];
+  if (
+    (driftMetric.baseline_count === 0 && (firstDriftAt || latestDriftAt)) ||
+    (driftMetric.baseline_count > 0 && (!firstDriftAt || !latestDriftAt))
+  )
+    return;
+
+  const checks: PaperGuardrailCheckChange[] = [];
+  for (const [index, raw] of rawChecks.entries()) {
+    const item = record(raw);
+    const code = text(item, "code", "Code");
+    const counts = [
+      nonnegativeInteger(
+        item?.baseline_evaluation_count ?? item?.BaselineEvaluationCount,
+      ),
+      nonnegativeInteger(
+        item?.current_evaluation_count ?? item?.CurrentEvaluationCount,
+      ),
+      safeInteger(item?.evaluation_count_delta ?? item?.EvaluationCountDelta),
+      nonnegativeInteger(item?.baseline_pass_count ?? item?.BaselinePassCount),
+      nonnegativeInteger(item?.current_pass_count ?? item?.CurrentPassCount),
+      safeInteger(item?.pass_count_delta ?? item?.PassCountDelta),
+      nonnegativeInteger(item?.baseline_fail_count ?? item?.BaselineFailCount),
+      nonnegativeInteger(item?.current_fail_count ?? item?.CurrentFailCount),
+      safeInteger(item?.fail_count_delta ?? item?.FailCountDelta),
+      nonnegativeInteger(item?.baseline_warn_count ?? item?.BaselineWarnCount),
+      nonnegativeInteger(item?.current_warn_count ?? item?.CurrentWarnCount),
+      safeInteger(item?.warn_count_delta ?? item?.WarnCountDelta),
+    ];
+    const baselineRate = exactDecimal(
+      item?.baseline_evaluation_percent ?? item?.BaselineEvaluationPercent,
+    );
+    const currentRate = exactDecimal(
+      item?.current_evaluation_percent ?? item?.CurrentEvaluationPercent,
+    );
+    const shareChange = text(
+      item,
+      "evaluation_share_change",
+      "EvaluationShareChange",
+    );
+    if (
+      !code ||
+      code !== twentyFour.expected_check_codes[index] ||
+      counts.some((count) => count === undefined) ||
+      !baselineRate ||
+      !currentRate
+    )
+      return;
+    const [
+      baselineEvaluated,
+      currentEvaluated,
+      evaluatedDelta,
+      baselinePass,
+      currentPass,
+      passDelta,
+      baselineFail,
+      currentFail,
+      failDelta,
+      baselineWarn,
+      currentWarn,
+      warnDelta,
+    ] = counts as number[];
+    if (
+      baselineEvaluated !== baselinePass + baselineFail + baselineWarn ||
+      currentEvaluated !== currentPass + currentFail + currentWarn ||
+      evaluatedDelta !== currentEvaluated - baselineEvaluated ||
+      passDelta !== currentPass - baselinePass ||
+      failDelta !== currentFail - baselineFail ||
+      warnDelta !== currentWarn - baselineWarn ||
+      !exactDispositionRateMatches(
+        baselineEvaluated,
+        baselineProposalCount,
+        baselineRate,
+      ) ||
+      !exactDispositionRateMatches(
+        currentEvaluated,
+        currentProposalCount,
+        currentRate,
+      ) ||
+      shareChange !==
+        paperGuardrailShareDirection(
+          currentEvaluated,
+          currentProposalCount,
+          baselineEvaluated,
+          baselineProposalCount,
+        )
+    )
+      return;
+    checks.push({
+      code,
+      baseline_evaluation_count: baselineEvaluated,
+      current_evaluation_count: currentEvaluated,
+      evaluation_count_delta: evaluatedDelta,
+      baseline_pass_count: baselinePass,
+      current_pass_count: currentPass,
+      pass_count_delta: passDelta,
+      baseline_fail_count: baselineFail,
+      current_fail_count: currentFail,
+      fail_count_delta: failDelta,
+      baseline_warn_count: baselineWarn,
+      current_warn_count: currentWarn,
+      warn_count_delta: warnDelta,
+      baseline_evaluation_percent: baselineRate,
+      current_evaluation_percent: currentRate,
+      evaluation_share_change: shareChange,
+    } as PaperGuardrailCheckChange);
+  }
+  if (
+    checks.length !== twentyFour.expected_check_codes.length ||
+    checks.length !== sevenDays.expected_check_codes.length
+  )
+    return;
+
+  const symbols: PaperGuardrailSymbolChange[] = [];
+  for (const raw of rawSymbols) {
+    const item = record(raw);
+    const symbol = text(item, "symbol", "Symbol");
+    const instrument = text(item, "instrument", "Instrument");
+    const counts = [
+      nonnegativeInteger(
+        item?.baseline_proposal_count ?? item?.BaselineProposalCount,
+      ),
+      nonnegativeInteger(
+        item?.current_proposal_count ?? item?.CurrentProposalCount,
+      ),
+      safeInteger(item?.proposal_count_delta ?? item?.ProposalCountDelta),
+      nonnegativeInteger(
+        item?.baseline_allow_count ?? item?.BaselineAllowCount,
+      ),
+      nonnegativeInteger(item?.current_allow_count ?? item?.CurrentAllowCount),
+      nonnegativeInteger(item?.baseline_deny_count ?? item?.BaselineDenyCount),
+      nonnegativeInteger(item?.current_deny_count ?? item?.CurrentDenyCount),
+      nonnegativeInteger(
+        item?.baseline_simulated_fill_count ?? item?.BaselineSimulatedFillCount,
+      ),
+      nonnegativeInteger(
+        item?.current_simulated_fill_count ?? item?.CurrentSimulatedFillCount,
+      ),
+    ];
+    const baselineRate = exactDecimal(
+      item?.baseline_proposal_percent ?? item?.BaselineProposalPercent,
+    );
+    const currentRate = exactDecimal(
+      item?.current_proposal_percent ?? item?.CurrentProposalPercent,
+    );
+    const shareChange = text(
+      item,
+      "proposal_share_change",
+      "ProposalShareChange",
+    );
+    const baselineNotional = exactDecimal(
+      item?.baseline_proposed_notional ?? item?.BaselineProposedNotional,
+    );
+    const currentNotional = exactDecimal(
+      item?.current_proposed_notional ?? item?.CurrentProposedNotional,
+    );
+    const notionalDelta = exactDecimal(
+      item?.proposed_notional_delta ?? item?.ProposedNotionalDelta,
+    );
+    if (
+      !symbol ||
+      !["EQUITY", "CRYPTO"].includes(instrument ?? "") ||
+      counts.some((count) => count === undefined) ||
+      !baselineRate ||
+      !currentRate ||
+      !baselineNotional ||
+      !currentNotional ||
+      !notionalDelta
+    )
+      return;
+    const [
+      baselineProposals,
+      currentProposals,
+      proposalDelta,
+      baselineAllow,
+      currentAllow,
+      baselineDeny,
+      currentDeny,
+      baselineFills,
+      currentFills,
+    ] = counts as number[];
+    if (
+      baselineProposals !== baselineAllow + baselineDeny ||
+      currentProposals !== currentAllow + currentDeny ||
+      baselineAllow !== baselineFills ||
+      currentAllow !== currentFills ||
+      proposalDelta !== currentProposals - baselineProposals ||
+      subtractExactDecimals(currentNotional, baselineNotional) !==
+        notionalDelta ||
+      !exactDispositionRateMatches(
+        baselineProposals,
+        baselineProposalCount,
+        baselineRate,
+      ) ||
+      !exactDispositionRateMatches(
+        currentProposals,
+        currentProposalCount,
+        currentRate,
+      ) ||
+      shareChange !==
+        paperGuardrailShareDirection(
+          currentProposals,
+          currentProposalCount,
+          baselineProposals,
+          baselineProposalCount,
+        )
+    )
+      return;
+    symbols.push({
+      symbol,
+      instrument: instrument as "EQUITY" | "CRYPTO",
+      baseline_proposal_count: baselineProposals,
+      current_proposal_count: currentProposals,
+      proposal_count_delta: proposalDelta,
+      baseline_proposal_percent: baselineRate,
+      current_proposal_percent: currentRate,
+      proposal_share_change: shareChange,
+      baseline_allow_count: baselineAllow,
+      current_allow_count: currentAllow,
+      baseline_deny_count: baselineDeny,
+      current_deny_count: currentDeny,
+      baseline_simulated_fill_count: baselineFills,
+      current_simulated_fill_count: currentFills,
+      baseline_proposed_notional: baselineNotional,
+      current_proposed_notional: currentNotional,
+      proposed_notional_delta: notionalDelta,
+    } as PaperGuardrailSymbolChange);
+  }
+  if (
+    symbols.reduce((sum, symbol) => sum + symbol.baseline_proposal_count, 0) !==
+      baselineProposalCount ||
+    symbols.reduce((sum, symbol) => sum + symbol.current_proposal_count, 0) !==
+      currentProposalCount ||
+    symbols.some(
+      (symbol, index) =>
+        index > 0 &&
+        `${symbols[index - 1].instrument}:${symbols[index - 1].symbol}` >=
+          `${symbol.instrument}:${symbol.symbol}`,
+    )
+  )
+    return;
+
+  return {
+    status: "AVAILABLE",
+    calculation_method:
+      method as PaperGuardrailCoverageChange["calculation_method"],
+    baseline_horizon_hours: 168,
+    current_horizon_hours: 24,
+    baseline_window_started_at: baselineStarted,
+    baseline_window_ended_at: baselineEnded,
+    current_window_started_at: currentStarted,
+    current_window_ended_at: currentEnded,
+    baseline_proposal_count: baselineProposalCount,
+    current_proposal_count: currentProposalCount,
+    proposal_count_delta: proposalCountDelta,
+    financial_providers: providers,
+    first_evidence_at: firstEvidenceAt,
+    latest_evidence_at: latestEvidenceAt,
+    first_market_observed_at: firstMarketObservedAt,
+    latest_market_observed_at: latestMarketObservedAt,
+    first_check_set_drift_at: firstDriftAt,
+    latest_check_set_drift_at: latestDriftAt,
+    coverage_metrics: metrics,
+    check_changes: checks,
+    symbol_changes: symbols,
+  };
+}
+
 function normalizedPaperGuardrailEvidence(
   value: unknown,
 ): PaperGuardrailEvidence | undefined {
@@ -2060,10 +2574,19 @@ function normalizedPaperGuardrailEvidence(
     evidence?.seven_days ?? evidence?.SevenDays,
     168,
   );
+  const coverageChange =
+    twentyFour && sevenDays
+      ? normalizedPaperGuardrailCoverageChange(
+          evidence?.coverage_change ?? evidence?.CoverageChange,
+          twentyFour,
+          sevenDays,
+        )
+      : undefined;
   if (
     !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
     !twentyFour ||
-    !sevenDays
+    !sevenDays ||
+    !coverageChange
   )
     return;
   if (
@@ -2080,6 +2603,7 @@ function normalizedPaperGuardrailEvidence(
     as_of: asOf,
     twenty_four_hours: twentyFour,
     seven_days: sevenDays,
+    coverage_change: coverageChange,
   };
 }
 
@@ -3203,6 +3727,10 @@ async function fleetItem(
     paperPortfolioResult.payload?.guardrail_coverage_semantics ===
       "EXACT_ORDERED_PAPER_CHECK_PLAN_AND_FAIL_CLOSED_PREFIX_ATTESTATION" &&
     paperPortfolioResult.payload?.guardrail_coverage_read_only === true &&
+    paperPortfolioResult.payload?.guardrail_coverage_change_semantics ===
+      "EXACT_IMMUTABLE_24_HOUR_AND_SEVEN_DAY_COVERAGE_COMPARISON" &&
+    paperPortfolioResult.payload?.guardrail_coverage_change_read_only ===
+      true &&
     paperPortfolioResult.payload?.broker_action_available === false &&
     paperPortfolioResult.payload?.live_execution_available === false &&
     Boolean(paperPortfolio?.guardrail_evidence);

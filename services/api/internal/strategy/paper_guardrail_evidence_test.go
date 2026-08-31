@@ -92,6 +92,63 @@ func TestProjectPaperGuardrailEvidenceAttributesExactProposalDispositions(t *tes
 	}
 }
 
+func TestProjectPaperGuardrailEvidenceComparesCompleteCoverageWindows(t *testing.T) {
+	end := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+	currentStart, baselineStart := end.Add(-24*time.Hour), end.Add(-168*time.Hour)
+	allowAt, denyAt, olderAllowAt := end.Add(-time.Hour), end.Add(-2*time.Hour), end.Add(-48*time.Hour)
+	currentFill := exactExecutionFill("allow-current", "BTC", "BUY", "0.001", "100", "100.25", "100.25", "0.50125", allowAt)
+	olderFill := exactExecutionFill("allow-older", "BTC", "BUY", "0.001", "100", "100.25", "100.25", "0.50125", olderAllowAt)
+	rows := []paperGuardrailProposalRow{
+		{
+			DecisionJournalEntryID: "decision-allow-older", CreatedAt: olderAllowAt, DecisionType: "ALLOW_SIMULATED_FILLED", ProposedActionID: olderFill.ProposedActionID, RiskEvaluationID: olderFill.RiskEvaluationID, ExecutionRecordID: olderFill.ExecutionRecordID,
+			Rationale: guardrailRationale("BTC", "BUY", "100", olderFill.MarketObservedAt), RiskDecision: "ALLOW", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"ALLOWED"}), Checks: guardrailPassChecks(),
+			ExecutionMode: "PAPER", ExecutionStatus: "SIMULATED_FILLED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionNotional: "100.2500000000",
+		},
+		{
+			DecisionJournalEntryID: "decision-deny-current", CreatedAt: denyAt, DecisionType: "DENY_RISK_DENIED", ProposedActionID: "action-deny-current", RiskEvaluationID: "risk-deny-current", ExecutionRecordID: "execution-deny-current",
+			Rationale: guardrailRationale("ETH", "SELL", "50", denyAt.Add(-time.Second)), RiskDecision: "DENY", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"INSUFFICIENT_POSITION"}), Checks: guardrailDenyChecks(9, "INSUFFICIENT_POSITION"),
+			ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "ETH", Instrument: "CRYPTO", Side: "SELL", ExecutionNotional: "50.0000000000",
+		},
+		{
+			DecisionJournalEntryID: "decision-allow-current", CreatedAt: allowAt, DecisionType: "ALLOW_SIMULATED_FILLED", ProposedActionID: currentFill.ProposedActionID, RiskEvaluationID: currentFill.RiskEvaluationID, ExecutionRecordID: currentFill.ExecutionRecordID,
+			Rationale: guardrailRationale("BTC", "BUY", "100", currentFill.MarketObservedAt), RiskDecision: "ALLOW", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"ALLOWED"}), Checks: guardrailPassChecks(),
+			ExecutionMode: "PAPER", ExecutionStatus: "SIMULATED_FILLED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionNotional: "100.2500000000",
+		},
+	}
+	cadence := guardrailCadence(currentStart, end)
+	cadence.DispositionFunnel.SevenDays = PaperDispositionFunnelWindow{
+		Status: PaperActivityCadenceAvailable, HorizonHours: 168, WindowStartedAt: &baselineStart, WindowEndedAt: &end,
+		ProposalCount: 3, DeterministicDenyCount: 1, SimulatedFillCount: 2,
+	}
+	result := projectPaperGuardrailEvidence(cadence, rows, []paperRealizedFill{olderFill, currentFill})
+	change := result.CoverageChange
+	if change.Status != PaperActivityCadenceAvailable || change.CalculationMethod != PaperGuardrailCoverageChangeMethod ||
+		change.BaselineProposalCount != 3 || change.CurrentProposalCount != 2 || change.ProposalCountDelta != -1 ||
+		len(change.FinancialProviders) != 1 || change.FinancialProviders[0] != "coinbase" ||
+		change.FirstEvidenceAt == nil || !change.FirstEvidenceAt.Equal(olderAllowAt) || change.LatestEvidenceAt == nil || !change.LatestEvidenceAt.Equal(allowAt) ||
+		change.FirstCheckSetDriftAt != nil || change.LatestCheckSetDriftAt != nil || len(change.CoverageMetrics) != 3 || len(change.CheckChanges) != 14 || len(change.SymbolChanges) != 2 {
+		t.Fatalf("coverage window comparison changed: %#v", change)
+	}
+	if change.CoverageMetrics[0].Metric != "FULL_EVALUATION" || change.CoverageMetrics[0].BaselineCount != 2 || change.CoverageMetrics[0].CurrentCount != 1 || change.CoverageMetrics[0].ShareChange != paperGuardrailShareDecreased ||
+		change.CoverageMetrics[1].Metric != "FAIL_CLOSED_PREFIX" || change.CoverageMetrics[1].ShareChange != paperGuardrailShareIncreased ||
+		change.CoverageMetrics[2].Metric != "CHECK_SET_DRIFT" || change.CoverageMetrics[2].ShareChange != paperGuardrailShareUnchanged {
+		t.Fatalf("coverage metric changes are not exact: %#v", change.CoverageMetrics)
+	}
+	if change.CheckChanges[0].BaselineEvaluationCount != 3 || change.CheckChanges[0].CurrentEvaluationCount != 2 || change.CheckChanges[0].EvaluationShareChange != paperGuardrailShareUnchanged ||
+		change.SymbolChanges[0].Symbol != "BTC" || change.SymbolChanges[0].ProposedNotionalDelta != "-100.0000000000" || change.SymbolChanges[0].ProposalShareChange != paperGuardrailShareDecreased {
+		t.Fatalf("check or symbol comparison changed: checks=%#v symbols=%#v", change.CheckChanges, change.SymbolChanges)
+	}
+}
+
+func TestPaperGuardrailCoverageChangeFailsClosedUntilSevenDayWindowCompletes(t *testing.T) {
+	end := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+	start := end.Add(-24 * time.Hour)
+	result := projectPaperGuardrailEvidence(guardrailCadence(start, end), nil, nil)
+	if result.CoverageChange.Status != PaperActivityCadenceUnavailable || len(result.CoverageChange.CoverageMetrics) != 0 || len(result.CoverageChange.CheckChanges) != 0 || len(result.CoverageChange.SymbolChanges) != 0 {
+		t.Fatalf("incomplete seven-day comparison was inferred: %#v", result.CoverageChange)
+	}
+}
+
 func TestProjectPaperGuardrailEvidenceExposesExactCheckSetDrift(t *testing.T) {
 	end := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
 	start := end.Add(-24 * time.Hour)
