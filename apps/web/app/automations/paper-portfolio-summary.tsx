@@ -4,9 +4,11 @@ import {
 } from "./paper-performance";
 import { PaperPerformanceHistory } from "./paper-performance-history";
 import {
+  compareExactDecimals,
   exactDecimalSign,
   formatExactDecimal,
   formatExactMoney,
+  sumExactMoney,
 } from "../exact-money";
 
 export type PaperPosition = {
@@ -111,6 +113,10 @@ function performanceClass(value?: string) {
   return sign > 0 ? "is-positive" : "is-negative";
 }
 
+function isExactDecimal(value?: string) {
+  return Boolean(value && /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value));
+}
+
 function marketSource(market: PaperMarketSnapshot) {
   return `${market.provider} · ${market.feed} · ${market.quality}`;
 }
@@ -170,6 +176,71 @@ export function PaperPortfolioSummary({
     performance.positions.map((position) => [position.key, position]),
   );
   const primaryMarket = performance.positions[0];
+  const realized = portfolio.realized_outcome;
+  const realizedSymbolsValid = Boolean(
+    realized &&
+      Array.isArray(realized.symbols) &&
+      realized.symbols.every(
+        (symbol) =>
+          Boolean(symbol.symbol) &&
+          ["EQUITY", "CRYPTO"].includes(symbol.instrument) &&
+          isExactDecimal(symbol.realized_profit_loss) &&
+          isExactDecimal(symbol.total_fees) &&
+          isExactDecimal(symbol.ending_position_quantity) &&
+          Number.isSafeInteger(symbol.buy_fill_count) &&
+          symbol.buy_fill_count >= 0 &&
+          Number.isSafeInteger(symbol.sell_fill_count) &&
+          symbol.sell_fill_count >= 0,
+      ),
+  );
+  const attributedRealizedProfitLoss = realized
+    ? sumExactMoney(
+        realized.symbols.map((symbol) => ({
+          amount: symbol.realized_profit_loss,
+          currency: portfolio.currency,
+        })),
+      )?.amount
+    : undefined;
+  const realizedAvailable = Boolean(
+    realized &&
+      ["AVAILABLE", "NO_REALIZED_SALES"].includes(realized.status) &&
+      realized.calculation_method === "AVERAGE_COST_INCLUDED_FEES" &&
+      realized.historical_coverage === "COMPLETE_FROM_PORTFOLIO_GENESIS" &&
+      isExactDecimal(realized.total_realized_profit_loss) &&
+      Number.isSafeInteger(realized.fill_count) &&
+      realized.fill_count >= 0 &&
+      Number.isSafeInteger(realized.sell_fill_count) &&
+      realized.sell_fill_count >= 0 &&
+      realized.sell_fill_count <= realized.fill_count &&
+      (realized.status === "AVAILABLE"
+        ? realized.sell_fill_count > 0
+        : realized.sell_fill_count === 0) &&
+      realizedSymbolsValid &&
+      attributedRealizedProfitLoss &&
+      compareExactDecimals(
+        attributedRealizedProfitLoss,
+        realized.total_realized_profit_loss!,
+      ) === 0 &&
+      new Set(
+        realized.symbols.map(
+          (symbol) => `${symbol.instrument}:${symbol.symbol}`,
+        ),
+      ).size === realized.symbols.length &&
+      realized.symbols.reduce(
+        (count, symbol) =>
+          count + symbol.buy_fill_count + symbol.sell_fill_count,
+        0,
+      ) === realized.fill_count &&
+      realized.symbols.reduce(
+        (count, symbol) => count + symbol.sell_fill_count,
+        0,
+      ) === realized.sell_fill_count &&
+      (realized.fill_count === 0 ||
+        (Boolean(realized.first_fill_at) &&
+          Boolean(realized.last_fill_at) &&
+          !Number.isNaN(Date.parse(realized.first_fill_at ?? "")) &&
+          !Number.isNaN(Date.parse(realized.last_fill_at ?? "")))),
+  );
   return (
     <section className="paper-portfolio-card" aria-label="Paper portfolio">
       <p className="eyebrow">PAPER PORTFOLIO · SIMULATION ONLY</p>
@@ -247,6 +318,119 @@ export function PaperPortfolioSummary({
               live quote or connected-account valuation.
             </p>
           </>
+        )}
+      </div>
+      <div
+        className="paper-performance-card"
+        aria-label="Exact Paper realized outcome"
+      >
+        <header className="paper-performance-header">
+          <div>
+            <p className="eyebrow">PAPER REALIZED OUTCOME · SIMULATION ONLY</p>
+            <h3>Immutable average-cost evidence</h3>
+          </div>
+          <span>{realizedAvailable ? "Exact fill replay" : "Unavailable"}</span>
+        </header>
+        {realizedAvailable ? (
+          <>
+            <div className="paper-performance-grid">
+              <article>
+                <span>Realized simulated P&amp;L</span>
+                <strong
+                  className={performanceClass(
+                    realized!.total_realized_profit_loss,
+                  )}
+                >
+                  {signedMoney(
+                    realized!.total_realized_profit_loss ?? "0",
+                    portfolio.currency,
+                  )}
+                </strong>
+              </article>
+              <article>
+                <span>Immutable fills replayed</span>
+                <strong>{realized!.fill_count}</strong>
+              </article>
+              <article>
+                <span>Simulated sales</span>
+                <strong>{realized!.sell_fill_count}</strong>
+              </article>
+              <article>
+                <span>Coverage</span>
+                <strong>Portfolio genesis → now</strong>
+              </article>
+            </div>
+            {(realized!.symbols ?? []).length > 0 ? (
+              <div className="paper-position-table-wrap">
+                <table
+                  className="paper-position-table"
+                  aria-label="Exact per-symbol Paper realized outcomes"
+                >
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>Realized simulated P&amp;L</th>
+                      <th>Buy / sale fills</th>
+                      <th>Total simulated fees</th>
+                      <th>Ending quantity</th>
+                      <th>Ending average cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {realized!.symbols.map((symbol) => (
+                      <tr key={`${symbol.instrument}:${symbol.symbol}`}>
+                        <td>{symbol.symbol}</td>
+                        <td>
+                          <span
+                            className={performanceClass(
+                              symbol.realized_profit_loss,
+                            )}
+                          >
+                            {signedMoney(
+                              symbol.realized_profit_loss,
+                              portfolio.currency,
+                            )}
+                          </span>
+                        </td>
+                        <td>
+                          {symbol.buy_fill_count} / {symbol.sell_fill_count}
+                        </td>
+                        <td>{money(symbol.total_fees, portfolio.currency)}</td>
+                        <td>{quantity(symbol.ending_position_quantity)}</td>
+                        <td>
+                          {symbol.ending_average_cost
+                            ? money(
+                                symbol.ending_average_cost,
+                                portfolio.currency,
+                              )
+                            : "Closed"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="security-note">
+                No simulated fills have been recorded; exact realized outcome is
+                $0.
+              </p>
+            )}
+            <p className="paper-market-source">
+              Exact average-cost replay includes simulated buy and sale fees.
+              This is Arbion&apos;s isolated Paper ledger—not broker-reported
+              profit and loss, a connected-account balance, or live authority.
+            </p>
+          </>
+        ) : (
+          <div className="paper-performance-unavailable">
+            <strong>Realized outcome unavailable</strong>
+            <p>
+              Arbion could not prove one complete immutable fill chain from
+              portfolio genesis. The value is left unavailable rather than
+              reconstructed or inferred.
+            </p>
+          </div>
         )}
       </div>
       <PaperPerformanceHistory

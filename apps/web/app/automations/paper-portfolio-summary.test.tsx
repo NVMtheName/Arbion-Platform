@@ -183,4 +183,50 @@ describe("PaperPortfolioSummary", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("separates exact fee-inclusive realized outcomes from marked performance", () => {
+    render(
+      <PaperPortfolioSummary
+        executionMode="PAPER"
+        portfolio={{
+          ...portfolio,
+          positions: [],
+          realized_outcome: {
+            status: "AVAILABLE",
+            calculation_method: "AVERAGE_COST_INCLUDED_FEES",
+            historical_coverage: "COMPLETE_FROM_PORTFOLIO_GENESIS",
+            total_realized_profit_loss: "-1.2411667721",
+            fill_count: 4,
+            sell_fill_count: 1,
+            first_fill_at: "2026-08-29T21:27:00Z",
+            last_fill_at: "2026-08-31T02:35:58Z",
+            symbols: [
+              {
+                symbol: "BTC",
+                instrument: "CRYPTO",
+                realized_profit_loss: "-1.2411667721",
+                buy_fill_count: 3,
+                sell_fill_count: 1,
+                total_fees: "0.7468873200",
+                ending_position_quantity: "0.0006216261",
+                ending_average_cost: "79039.7919289767",
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    const realized = screen.getByLabelText(/exact paper realized outcome/i);
+    expect(within(realized).getAllByText("-$1.2412")).toHaveLength(2);
+    expect(within(realized).getByText("4")).toBeInTheDocument();
+    expect(within(realized).getByText("1")).toBeInTheDocument();
+    const table = within(realized).getByRole("table", {
+      name: /exact per-symbol paper realized outcomes/i,
+    });
+    expect(within(table).getByText("BTC")).toBeInTheDocument();
+    expect(
+      within(realized).getByText(/not broker-reported/i),
+    ).toBeInTheDocument();
+  });
 });
