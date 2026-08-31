@@ -4796,6 +4796,11 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
   const activityCadenceAvailable = paper && paperActivityCadenceAvailable(item);
   const guardrailEvidenceAvailable =
     paper && paperGuardrailEvidenceAvailable(item);
+  const guardrailCoverageAttention = Boolean(
+    guardrailEvidenceAvailable &&
+      item.paperGuardrailEvidence!.twenty_four_hours.coverage_status ===
+        "DRIFT_DETECTED",
+  );
   const outcomeReconciliationAvailable =
     paper && paperOutcomeReconciliationAvailable(item);
   const outcomeReconciliationAttention =
@@ -4811,8 +4816,11 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
           (!realizedAvailable ||
             !executionCostsAvailable ||
             !activityCadenceAvailable ||
+            (item.paperGuardrailEvidenceContractAvailable === true &&
+              !guardrailEvidenceAvailable) ||
             !outcomeReconciliationAvailable)) ||
         limitBreach ||
+        guardrailCoverageAttention ||
         outcomeReconciliationAttention
       }
     >
@@ -5492,6 +5500,7 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                 <details
                   className="strategy-fleet-paper-outcome-timeline"
                   aria-label={item.title + " exact Paper guardrail disposition"}
+                  open={guardrailCoverageAttention}
                 >
                   <summary>
                     <span>
@@ -5499,17 +5508,17 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                       <small>Exact saved risk and simulation attribution</small>
                     </span>
                     <span>
-                      {capitalMoney(
-                        item.paperCurrency,
-                        item.paperGuardrailEvidence!.twenty_four_hours
-                          .minimum_proposed_notional,
-                      )}{" "}
-                      to{" "}
-                      {capitalMoney(
-                        item.paperCurrency,
-                        item.paperGuardrailEvidence!.twenty_four_hours
-                          .maximum_proposed_notional,
-                      )}
+                      {guardrailCoverageAttention
+                        ? "Check-set drift · review"
+                        : `${capitalMoney(
+                            item.paperCurrency,
+                            item.paperGuardrailEvidence!.twenty_four_hours
+                              .minimum_proposed_notional,
+                          )} to ${capitalMoney(
+                            item.paperCurrency,
+                            item.paperGuardrailEvidence!.twenty_four_hours
+                              .maximum_proposed_notional,
+                          )}`}
                     </span>
                   </summary>
                   <dl>
@@ -5550,6 +5559,37 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                           ? `${item.paperGuardrailEvidence!.seven_days.proposal_count} exact proposals`
                           : "Awaiting one complete window"}
                       </dd>
+                    </div>
+                    <div>
+                      <dt>Deterministic check coverage</dt>
+                      <dd>
+                        {readable(
+                          item.paperGuardrailEvidence!.twenty_four_hours
+                            .coverage_status,
+                        )}
+                      </dd>
+                      <small>
+                        {
+                          item.paperGuardrailEvidence!.twenty_four_hours
+                            .expected_check_codes.length
+                        }{" "}
+                        ordered stages ·{" "}
+                        {
+                          item.paperGuardrailEvidence!.twenty_four_hours
+                            .fully_evaluated_count
+                        }{" "}
+                        full ·{" "}
+                        {
+                          item.paperGuardrailEvidence!.twenty_four_hours
+                            .fail_closed_prefix_count
+                        }{" "}
+                        fail-closed ·{" "}
+                        {
+                          item.paperGuardrailEvidence!.twenty_four_hours
+                            .check_set_drift_count
+                        }{" "}
+                        drift
+                      </small>
                     </div>
                   </dl>
                   {item.paperGuardrailEvidence!.twenty_four_hours

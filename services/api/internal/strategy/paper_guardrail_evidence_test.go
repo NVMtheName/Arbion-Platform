@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/arbion/platform/services/api/internal/risk"
 )
 
 func guardrailJSON(value any) json.RawMessage {
@@ -28,6 +30,29 @@ func guardrailCadence(start, end time.Time) PaperActivityCadence {
 	}}
 }
 
+func guardrailPassChecks() json.RawMessage {
+	checks := []map[string]string{}
+	for _, stage := range risk.AIAutonomousPaperCheckPlan() {
+		checks = append(checks, map[string]string{"code": string(stage.CanonicalCode), "result": "PASS", "message": "The deterministic stage passed."})
+	}
+	return guardrailJSON(checks)
+}
+
+func guardrailDenyChecks(stageIndex int, failureCode string) json.RawMessage {
+	checks := []map[string]string{}
+	for index, stage := range risk.AIAutonomousPaperCheckPlan() {
+		if index > stageIndex {
+			break
+		}
+		code, result := string(stage.CanonicalCode), "PASS"
+		if index == stageIndex {
+			code, result = failureCode, "FAIL"
+		}
+		checks = append(checks, map[string]string{"code": code, "result": result, "message": "The deterministic stage was saved."})
+	}
+	return guardrailJSON(checks)
+}
+
 func TestProjectPaperGuardrailEvidenceAttributesExactProposalDispositions(t *testing.T) {
 	end := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
 	start := end.Add(-24 * time.Hour)
@@ -37,13 +62,13 @@ func TestProjectPaperGuardrailEvidenceAttributesExactProposalDispositions(t *tes
 		{
 			DecisionJournalEntryID: "decision-deny", CreatedAt: denyAt, DecisionType: "DENY_RISK_DENIED", ProposedActionID: "action-deny", RiskEvaluationID: "risk-deny", ExecutionRecordID: "execution-deny",
 			Rationale: guardrailRationale("ETH", "SELL", "50", denyAt.Add(-time.Second)), RiskDecision: "DENY", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"INSUFFICIENT_POSITION"}),
-			Checks:        guardrailJSON([]map[string]string{{"code": "AUTHORIZATION_DENIED", "result": "PASS", "message": "Identity is valid."}, {"code": "INSUFFICIENT_POSITION", "result": "FAIL", "message": "The sale exceeds the saved holding."}}),
+			Checks:        guardrailDenyChecks(9, "INSUFFICIENT_POSITION"),
 			ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "ETH", Instrument: "CRYPTO", Side: "SELL", ExecutionNotional: "50.0000000000",
 		},
 		{
 			DecisionJournalEntryID: "decision-allow", CreatedAt: allowAt, DecisionType: "ALLOW_SIMULATED_FILLED", ProposedActionID: fill.ProposedActionID, RiskEvaluationID: fill.RiskEvaluationID, ExecutionRecordID: fill.ExecutionRecordID,
 			Rationale: guardrailRationale("BTC", "BUY", "100", fill.MarketObservedAt), RiskDecision: "ALLOW", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"ALLOWED"}),
-			Checks:        guardrailJSON([]map[string]string{{"code": "AUTHORIZATION_DENIED", "result": "PASS", "message": "Identity is valid."}, {"code": "CAPITAL_LIMIT_EXCEEDED", "result": "PASS", "message": "Capital is within limits."}}),
+			Checks:        guardrailPassChecks(),
 			ExecutionMode: "PAPER", ExecutionStatus: "SIMULATED_FILLED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionNotional: "100.2500000000",
 		},
 	}
@@ -53,14 +78,41 @@ func TestProjectPaperGuardrailEvidenceAttributesExactProposalDispositions(t *tes
 	}
 	window := result.TwentyFourHours
 	if window.Status != PaperActivityCadenceAvailable || window.ProposalCount != 2 || window.AllowCount != 1 || window.DenyCount != 1 || window.SimulatedFillCount != 1 ||
+		window.CoverageStatus != paperGuardrailCoverageComplete || window.FullyEvaluatedCount != 1 || window.FailClosedPrefixCount != 1 || window.CheckSetDriftCount != 0 || len(window.ExpectedCheckCodes) != 14 ||
 		window.MinimumProposedNotional != "50.0000000000" || window.MedianProposedNotional != "75.0000000000" || window.MaximumProposedNotional != "100.0000000000" ||
 		len(window.DenialReasonCodes) != 1 || window.DenialReasonCodes[0].Code != "INSUFFICIENT_POSITION" || window.DenialReasonCodes[0].Count != 1 ||
 		len(window.FailedCheckCodes) != 1 || window.FailedCheckCodes[0].Code != "INSUFFICIENT_POSITION" || len(window.Symbols) != 2 || len(window.Proposals) != 2 {
 		t.Fatalf("exact guardrail attribution changed: %#v", window)
 	}
 	if window.Symbols[0].Symbol != "BTC" || window.Symbols[0].AllowCount != 1 || window.Symbols[0].ProposedNotional != "100.0000000000" ||
-		window.Symbols[1].Symbol != "ETH" || window.Symbols[1].DenyCount != 1 || window.Proposals[0].DecisionJournalEntryID != "decision-deny" || window.Proposals[1].FinancialProvider != "coinbase" {
+		window.Symbols[1].Symbol != "ETH" || window.Symbols[1].DenyCount != 1 || window.Proposals[0].DecisionJournalEntryID != "decision-deny" ||
+		window.Proposals[0].CoverageStatus != paperGuardrailCoverageFailClosedPrefix || window.Proposals[0].TerminalCheckStage != "INSUFFICIENT_POSITION" ||
+		window.Proposals[1].CoverageStatus != paperGuardrailCoverageFullEvaluation || len(window.Proposals[1].Checks) != 14 || window.Proposals[1].FinancialProvider != "coinbase" {
 		t.Fatalf("symbol or immutable evidence attribution changed: %#v", window)
+	}
+}
+
+func TestProjectPaperGuardrailEvidenceExposesExactCheckSetDrift(t *testing.T) {
+	end := time.Date(2026, 8, 31, 15, 0, 0, 0, time.UTC)
+	start := end.Add(-24 * time.Hour)
+	row := paperGuardrailProposalRow{
+		DecisionJournalEntryID: "decision", CreatedAt: end.Add(-time.Hour), DecisionType: "DENY_RISK_DENIED", ProposedActionID: "action", RiskEvaluationID: "risk", ExecutionRecordID: "execution",
+		Rationale: guardrailRationale("BTC", "BUY", "50", end.Add(-time.Hour-time.Second)), RiskDecision: "DENY", RiskExecutionMode: "PAPER", ReasonCodes: guardrailJSON([]string{"CAPITAL_LIMIT_EXCEEDED"}),
+		Checks: guardrailJSON([]map[string]string{
+			{"code": "AUTHORIZATION_DENIED", "result": "PASS", "message": "Identity is valid."},
+			{"code": "CAPITAL_LIMIT_EXCEEDED", "result": "FAIL", "message": "The saved set skipped required stages."},
+		}),
+		ExecutionMode: "PAPER", ExecutionStatus: "RISK_DENIED", Symbol: "BTC", Instrument: "CRYPTO", Side: "BUY", ExecutionNotional: "50",
+	}
+	cadence := guardrailCadence(start, end)
+	cadence.DispositionFunnel.TwentyFourHours.ProposalCount = 1
+	cadence.DispositionFunnel.TwentyFourHours.SimulatedFillCount = 0
+	result := projectPaperGuardrailEvidence(cadence, []paperGuardrailProposalRow{row}, nil)
+	window := result.TwentyFourHours
+	if result.Status != PaperActivityCadenceAvailable || window.Status != PaperActivityCadenceAvailable || window.CoverageStatus != paperGuardrailCoverageDriftDetected ||
+		window.CheckSetDriftCount != 1 || window.FullyEvaluatedCount != 0 || window.FailClosedPrefixCount != 0 || len(window.Proposals) != 1 ||
+		window.Proposals[0].CoverageStatus != paperGuardrailCoverageDriftDetected || len(window.CheckResults) != 2 {
+		t.Fatalf("exact saved check-set drift was not exposed: %#v", result)
 	}
 }
 

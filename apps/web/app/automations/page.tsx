@@ -29,6 +29,8 @@ import type {
   PaperExecutionCheckpoint,
   PaperExecutionSideCost,
   PaperExecutionSymbolCost,
+  PaperGuardrailCheckCount,
+  PaperGuardrailCheckFact,
   PaperGuardrailCodeCount,
   PaperGuardrailEvidence,
   PaperGuardrailEvidenceWindow,
@@ -97,6 +99,8 @@ type PaperPortfolioEnvelope = {
   disposition_funnel_read_only?: boolean;
   guardrail_evidence_semantics?: string;
   guardrail_evidence_read_only?: boolean;
+  guardrail_coverage_semantics?: string;
+  guardrail_coverage_read_only?: boolean;
   broker_action_available?: boolean;
   live_execution_available?: boolean;
 };
@@ -1533,12 +1537,57 @@ function normalizedPaperGuardrailCodeCounts(
   return result;
 }
 
+function normalizedPaperGuardrailCheckCounts(
+  value: unknown,
+): PaperGuardrailCheckCount[] | undefined {
+  if (!Array.isArray(value)) return;
+  const result: PaperGuardrailCheckCount[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    const item = record(raw);
+    const code = text(item, "code", "Code");
+    const evaluationCount = nonnegativeInteger(
+      item?.evaluation_count ?? item?.EvaluationCount,
+    );
+    const passCount = nonnegativeInteger(item?.pass_count ?? item?.PassCount);
+    const failCount = nonnegativeInteger(item?.fail_count ?? item?.FailCount);
+    const warnCount = nonnegativeInteger(item?.warn_count ?? item?.WarnCount);
+    if (
+      !code ||
+      evaluationCount === undefined ||
+      evaluationCount < 1 ||
+      passCount === undefined ||
+      failCount === undefined ||
+      warnCount === undefined ||
+      evaluationCount !== passCount + failCount + warnCount ||
+      seen.has(code)
+    )
+      return;
+    seen.add(code);
+    result.push({
+      code,
+      evaluation_count: evaluationCount,
+      pass_count: passCount,
+      fail_count: failCount,
+      warn_count: warnCount,
+    });
+  }
+  if (
+    result.some(
+      (item, index) => index > 0 && result[index - 1].code >= item.code,
+    )
+  )
+    return;
+  return result;
+}
+
 function normalizedPaperGuardrailWindow(
   value: unknown,
   expectedHorizon: 24 | 168,
 ): PaperGuardrailEvidenceWindow | undefined {
   const window = record(value);
   const status = text(window, "status", "Status");
+  const coverageStatus = text(window, "coverage_status", "CoverageStatus");
   const horizon = nonnegativeInteger(
     window?.horizon_hours ?? window?.HorizonHours,
   );
@@ -1569,10 +1618,28 @@ function normalizedPaperGuardrailWindow(
   const failedCounts = normalizedPaperGuardrailCodeCounts(
     window?.failed_check_codes ?? window?.FailedCheckCodes,
   );
+  const expectedCheckCodes = stringList(
+    window?.expected_check_codes ?? window?.ExpectedCheckCodes,
+  );
+  const checkResults = normalizedPaperGuardrailCheckCounts(
+    window?.check_results ?? window?.CheckResults,
+  );
+  const fullyEvaluatedCount = nonnegativeInteger(
+    window?.fully_evaluated_count ?? window?.FullyEvaluatedCount,
+  );
+  const failClosedPrefixCount = nonnegativeInteger(
+    window?.fail_closed_prefix_count ?? window?.FailClosedPrefixCount,
+  );
+  const checkSetDriftCount = nonnegativeInteger(
+    window?.check_set_drift_count ?? window?.CheckSetDriftCount,
+  );
   const rawSymbols = window?.symbols ?? window?.Symbols;
   const rawProposals = window?.proposals ?? window?.Proposals;
   if (
     !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
+    !["COMPLETE", "DRIFT_DETECTED", "UNAVAILABLE"].includes(
+      coverageStatus ?? "",
+    ) ||
     horizon !== expectedHorizon ||
     proposalCount === undefined ||
     allowCount === undefined ||
@@ -1580,12 +1647,17 @@ function normalizedPaperGuardrailWindow(
     fillCount === undefined ||
     !reasonCounts ||
     !failedCounts ||
+    !checkResults ||
+    fullyEvaluatedCount === undefined ||
+    failClosedPrefixCount === undefined ||
+    checkSetDriftCount === undefined ||
     !Array.isArray(rawSymbols) ||
     !Array.isArray(rawProposals)
   )
     return;
   const unavailable = {
     status: "UNAVAILABLE" as const,
+    coverage_status: "UNAVAILABLE" as const,
     horizon_hours: expectedHorizon,
     window_started_at: startedAt,
     window_ended_at: endedAt,
@@ -1595,6 +1667,11 @@ function normalizedPaperGuardrailWindow(
     simulated_fill_count: 0,
     denial_reason_codes: [] as PaperGuardrailCodeCount[],
     failed_check_codes: [] as PaperGuardrailCodeCount[],
+    expected_check_codes: [] as string[],
+    check_results: [] as PaperGuardrailCheckCount[],
+    fully_evaluated_count: 0,
+    fail_closed_prefix_count: 0,
+    check_set_drift_count: 0,
     symbols: [] as PaperGuardrailSymbol[],
     proposals: [] as PaperGuardrailProposalFact[],
   };
@@ -1605,7 +1682,15 @@ function normalizedPaperGuardrailWindow(
     Number.isNaN(Date.parse(startedAt)) ||
     Number.isNaN(Date.parse(endedAt)) ||
     Date.parse(startedAt) >= Date.parse(endedAt) ||
+    !["COMPLETE", "DRIFT_DETECTED"].includes(coverageStatus ?? "") ||
+    expectedCheckCodes.length < 1 ||
+    new Set(expectedCheckCodes).size !== expectedCheckCodes.length ||
     proposalCount !== allowCount + denyCount ||
+    proposalCount !==
+      fullyEvaluatedCount + failClosedPrefixCount + checkSetDriftCount ||
+    (coverageStatus === "COMPLETE"
+      ? checkSetDriftCount !== 0
+      : checkSetDriftCount === 0) ||
     allowCount !== fillCount ||
     (proposalCount === 0
       ? minimum !== undefined || median !== undefined || maximum !== undefined
@@ -1650,11 +1735,38 @@ function normalizedPaperGuardrailWindow(
     const failedChecks = stringList(
       item?.failed_check_codes ?? item?.FailedCheckCodes,
     );
+    const rawChecks = item?.checks ?? item?.Checks;
+    const proposalCoverageStatus = text(
+      item,
+      "coverage_status",
+      "CoverageStatus",
+    );
+    const terminalCheckStage = text(
+      item,
+      "terminal_check_stage",
+      "TerminalCheckStage",
+    );
     const provider = text(item, "financial_provider", "FinancialProvider");
     const feed = text(item, "market_feed", "MarketFeed");
     const quality = text(item, "market_quality", "MarketQuality");
     const marketAt = text(item, "market_observed_at", "MarketObservedAt");
     const ids = [decisionID, actionID, riskID, executionID];
+    if (!Array.isArray(rawChecks)) return;
+    const checks: PaperGuardrailCheckFact[] = [];
+    const seenChecks = new Set<string>();
+    for (const rawCheck of rawChecks) {
+      const check = record(rawCheck);
+      const code = text(check, "code", "Code");
+      const result = text(check, "result", "Result");
+      if (
+        !code ||
+        !["PASS", "FAIL", "WARN"].includes(result ?? "") ||
+        seenChecks.has(code)
+      )
+        return;
+      seenChecks.add(code);
+      checks.push({ code, result: result as "PASS" | "FAIL" | "WARN" });
+    }
     if (
       ids.some((id) => !id) ||
       ids.some((id, index) => identities[index].has(id!)) ||
@@ -1673,6 +1785,11 @@ function normalizedPaperGuardrailWindow(
       !marketAt ||
       Number.isNaN(Date.parse(marketAt)) ||
       Date.parse(marketAt) > Date.parse(createdAt) ||
+      checks.length < 1 ||
+      !["FULL_EVALUATION", "FAIL_CLOSED_PREFIX", "DRIFT_DETECTED"].includes(
+        proposalCoverageStatus ?? "",
+      ) ||
+      (proposalCoverageStatus !== "DRIFT_DETECTED" && !terminalCheckStage) ||
       !(
         (riskDecision === "ALLOW" &&
           executionStatus === "SIMULATED_FILLED" &&
@@ -1700,6 +1817,10 @@ function normalizedPaperGuardrailWindow(
       execution_status: executionStatus as "SIMULATED_FILLED" | "RISK_DENIED",
       denial_reason_codes: denialReasons,
       failed_check_codes: failedChecks,
+      checks,
+      coverage_status:
+        proposalCoverageStatus as PaperGuardrailProposalFact["coverage_status"],
+      terminal_check_stage: terminalCheckStage ?? "",
       financial_provider: provider,
       market_feed: feed,
       market_quality: quality,
@@ -1711,6 +1832,25 @@ function normalizedPaperGuardrailWindow(
       allowCount ||
     proposals.filter((item) => item.risk_decision === "DENY").length !==
       denyCount ||
+    proposals.filter((item) => item.coverage_status === "FULL_EVALUATION")
+      .length !== fullyEvaluatedCount ||
+    proposals.filter((item) => item.coverage_status === "FAIL_CLOSED_PREFIX")
+      .length !== failClosedPrefixCount ||
+    proposals.filter((item) => item.coverage_status === "DRIFT_DETECTED")
+      .length !== checkSetDriftCount ||
+    proposals.some(
+      (item) =>
+        (item.coverage_status === "FULL_EVALUATION" &&
+          (item.risk_decision !== "ALLOW" ||
+            item.terminal_check_stage !== "ALL_REQUIRED_CHECKS" ||
+            item.checks.length !== expectedCheckCodes.length ||
+            item.checks.some((check) => check.result === "FAIL"))) ||
+        (item.coverage_status === "FAIL_CLOSED_PREFIX" &&
+          (item.risk_decision !== "DENY" ||
+            item.checks.length > expectedCheckCodes.length ||
+            item.checks[item.checks.length - 1]?.result !== "FAIL" ||
+            item.checks.slice(0, -1).some((check) => check.result === "FAIL"))),
+    ) ||
     proposals.some(
       (item, index) =>
         index > 0 &&
@@ -1751,6 +1891,15 @@ function normalizedPaperGuardrailWindow(
   }
   const exactReasonCounts = new Map<string, number>();
   const exactFailedCounts = new Map<string, number>();
+  const exactCheckCounts = new Map<
+    string,
+    {
+      evaluation_count: number;
+      pass_count: number;
+      fail_count: number;
+      warn_count: number;
+    }
+  >();
   for (const proposal of proposals) {
     proposal.denial_reason_codes.forEach((code) =>
       exactReasonCounts.set(code, (exactReasonCounts.get(code) ?? 0) + 1),
@@ -1758,6 +1907,19 @@ function normalizedPaperGuardrailWindow(
     proposal.failed_check_codes.forEach((code) =>
       exactFailedCounts.set(code, (exactFailedCounts.get(code) ?? 0) + 1),
     );
+    proposal.checks.forEach((check) => {
+      const counts = exactCheckCounts.get(check.code) ?? {
+        evaluation_count: 0,
+        pass_count: 0,
+        fail_count: 0,
+        warn_count: 0,
+      };
+      counts.evaluation_count += 1;
+      if (check.result === "PASS") counts.pass_count += 1;
+      if (check.result === "FAIL") counts.fail_count += 1;
+      if (check.result === "WARN") counts.warn_count += 1;
+      exactCheckCounts.set(check.code, counts);
+    });
   }
   if (
     reasonCounts.length !== exactReasonCounts.size ||
@@ -1765,7 +1927,20 @@ function normalizedPaperGuardrailWindow(
     reasonCounts.some(
       (item) => exactReasonCounts.get(item.code) !== item.count,
     ) ||
-    failedCounts.some((item) => exactFailedCounts.get(item.code) !== item.count)
+    failedCounts.some(
+      (item) => exactFailedCounts.get(item.code) !== item.count,
+    ) ||
+    checkResults.length !== exactCheckCounts.size ||
+    checkResults.some((item) => {
+      const exact = exactCheckCounts.get(item.code);
+      return (
+        !exact ||
+        exact.evaluation_count !== item.evaluation_count ||
+        exact.pass_count !== item.pass_count ||
+        exact.fail_count !== item.fail_count ||
+        exact.warn_count !== item.warn_count
+      );
+    })
   )
     return;
   const symbols: PaperGuardrailSymbol[] = [];
@@ -1847,6 +2022,7 @@ function normalizedPaperGuardrailWindow(
   }
   return {
     status: "AVAILABLE",
+    coverage_status: coverageStatus as "COMPLETE" | "DRIFT_DETECTED",
     horizon_hours: expectedHorizon,
     window_started_at: startedAt,
     window_ended_at: endedAt,
@@ -1859,6 +2035,11 @@ function normalizedPaperGuardrailWindow(
     maximum_proposed_notional: maximum,
     denial_reason_codes: reasonCounts,
     failed_check_codes: failedCounts,
+    expected_check_codes: expectedCheckCodes,
+    check_results: checkResults,
+    fully_evaluated_count: fullyEvaluatedCount,
+    fail_closed_prefix_count: failClosedPrefixCount,
+    check_set_drift_count: checkSetDriftCount,
     symbols,
     proposals,
   };
@@ -3019,6 +3200,9 @@ async function fleetItem(
     paperPortfolioResult.payload?.guardrail_evidence_semantics ===
       "EXACT_IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION" &&
     paperPortfolioResult.payload?.guardrail_evidence_read_only === true &&
+    paperPortfolioResult.payload?.guardrail_coverage_semantics ===
+      "EXACT_ORDERED_PAPER_CHECK_PLAN_AND_FAIL_CLOSED_PREFIX_ATTESTATION" &&
+    paperPortfolioResult.payload?.guardrail_coverage_read_only === true &&
     paperPortfolioResult.payload?.broker_action_available === false &&
     paperPortfolioResult.payload?.live_execution_available === false &&
     Boolean(paperPortfolio?.guardrail_evidence);

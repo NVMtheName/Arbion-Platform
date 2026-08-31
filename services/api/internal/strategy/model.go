@@ -404,6 +404,7 @@ type PaperGuardrailEvidence struct {
 
 type PaperGuardrailEvidenceWindow struct {
 	Status                  string                       `json:"status"`
+	CoverageStatus          string                       `json:"coverage_status"`
 	HorizonHours            int                          `json:"horizon_hours"`
 	WindowStartedAt         *time.Time                   `json:"window_started_at,omitempty"`
 	WindowEndedAt           *time.Time                   `json:"window_ended_at,omitempty"`
@@ -416,6 +417,11 @@ type PaperGuardrailEvidenceWindow struct {
 	MaximumProposedNotional string                       `json:"maximum_proposed_notional,omitempty"`
 	DenialReasonCodes       []PaperGuardrailCodeCount    `json:"denial_reason_codes"`
 	FailedCheckCodes        []PaperGuardrailCodeCount    `json:"failed_check_codes"`
+	ExpectedCheckCodes      []string                     `json:"expected_check_codes"`
+	CheckResults            []PaperGuardrailCheckCount   `json:"check_results"`
+	FullyEvaluatedCount     int                          `json:"fully_evaluated_count"`
+	FailClosedPrefixCount   int                          `json:"fail_closed_prefix_count"`
+	CheckSetDriftCount      int                          `json:"check_set_drift_count"`
 	Symbols                 []PaperGuardrailSymbol       `json:"symbols"`
 	Proposals               []PaperGuardrailProposalFact `json:"proposals"`
 }
@@ -423,6 +429,19 @@ type PaperGuardrailEvidenceWindow struct {
 type PaperGuardrailCodeCount struct {
 	Code  string `json:"code"`
 	Count int    `json:"count"`
+}
+
+type PaperGuardrailCheckCount struct {
+	Code            string `json:"code"`
+	EvaluationCount int    `json:"evaluation_count"`
+	PassCount       int    `json:"pass_count"`
+	FailCount       int    `json:"fail_count"`
+	WarnCount       int    `json:"warn_count"`
+}
+
+type PaperGuardrailCheckFact struct {
+	Code   string `json:"code"`
+	Result string `json:"result"`
 }
 
 type PaperGuardrailSymbol struct {
@@ -436,23 +455,26 @@ type PaperGuardrailSymbol struct {
 }
 
 type PaperGuardrailProposalFact struct {
-	DecisionJournalEntryID string    `json:"decision_journal_entry_id"`
-	ProposedActionID       string    `json:"proposed_action_id"`
-	RiskEvaluationID       string    `json:"risk_evaluation_id"`
-	ExecutionRecordID      string    `json:"execution_record_id"`
-	CreatedAt              time.Time `json:"created_at"`
-	Symbol                 string    `json:"symbol"`
-	Instrument             string    `json:"instrument"`
-	Side                   string    `json:"side"`
-	ProposedNotional       string    `json:"proposed_notional"`
-	RiskDecision           string    `json:"risk_decision"`
-	ExecutionStatus        string    `json:"execution_status"`
-	DenialReasonCodes      []string  `json:"denial_reason_codes"`
-	FailedCheckCodes       []string  `json:"failed_check_codes"`
-	FinancialProvider      string    `json:"financial_provider"`
-	MarketFeed             string    `json:"market_feed"`
-	MarketQuality          string    `json:"market_quality"`
-	MarketObservedAt       time.Time `json:"market_observed_at"`
+	DecisionJournalEntryID string                    `json:"decision_journal_entry_id"`
+	ProposedActionID       string                    `json:"proposed_action_id"`
+	RiskEvaluationID       string                    `json:"risk_evaluation_id"`
+	ExecutionRecordID      string                    `json:"execution_record_id"`
+	CreatedAt              time.Time                 `json:"created_at"`
+	Symbol                 string                    `json:"symbol"`
+	Instrument             string                    `json:"instrument"`
+	Side                   string                    `json:"side"`
+	ProposedNotional       string                    `json:"proposed_notional"`
+	RiskDecision           string                    `json:"risk_decision"`
+	ExecutionStatus        string                    `json:"execution_status"`
+	DenialReasonCodes      []string                  `json:"denial_reason_codes"`
+	FailedCheckCodes       []string                  `json:"failed_check_codes"`
+	Checks                 []PaperGuardrailCheckFact `json:"checks"`
+	CoverageStatus         string                    `json:"coverage_status"`
+	TerminalCheckStage     string                    `json:"terminal_check_stage"`
+	FinancialProvider      string                    `json:"financial_provider"`
+	MarketFeed             string                    `json:"market_feed"`
+	MarketQuality          string                    `json:"market_quality"`
+	MarketObservedAt       time.Time                 `json:"market_observed_at"`
 }
 
 // PaperActivityCadence is read-only chronology from immutable scheduler and

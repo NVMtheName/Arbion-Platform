@@ -5,9 +5,18 @@ import (
 	"math/big"
 	"sort"
 	"time"
+
+	"github.com/arbion/platform/services/api/internal/risk"
 )
 
 const PaperGuardrailEvidenceMethod = "IMMUTABLE_PAPER_PROPOSAL_RISK_AND_SIMULATION_ATTRIBUTION"
+
+const (
+	paperGuardrailCoverageComplete         = "COMPLETE"
+	paperGuardrailCoverageDriftDetected    = "DRIFT_DETECTED"
+	paperGuardrailCoverageFullEvaluation   = "FULL_EVALUATION"
+	paperGuardrailCoverageFailClosedPrefix = "FAIL_CLOSED_PREFIX"
+)
 
 type paperGuardrailProposalRow struct {
 	DecisionJournalEntryID     string
@@ -55,9 +64,10 @@ type paperGuardrailCheck struct {
 
 func unavailablePaperGuardrailWindow(window PaperDispositionFunnelWindow) PaperGuardrailEvidenceWindow {
 	return PaperGuardrailEvidenceWindow{
-		Status: PaperActivityCadenceUnavailable, HorizonHours: window.HorizonHours,
+		Status: PaperActivityCadenceUnavailable, CoverageStatus: PaperActivityCadenceUnavailable, HorizonHours: window.HorizonHours,
 		WindowStartedAt: window.WindowStartedAt, WindowEndedAt: window.WindowEndedAt,
 		DenialReasonCodes: []PaperGuardrailCodeCount{}, FailedCheckCodes: []PaperGuardrailCodeCount{},
+		ExpectedCheckCodes: []string{}, CheckResults: []PaperGuardrailCheckCount{},
 		Symbols: []PaperGuardrailSymbol{}, Proposals: []PaperGuardrailProposalFact{},
 	}
 }
@@ -100,6 +110,63 @@ func rememberPaperGuardrailIdentity(seen map[string]struct{}, value string) bool
 	return true
 }
 
+func paperGuardrailExpectedCheckCodes() []string {
+	plan := risk.AIAutonomousPaperCheckPlan()
+	result := make([]string, len(plan))
+	for index, stage := range plan {
+		result[index] = string(stage.CanonicalCode)
+	}
+	return result
+}
+
+func paperGuardrailStageAccepts(stage risk.DeterministicCheckStage, code string) bool {
+	for _, accepted := range stage.AcceptedCodes {
+		if string(accepted) == code {
+			return true
+		}
+	}
+	return false
+}
+
+func paperGuardrailCheckCoverage(checks []paperGuardrailCheck, decision string) (string, string) {
+	plan := risk.AIAutonomousPaperCheckPlan()
+	if len(checks) == 0 || len(checks) > len(plan) {
+		return paperGuardrailCoverageDriftDetected, ""
+	}
+	for index, check := range checks {
+		if !paperGuardrailStageAccepts(plan[index], check.Code) {
+			return paperGuardrailCoverageDriftDetected, ""
+		}
+		if index < len(checks)-1 && check.Result == "FAIL" {
+			return paperGuardrailCoverageDriftDetected, ""
+		}
+	}
+	last := checks[len(checks)-1]
+	if decision == "ALLOW" {
+		if len(checks) != len(plan) || last.Result == "FAIL" {
+			return paperGuardrailCoverageDriftDetected, ""
+		}
+		return paperGuardrailCoverageFullEvaluation, "ALL_REQUIRED_CHECKS"
+	}
+	if decision == "DENY" && last.Result == "FAIL" {
+		return paperGuardrailCoverageFailClosedPrefix, string(plan[len(checks)-1].CanonicalCode)
+	}
+	return paperGuardrailCoverageDriftDetected, ""
+}
+
+func sortedPaperGuardrailCheckCounts(values map[string]PaperGuardrailCheckCount) []PaperGuardrailCheckCount {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]PaperGuardrailCheckCount, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, values[key])
+	}
+	return result
+}
+
 func paperGuardrailProposalFact(row paperGuardrailProposalRow, fills map[string]paperRealizedFill) (PaperGuardrailProposalFact, *big.Rat, bool) {
 	if row.DecisionJournalEntryID == "" || row.ProposedActionID == "" || row.RiskEvaluationID == "" || row.ExecutionRecordID == "" || row.CreatedAt.IsZero() ||
 		row.ApprovalRequired || row.RiskExecutionMode != "PAPER" || row.PlatformExecutionAvailable || row.ExecutionMode != "PAPER" ||
@@ -132,7 +199,7 @@ func paperGuardrailProposalFact(row paperGuardrailProposalRow, fills map[string]
 	failed := []string{}
 	checkCodes := map[string]struct{}{}
 	for _, check := range checks {
-		if check.Code == "" || check.Message == "" || (check.Result != "PASS" && check.Result != "FAIL") {
+		if check.Code == "" || check.Message == "" || (check.Result != "PASS" && check.Result != "FAIL" && check.Result != "WARN") {
 			return PaperGuardrailProposalFact{}, nil, false
 		}
 		if _, exists := checkCodes[check.Code]; exists {
@@ -158,6 +225,10 @@ func paperGuardrailProposalFact(row paperGuardrailProposalRow, fills map[string]
 		ProposedNotional: paperDecimal(notional), RiskDecision: row.RiskDecision, ExecutionStatus: row.ExecutionStatus,
 		FinancialProvider: rationale.InputEvidence.Provider, MarketFeed: marketFeed, MarketQuality: marketQuality, MarketObservedAt: marketObservedAt,
 	}
+	for _, check := range checks {
+		fact.Checks = append(fact.Checks, PaperGuardrailCheckFact{Code: check.Code, Result: check.Result})
+	}
+	fact.CoverageStatus, fact.TerminalCheckStage = paperGuardrailCheckCoverage(checks, row.RiskDecision)
 	switch {
 	case row.DecisionType == "ALLOW_SIMULATED_FILLED" && row.RiskDecision == "ALLOW" && row.ExecutionStatus == "SIMULATED_FILLED":
 		if len(failed) != 0 || len(reasons) != 1 || reasons[0] != "ALLOWED" {
@@ -206,6 +277,9 @@ func paperGuardrailWindow(window PaperDispositionFunnelWindow, rows []paperGuard
 	}
 	result.Status = PaperActivityCadenceAvailable
 	reasonCounts, failedCheckCounts := map[string]int{}, map[string]int{}
+	checkCounts := map[string]PaperGuardrailCheckCount{}
+	result.CoverageStatus = paperGuardrailCoverageComplete
+	result.ExpectedCheckCodes = paperGuardrailExpectedCheckCodes()
 	type symbolAggregate struct {
 		value    PaperGuardrailSymbol
 		notional *big.Rat
@@ -228,6 +302,29 @@ func paperGuardrailWindow(window PaperDispositionFunnelWindow, rows []paperGuard
 			return unavailablePaperGuardrailWindow(window)
 		}
 		result.ProposalCount++
+		for _, check := range fact.Checks {
+			counts := checkCounts[check.Code]
+			counts.Code = check.Code
+			counts.EvaluationCount++
+			switch check.Result {
+			case "PASS":
+				counts.PassCount++
+			case "FAIL":
+				counts.FailCount++
+			case "WARN":
+				counts.WarnCount++
+			}
+			checkCounts[check.Code] = counts
+		}
+		switch fact.CoverageStatus {
+		case paperGuardrailCoverageFullEvaluation:
+			result.FullyEvaluatedCount++
+		case paperGuardrailCoverageFailClosedPrefix:
+			result.FailClosedPrefixCount++
+		default:
+			result.CheckSetDriftCount++
+			result.CoverageStatus = paperGuardrailCoverageDriftDetected
+		}
 		notionals = append(notionals, new(big.Rat).Set(notional))
 		key := fact.Instrument + ":" + fact.Symbol
 		aggregate := symbols[key]
@@ -257,6 +354,9 @@ func paperGuardrailWindow(window PaperDispositionFunnelWindow, rows []paperGuard
 	if result.ProposalCount != window.ProposalCount || result.DenyCount != window.DeterministicDenyCount || result.SimulatedFillCount != window.SimulatedFillCount || result.AllowCount != result.SimulatedFillCount || result.ProposalCount != result.AllowCount+result.DenyCount {
 		return unavailablePaperGuardrailWindow(window)
 	}
+	if result.FullyEvaluatedCount+result.FailClosedPrefixCount+result.CheckSetDriftCount != result.ProposalCount {
+		return unavailablePaperGuardrailWindow(window)
+	}
 	if len(notionals) > 0 {
 		sort.Slice(notionals, func(i, j int) bool { return notionals[i].Cmp(notionals[j]) < 0 })
 		result.MinimumProposedNotional = paperDecimal(notionals[0])
@@ -265,6 +365,7 @@ func paperGuardrailWindow(window PaperDispositionFunnelWindow, rows []paperGuard
 	}
 	result.DenialReasonCodes = sortedPaperGuardrailCounts(reasonCounts)
 	result.FailedCheckCodes = sortedPaperGuardrailCounts(failedCheckCounts)
+	result.CheckResults = sortedPaperGuardrailCheckCounts(checkCounts)
 	keys := make([]string, 0, len(symbols))
 	for key := range symbols {
 		keys = append(keys, key)
