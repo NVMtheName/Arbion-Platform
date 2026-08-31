@@ -6,10 +6,13 @@
   --brand-panel: #091712;
   --brand-line: rgba(139, 181, 163, 0.2);
   --brand-muted: #91a79d;
+  --app-shell-gutter: clamp(22px, 4vw, 58px);
+  --app-shell-max-width: 1440px;
   color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   background: #07110e;
   color: #edf7f1;
+  scrollbar-gutter: stable;
 }
 * {
   box-sizing: border-box;
@@ -72,11 +75,12 @@ body {
   top: 0;
   z-index: 40;
   display: grid;
-  grid-template-columns: minmax(130px, 164px) minmax(0, 1fr) auto;
+  grid-template-columns: 164px minmax(0, 1fr) 180px;
   align-items: center;
   gap: clamp(18px, 2.5vw, 34px);
+  min-height: 96px;
   margin-bottom: 30px;
-  padding: 14px 0;
+  padding: 0;
   border-bottom: 1px solid rgba(139, 181, 163, 0.16);
   background: rgba(7, 17, 14, 0.92);
   box-shadow: 0 14px 30px rgba(2, 8, 6, 0.16);
@@ -88,6 +92,7 @@ body {
 .app-navigation {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: clamp(12px, 1.65vw, 24px);
   min-width: 0;
   overflow-x: auto;
@@ -104,6 +109,7 @@ body {
   font-size: 0.74rem;
   font-weight: 680;
   text-decoration: none;
+  transition: color 160ms ease;
   white-space: nowrap;
 }
 .app-navigation a:hover,
@@ -133,6 +139,13 @@ body {
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
+}
+.app-page-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 180px;
+  min-width: 0;
 }
 .app-back-link:hover {
   text-decoration: underline;
@@ -13079,52 +13092,24 @@ h1 {
   margin: auto;
   padding: 24px clamp(22px, 4vw, 58px) 64px;
 }
-.command-topbar {
-  display: grid;
-  grid-template-columns: 180px minmax(0, 1fr) auto;
-  gap: 32px;
-  align-items: center;
-  min-height: 72px;
-  border-bottom: 1px solid rgba(139, 181, 163, 0.16);
-}
-.command-brand {
-  width: 146px;
-}
-.command-topbar nav,
 .command-account-actions {
   display: flex;
   align-items: center;
   gap: clamp(14px, 2.4vw, 30px);
 }
-.command-topbar nav {
-  justify-content: center;
-}
-.command-topbar a,
+.command-account-actions a,
 .command-account-actions button {
   color: #8da299;
   font-size: 0.78rem;
   font-weight: 680;
   text-decoration: none;
 }
-.command-topbar a:hover,
-.command-topbar a:focus-visible,
-.command-topbar a.is-current {
+.command-account-actions a:hover,
+.command-account-actions a:focus-visible {
   color: #eff9f4;
 }
-.command-topbar a.is-current {
-  position: relative;
-}
-.command-topbar a.is-current::after {
-  position: absolute;
-  right: 0;
-  bottom: -27px;
-  left: 0;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--brand-mint);
-  content: "";
-}
 .command-account-actions {
+  width: 100%;
   justify-content: flex-end;
 }
 .command-account-actions button {
@@ -14245,9 +14230,6 @@ h1 {
   .landing-legal-status {
     grid-template-columns: 1fr;
   }
-  .command-topbar {
-    grid-template-columns: 160px 1fr auto;
-  }
   .connection-hub-hero,
   .connection-section-heading {
     grid-template-columns: 1fr;
@@ -14408,26 +14390,6 @@ h1 {
 
   .command-dashboard {
     padding-inline: 18px;
-  }
-  .command-topbar {
-    grid-template-columns: 1fr auto;
-    row-gap: 8px;
-    min-height: 66px;
-    padding: 9px 0 10px;
-  }
-  .command-brand {
-    width: 126px;
-  }
-  .command-topbar nav {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-content: flex-start;
-    width: 100%;
-    overflow-x: auto;
-    padding-bottom: 2px;
-  }
-  .command-topbar a.is-current::after {
-    bottom: -3px;
   }
   .command-account-actions > a:first-child {
     display: inline;
@@ -15983,7 +15945,19 @@ h1 {
   }
 }
 
+/* Keep every signed-in route on one stable viewport shell. Page-specific
+   sections may remain narrower, but the brand and navigation never move. */
+main:has(> .app-page-header) {
+  width: min(100%, var(--app-shell-max-width));
+  max-width: var(--app-shell-max-width);
+  margin-inline: auto;
+  padding: 0 var(--app-shell-gutter) 64px;
+}
+
 @media (max-width: 900px) {
+  main:has(> .app-page-header) {
+    padding: 0 18px 56px;
+  }
   .app-page-header {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px 18px;
@@ -15995,13 +15969,14 @@ h1 {
     grid-row: 1;
     width: 132px;
   }
-  .app-page-header .app-back-link {
+  .app-page-header .app-page-header-actions {
     grid-column: 2;
     grid-row: 1;
   }
   .app-page-header .app-navigation {
     grid-column: 1 / -1;
     grid-row: 2;
+    justify-content: flex-start;
     margin-right: -2px;
     padding: 2px 2px 0;
   }
@@ -16014,6 +15989,9 @@ h1 {
   .app-navigation a {
     padding-block: 8px;
     font-size: 0.7rem;
+  }
+  .app-page-header-actions {
+    width: auto;
   }
   .app-back-link {
     font-size: 0.7rem;

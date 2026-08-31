@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const navigation = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
@@ -17,7 +17,7 @@ describe("Portfolio-first command center", () => {
   });
 
   it("puts connected account value and strategy launch on the home screen", () => {
-    render(
+    const { container } = render(
       <CommandCenterDashboard
         accounts={[
           {
@@ -94,6 +94,25 @@ describe("Portfolio-first command center", () => {
 
     expect(
       screen.getByRole("heading", { name: /your portfolio. one clear view/i }),
+    ).toBeInTheDocument();
+    const applicationHeader = container.querySelector<HTMLElement>(
+      "main > .app-page-header",
+    );
+    expect(applicationHeader).not.toBeNull();
+    expect(applicationHeader).toHaveClass("app-page-header");
+    expect(
+      within(applicationHeader!).getByRole("navigation", {
+        name: "Application navigation",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(applicationHeader!).getByRole("link", { name: "Dashboard" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      within(applicationHeader!).getByRole("link", { name: "Admin" }),
+    ).toHaveAttribute("href", "/admin");
+    expect(
+      within(applicationHeader!).getByRole("button", { name: "Log out" }),
     ).toBeInTheDocument();
     expect(screen.getByText("$15,250.00")).toBeInTheDocument();
     expect(screen.getByText("Schwab Brokerage ••4270")).toBeInTheDocument();

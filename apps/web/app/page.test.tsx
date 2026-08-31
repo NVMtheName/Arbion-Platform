@@ -96,6 +96,63 @@ describe("Authentication experience", () => {
     ).toHaveAttribute("href", "/settings/security");
   });
 
+  it("retains the horizontal tab position while signed-in routes switch", () => {
+    const scrollWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollWidth",
+    );
+    const clientWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth",
+    );
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+      configurable: true,
+      get: () => 960,
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get: () => 320,
+    });
+    try {
+      const firstRoute = render(<AppPageHeader />);
+      const firstNavigation = screen.getByRole("navigation", {
+        name: "Application navigation",
+      });
+      firstNavigation.scrollLeft = 180;
+      fireEvent.scroll(firstNavigation);
+      firstRoute.unmount();
+
+      navigation.pathname = "/markets";
+      render(<AppPageHeader />);
+      const nextNavigation = screen.getByRole("navigation", {
+        name: "Application navigation",
+      });
+      expect(nextNavigation.scrollLeft).toBe(180);
+      expect(
+        within(nextNavigation).getByRole("link", { name: "Markets" }),
+      ).toHaveAttribute("aria-current", "page");
+    } finally {
+      if (scrollWidth) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollWidth",
+          scrollWidth,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "scrollWidth");
+      }
+      if (clientWidth) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "clientWidth",
+          clientWidth,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "clientWidth");
+      }
+    }
+  });
+
   it("completes a password then authenticator sign-in without creating an early session", async () => {
     const fetchMock = vi
       .fn()
