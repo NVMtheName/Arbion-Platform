@@ -29,7 +29,7 @@ func TestProjectPaperActivityCadenceSeparatesScheduleAndFillChronology(t *testin
 	base := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
 	runs := make([]ScheduleRun, 0, 25)
 	for index := 0; index <= 24; index++ {
-		runs = append(runs, cadenceRun(time.Duration(index).String(), instanceID, base.Add(time.Duration(index)*time.Hour), "SUCCEEDED", "ABSTAIN", ""))
+		runs = append(runs, cadenceRun(time.Duration(index).String(), instanceID, base.Add(time.Duration(index)*time.Hour), "SUCCEEDED", "ABSTAIN", "CANCELED"))
 	}
 	runs[8] = cadenceRun("risk-denied", instanceID, base.Add(8*time.Hour), "SUCCEEDED", "PROPOSE", "RISK_DENIED")
 	runs[15] = cadenceRun("failed", instanceID, base.Add(15*time.Hour), "FAILED", "", "")
@@ -78,8 +78,8 @@ func TestProjectPaperActivityCadenceSeparatesScheduleAndFillChronology(t *testin
 func TestProjectPaperActivityCadenceFailsClosedOnBrokenScheduleChain(t *testing.T) {
 	base := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
 	runs := []ScheduleRun{
-		cadenceRun("one", "instance", base, "SUCCEEDED", "ABSTAIN", ""),
-		cadenceRun("two", "instance", base.Add(2*time.Hour), "SUCCEEDED", "ABSTAIN", ""),
+		cadenceRun("one", "instance", base, "SUCCEEDED", "ABSTAIN", "CANCELED"),
+		cadenceRun("two", "instance", base.Add(2*time.Hour), "SUCCEEDED", "ABSTAIN", "CANCELED"),
 	}
 	result := projectPaperActivityCadence("instance", base.Add(-48*time.Hour), 60, runs, nil, true)
 	if result.TwentyFourHours.Status != PaperActivityCadenceUnavailable || result.Status != PaperActivityCadenceUnavailable {
@@ -89,7 +89,7 @@ func TestProjectPaperActivityCadenceFailsClosedOnBrokenScheduleChain(t *testing.
 
 func TestProjectPaperActivityCadenceDoesNotInferIncompleteFillEvidence(t *testing.T) {
 	base := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
-	run := cadenceRun("one", "instance", base, "SUCCEEDED", "ABSTAIN", "")
+	run := cadenceRun("one", "instance", base, "SUCCEEDED", "ABSTAIN", "CANCELED")
 	result := projectPaperActivityCadence("instance", base.Add(-48*time.Hour), 60, []ScheduleRun{run}, []paperRealizedFill{exactExecutionFill("fill", "BTC", "BUY", "1", "100", "100.25", "100.25", "0.50125", base)}, false)
 	if result.FillTiming.Status != PaperActivityCadenceUnavailable || result.Status != PaperActivityCadenceUnavailable {
 		t.Fatalf("incomplete fill history was inferred: %#v", result)
@@ -100,7 +100,7 @@ func TestProjectPaperActivityCadenceFailsDispositionFunnelClosedOnInconsistentDe
 	base := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
 	runs := make([]ScheduleRun, 0, 25)
 	for index := 0; index <= 24; index++ {
-		runs = append(runs, cadenceRun(time.Duration(index).String(), "instance", base.Add(time.Duration(index)*time.Hour), "SUCCEEDED", "ABSTAIN", ""))
+		runs = append(runs, cadenceRun(time.Duration(index).String(), "instance", base.Add(time.Duration(index)*time.Hour), "SUCCEEDED", "ABSTAIN", "CANCELED"))
 	}
 	runs[24] = cadenceRun("inconsistent", "instance", base.Add(24*time.Hour), "SUCCEEDED", "ABSTAIN", "SIMULATED_FILLED")
 	result := projectPaperActivityCadence("instance", base.Add(-48*time.Hour), 60, runs, nil, true)

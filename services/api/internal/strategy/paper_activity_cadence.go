@@ -52,7 +52,7 @@ func paperDispositionWindow(window PaperActivityWindow, runs []ScheduleRun) Pape
 			}
 			switch *run.AIDecision {
 			case "ABSTAIN":
-				if run.ExecutionStatus != nil {
+				if run.ExecutionStatus != nil && *run.ExecutionStatus != "CANCELED" {
 					return unavailablePaperDispositionWindow(window)
 				}
 				result.AbstentionCount++
