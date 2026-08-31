@@ -30,6 +30,35 @@ export type StrategyFleetDecisionInputCoverageSnapshot = {
   marketEventCount?: number;
 };
 
+export type StrategyFleetOutcomeHistorySnapshot = {
+  id: string;
+  observedAt: string;
+  marketObservedAt?: string;
+  financialProvider?: string;
+  marketFeed?: string;
+  marketQuality?: string;
+  paperCash?: string;
+  paperMarkedExposure?: string;
+  paperSimulatedEquity?: string;
+  paperUnrealizedProfitLoss?: string;
+  paperCashHeadroom?: string;
+  paperExposureHeadroom?: string;
+  paperFillDisposition?: string;
+  paperPositions?: Array<{
+    symbol: string;
+    marketValue: string;
+    unrealizedProfitLoss: string;
+  }>;
+  shadowOneHourSamples?: number;
+  shadowTwentyFourHourSamples?: number;
+  shadowNewMarks?: Array<{
+    id: string;
+    horizon: string;
+    symbol: string;
+    directionalChangePercent: string;
+  }>;
+};
+
 export type StrategyFleetItem = {
   id: string;
   freshnessObservedAt?: string;
@@ -123,6 +152,8 @@ export type StrategyFleetItem = {
     unrealizedProfitLoss: string;
     unrealizedProfitLossPercent: string;
   }>;
+  outcomeHistoryAvailable?: boolean;
+  outcomeHistory?: StrategyFleetOutcomeHistorySnapshot[];
   decisionAvailable?: boolean;
   latestDecisionID?: string;
   latestDecisionType?: string;
@@ -4282,6 +4313,259 @@ function paperOutcomeLimitBreach(item: StrategyFleetItem) {
   ].some((value) => value && compareExactDecimals(value, "0") === -1);
 }
 
+function exactChange(
+  current: string | undefined,
+  prior: string | undefined,
+  positiveIsImprovement = false,
+) {
+  if (!current || !prior) return { status: "UNAVAILABLE" };
+  const comparison = compareExactDecimals(current, prior);
+  if (comparison === undefined) return { status: "UNAVAILABLE" };
+  if (comparison === 0) return { status: "UNCHANGED" };
+  return {
+    status: positiveIsImprovement
+      ? comparison > 0
+        ? "IMPROVED"
+        : "DECLINED"
+      : "CONTEXT_CHANGED",
+  };
+}
+
+function outcomeStatusLabel(status: string) {
+  return status
+    .toLowerCase()
+    .replaceAll("_", " ")
+    .replace(/^./, (value) => value.toUpperCase());
+}
+
+function aggregateOutcomeStatus(statuses: string[]) {
+  if (statuses.some((status) => status === "UNAVAILABLE")) return "UNAVAILABLE";
+  const directional = new Set(
+    statuses.filter((status) => ["IMPROVED", "DECLINED"].includes(status)),
+  );
+  if (directional.size > 1) return "CONTEXT_CHANGED";
+  if (directional.has("IMPROVED")) return "IMPROVED";
+  if (directional.has("DECLINED")) return "DECLINED";
+  return statuses.every((status) => status === "UNCHANGED")
+    ? "UNCHANGED"
+    : "CONTEXT_CHANGED";
+}
+
+function StrategyFleetOutcomeTimeline({ item }: { item: StrategyFleetItem }) {
+  const history = item.outcomeHistory ?? [];
+  const available =
+    item.outcomeHistoryAvailable === true && history.length >= 2;
+  return (
+    <section
+      className={`strategy-fleet-outcome-timeline${available ? "" : " is-unavailable"}`}
+    >
+      <header>
+        <span>
+          <strong>Outcome change timeline</strong>
+          <small>
+            {item.executionMode === "PAPER"
+              ? "Exact saved simulation snapshots; newest first"
+              : "Exact immutable directional marks and sample maturity"}
+          </small>
+        </span>
+        <span>
+          {available ? `${history.length} saved points` : "Unavailable"}
+        </span>
+      </header>
+      {!available ? (
+        <p>
+          Arbion needs at least two complete, attributable immutable evidence
+          points before showing a change. Missing values are not reconstructed.
+        </p>
+      ) : (
+        <ol>
+          {history.map((snapshot, index) => {
+            const prior = history[index + 1];
+            const equityChange = exactChange(
+              snapshot.paperSimulatedEquity,
+              prior?.paperSimulatedEquity,
+              true,
+            );
+            const outcomeChange = exactChange(
+              snapshot.paperUnrealizedProfitLoss,
+              prior?.paperUnrealizedProfitLoss,
+              true,
+            );
+            const sampleChange =
+              prior &&
+              snapshot.shadowOneHourSamples !== undefined &&
+              prior.shadowOneHourSamples !== undefined &&
+              snapshot.shadowTwentyFourHourSamples !== undefined &&
+              prior.shadowTwentyFourHourSamples !== undefined
+                ? snapshot.shadowOneHourSamples > prior.shadowOneHourSamples ||
+                  snapshot.shadowTwentyFourHourSamples >
+                    prior.shadowTwentyFourHourSamples
+                  ? "IMPROVED"
+                  : snapshot.shadowOneHourSamples ===
+                        prior.shadowOneHourSamples &&
+                      snapshot.shadowTwentyFourHourSamples ===
+                        prior.shadowTwentyFourHourSamples
+                    ? "UNCHANGED"
+                    : "UNAVAILABLE"
+                : "UNAVAILABLE";
+            const status =
+              item.executionMode === "PAPER"
+                ? prior
+                  ? aggregateOutcomeStatus([
+                      equityChange.status,
+                      outcomeChange.status,
+                    ])
+                  : "UNAVAILABLE"
+                : sampleChange;
+            return (
+              <li key={snapshot.id}>
+                <header>
+                  <time dateTime={snapshot.observedAt}>
+                    {readableTime(snapshot.observedAt)}
+                  </time>
+                  <span className={`is-${status.toLowerCase()}`}>
+                    {outcomeStatusLabel(status)}
+                  </span>
+                </header>
+                {item.executionMode === "PAPER" ? (
+                  <>
+                    <dl>
+                      <div>
+                        <dt>Cash</dt>
+                        <dd>
+                          {capitalMoney(item.paperCurrency, snapshot.paperCash)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Marked exposure</dt>
+                        <dd>
+                          {capitalMoney(
+                            item.paperCurrency,
+                            snapshot.paperMarkedExposure,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Simulated equity</dt>
+                        <dd>
+                          {capitalMoney(
+                            item.paperCurrency,
+                            snapshot.paperSimulatedEquity,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Unrealized outcome</dt>
+                        <dd>
+                          {signedCapitalMoney(
+                            item.paperCurrency,
+                            snapshot.paperUnrealizedProfitLoss,
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                    <div className="strategy-fleet-paper-outcome-context">
+                      <span>
+                        Reserve headroom{" "}
+                        {capitalHeadroomMoney(
+                          item.paperCurrency,
+                          snapshot.paperCashHeadroom,
+                        )}
+                      </span>
+                      <span>
+                        Exposure headroom{" "}
+                        {capitalHeadroomMoney(
+                          item.paperCurrency,
+                          snapshot.paperExposureHeadroom,
+                        )}
+                      </span>
+                      <span>
+                        Cycle result{" "}
+                        {snapshot.paperFillDisposition
+                          ? readable(snapshot.paperFillDisposition)
+                          : "Unavailable"}
+                      </span>
+                    </div>
+                    <ul className="strategy-fleet-paper-outcome-symbols">
+                      {(snapshot.paperPositions ?? []).length > 0 ? (
+                        snapshot.paperPositions!.map((position) => {
+                          const priorPosition = prior?.paperPositions?.find(
+                            (candidate) => candidate.symbol === position.symbol,
+                          );
+                          const change = exactChange(
+                            position.unrealizedProfitLoss,
+                            priorPosition?.unrealizedProfitLoss,
+                            true,
+                          );
+                          return (
+                            <li key={position.symbol}>
+                              <strong>{position.symbol}</strong>
+                              <span>
+                                {capitalMoney(
+                                  item.paperCurrency,
+                                  position.marketValue,
+                                )}
+                                {" marked · "}
+                                {signedCapitalMoney(
+                                  item.paperCurrency,
+                                  position.unrealizedProfitLoss,
+                                )}
+                                {" unrealized"}
+                              </span>
+                              <small>{outcomeStatusLabel(change.status)}</small>
+                            </li>
+                          );
+                        })
+                      ) : (
+                        <li>
+                          <strong>Cash only</strong>
+                          <span>No open simulated positions</span>
+                        </li>
+                      )}
+                    </ul>
+                  </>
+                ) : (
+                  <div className="strategy-fleet-shadow-outcome-point">
+                    <strong>
+                      {snapshot.shadowOneHourSamples} one-hour ·{" "}
+                      {snapshot.shadowTwentyFourHourSamples} 24-hour
+                    </strong>
+                    {(snapshot.shadowNewMarks ?? []).map((mark) => (
+                      <span key={mark.id}>
+                        {mark.symbol} {readable(mark.horizon)}{" "}
+                        {signedOutcomePercent(mark.directionalChangePercent)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <footer>
+                  <span>
+                    {snapshot.financialProvider ?? "Provider unavailable"}
+                    {snapshot.marketFeed ? ` · ${snapshot.marketFeed}` : ""}
+                    {snapshot.marketQuality
+                      ? ` · ${readable(snapshot.marketQuality)}`
+                      : ""}
+                  </span>
+                  <span>
+                    Market evidence{" "}
+                    {snapshot.marketObservedAt
+                      ? readableTime(snapshot.marketObservedAt)
+                      : "unavailable"}
+                  </span>
+                </footer>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      <p>
+        Changes describe saved evidence only. They do not establish decision
+        quality, causality, realized performance, or permission to trade live.
+      </p>
+    </section>
+  );
+}
+
 function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
   const paper = item.executionMode === "PAPER";
   const available = paper
@@ -4431,6 +4715,7 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
                   <p>Cash-only simulated ledger · no open Paper positions.</p>
                 )}
               </section>
+              <StrategyFleetOutcomeTimeline item={item} />
               <p className="strategy-fleet-outcome-note">
                 Realized P&amp;L: <strong>Unavailable</strong> · Arbion does not
                 reconstruct realized performance from fills. Values above use
@@ -4450,6 +4735,7 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
       ) : (
         <div>
           <StrategyFleetEvidence item={item} />
+          <StrategyFleetOutcomeTimeline item={item} />
           <footer>
             <Link href={detailHref}>Open Shadow evidence →</Link>
             <span>Would-have records only · never live authority</span>
