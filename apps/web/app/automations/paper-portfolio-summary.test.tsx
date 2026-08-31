@@ -229,4 +229,81 @@ describe("PaperPortfolioSummary", () => {
       within(realized).getByText(/not broker-reported/i),
     ).toBeInTheDocument();
   });
+
+  it("reconciles exact realized, unrealized, total, and equity evidence", () => {
+    render(
+      <PaperPortfolioSummary
+        executionMode="PAPER"
+        portfolio={{
+          strategy_instance_id: "instance-paper",
+          currency: "USD",
+          starting_cash: "1000.0000000000",
+          cash: "900.0000000000",
+          version: 2,
+          updated_at: "2026-08-31T05:36:38Z",
+          positions: [
+            {
+              symbol: "BTC",
+              instrument: "CRYPTO",
+              quantity: "1.0000000000",
+              average_price: "100.0000000000",
+              is_open: true,
+              updated_at: "2026-08-31T05:36:38Z",
+            },
+          ],
+          realized_outcome: {
+            status: "NO_REALIZED_SALES",
+            calculation_method: "AVERAGE_COST_INCLUDED_FEES",
+            historical_coverage: "COMPLETE_FROM_PORTFOLIO_GENESIS",
+            total_realized_profit_loss: "0.0000000000",
+            fill_count: 1,
+            sell_fill_count: 0,
+            first_fill_at: "2026-08-31T04:36:38Z",
+            last_fill_at: "2026-08-31T04:36:38Z",
+            symbols: [
+              {
+                symbol: "BTC",
+                instrument: "CRYPTO",
+                realized_profit_loss: "0.0000000000",
+                buy_fill_count: 1,
+                sell_fill_count: 0,
+                total_fees: "0.5000000000",
+                ending_position_quantity: "1.0000000000",
+                ending_average_cost: "100.0000000000",
+              },
+            ],
+          },
+        }}
+        markets={[
+          {
+            symbol: "BTC",
+            assetClass: "CRYPTO",
+            price: "105.0000000000",
+            priceBasis: "MARK",
+            provider: "coinbase",
+            feed: "rest_ticker",
+            quality: "REAL_TIME_SINGLE_VENUE",
+            observedAt: "2026-08-31T05:36:37Z",
+            decisionAt: "2026-08-31T05:36:38Z",
+          },
+        ]}
+      />,
+    );
+
+    const reconciliation = screen.getByLabelText(
+      /exact paper outcome reconciliation/i,
+    );
+    expect(within(reconciliation).getByText("Exact match")).toBeInTheDocument();
+    expect(
+      within(reconciliation).getByText(
+        /cash \+ marked exposure matches exactly/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(reconciliation).getByText(/never folded into realized/i),
+    ).toBeInTheDocument();
+    expect(
+      within(reconciliation).getByText(/provider coinbase/i),
+    ).toBeInTheDocument();
+  });
 });

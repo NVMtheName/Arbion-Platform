@@ -2,6 +2,7 @@ import {
   calculatePaperPerformance,
   type PaperMarketSnapshot,
 } from "./paper-performance";
+import { reconcilePaperOutcome } from "./paper-outcome-reconciliation";
 import { PaperPerformanceHistory } from "./paper-performance-history";
 import {
   compareExactDecimals,
@@ -96,6 +97,17 @@ function signedMoney(value: string, currency: string) {
   return formatExactMoney(
     { amount: value, currency },
     { maximumFractionDigits: 4, signDisplay: "exceptZero" },
+  );
+}
+
+function signedPreciseMoney(value: string, currency: string) {
+  return formatExactMoney(
+    { amount: value, currency },
+    {
+      minimumFractionDigits: 10,
+      maximumFractionDigits: 10,
+      signDisplay: "exceptZero",
+    },
   );
 }
 
@@ -241,6 +253,15 @@ export function PaperPortfolioSummary({
           !Number.isNaN(Date.parse(realized.first_fill_at ?? "")) &&
           !Number.isNaN(Date.parse(realized.last_fill_at ?? "")))),
   );
+  const reconciliation = reconcilePaperOutcome({
+    currency: portfolio.currency,
+    cash: portfolio.cash,
+    performance,
+    realized,
+    realizedContractAvailable: realizedAvailable,
+  });
+  const reconciliationAvailable = reconciliation.status !== "UNAVAILABLE";
+  const reconciliationAttention = reconciliation.status === "MISMATCH";
   return (
     <section className="paper-portfolio-card" aria-label="Paper portfolio">
       <p className="eyebrow">PAPER PORTFOLIO · SIMULATION ONLY</p>
@@ -433,6 +454,155 @@ export function PaperPortfolioSummary({
           </div>
         )}
       </div>
+      <details
+        className="paper-performance-card"
+        aria-label="Exact Paper outcome reconciliation"
+        open={!reconciliationAvailable || reconciliationAttention}
+      >
+        <summary className="paper-performance-header">
+          <span>
+            <span className="eyebrow">
+              PAPER OUTCOME RECONCILIATION · SAVED EVIDENCE
+            </span>
+            <strong>Two independent accounting paths</strong>
+          </span>
+          <span>
+            {reconciliation.status === "RECONCILED_EXACT"
+              ? "Exact match"
+              : reconciliation.status === "RECONCILED_WITH_DECIMAL_RESIDUAL"
+                ? "Reconciled · residual disclosed"
+                : reconciliationAttention
+                  ? "Review required"
+                  : "Unavailable"}
+          </span>
+        </summary>
+        {reconciliationAvailable ? (
+          <>
+            <div className="paper-performance-grid">
+              <article>
+                <span>Realized fill outcome</span>
+                <strong
+                  className={performanceClass(
+                    reconciliation.realizedProfitLoss,
+                  )}
+                >
+                  {signedMoney(
+                    reconciliation.realizedProfitLoss ?? "0",
+                    portfolio.currency,
+                  )}
+                </strong>
+              </article>
+              <article>
+                <span>Unrealized marked outcome</span>
+                <strong
+                  className={performanceClass(
+                    reconciliation.unrealizedProfitLoss,
+                  )}
+                >
+                  {signedMoney(
+                    reconciliation.unrealizedProfitLoss ?? "0",
+                    portfolio.currency,
+                  )}
+                </strong>
+              </article>
+              <article>
+                <span>Realized + unrealized</span>
+                <strong
+                  className={performanceClass(
+                    reconciliation.classifiedProfitLoss,
+                  )}
+                >
+                  {signedMoney(
+                    reconciliation.classifiedProfitLoss ?? "0",
+                    portfolio.currency,
+                  )}
+                </strong>
+              </article>
+              <article>
+                <span>Equity − starting cash</span>
+                <strong
+                  className={performanceClass(reconciliation.totalProfitLoss)}
+                >
+                  {signedMoney(
+                    reconciliation.totalProfitLoss ?? "0",
+                    portfolio.currency,
+                  )}
+                </strong>
+              </article>
+              <article>
+                <span>Simulated equity</span>
+                <strong>
+                  {money(
+                    reconciliation.simulatedEquity ?? "0",
+                    portfolio.currency,
+                  )}
+                </strong>
+                <small>
+                  Cash + marked exposure
+                  {compareExactDecimals(
+                    reconciliation.equityResidual ?? "invalid",
+                    "0",
+                  ) === 0
+                    ? " matches exactly"
+                    : " does not match"}
+                </small>
+              </article>
+              <article>
+                <span>Disclosed decimal residual</span>
+                <strong
+                  className={
+                    reconciliationAttention
+                      ? "is-negative"
+                      : performanceClass(reconciliation.outcomeResidual)
+                  }
+                >
+                  {signedPreciseMoney(
+                    reconciliation.outcomeResidual ?? "0",
+                    portfolio.currency,
+                  )}
+                </strong>
+                <small>
+                  Strict review bound ±
+                  {signedPreciseMoney(
+                    reconciliation.residualLimit,
+                    portfolio.currency,
+                  ).replace("+", "")}
+                </small>
+              </article>
+            </div>
+            <p className="paper-market-source">
+              {reconciliationAttention
+                ? "The two saved outcome paths differ beyond Arbion's strict decimal residual bound. The mismatch is visible and requires review; no value is substituted."
+                : "The exact fill replay and the immutable market valuation reconcile. Any sub-cent decimal residual remains separate and visible; it is never folded into realized or unrealized P&L."}
+              {reconciliation.provider
+                ? " Provider " + reconciliation.provider
+                : " Provider attribution unavailable"}
+              {reconciliation.marketFeeds.length > 0
+                ? " · " + reconciliation.marketFeeds.join(", ")
+                : ""}
+              {reconciliation.marketQualities.length > 0
+                ? " · " + reconciliation.marketQualities.join(", ")
+                : ""}
+              {reconciliation.valuedAt
+                ? " · oldest required market observation " +
+                  new Date(reconciliation.valuedAt).toLocaleString()
+                : ""}
+              . Simulation only; no broker balance, model rerun, order, or live
+              authority.
+            </p>
+          </>
+        ) : (
+          <div className="paper-performance-unavailable">
+            <strong>Outcome reconciliation unavailable</strong>
+            <p>
+              Arbion could not prove both an exact immutable realized fill
+              replay and one complete saved market valuation. Realized,
+              unrealized, total outcome, or equity evidence is left unavailable
+              rather than inferred.
+            </p>
+          </div>
+        )}
+      </details>
       <PaperPerformanceHistory
         decisions={decisions}
         startingCash={portfolio.starting_cash}
