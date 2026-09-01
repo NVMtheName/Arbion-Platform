@@ -61,6 +61,11 @@ export function scheduleFailureGuidance(
         "OWNER_REVIEW",
         `${provider} did not explicitly mark the saved quote as real-time. Arbion stopped before the AI model and will not use delayed or ambiguous market prices. Review the provider connection and market-data access before the next cycle.`,
       );
+    case "MARKET_DATA_INVALID":
+      return guidance(
+        "OPERATOR_REVIEW",
+        `${provider} returned malformed or unusable market prices. Arbion stopped before the AI model and will not use negative, zero-only, crossed, or mismatched quote evidence. The provider response or adapter must be corrected before the next cycle.`,
+      );
     case "NO_ELIGIBLE_OPTION_CONTRACTS":
       return guidance(
         "OWNER_REVIEW",

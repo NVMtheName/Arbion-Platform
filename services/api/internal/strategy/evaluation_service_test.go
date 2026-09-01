@@ -152,6 +152,8 @@ type evaluationFinancialFake struct {
 	positionCalls int
 	timestamp     time.Time
 	realtime      *bool
+	quoteOverride *financial.Quote
+	quoteErr      error
 	contractTime  *time.Time
 	emptyChain    bool
 }
@@ -169,6 +171,12 @@ func (f *evaluationFinancialFake) GetPositions(context.Context, authorization.Pr
 }
 func (f *evaluationFinancialFake) GetQuote(_ context.Context, _ authorization.Principal, _ string, symbol string) (financial.Quote, error) {
 	f.quoteCalls++
+	if f.quoteErr != nil {
+		return financial.Quote{}, f.quoteErr
+	}
+	if f.quoteOverride != nil {
+		return *f.quoteOverride, nil
+	}
 	bid, ask := financial.Decimal("199.90"), financial.Decimal("200.10")
 	return financial.Quote{Symbol: symbol, Bid: &bid, Ask: &ask, ProviderTimestamp: f.timestamp, Realtime: f.realtime}, nil
 }
@@ -593,6 +601,70 @@ func TestSchwabAIFailsClosedUnlessProviderExplicitlyMarksQuoteRealtime(t *testin
 			}
 			if finances.quoteCalls != 1 || ai.calls != 0 || store.commits != 0 || store.abstains != 0 || store.paperCommits != 0 {
 				t.Fatalf("rejected quote crossed a downstream boundary: quotes=%d ai=%d commits=%d abstains=%d paper=%d", finances.quoteCalls, ai.calls, store.commits, store.abstains, store.paperCommits)
+			}
+		})
+	}
+}
+
+func TestSchwabAIFailsClosedOnInvalidQuoteEvidence(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No action", Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	decimalValue := func(value string) *financial.Decimal {
+		result := financial.Decimal(value)
+		return &result
+	}
+	realtime := true
+
+	for _, test := range []struct {
+		name  string
+		quote financial.Quote
+	}{
+		{name: "negative price", quote: financial.Quote{Symbol: "SPY", Bid: decimalValue("-1"), Ask: decimalValue("200"), Realtime: &realtime}},
+		{name: "zero only", quote: financial.Quote{Symbol: "SPY", Bid: decimalValue("0"), Ask: decimalValue("0.0"), Mark: decimalValue("0"), Last: decimalValue("0"), Realtime: &realtime}},
+		{name: "crossed market", quote: financial.Quote{Symbol: "SPY", Bid: decimalValue("201"), Ask: decimalValue("200"), Realtime: &realtime}},
+		{name: "mismatched symbol", quote: financial.Quote{Symbol: "QQQ", Bid: decimalValue("199"), Ask: decimalValue("200"), Realtime: &realtime}},
+		{name: "malformed decimal", quote: financial.Quote{Symbol: "SPY", Bid: decimalValue("not-a-decimal"), Ask: decimalValue("200"), Realtime: &realtime}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, store, finances, ai, principal := aiEvaluationFixture("schwab", decision)
+			test.quote.ProviderTimestamp = service.now()
+			finances.quoteOverride = &test.quote
+
+			_, err := service.Evaluate(context.Background(), principal, "ai-instance", "scheduled-ai:schwab-quote-integrity")
+			if !errors.Is(err, ErrEvaluationMarketDataInvalid) {
+				t.Fatalf("invalid Schwab quote was not rejected: %v", err)
+			}
+			if finances.quoteCalls != 1 || ai.calls != 0 || store.commits != 0 || store.abstains != 0 || store.paperCommits != 0 {
+				t.Fatalf("rejected quote crossed a downstream boundary: quotes=%d ai=%d commits=%d abstains=%d paper=%d", finances.quoteCalls, ai.calls, store.commits, store.abstains, store.paperCommits)
+			}
+		})
+	}
+}
+
+func TestSchwabAIClassifiesInvalidProviderQuoteWithoutMaskingOtherProviderFailures(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No action", Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+
+	for _, test := range []struct {
+		name string
+		code financial.ProviderErrorCode
+		want error
+	}{
+		{name: "invalid quote response", code: financial.InvalidProviderResponse, want: ErrEvaluationMarketDataInvalid},
+		{name: "provider unavailable", code: financial.ProviderUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, store, finances, ai, principal := aiEvaluationFixture("schwab", decision)
+			providerErr := &financial.ProviderError{Code: test.code}
+			finances.quoteErr = providerErr
+
+			_, err := service.Evaluate(context.Background(), principal, "ai-instance", "scheduled-ai:schwab-quote-provider-error")
+			if test.want != nil && !errors.Is(err, test.want) {
+				t.Fatalf("quote failure classification=%v want=%v", err, test.want)
+			}
+			if test.want == nil && !errors.Is(err, providerErr) {
+				t.Fatalf("non-quote-integrity provider failure was masked: %v", err)
+			}
+			if finances.quoteCalls != 1 || ai.calls != 0 || store.commits != 0 || store.abstains != 0 || store.paperCommits != 0 {
+				t.Fatalf("provider failure crossed a downstream boundary: quotes=%d ai=%d commits=%d abstains=%d paper=%d", finances.quoteCalls, ai.calls, store.commits, store.abstains, store.paperCommits)
 			}
 		})
 	}

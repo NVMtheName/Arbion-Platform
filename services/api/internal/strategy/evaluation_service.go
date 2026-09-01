@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"regexp"
 	"sort"
@@ -891,13 +892,82 @@ func decimalAmount(value *financial.Decimal) (string, bool) {
 	return amount, ok
 }
 
+func validSchwabAIQuote(quote financial.Quote, expectedSymbol string) bool {
+	if !strings.EqualFold(strings.TrimSpace(quote.Symbol), strings.TrimSpace(expectedSymbol)) {
+		return false
+	}
+	prices := []*financial.Decimal{quote.Bid, quote.Ask, quote.Mark, quote.Last}
+	positive := false
+	for _, price := range prices {
+		if price == nil {
+			continue
+		}
+		value := string(*price)
+		if !plainAIQuoteDecimal(value) {
+			return false
+		}
+		parsed, ok := new(big.Rat).SetString(value)
+		if !ok || parsed.Sign() < 0 {
+			return false
+		}
+		positive = positive || parsed.Sign() > 0
+	}
+	if !positive {
+		return false
+	}
+	if quote.Bid != nil && quote.Ask != nil {
+		bid, bidOK := new(big.Rat).SetString(string(*quote.Bid))
+		ask, askOK := new(big.Rat).SetString(string(*quote.Ask))
+		if !bidOK || !askOK || (bid.Sign() > 0 && ask.Sign() > 0 && bid.Cmp(ask) > 0) {
+			return false
+		}
+	}
+	return true
+}
+
+func plainAIQuoteDecimal(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	index := 0
+	if value[index] == '-' {
+		index++
+	}
+	integerStart := index
+	for index < len(value) && value[index] >= '0' && value[index] <= '9' {
+		index++
+	}
+	if index == integerStart {
+		return false
+	}
+	if index == len(value) {
+		return true
+	}
+	if value[index] != '.' {
+		return false
+	}
+	index++
+	fractionStart := index
+	for index < len(value) && value[index] >= '0' && value[index] <= '9' {
+		index++
+	}
+	return index == len(value) && index > fractionStart
+}
+
 func (s *EvaluationService) aiMarketFacts(ctx context.Context, principal authorization.Principal, account financial.FinancialAccount, symbols []string, now time.Time) ([]neural.ShadowMarketFact, error) {
 	facts := make([]neural.ShadowMarketFact, 0, len(symbols))
 	if account.Provider == "schwab" {
 		for _, symbol := range symbols {
 			quote, err := s.financial.GetQuote(ctx, principal, account.ID, symbol)
 			if err != nil {
+				var providerError *financial.ProviderError
+				if errors.As(err, &providerError) && providerError.Code == financial.InvalidProviderResponse {
+					return nil, ErrEvaluationMarketDataInvalid
+				}
 				return nil, err
+			}
+			if !validSchwabAIQuote(quote, symbol) {
+				return nil, ErrEvaluationMarketDataInvalid
 			}
 			if !freshMarketTimestamp(quote.ProviderTimestamp, now) {
 				return nil, ErrEvaluationMarketDataStale

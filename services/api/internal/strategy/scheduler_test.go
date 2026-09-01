@@ -296,6 +296,7 @@ func TestScheduleErrorClassificationPreservesSafeEvaluationDiagnostics(t *testin
 		"STRATEGY_CONFIGURATION_CHANGED": ErrEvaluationConfigurationChanged,
 		"STRATEGY_PARAMETERS_INVALID":    ErrEvaluationParametersInvalid,
 		"PAPER_STATE_UNAVAILABLE":        ErrEvaluationPaperStateUnavailable,
+		"MARKET_DATA_INVALID":            ErrEvaluationMarketDataInvalid,
 		"MARKET_DATA_STALE":              ErrEvaluationMarketDataStale,
 		"MARKET_DATA_NOT_REALTIME":       ErrEvaluationMarketDataNotRealtime,
 		"NO_ELIGIBLE_OPTION_CONTRACTS":   ErrEvaluationNoEligibleContracts,

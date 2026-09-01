@@ -324,24 +324,24 @@ func (c *Client) GetQuote(ctx context.Context, cr *financial.Credentials, symbol
 	if !ok || !strings.EqualFold(value.Symbol, symbol) {
 		return financial.Quote{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
 	}
-	bid, err := providerDecimal(value.Quote.BidPrice)
+	bid, err := providerQuotePrice(value.Quote.BidPrice)
 	if err != nil {
 		return financial.Quote{}, err
 	}
-	ask, err := providerDecimal(value.Quote.AskPrice)
+	ask, err := providerQuotePrice(value.Quote.AskPrice)
 	if err != nil {
 		return financial.Quote{}, err
 	}
-	mark, err := providerDecimal(value.Quote.Mark)
+	mark, err := providerQuotePrice(value.Quote.Mark)
 	if err != nil {
 		return financial.Quote{}, err
 	}
-	last, err := providerDecimal(value.Quote.LastPrice)
+	last, err := providerQuotePrice(value.Quote.LastPrice)
 	if err != nil {
 		return financial.Quote{}, err
 	}
-	if bid == nil && ask == nil && mark == nil && last == nil {
-		return financial.Quote{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
+	if !usableQuotePrices(bid, ask, mark, last) {
+		return financial.Quote{}, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("provider quote prices are unusable")}
 	}
 	quoteTime := value.Quote.QuoteTime
 	if quoteTime == 0 {
@@ -556,6 +556,76 @@ func providerDecimal(value decimal) (*financial.Decimal, error) {
 	}
 	result := financial.Decimal(value.String())
 	return &result, nil
+}
+
+func providerQuotePrice(value decimal) (*financial.Decimal, error) {
+	if value != "" && !plainDecimal(value.String()) {
+		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("provider quote price is malformed")}
+	}
+	result, err := providerDecimal(value)
+	if err != nil || result == nil {
+		return result, err
+	}
+	parsed, ok := new(big.Rat).SetString(string(*result))
+	if !ok || parsed.Sign() < 0 {
+		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("provider quote price is malformed")}
+	}
+	return result, nil
+}
+
+func plainDecimal(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	index := 0
+	if value[index] == '-' {
+		index++
+	}
+	integerStart := index
+	for index < len(value) && value[index] >= '0' && value[index] <= '9' {
+		index++
+	}
+	if index == integerStart {
+		return false
+	}
+	if index == len(value) {
+		return true
+	}
+	if value[index] != '.' {
+		return false
+	}
+	index++
+	fractionStart := index
+	for index < len(value) && value[index] >= '0' && value[index] <= '9' {
+		index++
+	}
+	return index == len(value) && index > fractionStart
+}
+
+func usableQuotePrices(bid, ask, mark, last *financial.Decimal) bool {
+	prices := []*financial.Decimal{bid, ask, mark, last}
+	positive := false
+	for _, price := range prices {
+		if price == nil {
+			continue
+		}
+		parsed, ok := new(big.Rat).SetString(string(*price))
+		if !ok || parsed.Sign() < 0 {
+			return false
+		}
+		positive = positive || parsed.Sign() > 0
+	}
+	if !positive {
+		return false
+	}
+	if bid != nil && ask != nil {
+		parsedBid, bidOK := new(big.Rat).SetString(string(*bid))
+		parsedAsk, askOK := new(big.Rat).SetString(string(*ask))
+		if !bidOK || !askOK || (parsedBid.Sign() > 0 && parsedAsk.Sign() > 0 && parsedBid.Cmp(parsedAsk) > 0) {
+			return false
+		}
+	}
+	return true
 }
 
 func providerInt(value decimal) (*int, error) {
