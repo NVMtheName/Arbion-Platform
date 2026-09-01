@@ -188,6 +188,7 @@ func TestQuotePricesFailClosedWhenUnusable(t *testing.T) {
 		payload string
 	}{
 		{name: "negative price", payload: `{"AAPL":{"assetMainType":"EQUITY","symbol":"AAPL","realtime":true,"quote":{"bidPrice":"-1","askPrice":"200","quoteTime":1767268800000}}}`},
+		{name: "negative zero", payload: `{"AAPL":{"assetMainType":"EQUITY","symbol":"AAPL","realtime":true,"quote":{"bidPrice":"-0.0","askPrice":"200","quoteTime":1767268800000}}}`},
 		{name: "zero only", payload: `{"AAPL":{"assetMainType":"EQUITY","symbol":"AAPL","realtime":true,"quote":{"bidPrice":"0","askPrice":"0.0","mark":"0.000","lastPrice":"0","quoteTime":1767268800000}}}`},
 		{name: "crossed market", payload: `{"AAPL":{"assetMainType":"EQUITY","symbol":"AAPL","realtime":true,"quote":{"bidPrice":"201","askPrice":"200","mark":"200.50","quoteTime":1767268800000}}}`},
 		{name: "mismatched symbol", payload: `{"AAPL":{"assetMainType":"EQUITY","symbol":"MSFT","realtime":true,"quote":{"bidPrice":"199","askPrice":"200","quoteTime":1767268800000}}}`},

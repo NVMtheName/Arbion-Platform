@@ -618,11 +618,14 @@ func TestSchwabAIFailsClosedOnInvalidQuoteEvidence(t *testing.T) {
 		name  string
 		quote financial.Quote
 	}{
-		{name: "negative price", quote: financial.Quote{Symbol: "SPY", Bid: decimalValue("-1"), Ask: decimalValue("200"), Realtime: &realtime}},
-		{name: "zero only", quote: financial.Quote{Symbol: "SPY", Bid: decimalValue("0"), Ask: decimalValue("0.0"), Mark: decimalValue("0"), Last: decimalValue("0"), Realtime: &realtime}},
-		{name: "crossed market", quote: financial.Quote{Symbol: "SPY", Bid: decimalValue("201"), Ask: decimalValue("200"), Realtime: &realtime}},
+		{name: "negative price", quote: financial.Quote{Symbol: "BTC", Bid: decimalValue("-1"), Ask: decimalValue("200"), Realtime: &realtime}},
+		{name: "negative zero", quote: financial.Quote{Symbol: "BTC", Bid: decimalValue("-0.0"), Ask: decimalValue("200"), Realtime: &realtime}},
+		{name: "zero only", quote: financial.Quote{Symbol: "BTC", Bid: decimalValue("0"), Ask: decimalValue("0.0"), Mark: decimalValue("0"), Last: decimalValue("0"), Realtime: &realtime}},
+		{name: "crossed market", quote: financial.Quote{Symbol: "BTC", Bid: decimalValue("201"), Ask: decimalValue("200"), Realtime: &realtime}},
+		{name: "bid only", quote: financial.Quote{Symbol: "BTC", Bid: decimalValue("200"), Realtime: &realtime}},
+		{name: "ask only", quote: financial.Quote{Symbol: "BTC", Ask: decimalValue("200"), Realtime: &realtime}},
 		{name: "mismatched symbol", quote: financial.Quote{Symbol: "QQQ", Bid: decimalValue("199"), Ask: decimalValue("200"), Realtime: &realtime}},
-		{name: "malformed decimal", quote: financial.Quote{Symbol: "SPY", Bid: decimalValue("not-a-decimal"), Ask: decimalValue("200"), Realtime: &realtime}},
+		{name: "malformed decimal", quote: financial.Quote{Symbol: "BTC", Bid: decimalValue("not-a-decimal"), Ask: decimalValue("200"), Realtime: &realtime}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service, store, finances, ai, principal := aiEvaluationFixture("schwab", decision)
@@ -635,6 +638,34 @@ func TestSchwabAIFailsClosedOnInvalidQuoteEvidence(t *testing.T) {
 			}
 			if finances.quoteCalls != 1 || ai.calls != 0 || store.commits != 0 || store.abstains != 0 || store.paperCommits != 0 {
 				t.Fatalf("rejected quote crossed a downstream boundary: quotes=%d ai=%d commits=%d abstains=%d paper=%d", finances.quoteCalls, ai.calls, store.commits, store.abstains, store.paperCommits)
+			}
+		})
+	}
+}
+
+func TestSchwabAIAcceptsExactMarkOrLastAsTwoSidedFallbackEvidence(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No action", Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	decimalValue := func(value string) *financial.Decimal {
+		result := financial.Decimal(value)
+		return &result
+	}
+	realtime := true
+
+	for _, test := range []struct {
+		name  string
+		quote financial.Quote
+	}{
+		{name: "mark fallback", quote: financial.Quote{Symbol: "BTC", Mark: decimalValue("200.01"), Realtime: &realtime}},
+		{name: "last fallback", quote: financial.Quote{Symbol: "BTC", Last: decimalValue("199.99"), Realtime: &realtime}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, store, finances, ai, principal := aiEvaluationFixture("schwab", decision)
+			test.quote.ProviderTimestamp = service.now()
+			finances.quoteOverride = &test.quote
+
+			outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "scheduled-ai:schwab-quote-fallback")
+			if err != nil || outcome.AIDecision != "ABSTAIN" || ai.calls != 1 || store.abstains != 1 || store.commits != 0 || store.paperCommits != 0 {
+				t.Fatalf("valid symmetric fallback evidence was rejected: outcome=%#v ai=%d abstains=%d commits=%d paper=%d err=%v", outcome, ai.calls, store.abstains, store.commits, store.paperCommits, err)
 			}
 		})
 	}

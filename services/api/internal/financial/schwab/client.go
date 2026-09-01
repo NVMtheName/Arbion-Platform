@@ -559,7 +559,7 @@ func providerDecimal(value decimal) (*financial.Decimal, error) {
 }
 
 func providerQuotePrice(value decimal) (*financial.Decimal, error) {
-	if value != "" && !plainDecimal(value.String()) {
+	if value != "" && (!plainDecimal(value.String()) || strings.HasPrefix(value.String(), "-")) {
 		return nil, &financial.ProviderError{Code: financial.InvalidProviderResponse, Err: errors.New("provider quote price is malformed")}
 	}
 	result, err := providerDecimal(value)

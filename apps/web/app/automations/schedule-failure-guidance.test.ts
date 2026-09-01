@@ -67,7 +67,7 @@ describe("scheduleFailureGuidance", () => {
       action: "OPERATOR_REVIEW",
       actionLabel: "Operator correction",
       message: expect.stringMatching(
-        /Schwab.*malformed or unusable.*stopped before the AI model.*negative, zero-only, crossed, or mismatched/i,
+        /Schwab.*malformed or unusable.*stopped before the AI model.*negative-zero.*one-sided/i,
       ),
     });
   });
