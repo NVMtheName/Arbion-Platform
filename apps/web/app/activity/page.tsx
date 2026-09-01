@@ -28,7 +28,7 @@ export default async function ActivityPage({
   if (response.status === 401) redirect("/login");
   if (!response.ok) {
     return (
-      <main className="journal-page">
+      <main className="journal-page command-content-continuity">
         <AppPageHeader />
         <p className="eyebrow">DECISION JOURNAL</p>
         <h1>Journal unavailable</h1>
@@ -45,7 +45,7 @@ export default async function ActivityPage({
   const data = (await response.json()) as JournalResponse;
 
   return (
-    <main className="journal-page">
+    <main className="journal-page command-content-continuity">
       <AppPageHeader />
       <p className="eyebrow">DECISION JOURNAL</p>
       <h1>Every decision, in context.</h1>

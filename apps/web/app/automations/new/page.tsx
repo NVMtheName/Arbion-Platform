@@ -3,7 +3,7 @@ import AutomationBuilder from "./automation-builder";
 
 export default function NewAutomation() {
   return (
-    <main className="connections-page automation-page">
+    <main className="connections-page automation-page command-content-continuity">
       <AppPageHeader backHref="/automations" backLabel="Automations" />
       <p className="eyebrow">ARBION AI ENGINE</p>
       <h1>Launch an autonomous shadow analyst.</h1>

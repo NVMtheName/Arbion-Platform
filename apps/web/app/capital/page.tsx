@@ -165,7 +165,7 @@ export default async function CapitalPage() {
   );
 
   return (
-    <main className="connections-page capital-center-page">
+    <main className="connections-page capital-center-page command-content-continuity">
       <AppPageHeader />
       <section className="capital-center-hero">
         <div>

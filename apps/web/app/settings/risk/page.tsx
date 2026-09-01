@@ -24,7 +24,7 @@ export default async function RiskSafetyPage() {
     : undefined;
 
   return (
-    <main className="dashboard-shell">
+    <main className="dashboard-shell command-content-continuity">
       <AppPageHeader />
       <section className="hero-panel">
         <p className="eyebrow">Safety controls</p>

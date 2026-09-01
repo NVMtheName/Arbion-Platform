@@ -58,7 +58,7 @@ export default async function Admin() {
       : undefined;
   }
   return (
-    <main className="dashboard">
+    <main className="dashboard command-content-continuity">
       <AppPageHeader />
       <p className="eyebrow">ARBION ADMIN</p>
       <h1>Arbion Admin</h1>

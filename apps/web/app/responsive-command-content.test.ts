@@ -7,10 +7,20 @@ const appSource = (relativePath: string) =>
 
 describe("signed-in command content continuity", () => {
   it.each([
+    ["Dashboard", "./dashboard/command-center-dashboard.tsx"],
     ["Portfolio", "./accounts/page.tsx"],
+    ["Account detail", "./accounts/[id]/page.tsx"],
     ["Markets", "./markets/page.tsx"],
     ["Automations", "./automations/page.tsx"],
+    ["Automation builder", "./automations/new/page.tsx"],
+    ["Automation detail", "./automations/[id]/page.tsx"],
+    ["Activity", "./activity/page.tsx"],
+    ["Capital", "./capital/page.tsx"],
     ["Connections", "./settings/connections/page.tsx"],
+    ["Security", "./settings/security/page.tsx"],
+    ["Risk settings", "./settings/risk/page.tsx"],
+    ["Admin", "./admin/page.tsx"],
+    ["Admin user detail", "./admin/users/[id]/page.tsx"],
   ])("keeps %s inside the shared viewport contract", (_label, source) => {
     expect(appSource(source)).toContain("command-content-continuity");
   });
