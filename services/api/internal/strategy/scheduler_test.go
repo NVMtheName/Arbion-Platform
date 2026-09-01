@@ -297,6 +297,7 @@ func TestScheduleErrorClassificationPreservesSafeEvaluationDiagnostics(t *testin
 		"STRATEGY_PARAMETERS_INVALID":    ErrEvaluationParametersInvalid,
 		"PAPER_STATE_UNAVAILABLE":        ErrEvaluationPaperStateUnavailable,
 		"MARKET_DATA_STALE":              ErrEvaluationMarketDataStale,
+		"MARKET_DATA_NOT_REALTIME":       ErrEvaluationMarketDataNotRealtime,
 		"NO_ELIGIBLE_OPTION_CONTRACTS":   ErrEvaluationNoEligibleContracts,
 		"AI_DECISION_BUDGET_EXHAUSTED":   aiconnection.ErrRateLimit,
 		"AI_PROVIDER_RATE_LIMITED":       &neural.ProviderError{Code: neural.RateLimited},

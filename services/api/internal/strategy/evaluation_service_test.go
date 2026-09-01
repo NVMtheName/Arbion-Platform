@@ -57,9 +57,11 @@ func (f *evaluationStoreFake) Get(context.Context, string, string) (Instance, er
 type evaluationAIFake struct {
 	decision neural.ShadowDecision
 	request  neural.ShadowDecisionRequest
+	calls    int
 }
 
 func (f *evaluationAIFake) GenerateShadowDecision(_ context.Context, _ authorization.Principal, _, _ string, request neural.ShadowDecisionRequest) (neural.ShadowDecision, error) {
+	f.calls++
 	f.request = request
 	return f.decision, nil
 }
@@ -149,6 +151,7 @@ type evaluationFinancialFake struct {
 	balanceCalls  int
 	positionCalls int
 	timestamp     time.Time
+	realtime      *bool
 	contractTime  *time.Time
 	emptyChain    bool
 }
@@ -167,7 +170,7 @@ func (f *evaluationFinancialFake) GetPositions(context.Context, authorization.Pr
 func (f *evaluationFinancialFake) GetQuote(_ context.Context, _ authorization.Principal, _ string, symbol string) (financial.Quote, error) {
 	f.quoteCalls++
 	bid, ask := financial.Decimal("199.90"), financial.Decimal("200.10")
-	return financial.Quote{Symbol: symbol, Bid: &bid, Ask: &ask, ProviderTimestamp: f.timestamp}, nil
+	return financial.Quote{Symbol: symbol, Bid: &bid, Ask: &ask, ProviderTimestamp: f.timestamp, Realtime: f.realtime}, nil
 }
 func (f *evaluationFinancialFake) GetOptionChain(_ context.Context, _ authorization.Principal, _ string, request financial.OptionChainRequest) (financial.OptionChain, error) {
 	f.chainCalls++
@@ -321,7 +324,8 @@ func aiEvaluationFixture(provider string, decision neural.ShadowDecision) (*Eval
 	}}}
 	automations := &evaluationAutomationFake{mandate: mandate, bucket: automation.CapitalBucket{ID: "bucket", UserID: "user", FinancialAccountID: "account", Name: "AI budget", AllocationType: "FIXED_AMOUNT", AllocationValue: "10", Currency: "USD", ProtectedAmount: "0", Status: "ACTIVE"}}
 	cash, available, buyingPower := financial.Money{Amount: "100", Currency: "USD"}, financial.Money{Amount: "100", Currency: "USD"}, financial.Money{Amount: "100", Currency: "USD"}
-	finances := &evaluationFinancialFake{account: financial.FinancialAccount{ID: "account", UserID: "user", Provider: provider, Status: "active", BaseCurrency: "USD", Capabilities: financial.Capabilities{"options": financial.Unsupported, "margin": financial.Unsupported}}, balances: financial.Balances{Cash: &cash, AvailableCash: &available, BuyingPower: &buyingPower}, positions: []financial.Position{}, timestamp: now}
+	realtime := true
+	finances := &evaluationFinancialFake{account: financial.FinancialAccount{ID: "account", UserID: "user", Provider: provider, Status: "active", BaseCurrency: "USD", Capabilities: financial.Capabilities{"options": financial.Unsupported, "margin": financial.Unsupported}}, balances: financial.Balances{Cash: &cash, AvailableCash: &available, BuyingPower: &buyingPower}, positions: []financial.Position{}, timestamp: now, realtime: &realtime}
 	ai := &evaluationAIFake{decision: decision}
 	markets := &evaluationMarketsFake{
 		batch:     marketintelligence.CryptoMarketBatch{Markets: []marketintelligence.CryptoMarketObservation{{Symbol: "BTC", Currency: "USD", CurrentPrice: "100", Bid: marketDecimalPointer("99"), Ask: marketDecimalPointer("101"), Provenance: marketintelligence.Provenance{Provider: "coinbase", Feed: "exchange", Quality: marketintelligence.RealTimeSingleVenue, ProviderTimestamp: now, ReceivedAt: now}}}},
@@ -566,6 +570,31 @@ func TestSchwabAIPaperUsesOnlyBrokerQuoteAndIsolatedSimulationLedger(t *testing.
 	}
 	if len(store.outcomeMarks) != 0 || !strings.Contains(string(store.decision.Rationale), `"execution_mode":"PAPER"`) || !strings.Contains(string(store.decision.Rationale), `"provider":"schwab"`) || !strings.Contains(string(store.decision.Rationale), `"portfolio_source":"arbion_isolated_paper_ledger"`) {
 		t.Fatalf("Schwab Paper immutable evidence was incomplete: marks=%#v rationale=%s", store.outcomeMarks, store.decision.Rationale)
+	}
+}
+
+func TestSchwabAIFailsClosedUnlessProviderExplicitlyMarksQuoteRealtime(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "No action", Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+
+	for _, test := range []struct {
+		name     string
+		realtime *bool
+	}{
+		{name: "missing entitlement"},
+		{name: "delayed entitlement", realtime: func() *bool { value := false; return &value }()},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, store, finances, ai, principal := aiEvaluationFixture("schwab", decision)
+			finances.realtime = test.realtime
+
+			_, err := service.Evaluate(context.Background(), principal, "ai-instance", "scheduled-ai:schwab-entitlement")
+			if !errors.Is(err, ErrEvaluationMarketDataNotRealtime) {
+				t.Fatalf("ambiguous Schwab market entitlement was not rejected: %v", err)
+			}
+			if finances.quoteCalls != 1 || ai.calls != 0 || store.commits != 0 || store.abstains != 0 || store.paperCommits != 0 {
+				t.Fatalf("rejected quote crossed a downstream boundary: quotes=%d ai=%d commits=%d abstains=%d paper=%d", finances.quoteCalls, ai.calls, store.commits, store.abstains, store.paperCommits)
+			}
+		})
 	}
 }
 
