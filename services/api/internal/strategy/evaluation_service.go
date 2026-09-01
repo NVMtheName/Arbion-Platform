@@ -897,23 +897,24 @@ func validSchwabAIQuote(quote financial.Quote, expectedSymbol string) bool {
 		return false
 	}
 	prices := []*financial.Decimal{quote.Bid, quote.Ask, quote.Mark, quote.Last}
-	positive := false
-	for _, price := range prices {
+	buyReference := false
+	sellReference := false
+	for index, price := range prices {
 		if price == nil {
 			continue
 		}
 		value := string(*price)
-		if !plainAIQuoteDecimal(value) {
+		if !plainAIQuoteDecimal(value) || strings.HasPrefix(value, "-") {
 			return false
 		}
 		parsed, ok := new(big.Rat).SetString(value)
 		if !ok || parsed.Sign() < 0 {
 			return false
 		}
-		positive = positive || parsed.Sign() > 0
-	}
-	if !positive {
-		return false
+		if parsed.Sign() > 0 {
+			buyReference = buyReference || index != 0
+			sellReference = sellReference || index != 1
+		}
 	}
 	if quote.Bid != nil && quote.Ask != nil {
 		bid, bidOK := new(big.Rat).SetString(string(*quote.Bid))
@@ -922,7 +923,7 @@ func validSchwabAIQuote(quote financial.Quote, expectedSymbol string) bool {
 			return false
 		}
 	}
-	return true
+	return buyReference && sellReference
 }
 
 func plainAIQuoteDecimal(value string) bool {
