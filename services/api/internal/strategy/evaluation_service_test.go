@@ -429,12 +429,19 @@ func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testin
 		t.Fatalf("provider instrument identifier crossed Neural boundary: %s err=%v", encoded, err)
 	}
 	assertAIInputEvidence(t, store.decision.Rationale, "schwab", "100", 1, 1, 0)
+	if store.decision.QuoteReference == nil || *store.decision.QuoteReference != (AIProposalQuoteReference{
+		Symbol: "BTC", Side: "BUY", Price: "200.10", Basis: "ASK",
+		Provider: "schwab", Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: service.now(),
+	}) {
+		t.Fatalf("Schwab proposal lost its exact side-specific quote reference: %#v", store.decision.QuoteReference)
+	}
 	var journal struct {
+		QuoteReference AIProposalQuoteReference `json:"quote_reference"`
 		InputEvidence struct {
 			Positions []neural.ShadowPositionFact `json:"positions"`
 		} `json:"input_evidence"`
 	}
-	if err = json.Unmarshal(store.decision.Rationale, &journal); err != nil || len(journal.InputEvidence.Positions) != 1 || journal.InputEvidence.Positions[0] != position || strings.Contains(string(store.decision.Rationale), "must-not-cross-neural-boundary") {
+	if err = json.Unmarshal(store.decision.Rationale, &journal); err != nil || journal.QuoteReference != *store.decision.QuoteReference || len(journal.InputEvidence.Positions) != 1 || journal.InputEvidence.Positions[0] != position || strings.Contains(string(store.decision.Rationale), "must-not-cross-neural-boundary") {
 		t.Fatalf("immutable Schwab position evidence was incomplete: %#v err=%v", journal.InputEvidence.Positions, err)
 	}
 }
@@ -536,6 +543,12 @@ func TestCoinbaseAIPaperProposalUsesOnlyIsolatedPortfolioAndSimulatesAtomically(
 	if !store.paperFill.SimulationOnly || store.paperFill.MarketProvider != "coinbase" || store.paperFill.PricingBasis != "ASK" || store.paperFill.RequestedNotional != "100.0000000000" {
 		t.Fatalf("simulated fill provenance was incomplete: %#v", store.paperFill)
 	}
+	if store.decision.QuoteReference == nil || *store.decision.QuoteReference != (AIProposalQuoteReference{
+		Symbol: "BTC", Side: "BUY", Price: "101", Basis: "ASK",
+		Provider: "coinbase", Feed: "exchange", Quality: "REAL_TIME_SINGLE_VENUE", ObservedAt: service.now(),
+	}) {
+		t.Fatalf("Coinbase Paper proposal lost its exact quote reference: %#v", store.decision.QuoteReference)
+	}
 	debit, debitOK := new(big.Rat).SetString(strings.TrimPrefix(store.paperFill.CashDelta, "-"))
 	if !debitOK || debit.Cmp(big.NewRat(100, 1)) > 0 {
 		t.Fatalf("paper costs exceeded the model's bounded proposal: %#v", store.paperFill)
@@ -575,6 +588,12 @@ func TestSchwabAIPaperUsesOnlyBrokerQuoteAndIsolatedSimulationLedger(t *testing.
 	}
 	if !store.paperFill.SimulationOnly || store.paperFill.MarketProvider != "schwab" || store.paperFill.PricingBasis != "ASK" || store.paperFill.Instrument != "EQUITY" || store.paperFill.RequestedNotional != "1000.0000000000" {
 		t.Fatalf("Schwab Paper simulated fill provenance was incomplete: %#v", store.paperFill)
+	}
+	if store.decision.QuoteReference == nil || *store.decision.QuoteReference != (AIProposalQuoteReference{
+		Symbol: "SPY", Side: "BUY", Price: "200.10", Basis: "ASK",
+		Provider: "schwab", Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: service.now(),
+	}) {
+		t.Fatalf("Schwab Paper proposal lost its exact quote reference: %#v", store.decision.QuoteReference)
 	}
 	if len(store.outcomeMarks) != 0 || !strings.Contains(string(store.decision.Rationale), `"execution_mode":"PAPER"`) || !strings.Contains(string(store.decision.Rationale), `"provider":"schwab"`) || !strings.Contains(string(store.decision.Rationale), `"portfolio_source":"arbion_isolated_paper_ledger"`) {
 		t.Fatalf("Schwab Paper immutable evidence was incomplete: marks=%#v rationale=%s", store.outcomeMarks, store.decision.Rationale)

@@ -500,6 +500,21 @@ func (s *EvaluationService) evaluateAIAutonomous(ctx context.Context, principal 
 	if !priceAvailable || !priceOK || priceRat.Sign() <= 0 || !notionalOK || notionalRat.Sign() <= 0 {
 		return EvaluationOutcome{}, ErrInvalid
 	}
+	quoteReference := AIProposalQuoteReference{
+		Symbol:     decision.Symbol,
+		Side:       decision.Side,
+		Price:      price,
+		Basis:      pricingBasis,
+		Provider:   account.Provider,
+		Feed:       market.Feed,
+		Quality:    market.Quality,
+		ObservedAt: market.ObservedAt,
+	}
+	rationaleFields["quote_reference"] = quoteReference
+	rationale, err = json.Marshal(rationaleFields)
+	if err != nil {
+		return EvaluationOutcome{}, err
+	}
 	quantityDivisor := new(big.Rat).Set(priceRat)
 	if instance.ExecutionMode == Paper && decision.Side == "BUY" {
 		slippage := new(big.Rat).Add(big.NewRat(1, 1), new(big.Rat).SetFrac64(aiPaperSlippageBasisPoints, aiPaperBasisPointDenominator))
@@ -525,7 +540,7 @@ func (s *EvaluationService) evaluateAIAutonomous(ctx context.Context, principal 
 	if account.Provider == "coinbase" {
 		instrument = "CRYPTO"
 	}
-	decisionRecord := Decision{ProposedAction: &action, Source: "AI", InstrumentType: instrument, ProposedState: AIMonitoring, Reason: "bounded_ai_nonlive_decision", Rationale: rationale}
+	decisionRecord := Decision{ProposedAction: &action, QuoteReference: &quoteReference, Source: "AI", InstrumentType: instrument, ProposedState: AIMonitoring, Reason: "bounded_ai_nonlive_decision", Rationale: rationale}
 	var outcome EvaluationOutcome
 	if instance.ExecutionMode == Paper {
 		outcome, err = s.orchestrator.EvaluateAIPaperDecision(ctx, instance, decisionRecord, riskContext, paperPortfolio, AIPaperMarketReference{

@@ -97,7 +97,12 @@ func TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected(t *testing.T)
 	}
 	decision := Decision{
 		ProposedAction: &action, Source: "AI", InstrumentType: "CRYPTO", ProposedState: AIMonitoring,
-		CandidateCount: 1, Reason: "integration", Rationale: json.RawMessage(`{"decision":"PROPOSE","symbol":"BTC","side":"BUY","ai_provider":"openai","model_id":"gpt-5.6-sol","profile":"deep"}`),
+		CandidateCount: 1, Reason: "integration",
+		QuoteReference: &AIProposalQuoteReference{
+			Symbol: "BTC", Side: "BUY", Price: price, Basis: "ASK",
+			Provider: "coinbase", Feed: "advanced_trade", Quality: "BROKER_REALTIME", ObservedAt: now.Add(-time.Second),
+		},
+		Rationale: json.RawMessage(`{"decision":"PROPOSE","symbol":"BTC","side":"BUY","ai_provider":"openai","model_id":"gpt-5.6-sol","profile":"deep","quote_reference":{"symbol":"BTC","side":"BUY","price":"100.0000000000","basis":"ASK","provider":"coinbase","feed":"advanced_trade","quality":"BROKER_REALTIME","observed_at":"2026-08-28T16:59:59Z"}}`),
 	}
 	fill := SimulateAIPaperSpotFill(
 		action, evaluation, "CRYPTO",
@@ -107,6 +112,14 @@ func TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected(t *testing.T)
 	)
 	if err = store.CommitAIPaperEvaluation(ctx, instance, instance.StateVersion, decision, evaluation, fill, now); err != nil {
 		t.Fatal(err)
+	}
+	var savedQuoteReference []byte
+	if err = pool.QueryRow(ctx, `SELECT metadata->'quote_reference' FROM nonlive_execution_records WHERE user_id=$1 AND proposed_action_id=$2`, userID, action.ID).Scan(&savedQuoteReference); err != nil {
+		t.Fatal(err)
+	}
+	var persistedQuoteReference AIProposalQuoteReference
+	if err = json.Unmarshal(savedQuoteReference, &persistedQuoteReference); err != nil || persistedQuoteReference != *decision.QuoteReference {
+		t.Fatalf("AI Paper execution lost its exact quote reference: %#v err=%v", persistedQuoteReference, err)
 	}
 	if err = store.CommitAIPaperEvaluation(ctx, instance, instance.StateVersion, decision, evaluation, fill, now); !errors.Is(err, ErrDuplicate) {
 		t.Fatalf("duplicate AI PAPER event was not rejected: %v", err)

@@ -42,6 +42,7 @@ func (s *PostgresStore) CommitAIPaperEvaluation(ctx context.Context, instance In
 		"market_feed":              fill.MarketFeed,
 		"market_quality":           fill.MarketQuality,
 		"market_observed_at":       fill.MarketObservedAt,
+		"quote_reference":          decision.QuoteReference,
 		"reason":                   fill.Reason,
 	})
 	if err != nil {
@@ -150,6 +151,9 @@ func validAIPaperCommit(instance Instance, expectedVersion int, decision Decisio
 	if decision.ProposedAction == nil || decision.Source != "AI" || (decision.InstrumentType != "EQUITY" && decision.InstrumentType != "CRYPTO") || decision.ProposedState != AIMonitoring || !json.Valid(decision.Rationale) || len(decision.Rationale) == 0 || decision.Rationale[0] != '{' {
 		return false
 	}
+	if !validAIProposalQuoteReferenceEvidence(decision, evaluatedAt) {
+		return false
+	}
 	action := decision.ProposedAction
 	if action.ID == "" || action.CorrelationID == "" || action.Source != risk.SourceAI || action.FinancialAccountID != instance.FinancialAccountID || action.MandateID == nil || *action.MandateID != instance.AutomationMandateID || action.MandateVersion == nil || *action.MandateVersion != instance.MandateVersion || action.Option != nil || action.RequiresMargin {
 		return false
@@ -161,6 +165,9 @@ func validAIPaperCommit(instance Instance, expectedVersion int, decision Decisio
 		return false
 	}
 	if fill.MarketObservedAt.IsZero() || fill.MarketProvider == "" || fill.MarketFeed == "" || fill.MarketQuality == "" || fill.PricingBasis == "" {
+		return false
+	}
+	if decision.QuoteReference.Symbol != fill.Symbol || decision.QuoteReference.Side != fill.Side || !sameAIPaperDecimal(decision.QuoteReference.Price, fill.ReferencePrice) || decision.QuoteReference.Basis != fill.PricingBasis || decision.QuoteReference.Provider != fill.MarketProvider || decision.QuoteReference.Feed != fill.MarketFeed || decision.QuoteReference.Quality != fill.MarketQuality || !decision.QuoteReference.ObservedAt.Equal(fill.MarketObservedAt) {
 		return false
 	}
 	for _, value := range []string{fill.Quantity, fill.RequestedNotional, fill.ReferencePrice, fill.FillPrice, fill.GrossNotional, fill.Fee, fill.PreviousCash, fill.PreviousPositionQuantity, fill.ResultingCash, fill.ResultingPositionQuantity} {

@@ -34,7 +34,12 @@ func TestValidAIPaperCommitComparesDecimalValuesNotFormatting(t *testing.T) {
 	}
 	decision := Decision{
 		ProposedAction: &action, Source: "AI", InstrumentType: "CRYPTO",
-		ProposedState: AIMonitoring, Rationale: json.RawMessage(`{"decision":"PROPOSE"}`),
+		ProposedState: AIMonitoring,
+		QuoteReference: &AIProposalQuoteReference{
+			Symbol: "BTC", Side: "BUY", Price: price, Basis: "ASK",
+			Provider: "coinbase", Feed: "exchange", Quality: "REALTIME", ObservedAt: now,
+		},
+		Rationale: json.RawMessage(`{"decision":"PROPOSE","quote_reference":{"symbol":"BTC","side":"BUY","price":"100.0000000000","basis":"ASK","provider":"coinbase","feed":"exchange","quality":"REALTIME","observed_at":"2026-08-29T20:26:55Z"}}`),
 	}
 	fill := SimulateAIPaperSpotFill(
 		action, evaluation, "CRYPTO",

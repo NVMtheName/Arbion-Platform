@@ -474,7 +474,11 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	aiDecision := Decision{
 		ProposedAction: &aiAction, Source: "AI", InstrumentType: "EQUITY",
 		ProposedState: AIMonitoring, CandidateCount: 1, Reason: "integration",
-		Rationale: []byte(`{"decision":"PROPOSE","symbol":"AAPL","side":"SELL","ai_provider":"openai","model_id":"gpt-5.6-sol","profile":"deep","input_usage":30,"output_usage":45,"latency_ms":120}`),
+		QuoteReference: &AIProposalQuoteReference{
+			Symbol: "AAPL", Side: "SELL", Price: aiPrice, Basis: "BID",
+			Provider: "schwab", Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: aiEvaluationTime,
+		},
+		Rationale: []byte(`{"decision":"PROPOSE","symbol":"AAPL","side":"SELL","ai_provider":"openai","model_id":"gpt-5.6-sol","profile":"deep","input_usage":30,"output_usage":45,"latency_ms":120,"quote_reference":{"symbol":"AAPL","side":"SELL","price":"2.0000000000","basis":"BID","provider":"schwab","feed":"schwab_market_data","quality":"BROKER_REALTIME","observed_at":"2026-08-25T18:00:00Z"}}`),
 	}
 	aiResult := ExecutionResult{
 		Status: WouldHaveSubmitted, Price: &aiPrice, Notional: &aiNotional,
@@ -482,6 +486,14 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	}
 	if err = store.CommitEvaluation(ctx, aiInstance, aiInstance.StateVersion, aiDecision, aiRisk, aiResult, aiEvaluationTime); err != nil {
 		t.Fatal(err)
+	}
+	var savedAIQuoteReference []byte
+	if err = pool.QueryRow(ctx, `SELECT metadata->'quote_reference' FROM nonlive_execution_records WHERE user_id=$1 AND proposed_action_id=$2`, userID, aiActionID).Scan(&savedAIQuoteReference); err != nil {
+		t.Fatal(err)
+	}
+	var persistedAIQuoteReference AIProposalQuoteReference
+	if err = json.Unmarshal(savedAIQuoteReference, &persistedAIQuoteReference); err != nil || persistedAIQuoteReference != *aiDecision.QuoteReference {
+		t.Fatalf("AI Shadow execution lost its exact quote reference: %#v err=%v", persistedAIQuoteReference, err)
 	}
 	aiFacts, err := store.EvaluationFacts(ctx, aiInstance, aiEvaluationTime.Add(30*time.Minute))
 	if err != nil || len(aiFacts.RecentActions) != 1 || aiFacts.RecentActions[0].Instrument != "AAPL" || aiFacts.RecentActions[0].Side != "SELL" || !aiFacts.RecentActions[0].OccurredAt.Equal(aiEvaluationTime) {
