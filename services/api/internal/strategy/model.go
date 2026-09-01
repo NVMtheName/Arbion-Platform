@@ -107,6 +107,7 @@ type EvaluationInput struct {
 	ExistingPositions []Position
 	PriorState        State
 }
+
 // AIProposalQuoteReference is the exact provider-derived price evidence used
 // to size one non-live AI proposal. It is immutable evidence only and never
 // grants broker or live-execution authority.
@@ -121,15 +122,15 @@ type AIProposalQuoteReference struct {
 	ObservedAt time.Time `json:"observed_at"`
 }
 type Decision struct {
-	ProposedAction  *risk.ProposedAction
+	ProposedAction *risk.ProposedAction
 	QuoteReference *AIProposalQuoteReference
-	Source          string
-	InstrumentType  string
-	ProposedState   State
-	CandidateCount  int
-	Selected        *OptionCandidate
-	Reason          string
-	Rationale       json.RawMessage
+	Source         string
+	InstrumentType string
+	ProposedState  State
+	CandidateCount int
+	Selected       *OptionCandidate
+	Reason         string
+	Rationale      json.RawMessage
 }
 type LifecycleEvent string
 

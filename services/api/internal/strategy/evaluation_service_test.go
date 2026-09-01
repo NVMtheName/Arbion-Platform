@@ -437,7 +437,7 @@ func TestSchwabAIShadowProposalUsesBrokerQuoteAndDeterministicRiskGate(t *testin
 	}
 	var journal struct {
 		QuoteReference AIProposalQuoteReference `json:"quote_reference"`
-		InputEvidence struct {
+		InputEvidence  struct {
 			Positions []neural.ShadowPositionFact `json:"positions"`
 		} `json:"input_evidence"`
 	}
