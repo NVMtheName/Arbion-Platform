@@ -393,7 +393,7 @@ export default async function ConnectionsPage() {
     (provider) => provider.availability === "planned",
   );
   return (
-    <main className="connection-hub">
+    <main className="connection-hub command-content-continuity">
       <AppPageHeader />
       <section className="connection-hub-hero">
         <div>

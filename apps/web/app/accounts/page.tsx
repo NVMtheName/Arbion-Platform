@@ -154,7 +154,7 @@ export default async function Accounts() {
   );
 
   return (
-    <main className="connections-page portfolio-ledger-page">
+    <main className="connections-page portfolio-ledger-page command-content-continuity">
       <AppPageHeader />
       <section className="portfolio-ledger-hero">
         <p className="eyebrow">PORTFOLIO COMMAND CENTER</p>

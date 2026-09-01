@@ -232,7 +232,16 @@ export function PortfolioHoldingsLedger({
             </label>
           </div>
 
-          <div className="holdings-table-wrap" role="region" tabIndex={0}>
+          <p className="command-data-scroll-hint" id="holdings-scroll-hint">
+            Swipe or scroll horizontally to review every saved holdings field.
+          </p>
+          <div
+            aria-describedby="holdings-scroll-hint"
+            aria-label="Unified holdings table"
+            className="holdings-table-wrap command-data-scroll"
+            role="region"
+            tabIndex={0}
+          >
             <table>
               <thead>
                 <tr>

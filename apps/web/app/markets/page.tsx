@@ -92,7 +92,7 @@ export default async function MarketsPage() {
   ).length;
 
   return (
-    <main className="markets-page">
+    <main className="markets-page command-content-continuity">
       <AppPageHeader />
       <p className="eyebrow">MARKET INTELLIGENCE</p>
       <h1>See the market. Know the source.</h1>
