@@ -68,6 +68,33 @@ export type StrategyFleetOutcomeHistorySnapshot = {
   }>;
 };
 
+export type StrategyFleetQuoteFormation = {
+  status:
+    | "EXACT"
+    | "NOT_APPLICABLE"
+    | "LEGACY_UNAVAILABLE"
+    | "UNAVAILABLE"
+    | "MISMATCH";
+  decisionID?: string;
+  proposedActionID?: string;
+  riskEvaluationID?: string;
+  executionRecordID?: string;
+  executionStatus?: string;
+  symbol?: string;
+  side?: "BUY" | "SELL";
+  referencePrice?: string;
+  basis?: "ASK" | "BID" | "MARK_FALLBACK" | "LAST_FALLBACK";
+  provider?: string;
+  feed?: string;
+  quality?: string;
+  observedAt?: string;
+  paperFillID?: string;
+  paperFillPrice?: string;
+  paperFee?: string;
+  paperAdverseSlippage?: string;
+  paperSimulatedAt?: string;
+};
+
 export type StrategyFleetItem = {
   id: string;
   freshnessObservedAt?: string;
@@ -324,6 +351,7 @@ export type StrategyFleetItem = {
   latestDecisionMarketEventFeeds?: string[];
   latestDecisionMarketEventQualities?: string[];
   latestDecisionMarketEventCount?: number;
+  latestQuoteFormation?: StrategyFleetQuoteFormation;
   priorDecisionID?: string;
   priorDecisionType?: string;
   priorDecisionAt?: string;
@@ -2223,6 +2251,8 @@ function needsReview(item: StrategyFleetItem) {
         paperReview?.attention === true ||
         item.paperOutcomeReconciliationStatus === "UNAVAILABLE" ||
         item.paperOutcomeReconciliationStatus === "MISMATCH")) ||
+    item.latestQuoteFormation?.status === "UNAVAILABLE" ||
+    item.latestQuoteFormation?.status === "MISMATCH" ||
     paperOutcomeLimitBreach(item) ||
     item.decisionAvailable === false ||
     item.scheduleStatus === "FAILED" ||
@@ -5000,6 +5030,172 @@ function commandDeckRouteLabel(item: StrategyFleetItem) {
     : modelLabel(item);
 }
 
+function quoteFormationStatusLabel(
+  status: StrategyFleetQuoteFormation["status"],
+) {
+  if (status === "EXACT") return "Exact saved quote";
+  if (status === "NOT_APPLICABLE") return "No quote needed";
+  if (status === "LEGACY_UNAVAILABLE") return "Legacy evidence unavailable";
+  if (status === "MISMATCH") return "Evidence mismatch";
+  return "Evidence unavailable";
+}
+
+function StrategyFleetQuoteProvenance({ item }: { item: StrategyFleetItem }) {
+  const evidence = item.latestQuoteFormation;
+  const status = evidence?.status ?? "UNAVAILABLE";
+  const attention = ["LEGACY_UNAVAILABLE", "UNAVAILABLE", "MISMATCH"].includes(
+    status,
+  );
+  const exact = status === "EXACT";
+  const noQuote = status === "NOT_APPLICABLE";
+  const filled = Boolean(
+    exact &&
+      item.executionMode === "PAPER" &&
+      evidence?.paperFillID &&
+      evidence.paperFillPrice &&
+      evidence.paperFee &&
+      evidence.paperAdverseSlippage,
+  );
+  return (
+    <details
+      className={`strategy-fleet-quote-provenance is-${status.toLowerCase().replaceAll("_", "-")}`}
+      open={attention}
+    >
+      <summary>
+        <span>
+          <strong>Quote provenance + price formation</strong>
+          <small>
+            {item.executionMode === "PAPER"
+              ? "Provider reference and isolated simulation path"
+              : "Provider reference and hypothetical Shadow boundary"}
+          </small>
+        </span>
+        <span>{quoteFormationStatusLabel(status)}</span>
+      </summary>
+      <div>
+        {noQuote ? (
+          <section>
+            <strong>No price reference was required</strong>
+            <p>
+              The newest immutable decision abstained. Arbion did not create a
+              proposal, risk evaluation, simulated fill, or broker order.
+            </p>
+          </section>
+        ) : exact ? (
+          <>
+            <section className="strategy-fleet-quote-reference">
+              <header>
+                <span>
+                  {evidence!.side} {evidence!.symbol}
+                </span>
+                <strong>
+                  {capitalMoney("USD", evidence!.referencePrice)} ·{" "}
+                  {readable(evidence!.basis ?? "UNAVAILABLE")}
+                </strong>
+              </header>
+              <p>
+                {evidence!.provider} · {evidence!.feed} ·{" "}
+                {readable(evidence!.quality ?? "UNAVAILABLE")}
+              </p>
+              <time dateTime={evidence!.observedAt}>
+                Provider observation {readableTime(evidence!.observedAt)}
+              </time>
+            </section>
+            {filled ? (
+              <ol className="strategy-fleet-price-formation">
+                <li>
+                  <span>1</span>
+                  <p>
+                    <small>Provider reference</small>
+                    <strong>
+                      {capitalMoney("USD", evidence!.referencePrice)}
+                    </strong>
+                  </p>
+                </li>
+                <li>
+                  <span>2</span>
+                  <p>
+                    <small>Adverse simulated slippage</small>
+                    <strong>
+                      {capitalMoney("USD", evidence!.paperAdverseSlippage)}
+                    </strong>
+                  </p>
+                </li>
+                <li>
+                  <span>3</span>
+                  <p>
+                    <small>Simulation-only fill price</small>
+                    <strong>
+                      {capitalMoney("USD", evidence!.paperFillPrice)}
+                    </strong>
+                  </p>
+                </li>
+                <li>
+                  <span>4</span>
+                  <p>
+                    <small>Simulated fee</small>
+                    <strong>{capitalMoney("USD", evidence!.paperFee)}</strong>
+                  </p>
+                </li>
+              </ol>
+            ) : (
+              <p className="strategy-fleet-quote-boundary">
+                {item.executionMode === "SHADOW"
+                  ? "Reference-only hypothetical evidence. No simulated fill, broker order, or live execution exists."
+                  : evidence?.executionStatus === "RISK_DENIED"
+                    ? "The exact reference reached deterministic controls and stopped at a Paper denial. No fill or broker order exists."
+                    : "The exact proposal reference is saved. No simulation-only fill is attached to this disposition."}
+              </p>
+            )}
+          </>
+        ) : (
+          <section className="strategy-fleet-quote-unavailable">
+            <strong>{quoteFormationStatusLabel(status)}</strong>
+            <p>
+              {status === "LEGACY_UNAVAILABLE"
+                ? "This proposal predates the exact quote-reference contract. Arbion will not reconstruct a price from nearby market context."
+                : status === "MISMATCH"
+                  ? "The saved proposal, quote, or simulation identities do not form one exact immutable chain. Review the record; no value is inferred."
+                  : "The immutable quote or Paper fill evidence could not be loaded completely. Arbion leaves price formation unavailable."}
+            </p>
+          </section>
+        )}
+        <dl className="strategy-fleet-quote-identities">
+          <div>
+            <dt>Decision</dt>
+            <dd>{evidence?.decisionID ?? "Unavailable"}</dd>
+          </div>
+          <div>
+            <dt>Proposal</dt>
+            <dd>{evidence?.proposedActionID ?? "Not created"}</dd>
+          </div>
+          <div>
+            <dt>Risk</dt>
+            <dd>{evidence?.riskEvaluationID ?? "Not reached"}</dd>
+          </div>
+          <div>
+            <dt>{item.executionMode === "PAPER" ? "Simulation" : "Shadow"}</dt>
+            <dd>{evidence?.executionRecordID ?? "Not created"}</dd>
+          </div>
+        </dl>
+        <footer>
+          <Link href={`/automations/${item.id}#decision-journal`}>
+            Open immutable decision →
+          </Link>
+          {evidence?.paperFillID && (
+            <Link
+              href={`/automations/${item.id}#paper-fill-${encodeURIComponent(evidence.paperFillID)}`}
+            >
+              Open simulated fill →
+            </Link>
+          )}
+          <span>No broker execution · no live path</span>
+        </footer>
+      </div>
+    </details>
+  );
+}
+
 function signedCapitalMoney(currency?: string, value?: string) {
   if (!value || !currency || !/^[A-Z]{3}$/.test(currency)) return "Unavailable";
   const negative = value.startsWith("-");
@@ -6987,6 +7183,7 @@ function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
                   <dd>{readableTime(item.nextRunAt)}</dd>
                 </div>
               </dl>
+              <StrategyFleetQuoteProvenance item={item} />
               <StrategyFleetPaperEvidenceGate item={item} />
               <StrategyFleetExposureOutcomes item={item} />
               <footer>

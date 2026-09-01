@@ -66,6 +66,7 @@ import {
   type StrategyFleetDecisionInputCoverageSnapshot,
   type StrategyFleetItem,
   type StrategyFleetOutcomeHistorySnapshot,
+  type StrategyFleetQuoteFormation,
 } from "./strategy-fleet";
 
 type RecordValue = Record<string, unknown>;
@@ -125,6 +126,19 @@ type PaperPortfolioEnvelope = {
   broker_action_available?: boolean;
   live_promotion_available?: boolean;
   live_execution_available?: boolean;
+};
+
+type PaperFillWindow = {
+  fills?: RecordValue[] | null;
+  history_semantics?: string;
+  pricing_includes_slippage?: boolean;
+  fees_included?: boolean;
+  provider_market_provenance?: boolean;
+  simulation_only?: boolean;
+  broker_order_record?: boolean;
+  broker_action_available?: boolean;
+  live_execution_available?: boolean;
+  execution_authority_granted?: boolean;
 };
 
 function normalizedPaperTradeSequence(
@@ -4839,6 +4853,179 @@ function decisionProvenance(decision: RecordValue | undefined) {
   };
 }
 
+function sameSavedInstant(left: string, right: string) {
+  return Date.parse(left) === Date.parse(right);
+}
+
+function latestQuoteFormation(
+  decision: RecordValue | undefined,
+  executionMode: string | undefined,
+  paperFillContractAvailable: boolean,
+  paperFills: RecordValue[],
+  paperTimeline: PaperExecutionCheckpoint[] | undefined,
+): StrategyFleetQuoteFormation | undefined {
+  const decisionID = text(decision, "id", "ID");
+  const decisionType = text(decision, "decision_type", "DecisionType");
+  if (!decisionID || !decisionType) return;
+  const identity = {
+    decisionID,
+    proposedActionID: text(decision, "proposed_action_id", "ProposedActionID"),
+    riskEvaluationID: text(decision, "risk_evaluation_id", "RiskEvaluationID"),
+    executionRecordID: text(
+      decision,
+      "execution_record_id",
+      "ExecutionRecordID",
+    ),
+    executionStatus: text(decision, "execution_status", "ExecutionStatus"),
+  };
+  if (decisionType === "ABSTAIN") {
+    return { status: "NOT_APPLICABLE", ...identity };
+  }
+
+  const rationale = record(
+    decision?.structured_rationale ?? decision?.StructuredRationale,
+  );
+  const rawReference = rationale?.quote_reference ?? rationale?.QuoteReference;
+  if (rawReference === undefined || rawReference === null) {
+    return { status: "LEGACY_UNAVAILABLE", ...identity };
+  }
+  const reference = record(rawReference);
+  const symbol = text(reference, "symbol", "Symbol");
+  const side = text(reference, "side", "Side");
+  const price = exactDecimal(reference?.price ?? reference?.Price);
+  const basis = text(reference, "basis", "Basis");
+  const provider = text(reference, "provider", "Provider");
+  const feed = text(reference, "feed", "Feed");
+  const quality = text(reference, "quality", "Quality");
+  const observedAt = text(reference, "observed_at", "ObservedAt");
+  const decisionSymbol =
+    text(decision, "symbol", "Symbol") ?? text(rationale, "symbol", "Symbol");
+  const decisionSide =
+    text(decision, "side", "Side") ?? text(rationale, "side", "Side");
+  const entryPrice = exactDecimal(decision?.price ?? decision?.Price);
+  const validBasis =
+    (side === "BUY" &&
+      ["ASK", "MARK_FALLBACK", "LAST_FALLBACK"].includes(basis ?? "")) ||
+    (side === "SELL" &&
+      ["BID", "MARK_FALLBACK", "LAST_FALLBACK"].includes(basis ?? ""));
+  const referenceValid = Boolean(
+    reference &&
+      text(rationale, "decision", "Decision") === "PROPOSE" &&
+      symbol &&
+      symbol === decisionSymbol &&
+      (side === "BUY" || side === "SELL") &&
+      side === decisionSide &&
+      price &&
+      compareExactDecimals(price, "0") === 1 &&
+      validBasis &&
+      provider &&
+      feed &&
+      quality &&
+      observedAt &&
+      !Number.isNaN(Date.parse(observedAt)) &&
+      (executionMode !== "SHADOW" ||
+        (entryPrice && compareExactDecimals(price, entryPrice) === 0)),
+  );
+  if (!referenceValid) return { status: "MISMATCH", ...identity };
+
+  const exactReference = {
+    symbol: symbol!,
+    side: side as "BUY" | "SELL",
+    referencePrice: price!,
+    basis: basis as StrategyFleetQuoteFormation["basis"],
+    provider: provider!,
+    feed: feed!,
+    quality: quality!,
+    observedAt: observedAt!,
+  };
+  if (
+    executionMode !== "PAPER" ||
+    identity.executionStatus !== "SIMULATED_FILLED"
+  ) {
+    return { status: "EXACT", ...identity, ...exactReference };
+  }
+  if (!paperFillContractAvailable) {
+    return { status: "UNAVAILABLE", ...identity, ...exactReference };
+  }
+  const rawFill = paperFills.find(
+    (fill) =>
+      text(fill, "execution_record_id", "ExecutionRecordID") ===
+      identity.executionRecordID,
+  );
+  const fillID = text(rawFill, "id", "ID");
+  const fillSymbol = text(rawFill, "symbol", "Symbol");
+  const fillSide = text(rawFill, "side", "Side");
+  const fillReferencePrice = exactDecimal(
+    rawFill?.reference_price ?? rawFill?.ReferencePrice,
+  );
+  const fillPrice = exactDecimal(rawFill?.fill_price ?? rawFill?.FillPrice);
+  const fee = exactDecimal(rawFill?.fee ?? rawFill?.Fee);
+  const fillBasis = text(rawFill, "pricing_basis", "PricingBasis");
+  const fillProvider = text(rawFill, "market_provider", "MarketProvider");
+  const fillFeed = text(rawFill, "market_feed", "MarketFeed");
+  const fillQuality = text(rawFill, "market_quality", "MarketQuality");
+  const fillObservedAt = text(
+    rawFill,
+    "market_observed_at",
+    "MarketObservedAt",
+  );
+  const simulatedAt = text(rawFill, "simulated_at", "SimulatedAt");
+  const checkpoint = paperTimeline?.find((item) => item.fill_id === fillID);
+  const fillValid = Boolean(
+    rawFill &&
+      fillID &&
+      identity.proposedActionID &&
+      identity.riskEvaluationID &&
+      identity.executionRecordID &&
+      text(rawFill, "proposed_action_id", "ProposedActionID") ===
+        identity.proposedActionID &&
+      text(rawFill, "risk_evaluation_id", "RiskEvaluationID") ===
+        identity.riskEvaluationID &&
+      fillSymbol === symbol &&
+      fillSide === side &&
+      fillReferencePrice &&
+      compareExactDecimals(fillReferencePrice, price!) === 0 &&
+      fillPrice &&
+      compareExactDecimals(fillPrice, "0") === 1 &&
+      fee &&
+      compareExactDecimals(fee, "0") !== -1 &&
+      fillBasis === basis &&
+      fillProvider === provider &&
+      fillFeed === feed &&
+      fillQuality === quality &&
+      fillObservedAt &&
+      sameSavedInstant(fillObservedAt, observedAt!) &&
+      simulatedAt &&
+      !Number.isNaN(Date.parse(simulatedAt)) &&
+      flag(rawFill, "simulation_only", "SimulationOnly") === true &&
+      checkpoint &&
+      checkpoint.execution_record_id === identity.executionRecordID &&
+      checkpoint.proposed_action_id === identity.proposedActionID &&
+      checkpoint.risk_evaluation_id === identity.riskEvaluationID &&
+      checkpoint.symbol === symbol &&
+      checkpoint.side === side &&
+      compareExactDecimals(checkpoint.fee, fee!) === 0 &&
+      compareExactDecimals(checkpoint.adverse_slippage, "0") !== -1 &&
+      checkpoint.market_provider === provider &&
+      checkpoint.market_feed === feed &&
+      checkpoint.market_quality === quality &&
+      sameSavedInstant(checkpoint.market_observed_at, observedAt!),
+  );
+  if (!fillValid) {
+    return { status: "MISMATCH", ...identity, ...exactReference };
+  }
+  return {
+    status: "EXACT",
+    ...identity,
+    ...exactReference,
+    paperFillID: fillID!,
+    paperFillPrice: fillPrice!,
+    paperFee: fee!,
+    paperAdverseSlippage: checkpoint!.adverse_slippage,
+    paperSimulatedAt: simulatedAt!,
+  };
+}
+
 function exactCapitalCurrency(value: string | undefined) {
   return Boolean(value && /^[A-Z]{3}$/.test(value));
 }
@@ -5079,6 +5266,7 @@ async function fleetItem(
     shadowOutcomesResult,
     decisionResult,
     paperPortfolioResult,
+    paperFillsResult,
     reconciliationResult,
   ] = await Promise.all([
     expectsPinnedRuntime
@@ -5125,6 +5313,12 @@ async function fleetItem(
           headers,
         )
       : Promise.resolve({ available: true as const, payload: undefined }),
+    expectsOperationalData && runtimeExecutionMode === "PAPER"
+      ? fetchOptional<PaperFillWindow>(
+          `${base}/api/strategy-instances/${encodeURIComponent(instanceID ?? "")}/ai-paper-fills?limit=25`,
+          headers,
+        )
+      : Promise.resolve({ available: true as const, payload: undefined }),
     expectsReconciliation && accountID
       ? fetchOptional<ReconciliationEnvelope>(
           `${base}/api/accounts/${encodeURIComponent(accountID)}/reconciliations/latest`,
@@ -5141,6 +5335,7 @@ async function fleetItem(
       shadowOutcomesResult,
       decisionResult,
       paperPortfolioResult,
+      paperFillsResult,
       reconciliationResult,
     ].some((result) => "status" in result && result.status === 401)
   )
@@ -5268,6 +5463,28 @@ async function fleetItem(
     runtimeExecutionMode === "PAPER"
       ? normalizedPaperPortfolio(paperPortfolioResult.payload?.paper_portfolio)
       : undefined;
+  const paperFillContractAvailable = Boolean(
+    runtimeExecutionMode === "PAPER" &&
+      paperFillsResult.available &&
+      Array.isArray(paperFillsResult.payload?.fills) &&
+      paperFillsResult.payload?.history_semantics ===
+        "IMMUTABLE_OWNER_AI_PAPER_SIMULATED_FILL_HISTORY" &&
+      paperFillsResult.payload?.pricing_includes_slippage === true &&
+      paperFillsResult.payload?.fees_included === true &&
+      paperFillsResult.payload?.provider_market_provenance === true &&
+      paperFillsResult.payload?.simulation_only === true &&
+      paperFillsResult.payload?.broker_order_record === false &&
+      paperFillsResult.payload?.broker_action_available === false &&
+      paperFillsResult.payload?.live_execution_available === false &&
+      paperFillsResult.payload?.execution_authority_granted === false,
+  );
+  const quoteFormation = latestQuoteFormation(
+    latestAIDecision,
+    runtimeExecutionMode,
+    paperFillContractAvailable,
+    asList(paperFillsResult.payload?.fills),
+    paperPortfolio?.execution_costs?.timeline,
+  );
   const paperRealizedContractAvailable =
     runtimeExecutionMode === "PAPER" &&
     paperPortfolioResult.payload?.realized_outcome_semantics ===
@@ -5871,6 +6088,7 @@ async function fleetItem(
     latestDecisionMarketEventQualities:
       latestDecisionProvenance.marketEventQualities,
     latestDecisionMarketEventCount: latestDecisionProvenance.marketEventCount,
+    latestQuoteFormation: quoteFormation,
     priorDecisionID: text(priorAIDecision, "id", "ID"),
     priorDecisionType: text(priorAIDecision, "decision_type", "DecisionType"),
     priorDecisionAt: text(priorAIDecision, "created_at", "CreatedAt"),
