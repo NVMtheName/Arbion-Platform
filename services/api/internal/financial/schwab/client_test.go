@@ -182,6 +182,31 @@ func TestMarketDataMalformedDecimalFailsClosed(t *testing.T) {
 	}
 }
 
+func TestQuotePricesFailClosedWhenUnusable(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		payload string
+	}{
+		{name: "negative price", payload: `{"AAPL":{"assetMainType":"EQUITY","symbol":"AAPL","realtime":true,"quote":{"bidPrice":"-1","askPrice":"200","quoteTime":1767268800000}}}`},
+		{name: "zero only", payload: `{"AAPL":{"assetMainType":"EQUITY","symbol":"AAPL","realtime":true,"quote":{"bidPrice":"0","askPrice":"0.0","mark":"0.000","lastPrice":"0","quoteTime":1767268800000}}}`},
+		{name: "crossed market", payload: `{"AAPL":{"assetMainType":"EQUITY","symbol":"AAPL","realtime":true,"quote":{"bidPrice":"201","askPrice":"200","mark":"200.50","quoteTime":1767268800000}}}`},
+		{name: "mismatched symbol", payload: `{"AAPL":{"assetMainType":"EQUITY","symbol":"MSFT","realtime":true,"quote":{"bidPrice":"199","askPrice":"200","quoteTime":1767268800000}}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(test.payload))
+			}))
+			defer srv.Close()
+
+			_, err := New(Config{MarketDataBaseURL: srv.URL}, srv.Client()).GetQuote(context.Background(), &financial.Credentials{AccessToken: "access"}, "AAPL")
+			var providerError *financial.ProviderError
+			if !errors.As(err, &providerError) || providerError.Code != financial.InvalidProviderResponse {
+				t.Fatalf("unusable quote did not fail closed: %v", err)
+			}
+		})
+	}
+}
+
 func TestProviderIntegerRequiresAnExactNonNegativeWholeNumber(t *testing.T) {
 	for input, want := range map[decimal]int{
 		"0":      0,

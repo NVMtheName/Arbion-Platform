@@ -9,6 +9,7 @@ describe("scheduleFailureGuidance", () => {
     ["AI_CONNECTION_UNAVAILABLE", "OWNER_REVIEW"],
     ["AI_REQUEST_INVALID", "OPERATOR_REVIEW"],
     ["MARKET_DATA_NOT_REALTIME", "OWNER_REVIEW"],
+    ["MARKET_DATA_INVALID", "OPERATOR_REVIEW"],
     ["INVALID", "OPERATOR_REVIEW"],
     ["OUTSIDE_SESSION", "NO_ACTION"],
     ["WAITING_FOR_LIFECYCLE", "OWNER_REVIEW"],
@@ -55,6 +56,18 @@ describe("scheduleFailureGuidance", () => {
       actionLabel: "Owner review",
       message: expect.stringMatching(
         /Schwab.*did not explicitly mark.*real-time.*stopped before the AI model.*will not use delayed or ambiguous market prices/i,
+      ),
+    });
+  });
+
+  it("explains that unusable Schwab prices stop before the model", () => {
+    expect(
+      scheduleFailureGuidance("MARKET_DATA_INVALID", "schwab"),
+    ).toMatchObject({
+      action: "OPERATOR_REVIEW",
+      actionLabel: "Operator correction",
+      message: expect.stringMatching(
+        /Schwab.*malformed or unusable.*stopped before the AI model.*negative, zero-only, crossed, or mismatched/i,
       ),
     });
   });
