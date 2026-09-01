@@ -2,6 +2,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import type { Connection, NeuralPreference, Provider } from "./page";
+import { formatConnectionTimestamp } from "./connection-timestamp";
 
 type Model = { id: string; display_name: string; provider: string };
 
@@ -324,7 +325,9 @@ export function ConnectionsManager({
                         {c.last_verified_at && (
                           <p>
                             Last verified:{" "}
-                            {new Date(c.last_verified_at).toLocaleString()}
+                            <time dateTime={c.last_verified_at}>
+                              {formatConnectionTimestamp(c.last_verified_at)}
+                            </time>
                           </p>
                         )}
                         <div className="connection-actions">

@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import type { FinancialAccount, FinancialConnection } from "./page";
+import { formatConnectionTimestamp } from "./connection-timestamp";
 
 function coinbaseKeyBundle(value: string) {
   const parsed = JSON.parse(value) as unknown;
@@ -344,7 +345,12 @@ export function FinancialManager({
             accounts found
           </p>
           {c.last_synced_at && (
-            <p>Last synced: {new Date(c.last_synced_at).toLocaleString()}</p>
+            <p>
+              Last synced:{" "}
+              <time dateTime={c.last_synced_at}>
+                {formatConnectionTimestamp(c.last_synced_at)}
+              </time>
+            </p>
           )}
           {provider.id === "schwab" && c.status === "active" && (
             <div className="schwab-authorization-state">
@@ -352,11 +358,8 @@ export function FinancialManager({
               {c.authorization_expires_at && (
                 <p>
                   Renew by{" "}
-                  <time
-                    dateTime={c.authorization_expires_at}
-                    suppressHydrationWarning
-                  >
-                    {new Date(c.authorization_expires_at).toLocaleString()}
+                  <time dateTime={c.authorization_expires_at}>
+                    {formatConnectionTimestamp(c.authorization_expires_at)}
                   </time>
                   . You can renew early without changing your linked account.
                 </p>

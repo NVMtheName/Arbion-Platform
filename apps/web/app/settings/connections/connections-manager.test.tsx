@@ -277,6 +277,47 @@ describe("ConnectionsManager", () => {
     expect(screen.getByRole("button", { name: "Remove" })).toBeDisabled();
   });
 
+  it("renders saved verification time deterministically in UTC", () => {
+    render(
+      <ConnectionsManager
+        entitled
+        initialConnections={[
+          {
+            id: "connection-1",
+            provider: "openai",
+            provider_label: "OpenAI",
+            display_name: "Production OpenAI",
+            status: "active",
+            enabled: true,
+            credential_hint: "••••1234",
+            runtime_protected: false,
+            removal_protected: false,
+            protected_mandate_count: 0,
+            active_strategy_count: 0,
+            retained_automation_count: 0,
+            default_model_selected: true,
+            last_verified_at: "2026-09-01T13:52:51Z",
+          },
+        ]}
+        initialPreference={null}
+        providers={[
+          {
+            id: "openai",
+            label: "OpenAI",
+            credential_types: ["api_key"],
+            capabilities: ["text"],
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Manage connection"));
+    expect(screen.getByText("Sep 1, 2026, 1:52:51 PM UTC")).toHaveAttribute(
+      "datetime",
+      "2026-09-01T13:52:51Z",
+    );
+  });
+
   it("keeps removal protected for retained identity without blocking disable", () => {
     render(
       <ConnectionsManager

@@ -158,6 +158,10 @@ describe("FinancialManager", () => {
     expect(
       screen.getByText("Weekly Schwab authorization active"),
     ).toBeVisible();
+    expect(screen.getByText("Aug 31, 2026, 5:45:00 PM UTC")).toHaveAttribute(
+      "datetime",
+      "2026-08-31T17:45:00Z",
+    );
     expect(screen.getByText(/You can renew early/)).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Renew Schwab access" }),
