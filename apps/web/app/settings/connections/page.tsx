@@ -5,6 +5,7 @@ import { AppPageHeader } from "../../app-page-header";
 import { ConnectionsManager } from "./connections-manager";
 import {
   FinancialContinuityCenter,
+  SchwabMarketDataReadinessView,
   type FinancialContinuityEngine,
   type FinancialContinuityRun,
 } from "./financial-continuity-center";
@@ -66,12 +67,21 @@ export type NeuralPreference = {
 
 type StrategyInstance = {
   id?: string;
+  ID?: string;
   automation_mandate_id?: string;
+  AutomationMandateID?: string;
   financial_account_id?: string;
+  FinancialAccountID?: string;
   strategy_identifier?: string;
+  StrategyIdentifier?: string;
   execution_mode?: string;
+  ExecutionMode?: string;
   current_state?: string;
+  CurrentState?: string;
   status?: string;
+  Status?: string;
+  mandate_version?: number;
+  MandateVersion?: number;
 };
 
 type StrategySchedule = {
@@ -80,6 +90,47 @@ type StrategySchedule = {
   next_run_at?: string;
   consecutive_failures?: number;
 };
+
+type StrategyVersion = Record<string, unknown>;
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function pinnedMarketSymbols(value: StrategyVersion | undefined) {
+  const snapshot = record(value?.snapshot ?? value?.Snapshot);
+  const universe = record(
+    snapshot?.allowed_universe ?? snapshot?.AllowedUniverse,
+  );
+  const raw = universe?.symbols ?? universe?.Symbols;
+  if (!Array.isArray(raw)) return [];
+  const symbols = raw.filter(
+    (symbol): symbol is string =>
+      typeof symbol === "string" && /^[A-Z][A-Z0-9.\-]{0,14}$/.test(symbol),
+  );
+  return new Set(symbols).size === symbols.length ? symbols : [];
+}
+
+function normalizedStrategyInstance(
+  instance: StrategyInstance,
+): StrategyInstance {
+  return {
+    ...instance,
+    id: instance.id ?? instance.ID,
+    automation_mandate_id:
+      instance.automation_mandate_id ?? instance.AutomationMandateID,
+    financial_account_id:
+      instance.financial_account_id ?? instance.FinancialAccountID,
+    strategy_identifier:
+      instance.strategy_identifier ?? instance.StrategyIdentifier,
+    execution_mode: instance.execution_mode ?? instance.ExecutionMode,
+    current_state: instance.current_state ?? instance.CurrentState,
+    status: instance.status ?? instance.Status,
+    mandate_version: instance.mandate_version ?? instance.MandateVersion,
+  };
+}
 
 function continuityScheduleTiming(nextRunAt: string | undefined, now: Date) {
   if (!nextRunAt || Number.isNaN(now.valueOf())) return "UNAVAILABLE" as const;
@@ -190,11 +241,14 @@ export default async function ConnectionsPage() {
   const financialAccounts = Array.isArray(financialAccountsPayload?.accounts)
     ? financialAccountsPayload.accounts
     : [];
-  const strategyInstances = Array.isArray(
+  const rawStrategyInstances = Array.isArray(
     strategyInstancesPayload?.strategy_instances,
   )
     ? strategyInstancesPayload.strategy_instances
     : [];
+  const strategyInstances = rawStrategyInstances.map(
+    normalizedStrategyInstance,
+  );
   const continuityInventoryAvailable = Boolean(
     connectionsResponse.ok &&
       accountsResponse.ok &&
@@ -223,36 +277,54 @@ export default async function ConnectionsPage() {
           (candidate) => candidate.id === instance.financial_account_id,
         );
         const instanceID = instance.id ?? "";
-        const [scheduleResult, historyResult] = await Promise.all([
-          instanceID
-            ? optionalJSON<{ schedule?: StrategySchedule }>(
-                `${base}/api/strategy-instances/${encodeURIComponent(instanceID)}/schedule`,
-                cookie,
-              )
-            : Promise.resolve({
-                available: false as const,
-                status: undefined,
-                payload: undefined,
-              }),
-          instanceID
-            ? optionalJSON<{
-                runs?: FinancialContinuityRun[];
-                history_semantics?: string;
-                broker_action_available?: boolean;
-                live_execution_available?: boolean;
-              }>(
-                `${base}/api/strategy-instances/${encodeURIComponent(instanceID)}/schedule-runs?limit=12`,
-                cookie,
-              )
-            : Promise.resolve({
-                available: false as const,
-                status: undefined,
-                payload: undefined,
-              }),
-        ]);
-        if (scheduleResult.status === 401 || historyResult.status === 401)
+        const [scheduleResult, historyResult, versionResult] =
+          await Promise.all([
+            instanceID
+              ? optionalJSON<{ schedule?: StrategySchedule }>(
+                  `${base}/api/strategy-instances/${encodeURIComponent(instanceID)}/schedule`,
+                  cookie,
+                )
+              : Promise.resolve({
+                  available: false as const,
+                  status: undefined,
+                  payload: undefined,
+                }),
+            instanceID
+              ? optionalJSON<{
+                  runs?: FinancialContinuityRun[];
+                  history_semantics?: string;
+                  broker_action_available?: boolean;
+                  live_execution_available?: boolean;
+                }>(
+                  `${base}/api/strategy-instances/${encodeURIComponent(instanceID)}/schedule-runs?limit=12`,
+                  cookie,
+                )
+              : Promise.resolve({
+                  available: false as const,
+                  status: undefined,
+                  payload: undefined,
+                }),
+            instance.automation_mandate_id && instance.mandate_version
+              ? optionalJSON<{ version?: StrategyVersion }>(
+                  `${base}/api/automations/${encodeURIComponent(instance.automation_mandate_id)}/versions/${instance.mandate_version}`,
+                  cookie,
+                )
+              : Promise.resolve({
+                  available: false as const,
+                  status: undefined,
+                  payload: undefined,
+                }),
+          ]);
+        if (
+          scheduleResult.status === 401 ||
+          historyResult.status === 401 ||
+          versionResult.status === 401
+        )
           redirect("/login");
         const schedule = scheduleResult.payload?.schedule;
+        const marketSymbols = pinnedMarketSymbols(
+          versionResult.payload?.version,
+        );
         const recentRuns = Array.isArray(historyResult.payload?.runs)
           ? historyResult.payload.runs
           : [];
@@ -283,6 +355,16 @@ export default async function ConnectionsPage() {
           ),
           consecutive_failures: schedule?.consecutive_failures,
           recent_runs: recentRuns,
+          market_scope_available: Boolean(
+            versionResult.available && marketSymbols.length > 0,
+          ),
+          market_symbols: marketSymbols,
+          required_market_quality:
+            account?.provider === "schwab"
+              ? "BROKER_REALTIME"
+              : account?.provider === "coinbase"
+                ? "REAL_TIME_SINGLE_VENUE"
+                : undefined,
         };
       }),
   );
@@ -395,6 +477,11 @@ export default async function ConnectionsPage() {
           accounts={financialAccounts}
           engines={continuityEngines}
           observedAt={continuityObservedAt.toISOString()}
+          contextAvailable={continuityInventoryAvailable}
+        />
+        <SchwabMarketDataReadinessView
+          connections={financialConnections}
+          engines={continuityEngines}
           contextAvailable={continuityInventoryAvailable}
         />
         <div className="financial-provider-grid">

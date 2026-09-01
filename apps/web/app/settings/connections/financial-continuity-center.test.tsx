@@ -4,9 +4,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FinancialAccount, FinancialConnection } from "./page";
 import {
   FinancialContinuityCenter,
+  SchwabMarketDataReadinessView,
   type FinancialContinuityEngine,
   type FinancialContinuityRun,
   projectFinancialContinuityCenter,
+  projectSchwabMarketDataReadiness,
 } from "./financial-continuity-center";
 
 const observedAt = "2026-09-01T16:00:00Z";
@@ -79,6 +81,38 @@ function engine(
     recent_runs: [latest],
     ...overrides,
   };
+}
+
+function schwabReadinessEngine(
+  overrides: Partial<FinancialContinuityEngine> = {},
+): FinancialContinuityEngine {
+  const latest = run({
+    id: "run-schwab-market-data",
+    scheduled_for: "2026-09-01T15:35:00Z",
+    completed_at: "2026-09-01T15:35:12Z",
+    next_run_at: "2026-09-01T16:35:00Z",
+    status: "FAILED",
+    error_code: "MARKET_DATA_NOT_REALTIME",
+    consecutive_failures: 2,
+  });
+  return engine({
+    mandate_id: "mandate-schwab",
+    instance_id: "instance-schwab",
+    connection_id: "schwab-connection",
+    account_id: "schwab-account",
+    account_name: "Schwab Brokerage",
+    provider: "schwab",
+    execution_mode: "SHADOW",
+    schedule_status: "FAILED",
+    schedule_completed_at: latest.completed_at ?? undefined,
+    schedule_next_run_at: latest.next_run_at ?? undefined,
+    consecutive_failures: 2,
+    recent_runs: [latest],
+    market_scope_available: true,
+    market_symbols: ["SPY"],
+    required_market_quality: "BROKER_REALTIME",
+    ...overrides,
+  });
 }
 
 describe("FinancialContinuityCenter", () => {
@@ -288,6 +322,144 @@ describe("FinancialContinuityCenter", () => {
     expect(
       screen.getByText(/Connection authorization and non-live/),
     ).toBeVisible();
+  });
+
+  it("projects and renders active authorization separately from quote entitlement", () => {
+    const schwabConnection = connection({
+      id: "schwab-connection",
+      provider: "schwab",
+      display_name: "Charles Schwab",
+    });
+    const schwabEngine = schwabReadinessEngine();
+    const result = projectSchwabMarketDataReadiness({
+      connections: [schwabConnection],
+      engines: [schwabEngine],
+    });
+
+    expect(result).toMatchObject({
+      status: "ATTENTION",
+      engineCount: 1,
+      readyCount: 0,
+      attentionCount: 1,
+      unavailableCount: 0,
+    });
+    expect(result.engines[0]).toMatchObject({
+      state: "ENTITLEMENT_REVIEW",
+      connectionStatus: "active",
+      symbols: ["SPY"],
+      requiredQuality: "BROKER_REALTIME",
+      errorCode: "MARKET_DATA_NOT_REALTIME",
+      consecutiveFailures: 2,
+    });
+
+    render(
+      <SchwabMarketDataReadinessView
+        connections={[schwabConnection]}
+        engines={[schwabEngine]}
+      />,
+    );
+    expect(
+      screen.getByRole("region", {
+        name: "Schwab is connected, but its quote gate needs review.",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("Connected; real-time quote not confirmed"),
+    ).toBeVisible();
+    expect(screen.getByText("SPY")).toBeVisible();
+    expect(screen.getByText("BROKER_REALTIME")).toBeVisible();
+    expect(screen.getByText("2")).toBeVisible();
+    expect(
+      screen.getByText(/reconnecting alone does not prove/i),
+    ).toBeVisible();
+    expect(screen.getByText(/Reconnecting does not prove/)).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: /Open immutable scheduler evidence/ }),
+    ).toHaveAttribute("href", "/automations/mandate-schwab#runtime-evidence");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(
+      screen
+        .getByText("Why connected can still stop safely")
+        .closest("details"),
+    ).toHaveAttribute("open");
+  });
+
+  it.each([
+    ["AUTHORIZATION_EXPIRED", "AUTHORIZATION_REVIEW"],
+    ["PROVIDER_UNAVAILABLE", "AUTOMATIC_RETRY"],
+    ["MARKET_DATA_INVALID", "OPERATOR_REVIEW"],
+  ] as const)(
+    "classifies %s without conflating it with entitlement",
+    (code, state) => {
+      const latest = run({
+        id: `run-${code}`,
+        status: "FAILED",
+        error_code: code,
+        consecutive_failures: 1,
+      });
+      const result = projectSchwabMarketDataReadiness({
+        connections: [
+          connection({ id: "schwab-connection", provider: "schwab" }),
+        ],
+        engines: [
+          schwabReadinessEngine({
+            schedule_completed_at: latest.completed_at ?? undefined,
+            schedule_next_run_at: latest.next_run_at ?? undefined,
+            consecutive_failures: 1,
+            recent_runs: [latest],
+          }),
+        ],
+      });
+      expect(result.engines[0].state).toBe(state);
+    },
+  );
+
+  it("keeps a supported market-session wait on course", () => {
+    const latest = run({
+      id: "run-session-wait",
+      status: "SKIPPED",
+      error_code: "OUTSIDE_SESSION",
+      consecutive_failures: 0,
+    });
+    const result = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({ id: "schwab-connection", provider: "schwab" }),
+      ],
+      engines: [
+        schwabReadinessEngine({
+          schedule_status: "SKIPPED",
+          schedule_completed_at: latest.completed_at ?? undefined,
+          schedule_next_run_at: latest.next_run_at ?? undefined,
+          consecutive_failures: 0,
+          recent_runs: [latest],
+        }),
+      ],
+    });
+    expect(result).toMatchObject({ status: "READY", readyCount: 1 });
+    expect(result.engines[0].state).toBe("SESSION_WAIT");
+  });
+
+  it("fails closed when the mandate market scope or latest run chain is incomplete", () => {
+    const missingScope = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({ id: "schwab-connection", provider: "schwab" }),
+      ],
+      engines: [schwabReadinessEngine({ market_scope_available: false })],
+    });
+    const mismatchedRun = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({ id: "schwab-connection", provider: "schwab" }),
+      ],
+      engines: [
+        schwabReadinessEngine({
+          schedule_next_run_at: "2026-09-01T17:35:00Z",
+        }),
+      ],
+    });
+    expect(missingScope.status).toBe("UNAVAILABLE");
+    expect(missingScope.engines[0].state).toBe("UNAVAILABLE");
+    expect(mismatchedRun.status).toBe("UNAVAILABLE");
+    expect(mismatchedRun.engines[0].state).toBe("UNAVAILABLE");
   });
 
   it("fails closed on incomplete inventory, future evidence, and duplicate identity", () => {

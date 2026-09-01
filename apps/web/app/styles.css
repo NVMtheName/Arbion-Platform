@@ -7877,6 +7877,225 @@ button:disabled {
   font-size: 0.68rem;
   line-height: 1.5;
 }
+.schwab-market-readiness {
+  margin-bottom: 28px;
+  overflow: hidden;
+  border: 1px solid rgba(111, 170, 255, 0.28);
+  border-radius: 22px;
+  background:
+    radial-gradient(
+      circle at 92% 0%,
+      rgba(111, 170, 255, 0.13),
+      transparent 36%
+    ),
+    rgba(6, 20, 21, 0.86);
+}
+.schwab-market-readiness.needs-review {
+  border-color: rgba(245, 190, 92, 0.45);
+}
+.schwab-market-readiness > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 26px;
+  padding: 26px;
+  border-bottom: 1px solid rgba(139, 181, 163, 0.14);
+}
+.schwab-market-readiness > header h2 {
+  margin: 7px 0 0;
+  font-size: clamp(1.35rem, 2.5vw, 2rem);
+  letter-spacing: -0.025em;
+}
+.schwab-market-readiness > header p:last-child {
+  max-width: 760px;
+  margin: 10px 0 0;
+  color: var(--brand-muted);
+  line-height: 1.55;
+}
+.schwab-market-readiness > header > span,
+.schwab-market-readiness > ol > li > header > span {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid rgba(111, 170, 255, 0.3);
+  border-radius: 999px;
+  color: #acd0ff;
+  background: rgba(111, 170, 255, 0.08);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  white-space: nowrap;
+}
+.schwab-market-readiness.needs-review > header > span,
+.schwab-market-readiness > ol > li > header > span {
+  border-color: rgba(245, 190, 92, 0.35);
+  color: #f3d79a;
+  background: rgba(124, 101, 64, 0.16);
+}
+.schwab-market-readiness > ol {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 18px;
+  list-style: none;
+}
+.schwab-market-readiness > ol > li {
+  overflow: hidden;
+  border: 1px solid rgba(111, 170, 255, 0.2);
+  border-radius: 16px;
+  background: rgba(4, 16, 14, 0.7);
+}
+.schwab-market-readiness > ol > li:not(.is-ready):not(.is-session-wait) {
+  border-color: rgba(245, 190, 92, 0.38);
+}
+.schwab-market-readiness > ol > li > header,
+.schwab-market-readiness > ol > li > p,
+.schwab-market-readiness > ol > li > dl,
+.schwab-market-readiness > ol > li > details,
+.schwab-market-readiness > ol > li > footer {
+  margin-inline: 18px;
+}
+.schwab-market-readiness > ol > li > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 18px;
+}
+.schwab-market-readiness > ol > li > header small,
+.schwab-market-readiness > ol > li > header strong {
+  display: block;
+}
+.schwab-market-readiness > ol > li > header small {
+  color: #789087;
+  font-size: 0.7rem;
+}
+.schwab-market-readiness > ol > li > header strong {
+  margin-top: 4px;
+  color: #e5f2eb;
+  font-size: 1rem;
+}
+.schwab-market-readiness > ol > li > p {
+  color: #a7bab1;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.schwab-market-readiness dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid rgba(139, 181, 163, 0.14);
+  border-radius: 12px;
+  background: rgba(139, 181, 163, 0.14);
+}
+.schwab-market-readiness dl > div {
+  min-width: 0;
+  padding: 13px;
+  background: #071b14;
+}
+.schwab-market-readiness dt {
+  color: #6f887c;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.schwab-market-readiness dd {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+  color: #d7e7df;
+  font-size: 0.78rem;
+}
+.schwab-market-readiness dl small {
+  display: block;
+  margin-top: 4px;
+  color: #71877d;
+  font-size: 0.64rem;
+}
+.schwab-market-readiness details {
+  margin-bottom: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(139, 181, 163, 0.16);
+  border-radius: 12px;
+  background: rgba(7, 27, 20, 0.76);
+}
+.schwab-market-readiness summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.schwab-market-readiness summary::-webkit-details-marker {
+  display: none;
+}
+.schwab-market-readiness summary strong,
+.schwab-market-readiness summary small {
+  display: block;
+}
+.schwab-market-readiness summary small {
+  margin-top: 3px;
+  color: #789087;
+  font-size: 0.68rem;
+}
+.schwab-market-readiness summary > span:last-child {
+  color: #8ed7af;
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+.schwab-market-readiness details > ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 14px;
+  border-top: 1px solid rgba(139, 181, 163, 0.14);
+  list-style: none;
+}
+.schwab-market-readiness details li {
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+  border: 1px solid rgba(139, 181, 163, 0.12);
+  border-radius: 9px;
+}
+.schwab-market-readiness details li strong {
+  color: #d7e7df;
+  font-size: 0.72rem;
+}
+.schwab-market-readiness details li span {
+  color: #82978e;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.schwab-market-readiness > ol > li > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 0 18px;
+  border-top: 1px solid rgba(139, 181, 163, 0.12);
+}
+.schwab-market-readiness footer a {
+  color: #8de3b2;
+  font-size: 0.72rem;
+  font-weight: 760;
+  text-decoration: none;
+}
+.schwab-market-readiness footer span,
+.schwab-market-readiness-unavailable p {
+  color: #71877d;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+.schwab-market-readiness-unavailable {
+  padding: 22px 26px;
+}
+.schwab-market-readiness-unavailable p {
+  max-width: 760px;
+  margin-bottom: 0;
+}
 .financial-provider-grid,
 .ai-provider-grid {
   display: grid;
@@ -16019,6 +16238,15 @@ h1 {
   }
   .financial-continuity-center > header {
     flex-direction: column;
+  }
+  .schwab-market-readiness > header,
+  .schwab-market-readiness > ol > li > header,
+  .schwab-market-readiness > ol > li > footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .schwab-market-readiness dl {
+    grid-template-columns: 1fr;
   }
   .financial-continuity-center > ol,
   .financial-continuity-center dl {
