@@ -215,6 +215,17 @@ func TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected(t *testing.T)
 	staleFill := fill
 	staleFill.SimulatedAt = now.Add(time.Minute)
 	staleFill.MarketObservedAt = now.Add(time.Minute - time.Second)
+	staleQuoteReference := *decision.QuoteReference
+	staleQuoteReference.ObservedAt = staleFill.MarketObservedAt
+	staleDecision.QuoteReference = &staleQuoteReference
+	var staleRationale map[string]any
+	if err = json.Unmarshal(decision.Rationale, &staleRationale); err != nil {
+		t.Fatal(err)
+	}
+	staleRationale["quote_reference"] = staleQuoteReference
+	if staleDecision.Rationale, err = json.Marshal(staleRationale); err != nil {
+		t.Fatal(err)
+	}
 	if err = store.CommitAIPaperEvaluation(ctx, instance, instance.StateVersion, staleDecision, staleEvaluation, staleFill, staleFill.SimulatedAt); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale paper snapshot was not rejected atomically: %v", err)
 	}
