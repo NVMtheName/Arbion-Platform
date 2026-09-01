@@ -1,6 +1,30 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import type { AnchorHTMLAttributes } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("next/link", () => ({
+  default: ({
+    children,
+    onClick,
+    ...props
+  }: AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a
+      {...props}
+      onClick={(event) => {
+        onClick?.(event);
+        event.preventDefault();
+      }}
+    >
+      {children}
+    </a>
+  ),
+}));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/accounts",
 }));
@@ -135,5 +159,56 @@ describe("persistent connection navigation health", () => {
       cache: "no-store",
       signal: expect.any(AbortSignal),
     });
+  });
+
+  it("shows immediate route-switching feedback without moving the navigation", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ connections: [connection()] }),
+      }),
+    );
+    render(<AppNavigation />);
+
+    const navigation = screen.getByRole("navigation", {
+      name: "Application navigation",
+    });
+    fireEvent.click(screen.getByRole("link", { name: "Markets" }));
+
+    expect(navigation).toHaveAttribute("aria-busy", "true");
+    expect(navigation).toHaveClass("is-switching");
+    expect(screen.getByRole("link", { name: "Markets" })).toHaveClass(
+      "is-pending",
+    );
+    expect(
+      screen.getByRole("status", { name: "Opening Markets" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Portfolio" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  it("does not show switching feedback for the current route or a new-tab click", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ connections: [connection()] }),
+      }),
+    );
+    render(<AppNavigation />);
+
+    const navigation = screen.getByRole("navigation", {
+      name: "Application navigation",
+    });
+    fireEvent.click(screen.getByRole("link", { name: "Portfolio" }));
+    expect(navigation).not.toHaveAttribute("aria-busy");
+
+    fireEvent.click(screen.getByRole("link", { name: "Markets" }), {
+      metaKey: true,
+    });
+    expect(navigation).not.toHaveAttribute("aria-busy");
   });
 });

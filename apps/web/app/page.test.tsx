@@ -27,6 +27,7 @@ describe("Authentication experience", () => {
     navigation.push.mockReset();
     navigation.refresh.mockReset();
     navigation.pathname = "/accounts";
+    window.sessionStorage.clear();
     vi.unstubAllGlobals();
   });
 

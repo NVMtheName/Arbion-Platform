@@ -145,7 +145,8 @@ body {
 }
 .app-navigation a:hover,
 .app-navigation a:focus-visible,
-.app-navigation a.is-current {
+.app-navigation a.is-current,
+.app-navigation a.is-pending {
   color: #eff9f4;
 }
 .app-navigation a:focus-visible {
@@ -153,7 +154,8 @@ body {
   outline: 2px solid var(--brand-cyan);
   outline-offset: 4px;
 }
-.app-navigation a.is-current::after {
+.app-navigation a.is-current::after,
+.app-navigation a.is-pending::after {
   position: absolute;
   right: 0;
   bottom: 2px;
@@ -162,6 +164,31 @@ body {
   border-radius: 2px;
   background: var(--brand-mint);
   content: "";
+}
+.app-navigation a.is-pending::after {
+  background: linear-gradient(90deg, var(--brand-cyan), var(--brand-mint));
+  transform-origin: center;
+  animation: app-navigation-pending 720ms ease-in-out infinite alternate;
+}
+.app-navigation-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@keyframes app-navigation-pending {
+  from {
+    opacity: 0.42;
+    transform: scaleX(0.38);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
 }
 .app-back-link {
   flex: 0 0 auto;
