@@ -96,7 +96,7 @@ export default async function AccountPage({
     if (portfolioResponse.status === 404) notFound();
     if (!portfolioResponse.ok) {
       return (
-        <main className="connections-page crypto-account-page">
+        <main className="connections-page crypto-account-page command-content-continuity">
           <AppPageHeader backHref="/accounts" backLabel="Accounts" />
           <p className="eyebrow">COINBASE · READ-ONLY CONNECTION</p>
           <h1>{account.display_name}</h1>
@@ -313,7 +313,7 @@ export default async function AccountPage({
       initialVenueStatsCached = Boolean(venueStatsPayload.cached);
     }
     return (
-      <main className="connections-page crypto-account-page">
+      <main className="connections-page crypto-account-page command-content-continuity">
         <AppPageHeader backHref="/accounts" backLabel="Accounts" />
         <CryptoPortfolioCommandCenter
           accountID={account.id}
@@ -402,7 +402,7 @@ export default async function AccountPage({
     priceBasis: position.price_basis,
   }));
   return (
-    <main className="connections-page portfolio-ledger-page schwab-account-page">
+    <main className="connections-page portfolio-ledger-page schwab-account-page command-content-continuity">
       <AppPageHeader backHref="/accounts" backLabel="Accounts" />
       <p className="eyebrow">CHARLES SCHWAB · CONNECTED ACCOUNT</p>
       <h1>{account.display_name}</h1>

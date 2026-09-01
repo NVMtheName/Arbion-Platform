@@ -105,7 +105,7 @@ export default async function MandateReview({
   if (r.status === 401) redirect("/login");
   if (!r.ok)
     return (
-      <main>
+      <main className="command-content-continuity">
         <AppPageHeader backHref="/automations" backLabel="Automations" />
         <h1>Mandate unavailable</h1>
       </main>
@@ -404,7 +404,7 @@ export default async function MandateReview({
     schedulerEnabled: Boolean(scheduleResponse.scheduler_enabled),
   });
   return (
-    <main className="connections-page automation-page">
+    <main className="connections-page automation-page command-content-continuity">
       <AppPageHeader backHref="/automations" backLabel="Automations" />
       <p className="eyebrow">AUTOMATION MANDATE REVIEW</p>
       <h1>

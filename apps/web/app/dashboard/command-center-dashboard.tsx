@@ -301,7 +301,7 @@ export function CommandCenterDashboard({
           : { href: "/automations/new", label: "Build a strategy" };
 
   return (
-    <main className="command-dashboard portfolio-dashboard">
+    <main className="command-dashboard portfolio-dashboard command-content-continuity">
       <AppPageHeader
         actions={
           <div className="command-account-actions">

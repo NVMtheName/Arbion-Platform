@@ -83,7 +83,7 @@ export default async function SecurityPage() {
     : null;
 
   return (
-    <main className="connections-page security-page">
+    <main className="connections-page security-page command-content-continuity">
       <AppPageHeader />
       <p className="eyebrow">ACCOUNT SECURITY</p>
       <h1>Protect your access.</h1>

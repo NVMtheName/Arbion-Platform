@@ -23,7 +23,7 @@ export default async function UserDetail({
     };
   };
   return (
-    <main className="dashboard">
+    <main className="dashboard command-content-continuity">
       <AppPageHeader backHref="/admin" backLabel="Admin" />
       <p className="eyebrow">ARBION ADMIN</p>
       <h1>User detail</h1>
