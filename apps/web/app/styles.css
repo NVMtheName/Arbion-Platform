@@ -173,6 +173,7 @@ body {
 }
 .app-page-header-actions {
   display: flex;
+  align-self: stretch;
   align-items: center;
   justify-content: flex-end;
   width: 180px;
