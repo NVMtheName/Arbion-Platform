@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -245,6 +246,50 @@ describe("persistent connection navigation health", () => {
       "aria-current",
       "page",
     );
+  });
+
+  it("keeps the current tab visible when the navigation viewport resizes", () => {
+    let resizeCallback: ResizeObserverCallback | undefined;
+    const disconnect = vi.fn();
+    class NavigationResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe() {}
+      disconnect() {
+        disconnect();
+      }
+    }
+    vi.stubGlobal("ResizeObserver", NavigationResizeObserver);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ connections: [connection()] }),
+      }),
+    );
+    const { unmount } = render(<AppNavigation />);
+    const navigation = screen.getByRole("navigation", {
+      name: "Application navigation",
+    });
+    const active = screen.getByRole("link", { name: "Portfolio" });
+    Object.defineProperties(navigation, {
+      clientWidth: { configurable: true, value: 320 },
+      scrollWidth: { configurable: true, value: 960 },
+    });
+    Object.defineProperties(active, {
+      offsetLeft: { configurable: true, value: 700 },
+      offsetWidth: { configurable: true, value: 80 },
+    });
+
+    act(() => resizeCallback?.([], {} as ResizeObserver));
+
+    expect(navigation.scrollLeft).toBe(460);
+    expect(window.sessionStorage.getItem("arbion-navigation-scroll-left")).toBe(
+      "460",
+    );
+    unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 
   it("does not show switching feedback for the current route or a new-tab click", () => {
