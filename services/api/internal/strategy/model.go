@@ -428,32 +428,75 @@ type PaperAutonomyEvidenceGate struct {
 // projection of the readiness gate. It cannot score performance, recommend
 // promotion, grant authority, or expose a live execution path.
 type PaperAutonomyEvidenceReviewPacket struct {
-	Status                      string     `json:"status"`
-	CalculationMethod           string     `json:"calculation_method"`
-	EvidenceStartedAt           *time.Time `json:"evidence_started_at,omitempty"`
-	EvidenceEligibleAt          *time.Time `json:"evidence_eligible_at,omitempty"`
-	AsOf                        *time.Time `json:"as_of,omitempty"`
-	ElapsedSeconds              int64      `json:"elapsed_seconds"`
-	RemainingSeconds            int64      `json:"remaining_seconds"`
-	SchedulerSampleCount        int        `json:"scheduler_sample_count"`
-	SchedulerSuccessCount       int        `json:"scheduler_success_count"`
-	SchedulerFailureCount       int        `json:"scheduler_failure_count"`
-	SchedulerSafeWaitCount      int        `json:"scheduler_safe_wait_count"`
-	RouteContinuityStatus       string     `json:"route_continuity_status"`
-	InputCoverageStatus         string     `json:"input_coverage_status"`
-	InputFreshnessStatus        string     `json:"input_freshness_status"`
-	FreshnessThresholdSeconds   int64      `json:"freshness_threshold_seconds"`
-	MarketObservationCount      int        `json:"market_observation_count"`
-	FreshMarketDecisionCount    int        `json:"fresh_market_decision_count"`
-	MaximumMarketAgeSeconds     int64      `json:"maximum_market_age_seconds"`
-	FirstMarketObservedAt       *time.Time `json:"first_market_observed_at,omitempty"`
-	LatestMarketObservedAt      *time.Time `json:"latest_market_observed_at,omitempty"`
-	LedgerContractStatus        string     `json:"ledger_contract_status"`
-	NoLiveSafetyStatus          string     `json:"no_live_safety_status"`
-	EvidenceReadyForHumanReview bool       `json:"evidence_ready_for_human_review"`
-	OwnerGuidance               string     `json:"owner_guidance"`
-	GrantsAuthority             bool       `json:"grants_authority"`
-	LivePromotionAvailable      bool       `json:"live_promotion_available"`
+	Status                      string                                     `json:"status"`
+	CalculationMethod           string                                     `json:"calculation_method"`
+	EvidenceStartedAt           *time.Time                                 `json:"evidence_started_at,omitempty"`
+	EvidenceEligibleAt          *time.Time                                 `json:"evidence_eligible_at,omitempty"`
+	AsOf                        *time.Time                                 `json:"as_of,omitempty"`
+	ElapsedSeconds              int64                                      `json:"elapsed_seconds"`
+	RemainingSeconds            int64                                      `json:"remaining_seconds"`
+	SchedulerSampleCount        int                                        `json:"scheduler_sample_count"`
+	SchedulerSuccessCount       int                                        `json:"scheduler_success_count"`
+	SchedulerFailureCount       int                                        `json:"scheduler_failure_count"`
+	SchedulerSafeWaitCount      int                                        `json:"scheduler_safe_wait_count"`
+	RouteContinuityStatus       string                                     `json:"route_continuity_status"`
+	InputCoverageStatus         string                                     `json:"input_coverage_status"`
+	InputFreshnessStatus        string                                     `json:"input_freshness_status"`
+	FreshnessThresholdSeconds   int64                                      `json:"freshness_threshold_seconds"`
+	MarketObservationCount      int                                        `json:"market_observation_count"`
+	FreshMarketDecisionCount    int                                        `json:"fresh_market_decision_count"`
+	MaximumMarketAgeSeconds     int64                                      `json:"maximum_market_age_seconds"`
+	FirstMarketObservedAt       *time.Time                                 `json:"first_market_observed_at,omitempty"`
+	LatestMarketObservedAt      *time.Time                                 `json:"latest_market_observed_at,omitempty"`
+	LedgerContractStatus        string                                     `json:"ledger_contract_status"`
+	NoLiveSafetyStatus          string                                     `json:"no_live_safety_status"`
+	EvidenceReadyForHumanReview bool                                       `json:"evidence_ready_for_human_review"`
+	OwnerGuidance               string                                     `json:"owner_guidance"`
+	GrantsAuthority             bool                                       `json:"grants_authority"`
+	LivePromotionAvailable      bool                                       `json:"live_promotion_available"`
+	ThresholdChangeLedger       PaperAutonomyEvidenceThresholdChangeLedger `json:"threshold_change_ledger"`
+}
+
+// PaperAutonomyEvidenceThresholdChangeLedger compares a bounded set of
+// consecutive immutable scheduler checkpoints. It explains evidence progress
+// and regressions only; it cannot score performance or grant execution
+// authority.
+type PaperAutonomyEvidenceThresholdChangeLedger struct {
+	Status                 string                                     `json:"status"`
+	CalculationMethod      string                                     `json:"calculation_method"`
+	StrategyInstanceID     string                                     `json:"strategy_instance_id"`
+	ExecutionMode          ExecutionMode                              `json:"execution_mode"`
+	SourceRunCount         int                                        `json:"source_run_count"`
+	CheckpointCount        int                                        `json:"checkpoint_count"`
+	Capped                 bool                                       `json:"capped"`
+	Checkpoints            []PaperAutonomyEvidenceThresholdCheckpoint `json:"checkpoints"`
+	GrantsAuthority        bool                                       `json:"grants_authority"`
+	LivePromotionAvailable bool                                       `json:"live_promotion_available"`
+}
+
+type PaperAutonomyEvidenceThresholdCheckpoint struct {
+	ScheduleRunID          string                         `json:"schedule_run_id"`
+	PreviousScheduleRunID  string                         `json:"previous_schedule_run_id,omitempty"`
+	AsOf                   time.Time                      `json:"as_of"`
+	ElapsedSeconds         int64                          `json:"elapsed_seconds"`
+	RemainingSeconds       int64                          `json:"remaining_seconds"`
+	EvidenceWindowHours    int64                          `json:"evidence_window_hours"`
+	DecisionCount          int                            `json:"decision_count"`
+	DecisionDelta          int                            `json:"decision_delta"`
+	RouteContinuityStatus  string                         `json:"route_continuity_status"`
+	RouteContinuityChange  string                         `json:"route_continuity_change"`
+	InputCoverageStatus    string                         `json:"input_coverage_status"`
+	InputCoverageChange    string                         `json:"input_coverage_change"`
+	InputFreshnessStatus   string                         `json:"input_freshness_status"`
+	SchedulerStatus        string                         `json:"scheduler_status"`
+	ConsecutiveFailures    int                            `json:"consecutive_failures"`
+	SchedulerChange        string                         `json:"scheduler_change"`
+	EvidenceStatus         string                         `json:"evidence_status"`
+	ProgressClassification string                         `json:"progress_classification"`
+	Routes                 []PaperAutonomyEvidenceRoute   `json:"routes"`
+	Blockers               []PaperAutonomyEvidenceBlocker `json:"blockers"`
+	AddedBlockerCodes      []string                       `json:"added_blocker_codes"`
+	ResolvedBlockerCodes   []string                       `json:"resolved_blocker_codes"`
 }
 
 type PaperAutonomyEvidenceRoute struct {

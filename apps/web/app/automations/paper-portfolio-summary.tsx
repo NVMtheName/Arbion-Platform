@@ -507,6 +507,78 @@ export type PaperAutonomyEvidenceBlocker = {
   detail: string;
 };
 
+export type PaperAutonomyEvidenceThresholdCheckpoint = {
+  schedule_run_id: string;
+  previous_schedule_run_id?: string;
+  as_of: string;
+  elapsed_seconds: number;
+  remaining_seconds: number;
+  evidence_window_hours: number;
+  decision_count: number;
+  decision_delta: number;
+  route_continuity_status:
+    | "STABLE"
+    | "CONTEXT_CHANGED"
+    | "REVIEW_REQUIRED"
+    | "UNAVAILABLE";
+  route_continuity_change:
+    | "BASELINE"
+    | "UNCHANGED"
+    | "IMPROVED"
+    | "REGRESSED"
+    | "CONTEXT_CHANGED";
+  input_coverage_status: "COMPLETE" | "REVIEW_REQUIRED" | "UNAVAILABLE";
+  input_coverage_change:
+    | "BASELINE"
+    | "UNCHANGED"
+    | "IMPROVED"
+    | "REGRESSED"
+    | "CONTEXT_CHANGED";
+  input_freshness_status:
+    | "CURRENT_AT_DECISION"
+    | "REVIEW_REQUIRED"
+    | "UNAVAILABLE";
+  scheduler_status: "SUCCEEDED" | "FAILED" | "SKIPPED";
+  consecutive_failures: number;
+  scheduler_change:
+    | "BASELINE"
+    | "UNCHANGED"
+    | "INCIDENT_OPENED"
+    | "INCIDENT_CONTINUES"
+    | "RECOVERED"
+    | "SAFE_WAIT"
+    | "CONTEXT_CHANGED";
+  evidence_status:
+    | "COLLECTING_EVIDENCE"
+    | "EVIDENCE_REVIEWABLE"
+    | "REVIEW_REQUIRED"
+    | "UNAVAILABLE";
+  progress_classification:
+    | "BASELINE"
+    | "NORMAL_COLLECTION"
+    | "HELD"
+    | "REVIEW_REGRESSION"
+    | "RECOVERED"
+    | "CONTEXT_CHANGED";
+  routes: PaperAutonomyEvidenceGate["routes"];
+  blockers: PaperAutonomyEvidenceBlocker[];
+  added_blocker_codes: string[];
+  resolved_blocker_codes: string[];
+};
+
+export type PaperAutonomyEvidenceThresholdChangeLedger = {
+  status: "AVAILABLE" | "UNAVAILABLE";
+  calculation_method: "IMMUTABLE_PAPER_EVIDENCE_THRESHOLD_CHANGE_LEDGER";
+  strategy_instance_id: string;
+  execution_mode: "PAPER";
+  source_run_count: number;
+  checkpoint_count: number;
+  capped: boolean;
+  checkpoints: PaperAutonomyEvidenceThresholdCheckpoint[];
+  grants_authority: false;
+  live_promotion_available: false;
+};
+
 export type PaperAutonomyEvidenceReviewPacket = {
   status:
     | "COLLECTING_EVIDENCE"
@@ -545,6 +617,7 @@ export type PaperAutonomyEvidenceReviewPacket = {
   owner_guidance: string;
   grants_authority: false;
   live_promotion_available: false;
+  threshold_change_ledger: PaperAutonomyEvidenceThresholdChangeLedger;
 };
 
 export type PaperAutonomyEvidenceGate = {

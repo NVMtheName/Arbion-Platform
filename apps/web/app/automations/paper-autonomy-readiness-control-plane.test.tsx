@@ -276,6 +276,57 @@ describe("Paper autonomy readiness control plane", () => {
                 "No owner action is required while evidence collects.",
               grants_authority: false,
               live_promotion_available: false,
+              threshold_change_ledger: {
+                status: "AVAILABLE",
+                calculation_method:
+                  "IMMUTABLE_PAPER_EVIDENCE_THRESHOLD_CHANGE_LEDGER",
+                strategy_instance_id: "instance-1",
+                execution_mode: "PAPER",
+                source_run_count: 1,
+                checkpoint_count: 1,
+                capped: false,
+                checkpoints: [
+                  {
+                    schedule_run_id: "run-20",
+                    as_of: "2026-08-31T12:00:00Z",
+                    elapsed_seconds: 172800,
+                    remaining_seconds: 432000,
+                    evidence_window_hours: 48,
+                    decision_count: 20,
+                    decision_delta: 0,
+                    route_continuity_status: "STABLE",
+                    route_continuity_change: "BASELINE",
+                    input_coverage_status: "COMPLETE",
+                    input_coverage_change: "BASELINE",
+                    input_freshness_status: "CURRENT_AT_DECISION",
+                    scheduler_status: "SUCCEEDED",
+                    consecutive_failures: 0,
+                    scheduler_change: "BASELINE",
+                    evidence_status: "COLLECTING_EVIDENCE",
+                    progress_classification: "BASELINE",
+                    routes: [
+                      {
+                        ai_provider: "openai",
+                        model_id: "gpt-5.6-sol",
+                        profile: "deep",
+                        financial_provider: "coinbase",
+                        decision_count: 20,
+                      },
+                    ],
+                    blockers: [
+                      {
+                        code: "EVIDENCE_WINDOW_INCOMPLETE",
+                        category: "COLLECTION",
+                        detail: "Seven days have not elapsed yet.",
+                      },
+                    ],
+                    added_blocker_codes: [],
+                    resolved_blocker_codes: [],
+                  },
+                ],
+                grants_authority: false,
+                live_promotion_available: false,
+              },
             },
             blockers: [
               {
@@ -291,6 +342,9 @@ describe("Paper autonomy readiness control plane", () => {
     );
 
     expect(screen.getByText("Collecting evidence")).toBeInTheDocument();
+    expect(
+      screen.getByText("Evidence threshold change ledger"),
+    ).toBeInTheDocument();
     expect(
       screen.getByText("Automatic decisions").closest("div"),
     ).toHaveTextContent("20 / 20");

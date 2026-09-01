@@ -22,6 +22,9 @@ import {
 import { reconcilePaperOutcome } from "./paper-outcome-reconciliation";
 import type {
   PaperAutonomyEvidenceGate,
+  PaperAutonomyEvidenceBlocker,
+  PaperAutonomyEvidenceThresholdChangeLedger,
+  PaperAutonomyEvidenceThresholdCheckpoint,
   PaperActivityCadence,
   PaperActivityWindow,
   PaperDenialEligibility,
@@ -3236,6 +3239,415 @@ function normalizedPaperActivityCadence(
   };
 }
 
+function normalizedPaperEvidenceThresholdChangeLedger(
+  value: unknown,
+): PaperAutonomyEvidenceThresholdChangeLedger | undefined {
+  const ledger = record(value);
+  const status = text(ledger, "status", "Status");
+  const method = text(ledger, "calculation_method", "CalculationMethod");
+  const strategyInstanceID = text(
+    ledger,
+    "strategy_instance_id",
+    "StrategyInstanceID",
+  );
+  const executionMode = text(ledger, "execution_mode", "ExecutionMode");
+  const sourceRunCount = number(ledger, "source_run_count", "SourceRunCount");
+  const checkpointCount = number(ledger, "checkpoint_count", "CheckpointCount");
+  const capped = flag(ledger, "capped", "Capped");
+  const grantsAuthority = flag(ledger, "grants_authority", "GrantsAuthority");
+  const livePromotionAvailable = flag(
+    ledger,
+    "live_promotion_available",
+    "LivePromotionAvailable",
+  );
+  const rawCheckpoints = ledger?.checkpoints ?? ledger?.Checkpoints;
+  if (
+    !["AVAILABLE", "UNAVAILABLE"].includes(status ?? "") ||
+    method !== "IMMUTABLE_PAPER_EVIDENCE_THRESHOLD_CHANGE_LEDGER" ||
+    !strategyInstanceID ||
+    executionMode !== "PAPER" ||
+    sourceRunCount === undefined ||
+    !Number.isInteger(sourceRunCount) ||
+    sourceRunCount < 0 ||
+    checkpointCount === undefined ||
+    !Number.isInteger(checkpointCount) ||
+    checkpointCount < 0 ||
+    capped === undefined ||
+    grantsAuthority !== false ||
+    livePromotionAvailable !== false ||
+    !Array.isArray(rawCheckpoints)
+  )
+    return;
+  if (status === "UNAVAILABLE") {
+    if (checkpointCount !== 0 || rawCheckpoints.length !== 0) return;
+    return {
+      status,
+      calculation_method: method,
+      strategy_instance_id: strategyInstanceID,
+      execution_mode: "PAPER",
+      source_run_count: sourceRunCount,
+      checkpoint_count: 0,
+      capped,
+      checkpoints: [],
+      grants_authority: false,
+      live_promotion_available: false,
+    };
+  }
+  if (
+    checkpointCount === 0 ||
+    checkpointCount > 6 ||
+    checkpointCount !== rawCheckpoints.length ||
+    sourceRunCount < checkpointCount ||
+    capped !== sourceRunCount > 6
+  )
+    return;
+
+  const checkpoints: PaperAutonomyEvidenceThresholdCheckpoint[] = [];
+  const seenRunIDs = new Set<string>();
+  for (const rawCheckpoint of rawCheckpoints) {
+    const checkpoint = record(rawCheckpoint);
+    const scheduleRunID = text(checkpoint, "schedule_run_id", "ScheduleRunID");
+    const previousScheduleRunID = text(
+      checkpoint,
+      "previous_schedule_run_id",
+      "PreviousScheduleRunID",
+    );
+    const asOf = text(checkpoint, "as_of", "AsOf");
+    const elapsedSeconds = number(
+      checkpoint,
+      "elapsed_seconds",
+      "ElapsedSeconds",
+    );
+    const remainingSeconds = number(
+      checkpoint,
+      "remaining_seconds",
+      "RemainingSeconds",
+    );
+    const evidenceWindowHours = number(
+      checkpoint,
+      "evidence_window_hours",
+      "EvidenceWindowHours",
+    );
+    const decisionCount = number(checkpoint, "decision_count", "DecisionCount");
+    const decisionDelta = number(checkpoint, "decision_delta", "DecisionDelta");
+    const routeContinuityStatus = text(
+      checkpoint,
+      "route_continuity_status",
+      "RouteContinuityStatus",
+    );
+    const routeContinuityChange = text(
+      checkpoint,
+      "route_continuity_change",
+      "RouteContinuityChange",
+    );
+    const inputCoverageStatus = text(
+      checkpoint,
+      "input_coverage_status",
+      "InputCoverageStatus",
+    );
+    const inputCoverageChange = text(
+      checkpoint,
+      "input_coverage_change",
+      "InputCoverageChange",
+    );
+    const inputFreshnessStatus = text(
+      checkpoint,
+      "input_freshness_status",
+      "InputFreshnessStatus",
+    );
+    const schedulerStatus = text(
+      checkpoint,
+      "scheduler_status",
+      "SchedulerStatus",
+    );
+    const consecutiveFailures = number(
+      checkpoint,
+      "consecutive_failures",
+      "ConsecutiveFailures",
+    );
+    const schedulerChange = text(
+      checkpoint,
+      "scheduler_change",
+      "SchedulerChange",
+    );
+    const evidenceStatus = text(
+      checkpoint,
+      "evidence_status",
+      "EvidenceStatus",
+    );
+    const progressClassification = text(
+      checkpoint,
+      "progress_classification",
+      "ProgressClassification",
+    );
+    const rawRoutes = checkpoint?.routes ?? checkpoint?.Routes;
+    const rawBlockers = checkpoint?.blockers ?? checkpoint?.Blockers;
+    const rawAdded =
+      checkpoint?.added_blocker_codes ?? checkpoint?.AddedBlockerCodes;
+    const rawResolved =
+      checkpoint?.resolved_blocker_codes ?? checkpoint?.ResolvedBlockerCodes;
+    if (
+      !scheduleRunID ||
+      seenRunIDs.has(scheduleRunID) ||
+      !asOf ||
+      Number.isNaN(Date.parse(asOf)) ||
+      elapsedSeconds === undefined ||
+      !Number.isInteger(elapsedSeconds) ||
+      elapsedSeconds < 0 ||
+      remainingSeconds === undefined ||
+      !Number.isInteger(remainingSeconds) ||
+      remainingSeconds < 0 ||
+      evidenceWindowHours === undefined ||
+      !Number.isInteger(evidenceWindowHours) ||
+      evidenceWindowHours < 0 ||
+      evidenceWindowHours > 168 ||
+      decisionCount === undefined ||
+      !Number.isInteger(decisionCount) ||
+      decisionCount < 0 ||
+      decisionDelta === undefined ||
+      !Number.isInteger(decisionDelta) ||
+      !["STABLE", "CONTEXT_CHANGED", "REVIEW_REQUIRED", "UNAVAILABLE"].includes(
+        routeContinuityStatus ?? "",
+      ) ||
+      ![
+        "BASELINE",
+        "UNCHANGED",
+        "IMPROVED",
+        "REGRESSED",
+        "CONTEXT_CHANGED",
+      ].includes(routeContinuityChange ?? "") ||
+      !["COMPLETE", "REVIEW_REQUIRED", "UNAVAILABLE"].includes(
+        inputCoverageStatus ?? "",
+      ) ||
+      ![
+        "BASELINE",
+        "UNCHANGED",
+        "IMPROVED",
+        "REGRESSED",
+        "CONTEXT_CHANGED",
+      ].includes(inputCoverageChange ?? "") ||
+      !["CURRENT_AT_DECISION", "REVIEW_REQUIRED", "UNAVAILABLE"].includes(
+        inputFreshnessStatus ?? "",
+      ) ||
+      !["SUCCEEDED", "FAILED", "SKIPPED"].includes(schedulerStatus ?? "") ||
+      consecutiveFailures === undefined ||
+      !Number.isInteger(consecutiveFailures) ||
+      consecutiveFailures < 0 ||
+      ![
+        "BASELINE",
+        "UNCHANGED",
+        "INCIDENT_OPENED",
+        "INCIDENT_CONTINUES",
+        "RECOVERED",
+        "SAFE_WAIT",
+        "CONTEXT_CHANGED",
+      ].includes(schedulerChange ?? "") ||
+      ![
+        "COLLECTING_EVIDENCE",
+        "EVIDENCE_REVIEWABLE",
+        "REVIEW_REQUIRED",
+        "UNAVAILABLE",
+      ].includes(evidenceStatus ?? "") ||
+      ![
+        "BASELINE",
+        "NORMAL_COLLECTION",
+        "HELD",
+        "REVIEW_REGRESSION",
+        "RECOVERED",
+        "CONTEXT_CHANGED",
+      ].includes(progressClassification ?? "") ||
+      !Array.isArray(rawRoutes) ||
+      !Array.isArray(rawBlockers) ||
+      !Array.isArray(rawAdded) ||
+      !Array.isArray(rawResolved)
+    )
+      return;
+    seenRunIDs.add(scheduleRunID);
+
+    const routes: PaperAutonomyEvidenceGate["routes"] = [];
+    let attributedCount = 0;
+    let previousRouteKey = "";
+    for (const rawRoute of rawRoutes) {
+      const route = record(rawRoute);
+      const aiProvider = text(route, "ai_provider", "AIProvider");
+      const modelID = text(route, "model_id", "ModelID");
+      const profile = text(route, "profile", "Profile");
+      const financialProvider = text(
+        route,
+        "financial_provider",
+        "FinancialProvider",
+      );
+      const routeDecisionCount = number(
+        route,
+        "decision_count",
+        "DecisionCount",
+      );
+      const routeKey = `${aiProvider}\u0000${modelID}\u0000${profile}\u0000${financialProvider}`;
+      if (
+        !aiProvider ||
+        !modelID ||
+        !profile ||
+        !financialProvider ||
+        routeDecisionCount === undefined ||
+        !Number.isInteger(routeDecisionCount) ||
+        routeDecisionCount <= 0 ||
+        (previousRouteKey && routeKey <= previousRouteKey)
+      )
+        return;
+      previousRouteKey = routeKey;
+      attributedCount += routeDecisionCount;
+      routes.push({
+        ai_provider: aiProvider,
+        model_id: modelID,
+        profile,
+        financial_provider: financialProvider,
+        decision_count: routeDecisionCount,
+      });
+    }
+    if (
+      attributedCount > decisionCount ||
+      (inputCoverageStatus === "COMPLETE" &&
+        attributedCount !== decisionCount) ||
+      (routeContinuityStatus === "STABLE" && routes.length !== 1)
+    )
+      return;
+
+    const blockers: PaperAutonomyEvidenceBlocker[] = [];
+    let previousBlockerCode = "";
+    for (const rawBlocker of rawBlockers) {
+      const blocker = record(rawBlocker);
+      const code = text(blocker, "code", "Code");
+      const category = text(blocker, "category", "Category");
+      const detail = text(blocker, "detail", "Detail");
+      if (
+        !code ||
+        (previousBlockerCode && code <= previousBlockerCode) ||
+        !["COLLECTION", "REVIEW", "UNAVAILABLE"].includes(category ?? "") ||
+        !detail
+      )
+        return;
+      previousBlockerCode = code;
+      blockers.push({
+        code,
+        category: category as PaperAutonomyEvidenceBlocker["category"],
+        detail,
+      });
+    }
+    const hasUnavailable = blockers.some(
+      (blocker) => blocker.category === "UNAVAILABLE",
+    );
+    const hasReview = blockers.some((blocker) => blocker.category === "REVIEW");
+    const hasCollection = blockers.some(
+      (blocker) => blocker.category === "COLLECTION",
+    );
+    if (
+      (evidenceStatus === "EVIDENCE_REVIEWABLE" && blockers.length !== 0) ||
+      (evidenceStatus === "COLLECTING_EVIDENCE" &&
+        (!hasCollection || hasReview || hasUnavailable)) ||
+      (evidenceStatus === "REVIEW_REQUIRED" &&
+        (!hasReview || hasUnavailable)) ||
+      (evidenceStatus === "UNAVAILABLE" && !hasUnavailable)
+    )
+      return;
+
+    const normalizedCodeList = (raw: unknown[]) => {
+      const codes: string[] = [];
+      for (const value of raw) {
+        if (typeof value !== "string" || !value || codes.includes(value))
+          return;
+        codes.push(value);
+      }
+      if ([...codes].sort().some((code, index) => code !== codes[index]))
+        return;
+      return codes;
+    };
+    const addedBlockerCodes = normalizedCodeList(rawAdded);
+    const resolvedBlockerCodes = normalizedCodeList(rawResolved);
+    if (
+      !addedBlockerCodes ||
+      !resolvedBlockerCodes ||
+      addedBlockerCodes.some((code) => resolvedBlockerCodes.includes(code))
+    )
+      return;
+
+    const prior = checkpoints.at(-1);
+    if (
+      (!prior && !capped && previousScheduleRunID) ||
+      (prior && previousScheduleRunID !== prior.schedule_run_id) ||
+      (!prior && decisionDelta !== 0) ||
+      (prior && decisionDelta !== decisionCount - prior.decision_count) ||
+      (prior && Date.parse(asOf) <= Date.parse(prior.as_of)) ||
+      (prior && elapsedSeconds <= prior.elapsed_seconds) ||
+      (prior && remainingSeconds > prior.remaining_seconds)
+    )
+      return;
+    if (prior) {
+      const previousCodes = new Set(
+        prior.blockers.map((blocker) => blocker.code),
+      );
+      const currentCodes = new Set(blockers.map((blocker) => blocker.code));
+      const exactAdded = [...currentCodes]
+        .filter((code) => !previousCodes.has(code))
+        .sort();
+      const exactResolved = [...previousCodes]
+        .filter((code) => !currentCodes.has(code))
+        .sort();
+      if (
+        exactAdded.join("\u0000") !== addedBlockerCodes.join("\u0000") ||
+        exactResolved.join("\u0000") !== resolvedBlockerCodes.join("\u0000")
+      )
+        return;
+    }
+
+    checkpoints.push({
+      schedule_run_id: scheduleRunID,
+      previous_schedule_run_id: previousScheduleRunID,
+      as_of: asOf,
+      elapsed_seconds: elapsedSeconds,
+      remaining_seconds: remainingSeconds,
+      evidence_window_hours: evidenceWindowHours,
+      decision_count: decisionCount,
+      decision_delta: decisionDelta,
+      route_continuity_status:
+        routeContinuityStatus as PaperAutonomyEvidenceThresholdCheckpoint["route_continuity_status"],
+      route_continuity_change:
+        routeContinuityChange as PaperAutonomyEvidenceThresholdCheckpoint["route_continuity_change"],
+      input_coverage_status:
+        inputCoverageStatus as PaperAutonomyEvidenceThresholdCheckpoint["input_coverage_status"],
+      input_coverage_change:
+        inputCoverageChange as PaperAutonomyEvidenceThresholdCheckpoint["input_coverage_change"],
+      input_freshness_status:
+        inputFreshnessStatus as PaperAutonomyEvidenceThresholdCheckpoint["input_freshness_status"],
+      scheduler_status:
+        schedulerStatus as PaperAutonomyEvidenceThresholdCheckpoint["scheduler_status"],
+      consecutive_failures: consecutiveFailures,
+      scheduler_change:
+        schedulerChange as PaperAutonomyEvidenceThresholdCheckpoint["scheduler_change"],
+      evidence_status:
+        evidenceStatus as PaperAutonomyEvidenceThresholdCheckpoint["evidence_status"],
+      progress_classification:
+        progressClassification as PaperAutonomyEvidenceThresholdCheckpoint["progress_classification"],
+      routes,
+      blockers,
+      added_blocker_codes: addedBlockerCodes,
+      resolved_blocker_codes: resolvedBlockerCodes,
+    });
+  }
+
+  return {
+    status: "AVAILABLE",
+    calculation_method: method,
+    strategy_instance_id: strategyInstanceID,
+    execution_mode: "PAPER",
+    source_run_count: sourceRunCount,
+    checkpoint_count: checkpointCount,
+    capped,
+    checkpoints,
+    grants_authority: false,
+    live_promotion_available: false,
+  };
+}
+
 function normalizedPaperEvidenceReadiness(
   value: unknown,
 ): PaperAutonomyEvidenceGate | undefined {
@@ -3284,6 +3696,10 @@ function normalizedPaperEvidenceReadiness(
   const rawBlockers = gate?.blockers ?? gate?.Blockers;
   const safety = record(gate?.safety ?? gate?.Safety);
   const reviewPacket = record(gate?.review_packet ?? gate?.ReviewPacket);
+  const thresholdChangeLedger = normalizedPaperEvidenceThresholdChangeLedger(
+    reviewPacket?.threshold_change_ledger ??
+      reviewPacket?.ThresholdChangeLedger,
+  );
   const ledgerReconciled = flag(
     gate,
     "ledger_contracts_reconciled",
@@ -3316,6 +3732,7 @@ function normalizedPaperEvidenceReadiness(
     attributed === undefined ||
     telemetry === undefined ||
     boundedMemory === undefined ||
+    !thresholdChangeLedger ||
     ledgerReconciled === undefined ||
     liveExecutionAvailable !== false ||
     !Array.isArray(rawRoutes) ||
@@ -3684,6 +4101,7 @@ function normalizedPaperEvidenceReadiness(
       owner_guidance: ownerGuidance,
       grants_authority: false,
       live_promotion_available: false,
+      threshold_change_ledger: thresholdChangeLedger,
     },
     blockers,
     live_execution_available: false,
@@ -3731,6 +4149,9 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
     !updatedAt ||
     Number.isNaN(Date.parse(updatedAt)) ||
     !strategyInstanceID ||
+    (evidenceReadiness &&
+      evidenceReadiness.review_packet.threshold_change_ledger
+        .strategy_instance_id !== strategyInstanceID) ||
     !Array.isArray(rawPositions)
   )
     return;

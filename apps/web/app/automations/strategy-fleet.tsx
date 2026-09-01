@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { compareExactDecimals } from "../exact-money";
+import { PaperEvidenceThresholdChangeLedger } from "./paper-evidence-threshold-change-ledger";
 import type {
   PaperActivityCadence,
   PaperAutonomyEvidenceGate,
@@ -6092,6 +6093,10 @@ function StrategyFleetPaperEvidenceGate({ item }: { item: StrategyFleetItem }) {
               </div>
             </dl>
           </section>
+          <PaperEvidenceThresholdChangeLedger
+            ledger={gate!.review_packet.threshold_change_ledger}
+            detailHref={`/automations/${encodeURIComponent(item.id)}#runtime-evidence`}
+          />
           <dl>
             <div>
               <dt>Evidence window</dt>

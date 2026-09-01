@@ -1,4 +1,5 @@
 import { compareExactDecimals, formatExactMoney } from "../exact-money";
+import { PaperEvidenceThresholdChangeLedger } from "./paper-evidence-threshold-change-ledger";
 import type { PaperPortfolio } from "./paper-portfolio-summary";
 
 type Entity = Record<string, unknown> | null | undefined;
@@ -644,6 +645,9 @@ export function PaperAutonomyReadinessControlPlane(props: Props) {
                 </div>
               </dl>
             </section>
+            <PaperEvidenceThresholdChangeLedger
+              ledger={evidenceGate!.review_packet.threshold_change_ledger}
+            />
             <dl>
               <div>
                 <dt>Saved evidence window</dt>
