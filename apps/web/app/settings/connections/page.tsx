@@ -3,6 +3,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppPageHeader } from "../../app-page-header";
 import { ConnectionsManager } from "./connections-manager";
+import {
+  FinancialContinuityCenter,
+  type FinancialContinuityEngine,
+  type FinancialContinuityRun,
+} from "./financial-continuity-center";
 import { FinancialManager } from "./financial-manager";
 
 export type Connection = {
@@ -42,8 +47,8 @@ export type FinancialConnection = {
   runtime_protected: boolean;
   protected_mandate_count: number;
   active_strategy_count: number;
-  last_synced_at?: string;
-  authorization_expires_at?: string;
+  last_synced_at?: string | null;
+  authorization_expires_at?: string | null;
 };
 export type FinancialAccount = {
   id: string;
@@ -51,18 +56,73 @@ export type FinancialAccount = {
   provider: string;
   display_name: string;
   status: string;
+  last_synced_at?: string | null;
   capabilities?: Record<string, "SUPPORTED" | "UNSUPPORTED" | "UNKNOWN">;
 };
 export type NeuralPreference = {
   connection_id: string;
   model_id: string;
 };
+
+type StrategyInstance = {
+  id?: string;
+  automation_mandate_id?: string;
+  financial_account_id?: string;
+  strategy_identifier?: string;
+  execution_mode?: string;
+  current_state?: string;
+  status?: string;
+};
+
+type StrategySchedule = {
+  last_status?: string;
+  last_completed_at?: string;
+  next_run_at?: string;
+  consecutive_failures?: number;
+};
+
+function continuityScheduleTiming(nextRunAt: string | undefined, now: Date) {
+  if (!nextRunAt || Number.isNaN(now.valueOf())) return "UNAVAILABLE" as const;
+  const nextRun = new Date(nextRunAt);
+  if (Number.isNaN(nextRun.valueOf())) return "UNAVAILABLE" as const;
+  return nextRun.valueOf() < now.valueOf() - 5 * 60 * 1000
+    ? ("OVERDUE" as const)
+    : ("ON_SCHEDULE" as const);
+}
+
+async function optionalJSON<T>(url: string, cookie: string) {
+  try {
+    const response = await fetch(url, {
+      headers: { cookie },
+      cache: "no-store",
+    });
+    if (!response.ok)
+      return {
+        available: false as const,
+        status: response.status,
+        payload: undefined,
+      };
+    return {
+      available: true as const,
+      status: response.status,
+      payload: (await response.json()) as T,
+    };
+  } catch {
+    return {
+      available: false as const,
+      status: undefined,
+      payload: undefined,
+    };
+  }
+}
 export default async function ConnectionsPage() {
   const jar = await cookies();
-  const response = await fetch(
-    `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/connections/ai`,
-    { headers: { cookie: jar.toString() }, cache: "no-store" },
-  );
+  const cookie = jar.toString();
+  const base = process.env.API_BASE_URL ?? "http://localhost:8080";
+  const response = await fetch(`${base}/api/connections/ai`, {
+    headers: { cookie },
+    cache: "no-store",
+  });
   if (response.status === 401) redirect("/login");
   if (!response.ok) throw new Error("Unable to load provider connections");
   const data = (await response.json()) as {
@@ -71,8 +131,8 @@ export default async function ConnectionsPage() {
     can_use_neural_engine: boolean;
   };
   const financialResponse = await fetch(
-    `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/connections/financial/providers`,
-    { headers: { cookie: jar.toString() }, cache: "no-store" },
+    `${base}/api/connections/financial/providers`,
+    { headers: { cookie }, cache: "no-store" },
   );
   const financial = financialResponse.ok
     ? ((await financialResponse.json()) as {
@@ -80,32 +140,69 @@ export default async function ConnectionsPage() {
         can_connect_financial_accounts: boolean;
       })
     : { providers: [], can_connect_financial_accounts: false };
-  const [connectionsResponse, accountsResponse, preferenceResponse] =
-    await Promise.all([
-      fetch(
-        `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/connections/financial`,
-        { headers: { cookie: jar.toString() }, cache: "no-store" },
-      ),
-      fetch(
-        `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/accounts`,
-        { headers: { cookie: jar.toString() }, cache: "no-store" },
-      ),
-      fetch(
-        `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/settings/neural-engine`,
-        { headers: { cookie: jar.toString() }, cache: "no-store" },
-      ),
-    ]);
-  const financialConnections = connectionsResponse.ok
-    ? (
-        (await connectionsResponse.json()) as {
-          connections: FinancialConnection[];
-        }
-      ).connections
+  const [
+    connectionsResponse,
+    accountsResponse,
+    preferenceResponse,
+    instancesResponse,
+  ] = await Promise.all([
+    fetch(`${base}/api/connections/financial`, {
+      headers: { cookie },
+      cache: "no-store",
+    }),
+    fetch(`${base}/api/accounts`, { headers: { cookie }, cache: "no-store" }),
+    fetch(`${base}/api/settings/neural-engine`, {
+      headers: { cookie },
+      cache: "no-store",
+    }),
+    fetch(`${base}/api/strategy-instances`, {
+      headers: { cookie },
+      cache: "no-store",
+    }),
+  ]);
+  if (
+    [
+      connectionsResponse,
+      accountsResponse,
+      preferenceResponse,
+      instancesResponse,
+    ].some((result) => result.status === 401)
+  )
+    redirect("/login");
+  const financialConnectionsPayload = connectionsResponse.ok
+    ? ((await connectionsResponse.json()) as {
+        connections?: FinancialConnection[];
+      })
+    : undefined;
+  const financialAccountsPayload = accountsResponse.ok
+    ? ((await accountsResponse.json()) as { accounts?: FinancialAccount[] })
+    : undefined;
+  const strategyInstancesPayload = instancesResponse.ok
+    ? ((await instancesResponse.json()) as {
+        strategy_instances?: StrategyInstance[];
+      })
+    : undefined;
+  const financialConnections = Array.isArray(
+    financialConnectionsPayload?.connections,
+  )
+    ? financialConnectionsPayload.connections
     : [];
-  const financialAccounts = accountsResponse.ok
-    ? ((await accountsResponse.json()) as { accounts: FinancialAccount[] })
-        .accounts
+  const financialAccounts = Array.isArray(financialAccountsPayload?.accounts)
+    ? financialAccountsPayload.accounts
     : [];
+  const strategyInstances = Array.isArray(
+    strategyInstancesPayload?.strategy_instances,
+  )
+    ? strategyInstancesPayload.strategy_instances
+    : [];
+  const continuityInventoryAvailable = Boolean(
+    connectionsResponse.ok &&
+      accountsResponse.ok &&
+      instancesResponse.ok &&
+      Array.isArray(financialConnectionsPayload?.connections) &&
+      Array.isArray(financialAccountsPayload?.accounts) &&
+      Array.isArray(strategyInstancesPayload?.strategy_instances),
+  );
   const preference = preferenceResponse.ok
     ? (
         (await preferenceResponse.json()) as {
@@ -113,6 +210,82 @@ export default async function ConnectionsPage() {
         }
       ).preference
     : null;
+  const continuityObservedAt = new Date();
+  const continuityEngines = await Promise.all(
+    strategyInstances
+      .filter(
+        (instance) =>
+          instance.strategy_identifier === "ai_shadow" &&
+          instance.status === "ACTIVE",
+      )
+      .map(async (instance): Promise<FinancialContinuityEngine> => {
+        const account = financialAccounts.find(
+          (candidate) => candidate.id === instance.financial_account_id,
+        );
+        const instanceID = instance.id ?? "";
+        const [scheduleResult, historyResult] = await Promise.all([
+          instanceID
+            ? optionalJSON<{ schedule?: StrategySchedule }>(
+                `${base}/api/strategy-instances/${encodeURIComponent(instanceID)}/schedule`,
+                cookie,
+              )
+            : Promise.resolve({
+                available: false as const,
+                status: undefined,
+                payload: undefined,
+              }),
+          instanceID
+            ? optionalJSON<{
+                runs?: FinancialContinuityRun[];
+                history_semantics?: string;
+                broker_action_available?: boolean;
+                live_execution_available?: boolean;
+              }>(
+                `${base}/api/strategy-instances/${encodeURIComponent(instanceID)}/schedule-runs?limit=12`,
+                cookie,
+              )
+            : Promise.resolve({
+                available: false as const,
+                status: undefined,
+                payload: undefined,
+              }),
+        ]);
+        if (scheduleResult.status === 401 || historyResult.status === 401)
+          redirect("/login");
+        const schedule = scheduleResult.payload?.schedule;
+        const recentRuns = Array.isArray(historyResult.payload?.runs)
+          ? historyResult.payload.runs
+          : [];
+        return {
+          mandate_id: instance.automation_mandate_id,
+          instance_id: instance.id,
+          connection_id: account?.provider_connection_id,
+          account_id: account?.id,
+          account_name: account?.display_name,
+          provider: account?.provider,
+          execution_mode: instance.execution_mode,
+          instance_status: instance.status,
+          current_state: instance.current_state,
+          schedule_available: scheduleResult.available,
+          schedule_history_available: Boolean(
+            historyResult.available &&
+              historyResult.payload?.history_semantics ===
+                "IMMUTABLE_NONLIVE_SCHEDULER_EVIDENCE" &&
+              historyResult.payload?.broker_action_available === false &&
+              historyResult.payload?.live_execution_available === false,
+          ),
+          schedule_status: schedule?.last_status,
+          schedule_completed_at: schedule?.last_completed_at,
+          schedule_next_run_at: schedule?.next_run_at,
+          schedule_timing_status: continuityScheduleTiming(
+            schedule?.next_run_at,
+            continuityObservedAt,
+          ),
+          consecutive_failures: schedule?.consecutive_failures,
+          recent_runs: recentRuns,
+        };
+      }),
+  );
   const activeFinancialConnectionIDs = new Set(
     financialConnections
       .filter((connection) => connection.status === "active")
@@ -217,6 +390,13 @@ export default async function ConnectionsPage() {
             Arbion never asks for your brokerage password.
           </p>
         </header>
+        <FinancialContinuityCenter
+          connections={financialConnections}
+          accounts={financialAccounts}
+          engines={continuityEngines}
+          observedAt={continuityObservedAt.toISOString()}
+          contextAvailable={continuityInventoryAvailable}
+        />
         <div className="financial-provider-grid">
           {availableFinancialProviders.map((provider) => (
             <article className="financial-provider-card" key={provider.id}>
