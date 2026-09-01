@@ -31,6 +31,40 @@ export type FinancialContinuityEngine = {
   schedule_timing_status?: "ON_SCHEDULE" | "OVERDUE" | "UNAVAILABLE";
   consecutive_failures?: number;
   recent_runs: FinancialContinuityRun[];
+  market_scope_available?: boolean;
+  market_symbols?: string[];
+  required_market_quality?: string;
+};
+
+export type SchwabMarketDataReadiness = {
+  status: "READY" | "ATTENTION" | "UNAVAILABLE";
+  engineCount: number;
+  readyCount: number;
+  attentionCount: number;
+  unavailableCount: number;
+  engines: Array<{
+    mandateID: string;
+    instanceID: string;
+    accountName: string;
+    connectionStatus: string;
+    state:
+      | "READY"
+      | "ENTITLEMENT_REVIEW"
+      | "AUTHORIZATION_REVIEW"
+      | "AUTOMATIC_RETRY"
+      | "OPERATOR_REVIEW"
+      | "SESSION_WAIT"
+      | "UNAVAILABLE";
+    label: string;
+    guidance: string;
+    symbols: string[];
+    requiredQuality: string;
+    scheduleStatus: string;
+    errorCode?: string;
+    consecutiveFailures: number;
+    completedAt: string;
+    nextRunAt: string;
+  }>;
 };
 
 export type FinancialContinuityState =
@@ -76,6 +110,13 @@ export type FinancialContinuityProjection = {
 };
 
 const connectionFailureCodes = new Set(["RECONCILIATION_REFRESH_FAILED"]);
+const schwabAutomaticRetryCodes = new Set([
+  "PROVIDER",
+  "PROVIDER_UNAVAILABLE",
+  "RATE_LIMITED",
+  "TIMEOUT",
+  "MARKET_DATA_STALE",
+]);
 
 function milliseconds(value?: string | null) {
   if (!value) return;
@@ -434,6 +475,155 @@ export function projectFinancialContinuityCenter({
   };
 }
 
+export function projectSchwabMarketDataReadiness({
+  connections,
+  engines,
+}: {
+  connections: FinancialConnection[];
+  engines: FinancialContinuityEngine[];
+}): SchwabMarketDataReadiness {
+  const schwabConnections = connections.filter(
+    (connection) => connection.provider === "schwab",
+  );
+  const projected = engines
+    .filter(
+      (engine) =>
+        engine.provider === "schwab" && engine.instance_status === "ACTIVE",
+    )
+    .map((engine) => {
+      const connection = schwabConnections.find(
+        (candidate) => candidate.id === engine.connection_id,
+      );
+      const latest = engine.recent_runs[0];
+      const symbols = engine.market_symbols ?? [];
+      const exact = Boolean(
+        connection &&
+          engine.mandate_id &&
+          engine.instance_id &&
+          engine.account_name &&
+          engine.execution_mode === "SHADOW" &&
+          engine.current_state === "AI_MONITORING" &&
+          engine.schedule_available &&
+          engine.schedule_history_available &&
+          engine.schedule_timing_status &&
+          engine.schedule_timing_status !== "UNAVAILABLE" &&
+          engine.market_scope_available === true &&
+          symbols.length > 0 &&
+          new Set(symbols).size === symbols.length &&
+          symbols.every((symbol) => /^[A-Z][A-Z0-9.\-]{0,14}$/.test(symbol)) &&
+          engine.required_market_quality === "BROKER_REALTIME" &&
+          Number.isInteger(engine.consecutive_failures) &&
+          (engine.consecutive_failures ?? -1) >= 0 &&
+          latest &&
+          validRun(latest) &&
+          latest.status === engine.schedule_status &&
+          latest.consecutive_failures === engine.consecutive_failures &&
+          sameInstant(latest.completed_at, engine.schedule_completed_at) &&
+          sameInstant(latest.next_run_at, engine.schedule_next_run_at),
+      );
+      if (!exact) {
+        return {
+          mandateID: engine.mandate_id ?? "",
+          instanceID: engine.instance_id ?? "",
+          accountName: engine.account_name ?? "Schwab account",
+          connectionStatus: connection?.status ?? "unavailable",
+          state: "UNAVAILABLE" as const,
+          label: "Readiness evidence unavailable",
+          guidance:
+            "Arbion cannot prove the exact connection, configured symbol scope, required quote quality, and newest scheduler result as one saved chain. No readiness is inferred.",
+          symbols,
+          requiredQuality: engine.required_market_quality ?? "BROKER_REALTIME",
+          scheduleStatus: engine.schedule_status ?? "UNAVAILABLE",
+          errorCode: latest?.error_code ?? undefined,
+          consecutiveFailures: engine.consecutive_failures ?? 0,
+          completedAt: engine.schedule_completed_at ?? "",
+          nextRunAt: engine.schedule_next_run_at ?? "",
+        };
+      }
+
+      const code = latest?.error_code ?? undefined;
+      let state: SchwabMarketDataReadiness["engines"][number]["state"] =
+        "UNAVAILABLE";
+      let label = "Readiness evidence unavailable";
+      let guidance =
+        "Review the exact saved scheduler evidence. Arbion will not infer market-data readiness.";
+      if (connection!.status !== "active") {
+        state = "AUTHORIZATION_REVIEW";
+        label = "Authorization needs review";
+        guidance =
+          "Schwab authorization is not active. Use the existing reconnect control; no market-data readiness is inferred until the connection is active again.";
+      } else if (engine.schedule_status === "SUCCEEDED" && !code) {
+        state = "READY";
+        label = "Broker real-time check passed";
+        guidance =
+          "The newest saved cycle passed the strict Schwab real-time quote gate. No owner action is required; the next guarded cycle remains automatic.";
+      } else if (
+        engine.schedule_status === "SKIPPED" &&
+        code === "OUTSIDE_SESSION"
+      ) {
+        state = "SESSION_WAIT";
+        label = "Waiting for market session";
+        guidance =
+          "The connection is active. Arbion is waiting for the next supported U.S. equities session before checking Schwab quote quality again.";
+      } else if (code === "MARKET_DATA_NOT_REALTIME") {
+        state = "ENTITLEMENT_REVIEW";
+        label = "Connected; real-time quote not confirmed";
+        guidance = `Schwab authorization is active, but the newest saved ${symbols.join(" / ")} quote did not explicitly report real-time quality. Review the Schwab account or app's market-data entitlement; reconnecting alone does not prove quote entitlement. Arbion will check again automatically at the next guarded cycle.`;
+      } else if (
+        code === "AUTHORIZATION_FAILED" ||
+        code === "AUTHORIZATION_EXPIRED"
+      ) {
+        state = "AUTHORIZATION_REVIEW";
+        label = "Authorization needs review";
+        guidance = scheduleFailureGuidance(code, "schwab").message;
+      } else if (code && schwabAutomaticRetryCodes.has(code)) {
+        state = "AUTOMATIC_RETRY";
+        label = "Provider read will retry automatically";
+        guidance = scheduleFailureGuidance(code, "schwab").message;
+      } else if (code === "MARKET_DATA_INVALID") {
+        state = "OPERATOR_REVIEW";
+        label = "Quote contract needs operator review";
+        guidance = scheduleFailureGuidance(code, "schwab").message;
+      }
+      return {
+        mandateID: engine.mandate_id!,
+        instanceID: engine.instance_id!,
+        accountName: engine.account_name!,
+        connectionStatus: connection!.status,
+        state,
+        label,
+        guidance,
+        symbols,
+        requiredQuality: engine.required_market_quality!,
+        scheduleStatus: engine.schedule_status!,
+        errorCode: code,
+        consecutiveFailures: engine.consecutive_failures!,
+        completedAt: engine.schedule_completed_at!,
+        nextRunAt: engine.schedule_next_run_at!,
+      };
+    });
+  const unavailableCount = projected.filter(
+    (engine) => engine.state === "UNAVAILABLE",
+  ).length;
+  const readyCount = projected.filter((engine) =>
+    ["READY", "SESSION_WAIT"].includes(engine.state),
+  ).length;
+  const attentionCount = projected.length - unavailableCount - readyCount;
+  return {
+    status:
+      projected.length === 0 || unavailableCount > 0
+        ? "UNAVAILABLE"
+        : attentionCount > 0
+          ? "ATTENTION"
+          : "READY",
+    engineCount: projected.length,
+    readyCount,
+    attentionCount,
+    unavailableCount,
+    engines: projected,
+  };
+}
+
 function providerName(provider: string) {
   if (provider === "schwab") return "Charles Schwab";
   if (provider === "coinbase") return "Coinbase";
@@ -459,6 +649,165 @@ function duration(seconds?: number): string {
   return [days ? `${days}d` : "", hours ? `${hours}h` : "", `${minutes}m`]
     .filter(Boolean)
     .join(" ");
+}
+
+export function SchwabMarketDataReadinessView({
+  connections,
+  engines,
+  contextAvailable = true,
+}: {
+  connections: FinancialConnection[];
+  engines: FinancialContinuityEngine[];
+  contextAvailable?: boolean;
+}) {
+  const hasSchwab = connections.some(
+    (connection) => connection.provider === "schwab",
+  );
+  if (!hasSchwab) return null;
+  const readiness = projectSchwabMarketDataReadiness({
+    connections,
+    engines,
+  });
+  const unavailable = !contextAvailable || readiness.status === "UNAVAILABLE";
+  const attention = unavailable || readiness.status === "ATTENTION";
+  const headline = unavailable
+    ? "Schwab market-data readiness is unavailable."
+    : readiness.status === "ATTENTION"
+      ? "Schwab is connected, but its quote gate needs review."
+      : "Schwab market-data readiness is on course.";
+  return (
+    <section
+      className={`schwab-market-readiness${attention ? " needs-review" : ""}`}
+      aria-label={headline}
+    >
+      <header>
+        <div>
+          <p className="eyebrow">SCHWAB MARKET DATA READINESS</p>
+          <h2>{headline}</h2>
+          <p>
+            Connection authorization and real-time quote entitlement are two
+            separate checks. Arbion requires Schwab to explicitly identify the
+            saved quote as broker real-time before the AI model can evaluate it.
+          </p>
+        </div>
+        <span>{unavailable ? "REVIEW EVIDENCE" : readiness.status}</span>
+      </header>
+      {!contextAvailable || readiness.engineCount === 0 ? (
+        <div className="schwab-market-readiness-unavailable">
+          <strong>Exact engine readiness could not be proven</strong>
+          <p>
+            The complete connection, configured market scope, required quote
+            quality, and immutable scheduler result were not available together.
+            No entitlement or market-data readiness is inferred.
+          </p>
+        </div>
+      ) : (
+        <ol>
+          {readiness.engines.map((engine) => {
+            const engineAttention = !["READY", "SESSION_WAIT"].includes(
+              engine.state,
+            );
+            return (
+              <li
+                className={`is-${engine.state.toLowerCase().replaceAll("_", "-")}`}
+                key={engine.instanceID}
+              >
+                <header>
+                  <div>
+                    <small>{engine.accountName}</small>
+                    <strong>{engine.label}</strong>
+                  </div>
+                  <span>{engineAttention ? "OWNER REVIEW" : "ON COURSE"}</span>
+                </header>
+                <p>{engine.guidance}</p>
+                <dl>
+                  <div>
+                    <dt>Connection authorization</dt>
+                    <dd>{engine.connectionStatus}</dd>
+                    <small>Separate from quote entitlement</small>
+                  </div>
+                  <div>
+                    <dt>Configured market scope</dt>
+                    <dd>{engine.symbols.join(" · ")}</dd>
+                    <small>Exact pinned mandate universe</small>
+                  </div>
+                  <div>
+                    <dt>Required quote quality</dt>
+                    <dd>{engine.requiredQuality}</dd>
+                    <small>Delayed or ambiguous quotes fail closed</small>
+                  </div>
+                  <div>
+                    <dt>Latest saved result</dt>
+                    <dd>
+                      {engine.scheduleStatus}
+                      {engine.errorCode ? ` · ${engine.errorCode}` : ""}
+                    </dd>
+                    <small>{timestamp(engine.completedAt)} UTC</small>
+                  </div>
+                  <div>
+                    <dt>Failure streak</dt>
+                    <dd>{engine.consecutiveFailures}</dd>
+                    <small>Preserved immutable scheduler evidence</small>
+                  </div>
+                  <div>
+                    <dt>Next automatic check</dt>
+                    <dd>{timestamp(engine.nextRunAt)} UTC</dd>
+                    <small>No manual refresh or cycle required</small>
+                  </div>
+                </dl>
+                <details open={engineAttention}>
+                  <summary>
+                    <span>
+                      <strong>Why connected can still stop safely</strong>
+                      <small>
+                        Authorization, entitlement, and execution boundary
+                      </small>
+                    </span>
+                    <span>
+                      {engineAttention ? "Review steps" : "Verified boundary"}
+                    </span>
+                  </summary>
+                  <ol>
+                    <li>
+                      <strong>1. Authorization</strong>
+                      <span>
+                        Arbion can authenticate to the saved Schwab connection.
+                      </span>
+                    </li>
+                    <li>
+                      <strong>2. Quote entitlement</strong>
+                      <span>
+                        Schwab must mark the {engine.symbols.join(" / ")} quote
+                        as {engine.requiredQuality}. Reconnecting does not prove
+                        this separate provider/account capability.
+                      </span>
+                    </li>
+                    <li>
+                      <strong>3. Fail-closed evaluation</strong>
+                      <span>
+                        If quote quality is not explicit, Arbion stops before
+                        the AI model, risk proposal, or any broker path.
+                      </span>
+                    </li>
+                  </ol>
+                </details>
+                <footer>
+                  <Link
+                    href={`/automations/${encodeURIComponent(engine.mandateID)}#runtime-evidence`}
+                  >
+                    Open immutable scheduler evidence →
+                  </Link>
+                  <span>
+                    Read-only · automatic next check · no broker or live path
+                  </span>
+                </footer>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
+  );
 }
 
 export function FinancialContinuityCenter({
