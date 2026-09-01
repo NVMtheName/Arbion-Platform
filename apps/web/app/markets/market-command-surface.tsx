@@ -477,8 +477,16 @@ export function MarketCommandSurface({
                     </strong>
                     <small>{optionChain.contracts.length} contracts</small>
                   </div>
+                  <p
+                    className="command-data-scroll-hint"
+                    id="option-chain-scroll-hint"
+                  >
+                    Swipe or scroll horizontally to review every contract field.
+                  </p>
                   <div
-                    className="option-chain-table"
+                    aria-describedby="option-chain-scroll-hint"
+                    aria-label="Option chain contracts"
+                    className="option-chain-table command-data-scroll"
                     role="region"
                     tabIndex={0}
                   >

@@ -14109,6 +14109,61 @@ main {
   margin: auto;
   padding: 18vh 32px 64px;
 }
+.command-content-continuity {
+  min-width: 0;
+  overflow-x: clip;
+}
+.command-content-continuity > :not(.app-page-header),
+.command-content-continuity
+  > :not(.app-page-header)
+  :where(
+    section,
+    article,
+    header,
+    footer,
+    form,
+    fieldset,
+    ol,
+    ul,
+    li,
+    dl,
+    div
+  ):not([role="row"]) {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+.command-content-continuity :where(dd, code) {
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.command-content-continuity pre {
+  max-inline-size: 100%;
+  overflow-x: auto;
+}
+.command-data-scroll {
+  width: 100%;
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+.command-data-scroll:focus-visible {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 3px;
+}
+.command-data-scroll-hint {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .eyebrow {
   color: #5ee0a0;
   font-size: 0.75rem;
@@ -15932,6 +15987,18 @@ h1 {
 }
 
 @media (max-width: 760px) {
+  .command-data-scroll-hint {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 14px 0 8px;
+    overflow: visible;
+    clip: auto;
+    color: #789087;
+    font-size: 0.68rem;
+    line-height: 1.45;
+    white-space: normal;
+  }
   .mandate-identity-summary {
     grid-template-columns: 1fr;
   }

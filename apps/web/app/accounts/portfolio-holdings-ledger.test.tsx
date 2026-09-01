@@ -89,6 +89,18 @@ describe("PortfolioHoldingsLedger", () => {
     expect(
       screen.getByText(/Secondary Coinbase could not refresh/),
     ).toBeInTheDocument();
+    const holdingsRegion = screen.getByRole("region", {
+      name: "Unified holdings table",
+    });
+    expect(holdingsRegion).toHaveClass("command-data-scroll");
+    expect(holdingsRegion).toHaveAttribute("tabindex", "0");
+    expect(holdingsRegion).toHaveAttribute(
+      "aria-describedby",
+      "holdings-scroll-hint",
+    );
+    expect(
+      screen.getByText(/scroll horizontally.*holdings field/i),
+    ).toHaveClass("command-data-scroll-hint");
   });
 
   it("filters across providers and account names", () => {

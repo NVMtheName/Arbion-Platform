@@ -6304,7 +6304,7 @@ export default async function Automations() {
   ].filter(Boolean);
 
   return (
-    <main className="connections-page automation-page strategy-fleet-page">
+    <main className="connections-page automation-page strategy-fleet-page command-content-continuity">
       <AppPageHeader />
       <section className="strategy-fleet-hero">
         <div>
