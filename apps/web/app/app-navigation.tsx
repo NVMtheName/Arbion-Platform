@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 
 const destinations = [
   { href: "/dashboard", label: "Dashboard", matches: ["/dashboard"] },
@@ -27,7 +33,26 @@ const destinations = [
   },
 ] as const;
 
-let retainedNavigationScrollLeft = 0;
+const navigationScrollStorageKey = "arbion-navigation-scroll-left";
+
+function readNavigationScrollLeft() {
+  try {
+    const value = Number(
+      window.sessionStorage.getItem(navigationScrollStorageKey),
+    );
+    return Number.isFinite(value) && value >= 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeNavigationScrollLeft(value: number) {
+  try {
+    window.sessionStorage.setItem(navigationScrollStorageKey, String(value));
+  } catch {
+    // Navigation remains usable when browser storage is unavailable.
+  }
+}
 
 const connectionStatuses = new Set([
   "pending",
@@ -213,33 +238,83 @@ function isCurrent(pathname: string, matches: readonly string[]) {
 export function AppNavigation({ className = "" }: { className?: string }) {
   const pathname = usePathname();
   const navigationRef = useRef<HTMLElement>(null);
+  const [pendingNavigation, setPendingNavigation] = useState<{
+    href: string;
+    fromPathname: string;
+  }>();
+  const pendingHref =
+    pendingNavigation?.fromPathname === pathname
+      ? pendingNavigation.href
+      : undefined;
+  useEffect(() => {
+    if (!pendingHref) return;
+    const timeout = window.setTimeout(
+      () => setPendingNavigation(undefined),
+      10_000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [pendingHref]);
   const retainScrollPosition = () => {
     if (navigationRef.current) {
-      retainedNavigationScrollLeft = navigationRef.current.scrollLeft;
+      writeNavigationScrollLeft(navigationRef.current.scrollLeft);
     }
   };
   useLayoutEffect(() => {
     const navigation = navigationRef.current;
     if (!navigation) return;
     navigation.scrollLeft = Math.min(
-      retainedNavigationScrollLeft,
+      readNavigationScrollLeft(),
       Math.max(0, navigation.scrollWidth - navigation.clientWidth),
     );
   }, []);
+  const beginNavigation = (
+    event: ReactMouseEvent<HTMLAnchorElement>,
+    href: string,
+    current: boolean,
+  ) => {
+    retainScrollPosition();
+    if (
+      current ||
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    setPendingNavigation({ href, fromPathname: pathname });
+  };
+  const pendingDestination = destinations.find(
+    (destination) => destination.href === pendingHref,
+  );
   return (
     <nav
       ref={navigationRef}
-      className={["app-navigation", className].filter(Boolean).join(" ")}
+      className={[
+        "app-navigation",
+        pendingDestination ? "is-switching" : "",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       aria-label="Application navigation"
+      aria-busy={pendingDestination ? "true" : undefined}
       onScroll={retainScrollPosition}
     >
       {destinations.map((destination) => {
         const current = isCurrent(pathname, destination.matches);
         const isConnections = destination.href === "/connections";
+        const pending = destination.href === pendingHref;
         return (
           <Link
             className={
-              [current ? "is-current" : "", isConnections ? "has-health" : ""]
+              [
+                current ? "is-current" : "",
+                pending ? "is-pending" : "",
+                isConnections ? "has-health" : "",
+              ]
                 .filter(Boolean)
                 .join(" ") || undefined
             }
@@ -247,13 +322,26 @@ export function AppNavigation({ className = "" }: { className?: string }) {
             aria-label={destination.label}
             aria-current={current ? "page" : undefined}
             key={destination.href}
-            onClick={retainScrollPosition}
+            onClick={(event) =>
+              beginNavigation(event, destination.href, current)
+            }
           >
             {destination.label}
             {isConnections ? <ConnectionNavigationHealthSignal /> : null}
           </Link>
         );
       })}
+      <span
+        className="app-navigation-status"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-label={
+          pendingDestination ? `Opening ${pendingDestination.label}` : undefined
+        }
+      >
+        {pendingDestination ? `Opening ${pendingDestination.label}` : ""}
+      </span>
     </nav>
   );
 }
