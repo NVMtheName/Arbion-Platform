@@ -298,18 +298,30 @@ export function AppNavigation({ className = "" }: { className?: string }) {
   useLayoutEffect(() => {
     const navigation = navigationRef.current;
     if (!navigation) return;
-    const activeDestination = navigation.querySelector<HTMLElement>(
-      'a[aria-current="page"]',
-    );
-    const scrollLeft = resolveNavigationScrollLeft({
-      retainedScrollLeft: readNavigationScrollLeft(),
-      scrollWidth: navigation.scrollWidth,
-      viewportWidth: navigation.clientWidth,
-      activeStart: activeDestination?.offsetLeft ?? 0,
-      activeWidth: activeDestination?.offsetWidth ?? 0,
-    });
-    navigation.scrollLeft = scrollLeft;
-    writeNavigationScrollLeft(scrollLeft);
+    const alignActiveDestination = (retainedScrollLeft: number) => {
+      const activeDestination = navigation.querySelector<HTMLElement>(
+        'a[aria-current="page"]',
+      );
+      const scrollLeft = resolveNavigationScrollLeft({
+        retainedScrollLeft,
+        scrollWidth: navigation.scrollWidth,
+        viewportWidth: navigation.clientWidth,
+        activeStart: activeDestination?.offsetLeft ?? 0,
+        activeWidth: activeDestination?.offsetWidth ?? 0,
+      });
+      navigation.scrollLeft = scrollLeft;
+      writeNavigationScrollLeft(scrollLeft);
+    };
+    alignActiveDestination(readNavigationScrollLeft());
+    const alignAfterResize = () =>
+      alignActiveDestination(navigation.scrollLeft);
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", alignAfterResize);
+      return () => window.removeEventListener("resize", alignAfterResize);
+    }
+    const resizeObserver = new ResizeObserver(alignAfterResize);
+    resizeObserver.observe(navigation);
+    return () => resizeObserver.disconnect();
   }, [pathname]);
   const beginNavigation = (
     event: ReactMouseEvent<HTMLAnchorElement>,
