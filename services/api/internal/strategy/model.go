@@ -376,20 +376,24 @@ type ShadowEvidenceGate struct {
 }
 
 // PaperPortfolio is the owner-facing, provider-independent projection of one
-// simulated ledger. It deliberately excludes provider and account identifiers.
+// simulated ledger. Its attached evidence review is explicitly owner/account
+// scoped but cannot expose provider credentials or execution authority.
 type PaperPortfolio struct {
-	StrategyInstanceID string                    `json:"strategy_instance_id"`
-	Currency           string                    `json:"currency"`
-	StartingCash       string                    `json:"starting_cash"`
-	Cash               string                    `json:"cash"`
-	Version            int64                     `json:"version"`
-	Positions          []PaperPosition           `json:"positions"`
-	RealizedOutcome    PaperRealizedOutcome      `json:"realized_outcome"`
-	ExecutionCosts     PaperExecutionCosts       `json:"execution_costs"`
-	ActivityCadence    PaperActivityCadence      `json:"activity_cadence"`
-	GuardrailEvidence  PaperGuardrailEvidence    `json:"guardrail_evidence"`
-	EvidenceReadiness  PaperAutonomyEvidenceGate `json:"evidence_readiness"`
-	UpdatedAt          time.Time                 `json:"updated_at"`
+	StrategyInstanceID        string                    `json:"strategy_instance_id"`
+	Currency                  string                    `json:"currency"`
+	StartingCash              string                    `json:"starting_cash"`
+	Cash                      string                    `json:"cash"`
+	Version                   int64                     `json:"version"`
+	Positions                 []PaperPosition           `json:"positions"`
+	RealizedOutcome           PaperRealizedOutcome      `json:"realized_outcome"`
+	ExecutionCosts            PaperExecutionCosts       `json:"execution_costs"`
+	ActivityCadence           PaperActivityCadence      `json:"activity_cadence"`
+	GuardrailEvidence         PaperGuardrailEvidence    `json:"guardrail_evidence"`
+	EvidenceReadiness         PaperAutonomyEvidenceGate `json:"evidence_readiness"`
+	EvidenceReviewFingerprint string                    `json:"evidence_review_fingerprint"`
+	LatestEvidenceReview      *PaperEvidenceReview      `json:"latest_evidence_review,omitempty"`
+	CurrentEvidenceReviewed   bool                      `json:"current_evidence_reviewed"`
+	UpdatedAt                 time.Time                 `json:"updated_at"`
 }
 
 // PaperAutonomyEvidenceGate determines only whether a bounded immutable Paper
@@ -521,6 +525,63 @@ type PaperAutonomyEvidenceBlocker struct {
 	Code     string `json:"code"`
 	Category string `json:"category"`
 	Detail   string `json:"detail"`
+}
+
+const PaperEvidenceReviewScope = "PAPER_NON_LIVE_EVIDENCE_ONLY"
+
+// PaperEvidenceReview is an immutable MFA-backed acknowledgment that an owner
+// inspected one exact Paper evidence gate and its latest saved scheduler
+// checkpoint. It cannot authorize promotion, orders, or execution.
+type PaperEvidenceReview struct {
+	ID                          string    `json:"id"`
+	StrategyInstanceID          string    `json:"strategy_instance_id"`
+	FinancialAccountID          string    `json:"financial_account_id"`
+	MandateID                   string    `json:"mandate_id"`
+	MandateVersion              int       `json:"mandate_version"`
+	EvidenceFingerprint         string    `json:"evidence_fingerprint"`
+	GateStatus                  string    `json:"gate_status"`
+	EvidenceStartedAt           time.Time `json:"evidence_started_at"`
+	EvidenceEligibleAt          time.Time `json:"evidence_eligible_at"`
+	EvidenceAsOf                time.Time `json:"evidence_as_of"`
+	EvidenceWindowHours         int64     `json:"evidence_window_hours"`
+	DecisionCount               int       `json:"decision_count"`
+	PortfolioVersion            int64     `json:"portfolio_version"`
+	PortfolioUpdatedAt          time.Time `json:"portfolio_updated_at"`
+	LatestCheckpointRunID       string    `json:"latest_checkpoint_run_id"`
+	LatestCheckpointAsOf        time.Time `json:"latest_checkpoint_as_of"`
+	SchedulerSampleCount        int       `json:"scheduler_sample_count"`
+	SchedulerSuccessCount       int       `json:"scheduler_success_count"`
+	SchedulerFailureCount       int       `json:"scheduler_failure_count"`
+	LastScheduleStatus          string    `json:"last_schedule_status"`
+	ConsecutiveScheduleFailures int       `json:"consecutive_schedule_failures"`
+	RouteContinuityStatus       string    `json:"route_continuity_status"`
+	InputCoverageStatus         string    `json:"input_coverage_status"`
+	InputFreshnessStatus        string    `json:"input_freshness_status"`
+	LedgerContractStatus        string    `json:"ledger_contract_status"`
+	NoLiveSafetyStatus          string    `json:"no_live_safety_status"`
+	ExecutionBoundary           string    `json:"execution_boundary"`
+	ReviewScope                 string    `json:"review_scope"`
+	GrantsAuthority             bool      `json:"grants_authority"`
+	LivePromotionAvailable      bool      `json:"live_promotion_available"`
+	MFAMethod                   string    `json:"mfa_method"`
+	ReviewedAt                  time.Time `json:"reviewed_at"`
+	CreatedAt                   time.Time `json:"created_at"`
+}
+
+type PaperEvidenceReviewCommand struct {
+	EvidenceFingerprint string `json:"evidence_fingerprint"`
+	ConfirmPaperReview  bool   `json:"confirm_paper_review"`
+	MFACode             string `json:"mfa_code"`
+}
+
+type PaperEvidenceReviewCursor struct {
+	ReviewedAt time.Time
+	ID         string
+}
+
+type PaperEvidenceReviewPage struct {
+	Reviews    []PaperEvidenceReview
+	NextCursor *PaperEvidenceReviewCursor
 }
 
 // PaperGuardrailEvidence attributes each saved Paper proposal to its exact

@@ -205,6 +205,26 @@ func TestShadowEvidenceReviewCursorRoundTripsAndRejectsMalformedInput(t *testing
 	}
 }
 
+func TestPaperEvidenceReviewCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
+	want := &strategy.PaperEvidenceReviewCursor{
+		ReviewedAt: time.Date(2026, 9, 5, 12, 30, 0, 0, time.UTC),
+		ID:         "22222222-2222-4222-8222-222222222222",
+	}
+	encoded := encodePaperEvidenceReviewCursor(want)
+	got, err := decodePaperEvidenceReviewCursor(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != want.ID || !got.ReviewedAt.Equal(want.ReviewedAt) {
+		t.Fatalf("Paper review cursor changed during round trip: %#v", got)
+	}
+	for _, input := range []string{"not-base64", "e30", encodePaperEvidenceReviewCursor(&strategy.PaperEvidenceReviewCursor{ReviewedAt: time.Now(), ID: "not-a-uuid"})} {
+		if _, err = decodePaperEvidenceReviewCursor(input); err == nil {
+			t.Fatalf("malformed Paper review cursor was accepted: %q", input)
+		}
+	}
+}
+
 func TestShadowEvidenceReviewCommandRequiresTrustedOriginAndStrictJSON(t *testing.T) {
 	handler := &authHandler{cfg: config.Auth{AllowedOrigins: []string{"https://www.arbion.ai"}}}
 	withoutOrigin := httptest.NewRequest(stdhttp.MethodPost, "/api/strategy-instances/instance-1/shadow-evidence-reviews", strings.NewReader(`{"evidence_fingerprint":"`+strings.Repeat("a", 64)+`","confirm_non_live_review":true,"mfa_code":"123456"}`))
@@ -222,5 +242,25 @@ func TestShadowEvidenceReviewCommandRequiresTrustedOriginAndStrictJSON(t *testin
 	handler.recordShadowEvidenceReview(recorder, unknownField)
 	if recorder.Code != stdhttp.StatusBadRequest || !strings.Contains(recorder.Body.String(), "invalid_request") {
 		t.Fatalf("unrecognized review authority returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPaperEvidenceReviewCommandRequiresTrustedOriginAndStrictJSON(t *testing.T) {
+	handler := &authHandler{cfg: config.Auth{AllowedOrigins: []string{"https://www.arbion.ai"}}}
+	withoutOrigin := httptest.NewRequest(stdhttp.MethodPost, "/api/strategy-instances/instance-1/paper-evidence-reviews", strings.NewReader(`{"evidence_fingerprint":"`+strings.Repeat("a", 64)+`","confirm_paper_review":true,"mfa_code":"123456"}`))
+	withoutOrigin.SetPathValue("id", "instance-1")
+	recorder := httptest.NewRecorder()
+	handler.recordPaperEvidenceReview(recorder, withoutOrigin)
+	if recorder.Code != stdhttp.StatusForbidden || !strings.Contains(recorder.Body.String(), "csrf_rejected") {
+		t.Fatalf("untrusted Paper review request returned %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	unknownField := httptest.NewRequest(stdhttp.MethodPost, "/api/strategy-instances/instance-1/paper-evidence-reviews", strings.NewReader(`{"evidence_fingerprint":"`+strings.Repeat("a", 64)+`","confirm_paper_review":true,"mfa_code":"123456","live_promotion":true}`))
+	unknownField.Header.Set("Origin", "https://www.arbion.ai")
+	unknownField.SetPathValue("id", "instance-1")
+	recorder = httptest.NewRecorder()
+	handler.recordPaperEvidenceReview(recorder, unknownField)
+	if recorder.Code != stdhttp.StatusBadRequest || !strings.Contains(recorder.Body.String(), "invalid_request") {
+		t.Fatalf("unrecognized Paper review authority returned %d: %s", recorder.Code, recorder.Body.String())
 	}
 }

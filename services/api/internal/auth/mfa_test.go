@@ -271,6 +271,18 @@ func TestMFALifecycleRequiresSecondFactorPreventsReplayAndRevokesSessions(t *tes
 	if _, _, err = service.VerifyShadowEvidenceReviewStepUp(ctx, users.user.ID, recoveryCodes[1]); !errors.Is(err, ErrInvalidMFACode) {
 		t.Fatalf("Shadow evidence review step-up accepted a recovery code: %v", err)
 	}
+	now = now.Add(totpPeriod)
+	paperEvidenceReviewCode := totpCode(secret, now.Unix()/30)
+	method, verifiedAt, err = service.VerifyPaperEvidenceReviewStepUp(ctx, users.user.ID, paperEvidenceReviewCode)
+	if err != nil || method != "totp" || !verifiedAt.Equal(now) {
+		t.Fatalf("Paper evidence review step-up failed: method=%q time=%v err=%v", method, verifiedAt, err)
+	}
+	if _, _, err = service.VerifyPaperEvidenceReviewStepUp(ctx, users.user.ID, paperEvidenceReviewCode); !errors.Is(err, ErrInvalidMFACode) {
+		t.Fatalf("replayed Paper evidence review step-up returned %v", err)
+	}
+	if _, _, err = service.VerifyPaperEvidenceReviewStepUp(ctx, users.user.ID, recoveryCodes[1]); !errors.Is(err, ErrInvalidMFACode) {
+		t.Fatalf("Paper evidence review step-up accepted a recovery code: %v", err)
+	}
 
 	recoveryLogin, err := service.BeginLogin(ctx, "person@example.com", "correct horse battery staple", "ip-3")
 	if err != nil {

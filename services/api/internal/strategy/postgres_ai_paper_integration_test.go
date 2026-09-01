@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,6 +139,54 @@ func TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected(t *testing.T)
 	if realizedBTC.Symbol != "BTC" || realizedBTC.RealizedProfitLoss != "0.0000000000" || realizedBTC.TotalFees != fill.Fee || realizedBTC.EndingPositionQuantity != fill.ResultingPositionQuantity || realizedBTC.EndingAverageCost != "100.7512500000" {
 		t.Fatalf("exact realized symbol attribution is wrong: %#v", realizedBTC)
 	}
+	reviewAsOf := now.Add(8 * 24 * time.Hour).Truncate(time.Microsecond)
+	var reviewRunID string
+	if err = pool.QueryRow(ctx, `INSERT INTO nonlive_schedule_runs(
+		user_id,strategy_instance_id,mandate_id,mandate_version,execution_mode,strategy_state,
+		scheduled_for,started_at,completed_at,next_run_at,status,ai_decision,execution_status,consecutive_failures)
+		VALUES($1,$2,$3,1,'PAPER','AI_MONITORING',$4,$5,$6,$7,'SUCCEEDED','ABSTAIN','CANCELED',0)
+		RETURNING id::text`, userID, instance.ID, mandateID, reviewAsOf.Add(-time.Minute), reviewAsOf.Add(-30*time.Second), reviewAsOf, reviewAsOf.Add(time.Hour)).Scan(&reviewRunID); err != nil {
+		t.Fatal(err)
+	}
+	paperReview, err := store.CreatePaperEvidenceReview(ctx, userID, PaperEvidenceReview{
+		StrategyInstanceID: instance.ID, FinancialAccountID: accountID, MandateID: mandateID, MandateVersion: 1,
+		EvidenceFingerprint: strings.Repeat("ab", 32), GateStatus: PaperAutonomyEvidenceReviewable,
+		EvidenceStartedAt: reviewAsOf.Add(-168 * time.Hour), EvidenceEligibleAt: reviewAsOf, EvidenceAsOf: reviewAsOf,
+		EvidenceWindowHours: 168, DecisionCount: 20, PortfolioVersion: portfolio.Version, PortfolioUpdatedAt: portfolio.UpdatedAt,
+		LatestCheckpointRunID: reviewRunID, LatestCheckpointAsOf: reviewAsOf,
+		SchedulerSampleCount: 20, SchedulerSuccessCount: 20, SchedulerFailureCount: 0,
+		LastScheduleStatus: "SUCCEEDED", ConsecutiveScheduleFailures: 0,
+		RouteContinuityStatus: "STABLE", InputCoverageStatus: "COMPLETE", InputFreshnessStatus: "CURRENT_AT_DECISION",
+		LedgerContractStatus: "RECONCILED", NoLiveSafetyStatus: "CLEAR", ExecutionBoundary: PaperAutonomyEvidenceBoundary,
+		ReviewScope: PaperEvidenceReviewScope, GrantsAuthority: false, LivePromotionAvailable: false, MFAMethod: "totp", ReviewedAt: reviewAsOf.Add(time.Minute),
+	})
+	if err != nil || paperReview.ID == "" || paperReview.FinancialAccountID != accountID || paperReview.LatestCheckpointRunID != reviewRunID || paperReview.PortfolioVersion != portfolio.Version || paperReview.GrantsAuthority || paperReview.LivePromotionAvailable {
+		t.Fatalf("Paper evidence review was not persisted safely: %#v %v", paperReview, err)
+	}
+	latestPaperReview, err := store.LatestPaperEvidenceReview(ctx, userID, instance.ID)
+	if err != nil || latestPaperReview == nil || latestPaperReview.ID != paperReview.ID || latestPaperReview.ReviewScope != PaperEvidenceReviewScope {
+		t.Fatalf("owner Paper evidence review was not projected safely: %#v %v", latestPaperReview, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE paper_evidence_reviews SET decision_count=21 WHERE id=$1`, paperReview.ID); err == nil {
+		t.Fatal("immutable Paper evidence review was updated")
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM paper_evidence_reviews WHERE id=$1`, paperReview.ID); err == nil {
+		t.Fatal("immutable Paper evidence review was deleted")
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO nonlive_schedule_runs(
+		user_id,strategy_instance_id,mandate_id,mandate_version,execution_mode,strategy_state,
+		scheduled_for,started_at,completed_at,next_run_at,status,ai_decision,execution_status,consecutive_failures)
+		VALUES($1,$2,$3,1,'PAPER','AI_MONITORING',$4,$5,$6,$7,'SUCCEEDED','ABSTAIN','CANCELED',0)`,
+		userID, instance.ID, mandateID, reviewAsOf.Add(59*time.Minute), reviewAsOf.Add(59*time.Minute+30*time.Second), reviewAsOf.Add(time.Hour), reviewAsOf.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	staleReview := paperReview
+	staleReview.ID = ""
+	staleReview.EvidenceFingerprint = strings.Repeat("cd", 32)
+	staleReview.ReviewedAt = reviewAsOf.Add(2 * time.Minute)
+	if _, err = store.CreatePaperEvidenceReview(ctx, userID, staleReview); !errors.Is(err, ErrEvidenceSnapshotChanged) {
+		t.Fatalf("stale Paper checkpoint was not rejected: %v", err)
+	}
 	otherOwnerFills, err := store.AIPaperSpotFills(ctx, "99999999-9999-4999-8999-999999999999", instance.ID, 25, nil)
 	if err != nil || len(otherOwnerFills) != 0 {
 		t.Fatalf("AI Paper fill projection crossed owners: fills=%#v err=%v", otherOwnerFills, err)
@@ -166,4 +215,5 @@ func TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected(t *testing.T)
 		t.Fatal("immutable AI PAPER fill was deleted")
 	}
 	assertCount(t, pool, `SELECT count(*) FROM ai_paper_spot_fills WHERE user_id='`+userID+`'`, 1)
+	assertCount(t, pool, `SELECT count(*) FROM paper_evidence_reviews WHERE user_id='`+userID+`'`, 1)
 }

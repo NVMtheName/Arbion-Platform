@@ -11,79 +11,88 @@ import (
 )
 
 type journalPersistenceFake struct {
-	entries            []JournalActivity
-	scheduleRuns       []ScheduleRun
-	requestedUser      string
-	requestedLimit     int
-	requestedAfter     *JournalCursor
-	requestedRunAfter  *ScheduleRunCursor
-	lifecycleID        string
-	lifecycle          LifecycleCommand
-	lifecycleAt        time.Time
-	lifecycleResult    LifecycleResult
-	lifecycleError     error
-	instance           Instance
-	getError           error
-	portfolio          PaperPortfolio
-	portfolioError     error
-	portfolioCalls     int
-	scorecard          ShadowScorecard
-	scorecardError     error
-	scorecardCalls     int
-	latestReview       *ShadowEvidenceReview
-	latestReviewError  error
-	evidenceReviews    []ShadowEvidenceReview
-	reviewHistoryError error
-	reviewLimit        int
-	reviewAfter        *ShadowEvidenceReviewCursor
-	pageDecisions      []DecisionJournalEntry
-	pageOutcomes       []ShadowOutcome
-	pageError          error
-	pageOutcomeError   error
-	pageLimit          int
-	pageAfter          *StrategyDecisionCursor
-	pageExecutionIDs   []string
-	runtimeTransitions []StrategyTransitionEvidence
-	runtimeExecutions  []StrategyExecutionEvidence
-	transitionError    error
-	executionError     error
-	transitionLimit    int
-	executionLimit     int
-	transitionAfter    *StrategyTransitionCursor
-	executionAfter     *StrategyExecutionCursor
-	createdReview      ShadowEvidenceReview
-	createReviewError  error
-	createReviewCalls  int
-	requestedID        string
-	initializedUser    string
-	initializedCash    string
-	initializedMandate automation.Mandate
-	pausedUser         string
-	pausedID           string
-	pausedVersion      int
-	pausedAt           time.Time
-	pauseResult        Instance
-	pauseError         error
-	resumedUser        string
-	resumedID          string
-	resumedVersion     int
-	resumedAt          time.Time
-	resumeResult       Instance
-	resumeError        error
-	finishedUser       string
-	finishedID         string
-	finishedVersion    int
-	finishedAt         time.Time
-	finishResult       Instance
-	finishError        error
-	reservation        CapitalReservation
-	reservationError   error
-	reservations       []CapitalReservation
-	reservationsError  error
-	paperFills         []AIPaperSpotFill
-	paperFillError     error
-	paperFillLimit     int
-	paperFillAfter     *AIPaperSpotFillCursor
+	entries                 []JournalActivity
+	scheduleRuns            []ScheduleRun
+	requestedUser           string
+	requestedLimit          int
+	requestedAfter          *JournalCursor
+	requestedRunAfter       *ScheduleRunCursor
+	lifecycleID             string
+	lifecycle               LifecycleCommand
+	lifecycleAt             time.Time
+	lifecycleResult         LifecycleResult
+	lifecycleError          error
+	instance                Instance
+	getError                error
+	portfolio               PaperPortfolio
+	portfolioError          error
+	portfolioCalls          int
+	scorecard               ShadowScorecard
+	scorecardError          error
+	scorecardCalls          int
+	latestReview            *ShadowEvidenceReview
+	latestReviewError       error
+	evidenceReviews         []ShadowEvidenceReview
+	reviewHistoryError      error
+	reviewLimit             int
+	reviewAfter             *ShadowEvidenceReviewCursor
+	pageDecisions           []DecisionJournalEntry
+	pageOutcomes            []ShadowOutcome
+	pageError               error
+	pageOutcomeError        error
+	pageLimit               int
+	pageAfter               *StrategyDecisionCursor
+	pageExecutionIDs        []string
+	runtimeTransitions      []StrategyTransitionEvidence
+	runtimeExecutions       []StrategyExecutionEvidence
+	transitionError         error
+	executionError          error
+	transitionLimit         int
+	executionLimit          int
+	transitionAfter         *StrategyTransitionCursor
+	executionAfter          *StrategyExecutionCursor
+	createdReview           ShadowEvidenceReview
+	createReviewError       error
+	createReviewCalls       int
+	latestPaperReview       *PaperEvidenceReview
+	latestPaperReviewError  error
+	paperEvidenceReviews    []PaperEvidenceReview
+	paperReviewHistoryError error
+	paperReviewLimit        int
+	paperReviewAfter        *PaperEvidenceReviewCursor
+	createdPaperReview      PaperEvidenceReview
+	createPaperReviewError  error
+	createPaperReviewCalls  int
+	requestedID             string
+	initializedUser         string
+	initializedCash         string
+	initializedMandate      automation.Mandate
+	pausedUser              string
+	pausedID                string
+	pausedVersion           int
+	pausedAt                time.Time
+	pauseResult             Instance
+	pauseError              error
+	resumedUser             string
+	resumedID               string
+	resumedVersion          int
+	resumedAt               time.Time
+	resumeResult            Instance
+	resumeError             error
+	finishedUser            string
+	finishedID              string
+	finishedVersion         int
+	finishedAt              time.Time
+	finishResult            Instance
+	finishError             error
+	reservation             CapitalReservation
+	reservationError        error
+	reservations            []CapitalReservation
+	reservationsError       error
+	paperFills              []AIPaperSpotFill
+	paperFillError          error
+	paperFillLimit          int
+	paperFillAfter          *AIPaperSpotFillCursor
 }
 
 func (f *journalPersistenceFake) Initialize(_ context.Context, userID string, mandate automation.Mandate, cash string, state State) (Instance, error) {
@@ -228,6 +237,39 @@ func (f *journalPersistenceFake) ShadowEvidenceReviews(_ context.Context, userID
 	}
 	return f.evidenceReviews[:limit], nil
 }
+func (f *journalPersistenceFake) LatestPaperEvidenceReview(_ context.Context, userID, instanceID string) (*PaperEvidenceReview, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	return f.latestPaperReview, f.latestPaperReviewError
+}
+func (f *journalPersistenceFake) CreatePaperEvidenceReview(_ context.Context, userID string, review PaperEvidenceReview) (PaperEvidenceReview, error) {
+	f.requestedUser = userID
+	f.createPaperReviewCalls++
+	f.createdPaperReview = review
+	if f.createPaperReviewError != nil {
+		return PaperEvidenceReview{}, f.createPaperReviewError
+	}
+	if review.ID == "" {
+		review.ID = "paper-review-1"
+	}
+	if review.CreatedAt.IsZero() {
+		review.CreatedAt = review.ReviewedAt
+	}
+	return review, nil
+}
+func (f *journalPersistenceFake) PaperEvidenceReviews(_ context.Context, userID, instanceID string, limit int, after *PaperEvidenceReviewCursor) ([]PaperEvidenceReview, error) {
+	f.requestedUser = userID
+	f.requestedID = instanceID
+	f.paperReviewLimit = limit
+	f.paperReviewAfter = after
+	if f.paperReviewHistoryError != nil {
+		return nil, f.paperReviewHistoryError
+	}
+	if len(f.paperEvidenceReviews) < limit {
+		limit = len(f.paperEvidenceReviews)
+	}
+	return f.paperEvidenceReviews[:limit], nil
+}
 func (f *journalPersistenceFake) PaperPortfolio(_ context.Context, userID, instanceID string) (PaperPortfolio, error) {
 	f.requestedUser = userID
 	f.requestedID = instanceID
@@ -285,6 +327,13 @@ type evidenceReviewStepUpFake struct {
 }
 
 func (f *evidenceReviewStepUpFake) VerifyShadowEvidenceReviewStepUp(_ context.Context, userID, code string) (string, time.Time, error) {
+	f.userID = userID
+	f.code = code
+	f.calls++
+	return f.method, f.verifiedAt, f.err
+}
+
+func (f *evidenceReviewStepUpFake) VerifyPaperEvidenceReviewStepUp(_ context.Context, userID, code string) (string, time.Time, error) {
 	f.userID = userID
 	f.code = code
 	f.calls++
@@ -957,6 +1006,103 @@ func TestRecordShadowEvidenceReviewIsIdempotentForAnAlreadyReviewedFingerprint(t
 	review, err := service.RecordShadowEvidenceReview(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, instance.ID, ShadowEvidenceReviewCommand{EvidenceFingerprint: fingerprint, ConfirmNonLiveReview: true})
 	if err != nil || review.ID != existing.ID || stepUp.calls != 0 || store.createReviewCalls != 0 {
 		t.Fatalf("current review was not idempotent: review=%#v step-up=%#v store=%#v err=%v", review, stepUp, store, err)
+	}
+}
+
+func reviewablePaperEvidenceFixture() (Instance, PaperPortfolio) {
+	asOf := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	startedAt := asOf.Add(-169 * time.Hour)
+	runs, decisions := paperEvidenceFixture(asOf, 20, startedAt)
+	portfolio := paperEvidencePortfolio()
+	portfolio.StrategyInstanceID = "instance"
+	portfolio.Version = 9
+	portfolio.UpdatedAt = asOf
+	portfolio.EvidenceReadiness = projectPaperAutonomyEvidenceGate(startedAt, "SUCCEEDED", 0, runs, decisions, portfolio, paperAutonomySafetyCounts{})
+	instance := Instance{
+		ID: "instance", UserID: "owner", AutomationMandateID: "mandate-1", FinancialAccountID: "account-1",
+		MandateVersion: 6, StrategyIdentifier: "ai_shadow", ExecutionMode: Paper, CurrentState: AIMonitoring, Status: "ACTIVE", StartedAt: startedAt,
+	}
+	return instance, portfolio
+}
+
+func TestRecordPaperEvidenceReviewPinsExactGateCheckpointAndFreshTOTP(t *testing.T) {
+	verifiedAt := time.Date(2026, 9, 5, 12, 5, 0, 0, time.UTC)
+	instance, portfolio := reviewablePaperEvidenceFixture()
+	fingerprint, err := paperEvidenceFingerprint(instance, portfolio)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &journalPersistenceFake{instance: instance, portfolio: portfolio}
+	audit := &strategyAuditFake{}
+	stepUp := &evidenceReviewStepUpFake{method: "totp", verifiedAt: verifiedAt}
+	service := NewInstanceService(store, nil, audit)
+	service.ConfigureEvidenceReview(stepUp)
+
+	review, err := service.RecordPaperEvidenceReview(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}, instance.ID, PaperEvidenceReviewCommand{
+		EvidenceFingerprint: fingerprint, ConfirmPaperReview: true, MFACode: "123456",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	latestCheckpoint := portfolio.EvidenceReadiness.ReviewPacket.ThresholdChangeLedger.Checkpoints[len(portfolio.EvidenceReadiness.ReviewPacket.ThresholdChangeLedger.Checkpoints)-1]
+	if review.ID != "paper-review-1" || review.EvidenceFingerprint != fingerprint || review.LatestCheckpointRunID != latestCheckpoint.ScheduleRunID || !review.LatestCheckpointAsOf.Equal(latestCheckpoint.AsOf) || review.FinancialAccountID != instance.FinancialAccountID || review.ReviewScope != PaperEvidenceReviewScope || review.ExecutionBoundary != PaperAutonomyEvidenceBoundary || review.GrantsAuthority || review.LivePromotionAvailable || !review.ReviewedAt.Equal(verifiedAt) {
+		t.Fatalf("unexpected immutable Paper review: %#v", review)
+	}
+	if stepUp.calls != 1 || stepUp.userID != "owner" || stepUp.code != "123456" || store.createPaperReviewCalls != 1 || store.createdPaperReview.MandateVersion != 6 {
+		t.Fatalf("Paper review boundary was not preserved: step-up=%#v store=%#v", stepUp, store)
+	}
+	if audit.userID == nil || *audit.userID != "owner" || audit.action != "strategy_instance.paper_evidence_reviewed" || audit.metadata["latest_checkpoint_run_id"] != latestCheckpoint.ScheduleRunID || audit.metadata["grants_authority"] != false || audit.metadata["live_promotion_available"] != false || audit.metadata["broker_order_created"] != false {
+		t.Fatalf("Paper review audit evidence is incomplete: %#v", audit)
+	}
+}
+
+func TestRecordPaperEvidenceReviewFailsClosedBeforeConsumingTOTP(t *testing.T) {
+	instance, portfolio := reviewablePaperEvidenceFixture()
+	fingerprint, err := paperEvidenceFingerprint(instance, portfolio)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &journalPersistenceFake{instance: instance, portfolio: portfolio}
+	stepUp := &evidenceReviewStepUpFake{method: "totp", verifiedAt: time.Now().UTC()}
+	service := NewInstanceService(store, nil)
+	service.ConfigureEvidenceReview(stepUp)
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+
+	if _, err = service.RecordPaperEvidenceReview(context.Background(), principal, instance.ID, PaperEvidenceReviewCommand{EvidenceFingerprint: "b" + fingerprint[1:], ConfirmPaperReview: true, MFACode: "123456"}); !errors.Is(err, ErrEvidenceSnapshotChanged) {
+		t.Fatalf("stale Paper snapshot returned %v", err)
+	}
+	if stepUp.calls != 0 || store.createPaperReviewCalls != 0 {
+		t.Fatal("stale Paper snapshot consumed MFA or reached persistence")
+	}
+	store.portfolio.EvidenceReadiness.Status = PaperAutonomyEvidenceCollecting
+	store.portfolio.EvidenceReadiness.ReviewPacket.Status = PaperAutonomyEvidenceCollecting
+	store.portfolio.EvidenceReadiness.ReviewPacket.EvidenceReadyForHumanReview = false
+	if _, err = service.RecordPaperEvidenceReview(context.Background(), principal, instance.ID, PaperEvidenceReviewCommand{EvidenceFingerprint: fingerprint, ConfirmPaperReview: true, MFACode: "123456"}); !errors.Is(err, ErrEvidenceNotReviewable) {
+		t.Fatalf("collecting Paper evidence returned %v", err)
+	}
+	if stepUp.calls != 0 || store.createPaperReviewCalls != 0 {
+		t.Fatal("collecting Paper evidence consumed MFA or reached persistence")
+	}
+}
+
+func TestPaperPortfolioMarksOnlyExactCurrentEvidenceReviewed(t *testing.T) {
+	instance, portfolio := reviewablePaperEvidenceFixture()
+	fingerprint, err := paperEvidenceFingerprint(instance, portfolio)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &journalPersistenceFake{instance: instance, portfolio: portfolio, latestPaperReview: &PaperEvidenceReview{ID: "review-1", EvidenceFingerprint: fingerprint}}
+	service := NewInstanceService(store, nil)
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+
+	current, err := service.PaperPortfolio(context.Background(), principal, instance.ID)
+	if err != nil || !current.CurrentEvidenceReviewed || current.LatestEvidenceReview == nil {
+		t.Fatalf("current Paper review was not attached: %#v %v", current, err)
+	}
+	store.portfolio.Version++
+	changed, err := service.PaperPortfolio(context.Background(), principal, instance.ID)
+	if err != nil || changed.CurrentEvidenceReviewed || changed.EvidenceReviewFingerprint == fingerprint || changed.LatestEvidenceReview == nil {
+		t.Fatalf("changed Paper evidence reused an old review: %#v %v", changed, err)
 	}
 }
 
