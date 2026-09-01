@@ -1881,6 +1881,38 @@ describe("StrategyFleet", () => {
     );
   });
 
+  it("gives an exact owner-safe follow-up for ambiguous Schwab quote entitlement", () => {
+    const taxonomy = projectStrategyFleetAutomaticCycleFailureTaxonomy([
+      {
+        ...coinbaseEngine,
+        provider: "schwab",
+        accountName: "Schwab Brokerage ••••1000",
+        scheduleStatus: "FAILED",
+        scheduleErrorCode: "MARKET_DATA_NOT_REALTIME",
+        scheduleLastCompletedAt: "2026-08-26T16:17:39Z",
+        consecutiveFailures: 1,
+        scheduleRecentRuns: [
+          {
+            ...coinbaseEngine.scheduleRecentRuns![0],
+            status: "FAILED",
+            errorCode: "MARKET_DATA_NOT_REALTIME",
+            consecutiveFailures: 1,
+          },
+        ],
+      },
+    ]);
+
+    expect(taxonomy.engines[0]).toEqual(
+      expect.objectContaining({
+        state: "ATTENTION",
+        currentErrorCode: "MARKET_DATA_NOT_REALTIME",
+        followUp: expect.stringMatching(
+          /Owner review: Schwab.*stopped before the AI model.*Do not rerun the model manually/i,
+        ),
+      }),
+    );
+  });
+
   it("fails the taxonomy closed when a failed run has no classification", () => {
     const taxonomy = projectStrategyFleetAutomaticCycleFailureTaxonomy([
       {

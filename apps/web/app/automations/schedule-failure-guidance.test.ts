@@ -8,6 +8,7 @@ describe("scheduleFailureGuidance", () => {
     ["AI_PROVIDER_UNAVAILABLE", "AUTOMATIC_RETRY"],
     ["AI_CONNECTION_UNAVAILABLE", "OWNER_REVIEW"],
     ["AI_REQUEST_INVALID", "OPERATOR_REVIEW"],
+    ["MARKET_DATA_NOT_REALTIME", "OWNER_REVIEW"],
     ["INVALID", "OPERATOR_REVIEW"],
     ["OUTSIDE_SESSION", "NO_ACTION"],
     ["WAITING_FOR_LIFECYCLE", "OWNER_REVIEW"],
@@ -43,6 +44,18 @@ describe("scheduleFailureGuidance", () => {
     ).toMatchObject({
       action: "OPERATOR_REVIEW",
       actionLabel: "Operator correction",
+    });
+  });
+
+  it("explains that ambiguous Schwab entitlement stops before the model", () => {
+    expect(
+      scheduleFailureGuidance("MARKET_DATA_NOT_REALTIME", "schwab"),
+    ).toMatchObject({
+      action: "OWNER_REVIEW",
+      actionLabel: "Owner review",
+      message: expect.stringMatching(
+        /Schwab.*did not explicitly mark.*real-time.*stopped before the AI model.*will not use delayed or ambiguous market prices/i,
+      ),
     });
   });
 });
