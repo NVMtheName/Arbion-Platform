@@ -76,6 +76,7 @@ export type StrategyFleetQuoteFormation = {
     | "UNAVAILABLE"
     | "MISMATCH";
   decisionID?: string;
+  decisionAt?: string;
   proposedActionID?: string;
   riskEvaluationID?: string;
   executionRecordID?: string;
@@ -93,6 +94,40 @@ export type StrategyFleetQuoteFormation = {
   paperFee?: string;
   paperAdverseSlippage?: string;
   paperSimulatedAt?: string;
+};
+
+export type StrategyFleetQuoteCoverageLedger = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  engineCount: number;
+  proposalCount: number;
+  abstentionCount: number;
+  exactCount: number;
+  legacyUnavailableCount: number;
+  unavailableCount: number;
+  mismatchCount: number;
+  engines: Array<{
+    id: string;
+    title: string;
+    accountName: string;
+    provider: string;
+    executionMode: string;
+    state:
+      | "COVERED"
+      | "NO_PROPOSALS"
+      | "LEGACY_GAPS"
+      | "ATTENTION"
+      | "UNAVAILABLE";
+    sampleCount: number;
+    proposalCount: number;
+    abstentionCount: number;
+    exactCount: number;
+    legacyUnavailableCount: number;
+    unavailableCount: number;
+    mismatchCount: number;
+    firstCoveredAt?: string;
+    latestCoveredAt?: string;
+    proposals: StrategyFleetQuoteFormation[];
+  }>;
 };
 
 export type StrategyFleetItem = {
@@ -352,6 +387,8 @@ export type StrategyFleetItem = {
   latestDecisionMarketEventQualities?: string[];
   latestDecisionMarketEventCount?: number;
   latestQuoteFormation?: StrategyFleetQuoteFormation;
+  quoteFormationWindowAvailable?: boolean;
+  recentQuoteFormations?: StrategyFleetQuoteFormation[];
   priorDecisionID?: string;
   priorDecisionType?: string;
   priorDecisionAt?: string;
@@ -5030,6 +5067,171 @@ function commandDeckRouteLabel(item: StrategyFleetItem) {
     : modelLabel(item);
 }
 
+function exactQuoteFormationEvidence(
+  item: StrategyFleetItem,
+  formation: StrategyFleetQuoteFormation,
+) {
+  const decisionAt = exactDecisionInstant(formation.decisionAt);
+  const observedAt = exactDecisionInstant(formation.observedAt);
+  const price = capitalDecimalUnits(formation.referencePrice);
+  const validBasis =
+    (formation.side === "BUY" &&
+      ["ASK", "MARK_FALLBACK", "LAST_FALLBACK"].includes(
+        formation.basis ?? "",
+      )) ||
+    (formation.side === "SELL" &&
+      ["BID", "MARK_FALLBACK", "LAST_FALLBACK"].includes(
+        formation.basis ?? "",
+      ));
+  if (
+    formation.status !== "EXACT" ||
+    !formation.decisionID ||
+    !decisionAt ||
+    !formation.proposedActionID ||
+    !formation.riskEvaluationID ||
+    !formation.executionRecordID ||
+    !formation.executionStatus ||
+    !formation.symbol ||
+    !formation.side ||
+    !price ||
+    price <= BigInt(0) ||
+    !validBasis ||
+    formation.provider !== item.provider ||
+    !formation.feed ||
+    !formation.quality ||
+    !observedAt ||
+    observedAt.valueOf() > decisionAt.valueOf() + 5 * 60 * 1000
+  )
+    return false;
+  if (item.executionMode === "SHADOW") return !formation.paperFillID;
+  if (item.executionMode !== "PAPER") return false;
+  if (formation.executionStatus !== "SIMULATED_FILLED")
+    return !formation.paperFillID;
+  return Boolean(
+    formation.paperFillID &&
+      capitalDecimalUnits(formation.paperFillPrice) &&
+      capitalDecimalUnits(formation.paperFee) !== undefined &&
+      capitalDecimalUnits(formation.paperAdverseSlippage) !== undefined &&
+      exactDecisionInstant(formation.paperSimulatedAt),
+  );
+}
+
+export function projectStrategyFleetQuoteCoverageLedger(
+  items: StrategyFleetItem[],
+): StrategyFleetQuoteCoverageLedger {
+  const active = items.filter(
+    (item) => isAI(item) && item.instanceStatus === "ACTIVE",
+  );
+  const engines = active.map((item) => {
+    const formations = item.recentQuoteFormations ?? [];
+    const identities = formations.map((formation) => formation.decisionID);
+    const validWindow = Boolean(
+      item.quoteFormationWindowAvailable === true &&
+        formations.length > 0 &&
+        identities.every(Boolean) &&
+        new Set(identities).size === identities.length &&
+        formations.every(
+          (formation) =>
+            Boolean(exactDecisionInstant(formation.decisionAt)) &&
+            (formation.status !== "EXACT" ||
+              exactQuoteFormationEvidence(item, formation)),
+        ),
+    );
+    if (!validWindow) {
+      return {
+        id: item.id,
+        title: item.title,
+        accountName: item.accountName,
+        provider: item.provider,
+        executionMode: item.executionMode,
+        state: "UNAVAILABLE" as const,
+        sampleCount: formations.length,
+        proposalCount: 0,
+        abstentionCount: 0,
+        exactCount: 0,
+        legacyUnavailableCount: 0,
+        unavailableCount: 0,
+        mismatchCount: 0,
+        proposals: [],
+      };
+    }
+    const proposals = formations.filter(
+      (formation) => formation.status !== "NOT_APPLICABLE",
+    );
+    const exact = proposals.filter((formation) => formation.status === "EXACT");
+    const coveredTimes = exact
+      .map((formation) => formation.decisionAt!)
+      .sort((left, right) => Date.parse(left) - Date.parse(right));
+    const legacyUnavailableCount = proposals.filter(
+      (formation) => formation.status === "LEGACY_UNAVAILABLE",
+    ).length;
+    const unavailableCount = proposals.filter(
+      (formation) => formation.status === "UNAVAILABLE",
+    ).length;
+    const mismatchCount = proposals.filter(
+      (formation) => formation.status === "MISMATCH",
+    ).length;
+    const state =
+      unavailableCount > 0 || mismatchCount > 0
+        ? ("ATTENTION" as const)
+        : legacyUnavailableCount > 0
+          ? ("LEGACY_GAPS" as const)
+          : proposals.length === 0
+            ? ("NO_PROPOSALS" as const)
+            : ("COVERED" as const);
+    return {
+      id: item.id,
+      title: item.title,
+      accountName: item.accountName,
+      provider: item.provider,
+      executionMode: item.executionMode,
+      state,
+      sampleCount: formations.length,
+      proposalCount: proposals.length,
+      abstentionCount: formations.length - proposals.length,
+      exactCount: exact.length,
+      legacyUnavailableCount,
+      unavailableCount,
+      mismatchCount,
+      firstCoveredAt: coveredTimes[0],
+      latestCoveredAt: coveredTimes.at(-1),
+      proposals,
+    };
+  });
+  const counts = engines.reduce(
+    (total, engine) => ({
+      proposalCount: total.proposalCount + engine.proposalCount,
+      abstentionCount: total.abstentionCount + engine.abstentionCount,
+      exactCount: total.exactCount + engine.exactCount,
+      legacyUnavailableCount:
+        total.legacyUnavailableCount + engine.legacyUnavailableCount,
+      unavailableCount: total.unavailableCount + engine.unavailableCount,
+      mismatchCount: total.mismatchCount + engine.mismatchCount,
+    }),
+    {
+      proposalCount: 0,
+      abstentionCount: 0,
+      exactCount: 0,
+      legacyUnavailableCount: 0,
+      unavailableCount: 0,
+      mismatchCount: 0,
+    },
+  );
+  const unavailable = engines.some((engine) => engine.state === "UNAVAILABLE");
+  const attention = engines.some((engine) => engine.state === "ATTENTION");
+  return {
+    status:
+      engines.length === 0 || unavailable
+        ? "UNAVAILABLE"
+        : attention
+          ? "ATTENTION"
+          : "VERIFIED",
+    engineCount: engines.length,
+    ...counts,
+    engines,
+  };
+}
+
 function quoteFormationStatusLabel(
   status: StrategyFleetQuoteFormation["status"],
 ) {
@@ -7222,6 +7424,218 @@ function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
       <footer>
         Paper and Shadow stay non-live · no model rerun · no manual cycle · no
         broker order · no account mutation
+      </footer>
+    </section>
+  );
+}
+
+function quoteCoverageStateLabel(
+  state: StrategyFleetQuoteCoverageLedger["engines"][number]["state"],
+) {
+  if (state === "COVERED") return "Exact coverage";
+  if (state === "NO_PROPOSALS") return "No proposals";
+  if (state === "LEGACY_GAPS") return "Legacy gaps";
+  if (state === "ATTENTION") return "Review evidence";
+  return "Evidence unavailable";
+}
+
+function StrategyFleetQuoteCoverageLedgerView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const ledger = projectStrategyFleetQuoteCoverageLedger(items);
+  if (ledger.engineCount === 0) return null;
+  const attention = ledger.status !== "VERIFIED";
+  return (
+    <section
+      className={`strategy-fleet-quote-coverage${attention ? " needs-review" : ""}`}
+      aria-labelledby="strategy-fleet-quote-coverage-heading"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">QUOTE REFERENCE COVERAGE</p>
+          <h2 id="strategy-fleet-quote-coverage-heading">
+            {ledger.status === "VERIFIED"
+              ? "Every recent proposal has an honest quote-coverage record."
+              : "Recent quote evidence needs review."}
+          </h2>
+          <p>
+            A bounded immutable decision window counts proposals separately from
+            abstentions. Exact saved references are never reconstructed from
+            nearby market data, and Paper fills remain distinct from Shadow
+            hypotheticals.
+          </p>
+        </div>
+        <span>{readable(ledger.status)}</span>
+      </header>
+      <dl className="strategy-fleet-quote-coverage-summary">
+        <div>
+          <dt>Exact proposal coverage</dt>
+          <dd>
+            {ledger.exactCount} / {ledger.proposalCount}
+          </dd>
+        </div>
+        <div>
+          <dt>Abstentions</dt>
+          <dd>{ledger.abstentionCount}</dd>
+        </div>
+        <div>
+          <dt>Legacy unavailable</dt>
+          <dd>{ledger.legacyUnavailableCount}</dd>
+        </div>
+        <div>
+          <dt>Current gaps / mismatch</dt>
+          <dd>{ledger.unavailableCount + ledger.mismatchCount}</dd>
+        </div>
+      </dl>
+      <ol className="strategy-fleet-quote-coverage-engines">
+        {ledger.engines.map((engine) => {
+          const engineAttention = ["ATTENTION", "UNAVAILABLE"].includes(
+            engine.state,
+          );
+          return (
+            <li
+              className={`is-${engine.executionMode.toLowerCase()} is-${engine.state.toLowerCase().replaceAll("_", "-")}`}
+              key={engine.id}
+            >
+              <header>
+                <div>
+                  <small>
+                    {providerLabel(engine.provider)} · {engine.accountName}
+                  </small>
+                  <strong>{engine.title}</strong>
+                </div>
+                <span>{quoteCoverageStateLabel(engine.state)}</span>
+              </header>
+              <dl>
+                <div>
+                  <dt>Decision samples</dt>
+                  <dd>{engine.sampleCount}</dd>
+                </div>
+                <div>
+                  <dt>Proposal coverage</dt>
+                  <dd>
+                    {engine.exactCount} / {engine.proposalCount}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Abstentions</dt>
+                  <dd>{engine.abstentionCount}</dd>
+                </div>
+                <div>
+                  <dt>Legacy / gaps / mismatch</dt>
+                  <dd>
+                    {engine.legacyUnavailableCount} / {engine.unavailableCount}{" "}
+                    / {engine.mismatchCount}
+                  </dd>
+                </div>
+                <div>
+                  <dt>First exact proposal</dt>
+                  <dd>{readableTime(engine.firstCoveredAt)}</dd>
+                </div>
+                <div>
+                  <dt>Latest exact proposal</dt>
+                  <dd>{readableTime(engine.latestCoveredAt)}</dd>
+                </div>
+              </dl>
+              <details open={engineAttention}>
+                <summary>
+                  <span>
+                    <strong>Bounded proposal evidence</strong>
+                    <small>
+                      Exact quote and identity chain for each saved proposal
+                    </small>
+                  </span>
+                  <span>{engine.proposalCount} proposals</span>
+                </summary>
+                {engine.proposals.length === 0 ? (
+                  <p>
+                    No proposal in this saved window required a quote reference.
+                    Abstentions remain counted separately.
+                  </p>
+                ) : (
+                  <ol>
+                    {engine.proposals.map((proposal) => (
+                      <li key={proposal.decisionID}>
+                        <header>
+                          <span>
+                            {quoteFormationStatusLabel(proposal.status)}
+                          </span>
+                          <time dateTime={proposal.decisionAt}>
+                            {readableTime(proposal.decisionAt)}
+                          </time>
+                        </header>
+                        <strong>
+                          {proposal.side && proposal.symbol
+                            ? `${proposal.side} ${proposal.symbol}`
+                            : "Saved proposal"}
+                        </strong>
+                        <p>
+                          {proposal.status === "EXACT"
+                            ? `${capitalMoney("USD", proposal.referencePrice)} · ${readable(proposal.basis ?? "UNAVAILABLE")} · ${proposal.provider} / ${proposal.feed} / ${readable(proposal.quality ?? "UNAVAILABLE")}`
+                            : proposal.status === "LEGACY_UNAVAILABLE"
+                              ? "This proposal predates the exact quote contract; no reference is inferred."
+                              : "The immutable quote or identity chain is incomplete or inconsistent; no reference is inferred."}
+                        </p>
+                        <dl>
+                          <div>
+                            <dt>Decision</dt>
+                            <dd>{proposal.decisionID}</dd>
+                          </div>
+                          <div>
+                            <dt>Proposal / risk</dt>
+                            <dd>
+                              {proposal.proposedActionID ?? "UNAVAILABLE"} /{" "}
+                              {proposal.riskEvaluationID ?? "UNAVAILABLE"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>
+                              {engine.executionMode === "PAPER"
+                                ? "Simulation"
+                                : "Shadow"}
+                            </dt>
+                            <dd>
+                              {proposal.executionRecordID ?? "UNAVAILABLE"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Paper fill</dt>
+                            <dd>
+                              {proposal.paperFillID ??
+                                (engine.executionMode === "SHADOW"
+                                  ? "NOT APPLICABLE"
+                                  : "NOT CREATED")}
+                            </dd>
+                          </div>
+                        </dl>
+                        <footer>
+                          <Link
+                            href={`/automations/${engine.id}#decision-journal`}
+                          >
+                            Open immutable decision →
+                          </Link>
+                          {proposal.paperFillID && (
+                            <Link
+                              href={`/automations/${engine.id}#paper-fill-${proposal.paperFillID}`}
+                            >
+                              Open simulation-only fill →
+                            </Link>
+                          )}
+                        </footer>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </details>
+            </li>
+          );
+        })}
+      </ol>
+      <footer>
+        Saved evidence only · Paper simulation and Shadow hypothetical paths ·
+        no provider refresh · no broker order · no live authority
       </footer>
     </section>
   );
@@ -10590,6 +11004,10 @@ export function StrategyFleet({
       )}
 
       {inventoryAvailable && <StrategyFleetCommandDeck items={ordered} />}
+
+      {inventoryAvailable && (
+        <StrategyFleetQuoteCoverageLedgerView items={items} />
+      )}
 
       {inventoryAvailable && (
         <StrategyFleetAIOperationsWorkspace items={items} />
