@@ -2455,6 +2455,171 @@ button:disabled {
   border-radius: 9px;
   background: rgba(4, 10, 22, 0.56);
 }
+.strategy-fleet-paper-review-status {
+  display: grid;
+  gap: 9px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid rgba(116, 144, 255, 0.2);
+  border-radius: 12px;
+  background: linear-gradient(
+    145deg,
+    rgba(15, 24, 54, 0.9),
+    rgba(6, 14, 30, 0.84)
+  );
+}
+.strategy-fleet-paper-review-status.is-reviewable-unreviewed,
+.strategy-fleet-paper-review-status.is-stale,
+.strategy-fleet-paper-review-status.is-review-required,
+.strategy-fleet-paper-review-status.is-unavailable {
+  border-color: rgba(216, 169, 82, 0.42);
+}
+.strategy-fleet-paper-review-status > header,
+.strategy-fleet-paper-review-status > header > div,
+.strategy-fleet-paper-review-status > footer,
+.strategy-fleet-paper-review-status details > dl {
+  display: flex;
+}
+.strategy-fleet-paper-review-status > header,
+.strategy-fleet-paper-review-status > footer {
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.strategy-fleet-paper-review-status > header > div {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+}
+.strategy-fleet-paper-review-status > header > div > span,
+.strategy-fleet-paper-review-status > header > span {
+  color: #8299df;
+  font-size: 0.53rem;
+  font-weight: 780;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.strategy-fleet-paper-review-status > header strong {
+  color: #e6ebff;
+  font-size: 0.76rem;
+}
+.strategy-fleet-paper-review-status > p,
+.strategy-fleet-paper-review-status details > p,
+.strategy-fleet-paper-review-status > footer {
+  margin: 0;
+  color: #8090ac;
+  font-size: 0.59rem;
+  line-height: 1.55;
+}
+.strategy-fleet-paper-review-status > details {
+  overflow: hidden;
+  border: 1px solid rgba(116, 144, 255, 0.15);
+  border-radius: 9px;
+  background: rgba(4, 9, 22, 0.62);
+}
+.strategy-fleet-paper-review-status > details > summary {
+  padding: 9px;
+  color: #b8c6ef;
+  cursor: pointer;
+  font-size: 0.6rem;
+  font-weight: 720;
+}
+.strategy-fleet-paper-review-status details > dl {
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
+  padding: 0 9px 9px;
+}
+.strategy-fleet-paper-review-status details > dl > div {
+  flex: 1 1 190px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(116, 144, 255, 0.11);
+  border-radius: 8px;
+  background: rgba(9, 15, 35, 0.66);
+}
+.strategy-fleet-paper-review-status dt,
+.strategy-fleet-paper-review-status dd {
+  margin: 0;
+}
+.strategy-fleet-paper-review-status dt {
+  color: #7181a2;
+  font-size: 0.51rem;
+  font-weight: 720;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.strategy-fleet-paper-review-status dd {
+  margin-top: 4px;
+  color: #c7d0ef;
+  font-size: 0.59rem;
+}
+.strategy-fleet-paper-review-status code {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: #8999c9;
+  font-size: 0.5rem;
+}
+.strategy-fleet-paper-review-status details > p {
+  padding: 0 9px 9px;
+}
+.strategy-fleet-paper-review-status > footer a {
+  color: #a9bcff;
+  font-weight: 720;
+  text-decoration: none;
+}
+.strategy-fleet-paper-review-board {
+  padding: 18px;
+  border: 1px solid rgba(116, 144, 255, 0.2);
+  border-radius: 18px;
+  background: rgba(7, 13, 29, 0.78);
+}
+.strategy-fleet-paper-review-board.is-attention {
+  border-color: rgba(216, 169, 82, 0.38);
+}
+.strategy-fleet-paper-review-board > header,
+.strategy-fleet-paper-review-board > header > div {
+  display: flex;
+}
+.strategy-fleet-paper-review-board > header {
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+}
+.strategy-fleet-paper-review-board > header > div {
+  align-items: flex-start;
+  flex-direction: column;
+}
+.strategy-fleet-paper-review-board h3,
+.strategy-fleet-paper-review-board > header p,
+.strategy-fleet-paper-review-board > footer {
+  margin: 0;
+}
+.strategy-fleet-paper-review-board h3 {
+  color: #e2e8ff;
+  font-size: 1rem;
+}
+.strategy-fleet-paper-review-board > header p,
+.strategy-fleet-paper-review-board > footer,
+.strategy-fleet-paper-review-board > header > span {
+  color: #74829e;
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+.strategy-fleet-paper-review-board > ol {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-fleet-paper-review-board > ol .strategy-fleet-paper-review-status {
+  margin-top: 0;
+}
+.strategy-fleet-paper-review-board > footer {
+  margin-top: 12px;
+}
 .paper-evidence-threshold-ledger {
   overflow: hidden;
   border: 1px solid rgba(116, 144, 255, 0.18);
@@ -6299,6 +6464,9 @@ button:disabled {
   .strategy-fleet-command-deck > header,
   .strategy-fleet-advanced-evidence > header,
   .strategy-fleet-ai-operations > header,
+  .strategy-fleet-paper-review-board > header,
+  .strategy-fleet-paper-review-status > header,
+  .strategy-fleet-paper-review-status > footer,
   .strategy-fleet-provenance-digest > header,
   .strategy-fleet-input-matrix > header,
   .strategy-fleet-input-change > header,
