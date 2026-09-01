@@ -153,6 +153,11 @@ const coinbaseEngine: StrategyFleetItem = {
   latestDecisionMarketEventFeeds: [],
   latestDecisionMarketEventQualities: [],
   latestDecisionMarketEventCount: 0,
+  latestQuoteFormation: {
+    status: "NOT_APPLICABLE",
+    decisionID: "decision-abstain",
+    executionStatus: "CANCELED",
+  },
   priorDecisionID: "decision-abstain-prior",
   priorDecisionType: "ABSTAIN",
   priorDecisionAt: "2026-08-26T15:17:39Z",
@@ -2529,6 +2534,8 @@ describe("StrategyFleet", () => {
       "$1,000 Shadow claim · $1 proposal ceiling",
     );
     expect(commandDeck).toHaveTextContent("Succeeded · 0 failures");
+    expect(commandDeck).toHaveTextContent("Quote provenance + price formation");
+    expect(commandDeck).toHaveTextContent("No quote needed");
     expect(
       within(commandDeck)
         .getByText("Advanced engine evidence")
@@ -2937,6 +2944,149 @@ describe("StrategyFleet", () => {
         }),
       ).getByRole("link", { name: /Open immutable evidence/i }),
     ).toHaveAttribute("href", "/automations/ai-mandate#runtime-evidence");
+  });
+
+  it("shows an exact Shadow quote as reference-only hypothetical evidence", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            latestDecisionType: "ALLOW_WOULD_HAVE_SUBMITTED",
+            latestDecisionSymbol: "BTC",
+            latestDecisionSide: "BUY",
+            latestDecisionQuantity: "0.0006",
+            latestDecisionRiskDecision: "ALLOW",
+            latestDecisionExecutionStatus: "WOULD_HAVE_SUBMITTED",
+            latestQuoteFormation: {
+              status: "EXACT",
+              decisionID: "decision-quote",
+              proposedActionID: "action-quote",
+              riskEvaluationID: "risk-quote",
+              executionRecordID: "shadow-quote",
+              executionStatus: "WOULD_HAVE_SUBMITTED",
+              symbol: "BTC",
+              side: "BUY",
+              referencePrice: "81234.1200000000",
+              basis: "ASK",
+              provider: "coinbase",
+              feed: "rest_ticker",
+              quality: "REAL_TIME_SINGLE_VENUE",
+              observedAt: "2026-08-26T16:17:38Z",
+            },
+          },
+        ]}
+      />,
+    );
+
+    const quote = screen
+      .getByText("Quote provenance + price formation")
+      .closest("details")!;
+    expect(quote).not.toHaveAttribute("open");
+    expect(quote).toHaveTextContent("Exact saved quote");
+    expect(quote).toHaveTextContent("BUY BTC");
+    expect(quote).toHaveTextContent("$81,234.12 · Ask");
+    expect(quote).toHaveTextContent(
+      "Reference-only hypothetical evidence. No simulated fill, broker order, or live execution exists.",
+    );
+    expect(quote).toHaveTextContent("shadow-quote");
+  });
+
+  it("shows the exact Paper quote-to-simulation price-formation chain", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            title: "AI Paper Engine",
+            executionMode: "PAPER",
+            latestDecisionType: "ALLOW_SIMULATED_FILLED",
+            latestDecisionSymbol: "ETH",
+            latestDecisionSide: "BUY",
+            latestDecisionQuantity: "0.02",
+            latestDecisionRiskDecision: "ALLOW",
+            latestDecisionExecutionStatus: "SIMULATED_FILLED",
+            latestQuoteFormation: {
+              status: "EXACT",
+              decisionID: "paper-decision",
+              proposedActionID: "paper-action",
+              riskEvaluationID: "paper-risk",
+              executionRecordID: "paper-execution",
+              executionStatus: "SIMULATED_FILLED",
+              symbol: "ETH",
+              side: "BUY",
+              referencePrice: "2500.0000000000",
+              basis: "ASK",
+              provider: "coinbase",
+              feed: "rest_ticker",
+              quality: "REAL_TIME_SINGLE_VENUE",
+              observedAt: "2026-08-26T16:17:38Z",
+              paperFillID: "paper-fill",
+              paperFillPrice: "2506.2500000000",
+              paperFee: "0.2506250000",
+              paperAdverseSlippage: "0.1250000000",
+              paperSimulatedAt: "2026-08-26T16:17:39Z",
+            },
+          },
+        ]}
+      />,
+    );
+
+    const quote = screen
+      .getByText("Quote provenance + price formation")
+      .closest("details")!;
+    expect(quote).toHaveTextContent("Provider reference$2,500");
+    expect(quote).toHaveTextContent("Adverse simulated slippage$0.125");
+    expect(quote).toHaveTextContent("Simulation-only fill price$2,506.25");
+    expect(quote).toHaveTextContent("Simulated fee$0.250625");
+    expect(
+      within(quote).getByRole("link", { name: /Open simulated fill/i }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#paper-fill-paper-fill");
+    expect(quote).toHaveTextContent("No broker execution · no live path");
+  });
+
+  it("opens legacy and mismatched quote evidence without inference", () => {
+    const { rerender } = render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            latestDecisionType: "ALLOW_WOULD_HAVE_SUBMITTED",
+            latestQuoteFormation: {
+              status: "LEGACY_UNAVAILABLE",
+              decisionID: "legacy-decision",
+            },
+          },
+        ]}
+      />,
+    );
+    let quote = screen
+      .getByText("Quote provenance + price formation")
+      .closest("details")!;
+    expect(quote).toHaveAttribute("open");
+    expect(quote).toHaveTextContent("Legacy evidence unavailable");
+    expect(quote).toHaveTextContent("will not reconstruct a price");
+
+    rerender(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            latestDecisionType: "ALLOW_WOULD_HAVE_SUBMITTED",
+            latestQuoteFormation: {
+              status: "MISMATCH",
+              decisionID: "mismatch-decision",
+            },
+          },
+        ]}
+      />,
+    );
+    quote = screen
+      .getByText("Quote provenance + price formation")
+      .closest("details")!;
+    expect(quote).toHaveAttribute("open");
+    expect(quote).toHaveTextContent("Evidence mismatch");
+    expect(quote).toHaveTextContent("do not form one exact immutable chain");
   });
 
   it("treats AI Paper as an isolated healthy runtime without Shadow evidence or reconciliation", () => {

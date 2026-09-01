@@ -2439,6 +2439,206 @@ button:disabled {
   font-size: 0.62rem;
   line-height: 1.45;
 }
+.strategy-fleet-quote-provenance {
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(25, 201, 214, 0.17);
+  border-radius: 12px;
+  background: rgba(2, 13, 16, 0.72);
+}
+.is-paper > .strategy-fleet-quote-provenance {
+  border-color: rgba(116, 144, 255, 0.22);
+  background: rgba(8, 13, 29, 0.74);
+}
+.strategy-fleet-quote-provenance.is-legacy-unavailable,
+.strategy-fleet-quote-provenance.is-unavailable,
+.strategy-fleet-quote-provenance.is-mismatch {
+  border-color: rgba(216, 169, 82, 0.45);
+}
+.strategy-fleet-quote-provenance > summary,
+.strategy-fleet-quote-provenance > summary > span:first-child,
+.strategy-fleet-quote-provenance > div > footer,
+.strategy-fleet-quote-reference > header {
+  display: flex;
+  align-items: center;
+}
+.strategy-fleet-quote-provenance > summary {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.strategy-fleet-quote-provenance > summary::-webkit-details-marker {
+  display: none;
+}
+.strategy-fleet-quote-provenance > summary > span:first-child {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.strategy-fleet-quote-provenance > summary strong {
+  color: #d9f4f6;
+  font-size: 0.66rem;
+}
+.strategy-fleet-quote-provenance > summary small,
+.strategy-fleet-quote-provenance > summary > span:last-child {
+  color: #718d93;
+  font-size: 0.55rem;
+  line-height: 1.4;
+}
+.strategy-fleet-quote-provenance > summary > span:last-child {
+  flex: 0 0 auto;
+  color: #75dcca;
+  font-weight: 760;
+  text-align: right;
+}
+.strategy-fleet-quote-provenance.is-legacy-unavailable
+  > summary
+  > span:last-child,
+.strategy-fleet-quote-provenance.is-unavailable > summary > span:last-child,
+.strategy-fleet-quote-provenance.is-mismatch > summary > span:last-child {
+  color: #e1bd79;
+}
+.strategy-fleet-quote-provenance > summary::after {
+  color: #6e8c92;
+  content: "+";
+  font-size: 0.8rem;
+}
+.strategy-fleet-quote-provenance[open] > summary::after {
+  content: "−";
+}
+.strategy-fleet-quote-provenance > summary:focus-visible {
+  outline: 2px solid #19c9d6;
+  outline-offset: -2px;
+}
+.strategy-fleet-quote-provenance > div {
+  padding: 0 12px 12px;
+  border-top: 1px solid rgba(25, 201, 214, 0.1);
+}
+.strategy-fleet-quote-provenance section > strong,
+.strategy-fleet-quote-reference > header strong {
+  color: #d9f4f6;
+  font-size: 0.7rem;
+}
+.strategy-fleet-quote-provenance section > p,
+.strategy-fleet-quote-boundary,
+.strategy-fleet-quote-reference > p,
+.strategy-fleet-quote-reference > time {
+  margin: 5px 0 0;
+  color: #7f9ba1;
+  font-size: 0.59rem;
+  line-height: 1.5;
+}
+.strategy-fleet-quote-provenance > div > section {
+  padding-top: 12px;
+}
+.strategy-fleet-quote-reference > header {
+  justify-content: space-between;
+  gap: 12px;
+}
+.strategy-fleet-quote-reference > header span {
+  color: #87e2d3;
+  font-size: 0.59rem;
+  font-weight: 780;
+  letter-spacing: 0.06em;
+}
+.strategy-fleet-quote-reference > time {
+  display: block;
+}
+.strategy-fleet-price-formation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-fleet-price-formation > li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(116, 144, 255, 0.15);
+  border-radius: 9px;
+  background: rgba(4, 10, 22, 0.66);
+}
+.strategy-fleet-price-formation > li > span {
+  display: grid;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(116, 144, 255, 0.16);
+  color: #a9bcff;
+  font-size: 0.54rem;
+  font-weight: 800;
+}
+.strategy-fleet-price-formation p {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+.strategy-fleet-price-formation small {
+  color: #708a91;
+  font-size: 0.5rem;
+}
+.strategy-fleet-price-formation strong {
+  overflow: hidden;
+  color: #c9dff5;
+  font-size: 0.61rem;
+  text-overflow: ellipsis;
+}
+.strategy-fleet-quote-identities {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 12px 0 0;
+}
+.strategy-fleet-quote-identities > div {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(25, 201, 214, 0.1);
+  border-radius: 8px;
+}
+.strategy-fleet-quote-identities dt,
+.strategy-fleet-quote-identities dd {
+  margin: 0;
+}
+.strategy-fleet-quote-identities dt {
+  color: #6f888e;
+  font-size: 0.49rem;
+  font-weight: 740;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.strategy-fleet-quote-identities dd {
+  overflow: hidden;
+  margin-top: 4px;
+  color: #a9c3c7;
+  font-size: 0.54rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.strategy-fleet-quote-provenance > div > footer {
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 11px;
+}
+.strategy-fleet-quote-provenance > div > footer a {
+  color: #70dbaf;
+  font-size: 0.56rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.strategy-fleet-quote-provenance > div > footer span {
+  color: #6f888e;
+  font-size: 0.52rem;
+}
 .strategy-fleet-exposure-outcomes {
   margin-top: 10px;
   overflow: hidden;
@@ -6887,6 +7087,20 @@ button:disabled {
   .strategy-fleet-command-deck > ol > li > footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .strategy-fleet-quote-provenance > summary,
+  .strategy-fleet-quote-provenance > div > footer,
+  .strategy-fleet-quote-reference > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .strategy-fleet-quote-provenance > summary > span:last-child {
+    max-width: 100%;
+    text-align: left;
+  }
+  .strategy-fleet-price-formation,
+  .strategy-fleet-quote-identities {
+    grid-template-columns: 1fr;
   }
   .strategy-fleet-exposure-outcomes > summary,
   .strategy-fleet-exposure-outcomes > div > footer,
