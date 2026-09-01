@@ -14141,12 +14141,50 @@ main {
   max-inline-size: 100%;
   overflow-x: auto;
 }
+.command-content-continuity
+  > :not(.app-page-header)
+  :where(
+    button,
+    select,
+    textarea,
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+    summary,
+    a.button-link,
+    a.connection-text-link,
+    .strategy-fleet-secondary-actions a,
+    .strategy-fleet-action-queue li > a,
+    .automation-next-action > a,
+    .connection-steps a
+  ) {
+  touch-action: manipulation;
+}
+.command-content-continuity
+  > :not(.app-page-header)
+  :where(
+    button,
+    select,
+    textarea,
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+    summary,
+    a.button-link,
+    a.connection-text-link,
+    .strategy-fleet-secondary-actions a,
+    .strategy-fleet-action-queue li > a,
+    .automation-next-action > a,
+    .connection-steps a
+  ):focus-visible {
+  border-radius: 8px;
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 3px;
+}
 .command-data-scroll {
   width: 100%;
   max-inline-size: 100%;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
+  scrollbar-color: rgba(124, 229, 236, 0.72) rgba(255, 255, 255, 0.08);
   scrollbar-gutter: stable;
+  scrollbar-width: thin;
   -webkit-overflow-scrolling: touch;
 }
 .command-data-scroll:focus-visible {
@@ -15987,6 +16025,43 @@ h1 {
 }
 
 @media (max-width: 760px) {
+  .command-content-continuity
+    > :not(.app-page-header)
+    :where(
+      button,
+      select,
+      textarea,
+      input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+      summary,
+      a.button-link,
+      a.connection-text-link,
+      .strategy-fleet-secondary-actions a,
+      .strategy-fleet-action-queue li > a,
+      .automation-next-action > a,
+      .connection-steps a
+    ) {
+    min-block-size: 44px;
+  }
+  .command-content-continuity
+    > :not(.app-page-header)
+    :where(
+      a.button-link,
+      a.connection-text-link,
+      .strategy-fleet-secondary-actions a
+    ) {
+    display: inline-flex;
+    align-items: center;
+  }
+  .command-data-scroll {
+    padding-bottom: 4px;
+  }
+  .command-data-scroll::-webkit-scrollbar {
+    height: 8px;
+  }
+  .command-data-scroll::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(124, 229, 236, 0.72);
+  }
   .command-data-scroll-hint {
     position: static;
     width: auto;
