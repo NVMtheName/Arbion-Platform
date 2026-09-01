@@ -32,6 +32,7 @@ vi.mock("next/navigation", () => ({
 import {
   AppNavigation,
   projectConnectionNavigationHealth,
+  resolveNavigationScrollLeft,
 } from "./app-navigation";
 
 const observedAt = "2026-09-01T16:00:00Z";
@@ -49,7 +50,63 @@ function connection(overrides: Record<string, unknown> = {}) {
 describe("persistent connection navigation health", () => {
   afterEach(() => {
     cleanup();
+    window.sessionStorage.clear();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps deliberate horizontal scroll when the active tab is visible", () => {
+    expect(
+      resolveNavigationScrollLeft({
+        retainedScrollLeft: 180,
+        scrollWidth: 960,
+        viewportWidth: 320,
+        activeStart: 220,
+        activeWidth: 80,
+      }),
+    ).toBe(180);
+  });
+
+  it("reveals an active tab beyond either edge without vertical scrolling", () => {
+    expect(
+      resolveNavigationScrollLeft({
+        retainedScrollLeft: 100,
+        scrollWidth: 960,
+        viewportWidth: 320,
+        activeStart: 850,
+        activeWidth: 80,
+      }),
+    ).toBe(610);
+    expect(
+      resolveNavigationScrollLeft({
+        retainedScrollLeft: 500,
+        scrollWidth: 960,
+        viewportWidth: 320,
+        activeStart: 40,
+        activeWidth: 80,
+      }),
+    ).toBe(40);
+  });
+
+  it("clamps saved overflow and fails closed on malformed geometry", () => {
+    expect(
+      resolveNavigationScrollLeft({
+        retainedScrollLeft: 900,
+        scrollWidth: 960,
+        viewportWidth: 320,
+        activeStart: 700,
+        activeWidth: 80,
+      }),
+    ).toBe(640);
+    expect(
+      resolveNavigationScrollLeft({
+        retainedScrollLeft: Number.NaN,
+        scrollWidth: 960,
+        viewportWidth: 320,
+        activeStart: 700,
+        activeWidth: 80,
+      }),
+    ).toBe(0);
   });
 
   it("shows a current state from exact saved financial connection evidence", () => {
@@ -210,5 +267,26 @@ describe("persistent connection navigation health", () => {
       metaKey: true,
     });
     expect(navigation).not.toHaveAttribute("aria-busy");
+  });
+
+  it("remains usable when browser session storage is unavailable", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("Storage unavailable");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Storage unavailable");
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ connections: [connection()] }),
+      }),
+    );
+
+    expect(() => render(<AppNavigation />)).not.toThrow();
+    expect(
+      screen.getByRole("navigation", { name: "Application navigation" }),
+    ).toBeInTheDocument();
   });
 });

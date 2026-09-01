@@ -17704,6 +17704,11 @@ main:has(> .app-page-header) {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .app-navigation a.is-pending::after {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
   *,
   *::before,
   *::after {

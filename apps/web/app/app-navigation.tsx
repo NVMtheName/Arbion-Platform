@@ -35,6 +35,42 @@ const destinations = [
 
 const navigationScrollStorageKey = "arbion-navigation-scroll-left";
 
+type NavigationScrollEvidence = {
+  retainedScrollLeft: number;
+  scrollWidth: number;
+  viewportWidth: number;
+  activeStart: number;
+  activeWidth: number;
+};
+
+export function resolveNavigationScrollLeft({
+  retainedScrollLeft,
+  scrollWidth,
+  viewportWidth,
+  activeStart,
+  activeWidth,
+}: NavigationScrollEvidence) {
+  const values = [
+    retainedScrollLeft,
+    scrollWidth,
+    viewportWidth,
+    activeStart,
+    activeWidth,
+  ];
+  if (values.some((value) => !Number.isFinite(value) || value < 0)) return 0;
+  const maximumScrollLeft = Math.max(0, scrollWidth - viewportWidth);
+  const retained = Math.min(retainedScrollLeft, maximumScrollLeft);
+  if (viewportWidth === 0 || activeWidth === 0) return retained;
+  const activeEnd = activeStart + activeWidth;
+  if (activeWidth >= viewportWidth || activeStart < retained) {
+    return Math.min(activeStart, maximumScrollLeft);
+  }
+  if (activeEnd > retained + viewportWidth) {
+    return Math.min(activeEnd - viewportWidth, maximumScrollLeft);
+  }
+  return retained;
+}
+
 function readNavigationScrollLeft() {
   try {
     const value = Number(
@@ -262,11 +298,19 @@ export function AppNavigation({ className = "" }: { className?: string }) {
   useLayoutEffect(() => {
     const navigation = navigationRef.current;
     if (!navigation) return;
-    navigation.scrollLeft = Math.min(
-      readNavigationScrollLeft(),
-      Math.max(0, navigation.scrollWidth - navigation.clientWidth),
+    const activeDestination = navigation.querySelector<HTMLElement>(
+      'a[aria-current="page"]',
     );
-  }, []);
+    const scrollLeft = resolveNavigationScrollLeft({
+      retainedScrollLeft: readNavigationScrollLeft(),
+      scrollWidth: navigation.scrollWidth,
+      viewportWidth: navigation.clientWidth,
+      activeStart: activeDestination?.offsetLeft ?? 0,
+      activeWidth: activeDestination?.offsetWidth ?? 0,
+    });
+    navigation.scrollLeft = scrollLeft;
+    writeNavigationScrollLeft(scrollLeft);
+  }, [pathname]);
   const beginNavigation = (
     event: ReactMouseEvent<HTMLAnchorElement>,
     href: string,
