@@ -77,6 +77,19 @@ function percentage(value: string) {
   return positiveDecimal(value) && maximum !== undefined && maximum <= 0;
 }
 
+function allowedSymbols(value: string) {
+  const symbols = value
+    .split(",")
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter(Boolean);
+  return (
+    symbols.length > 0 &&
+    symbols.length <= 8 &&
+    new Set(symbols).size === symbols.length &&
+    symbols.every((symbol) => /^[A-Z0-9][A-Z0-9.-]{0,14}$/.test(symbol))
+  );
+}
+
 export default function AutomationBuilder() {
   const [accounts, setAccounts] = useState<Item[]>([]);
   const [buckets, setBuckets] = useState<Item[]>([]);
@@ -232,6 +245,51 @@ export default function AutomationBuilder() {
     ? bucketID
     : (eligibleBuckets[0]?.id ?? "");
   const modeName = executionMode === "PAPER" ? "AI Paper" : "AI Shadow";
+  const symbolsReady = allowedSymbols(symbols);
+  const proposalReady = positiveDecimal(maxNotional);
+  const paperReadiness = [
+    {
+      label: "Financial context",
+      ready: Boolean(account),
+      value: account
+        ? `${account.display_name} · ${account.provider}`
+        : "Choose an active Coinbase or Schwab account",
+    },
+    {
+      label: "AI route",
+      ready: Boolean(connectionID && modelID),
+      value:
+        connectionID && modelID
+          ? `${activeAI.find((item) => item.id === connectionID)?.display_name ?? "AI provider"} · ${modelID}`
+          : "Choose an active provider and supported model",
+    },
+    {
+      label: "Isolated capital",
+      ready: Boolean(selectedBucketID),
+      value: selectedBucketID
+        ? (eligibleBuckets.find((item) => item.id === selectedBucketID)?.name ??
+          "Saved Paper budget")
+        : "Save or choose a non-reserve budget",
+    },
+    {
+      label: "Allowed universe",
+      ready: symbolsReady,
+      value: symbolsReady
+        ? symbols
+            .split(",")
+            .map((symbol) => symbol.trim().toUpperCase())
+            .join(", ")
+        : "Enter 1–8 unique symbols using letters, numbers, dots, or hyphens",
+    },
+    {
+      label: "Proposal boundary",
+      ready: proposalReady,
+      value: proposalReady
+        ? `$${maxNotional} maximum per simulated proposal`
+        : "Enter a positive exact dollar ceiling",
+    },
+  ];
+  const paperConfigurationReady = paperReadiness.every((item) => item.ready);
 
   async function createBudget() {
     if (!accountID || !positiveDecimal(budgetAmount)) {
@@ -375,6 +433,7 @@ export default function AutomationBuilder() {
         objective.trim() &&
         symbols.trim() &&
         positiveDecimal(maxNotional) &&
+        symbolsReady &&
         boundedInteger(maxActionsPerDay, 1, 48) &&
         [minimumCashReserve, maxCapitalDeployed, maxSinglePositionAmount].every(
           (value) => value === "" || nonNegativeDecimal(value),
@@ -739,6 +798,57 @@ export default function AutomationBuilder() {
           )}
         </div>
       </section>
+
+      {executionMode === "PAPER" && (
+        <section
+          aria-labelledby="ai-paper-launch-readiness-title"
+          className={`ai-paper-launch-readiness ${paperConfigurationReady ? "is-ready" : "needs-input"}`}
+        >
+          <header>
+            <div>
+              <p className="eyebrow">PAPER LAUNCH READINESS</p>
+              <h2 id="ai-paper-launch-readiness-title">
+                {paperConfigurationReady
+                  ? "Saved configuration is ready for review"
+                  : "Complete the saved configuration"}
+              </h2>
+            </div>
+            <span className="status-badge">
+              {paperConfigurationReady ? "CONFIGURED" : "NEEDS INPUT"}
+            </span>
+          </header>
+          <p>
+            {account?.provider === "schwab"
+              ? "Schwab will supply broker real-time equity quotes during US regular-market evaluations. Price history and liquidity remain explicitly unavailable until Arbion has provider-derived evidence for them."
+              : account?.provider === "coinbase"
+                ? "Coinbase will supply current crypto prices and provider-derived market context during continuous evaluations."
+                : "Choose an account to see its exact non-live market-data contract."}
+          </p>
+          <ul>
+            {paperReadiness.map((item) => (
+              <li
+                className={item.ready ? "is-ready" : "needs-input"}
+                key={item.label}
+              >
+                <span aria-hidden="true">{item.ready ? "✓" : "·"}</span>
+                <div>
+                  <strong>{item.label}</strong>
+                  <small>{item.value}</small>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <footer>
+            <strong>Configuration readiness is not market-data proof.</strong>
+            <span>
+              The first normal scheduled cycle must still prove fresh provider
+              prices and will fail closed if that evidence is missing. Paper
+              uses only Arbion&apos;s isolated simulated cash and holdings; no
+              Coinbase or Schwab order route exists.
+            </span>
+          </footer>
+        </section>
+      )}
 
       <footer className="strategy-launch-footer">
         <div>

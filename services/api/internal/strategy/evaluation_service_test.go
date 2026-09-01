@@ -536,6 +536,39 @@ func TestCoinbaseAIPaperProposalUsesOnlyIsolatedPortfolioAndSimulatesAtomically(
 	}
 }
 
+func TestSchwabAIPaperUsesOnlyBrokerQuoteAndIsolatedSimulationLedger(t *testing.T) {
+	inputUsage, outputUsage, latencyMS := 42, 18, 900
+	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "SPY", Side: "BUY", ProposedNotional: "1000", Confidence: "MEDIUM", Thesis: "Bounded equity paper candidate", RiskFlags: []string{}, Limitations: []string{"Simulation only"}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep", InputUsage: &inputUsage, OutputUsage: &outputUsage, LatencyMS: &latencyMS}}
+	service, store, finances, ai, principal := aiEvaluationFixture("schwab", decision)
+	store.instance.ExecutionMode = Paper
+	store.facts = EvaluationFacts{Paper: &PaperEvaluationFacts{
+		Cash: "2000.0000000000", CurrentExposure: "0.0000000000",
+		Positions: []Position{}, RiskPositions: []risk.Position{},
+	}, Breakers: []risk.CircuitBreaker{}}
+	automations := service.automation.(*evaluationAutomationFake)
+	automations.mandate.ExecutionMode = "PAPER"
+	automations.mandate.AllowedUniverse = automation.Universe{Symbols: []string{"SPY"}}
+	automations.mandate.StrategyParameters = json.RawMessage(`{"objective":"Preserve simulated capital.","max_proposal_notional":"1000"}`)
+	automations.bucket.AllocationValue = "2000"
+
+	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "scheduled-ai:schwab-paper")
+	if err != nil || outcome.AIDecision != "PROPOSE" || outcome.Execution.Status != SimulatedFilled || outcome.RiskDecision != risk.Allow {
+		t.Fatalf("unexpected Schwab AI Paper outcome: %#v err=%v", outcome, err)
+	}
+	if store.paperCommits != 1 || store.commits != 0 || store.abstains != 0 || finances.quoteCalls != 1 || finances.balanceCalls != 0 || finances.positionCalls != 0 || finances.chainCalls != 0 {
+		t.Fatalf("Schwab Paper crossed an isolated boundary: paper=%d shadow=%d abstain=%d quotes=%d balances=%d positions=%d chains=%d", store.paperCommits, store.commits, store.abstains, finances.quoteCalls, finances.balanceCalls, finances.positionCalls, finances.chainCalls)
+	}
+	if ai.request.AvailableCashUSD != "2000.0000000000" || ai.request.BuyingPowerUSD != "2000.0000000000" || len(ai.request.Positions) != 0 || len(ai.request.Markets) != 1 || ai.request.Markets[0].Symbol != "SPY" || ai.request.Markets[0].AssetClass != "EQUITY" || ai.request.Markets[0].Feed != "schwab_market_data" || ai.request.Markets[0].Quality != "BROKER_REALTIME" || ai.request.Markets[0].HistoryStatus != "UNAVAILABLE" || ai.request.Markets[0].LiquidityStatus != "UNAVAILABLE" {
+		t.Fatalf("Schwab Paper input contract changed: %#v", ai.request)
+	}
+	if !store.paperFill.SimulationOnly || store.paperFill.MarketProvider != "schwab" || store.paperFill.PricingBasis != "ASK" || store.paperFill.Instrument != "EQUITY" || store.paperFill.RequestedNotional != "1000.0000000000" {
+		t.Fatalf("Schwab Paper simulated fill provenance was incomplete: %#v", store.paperFill)
+	}
+	if len(store.outcomeMarks) != 0 || !strings.Contains(string(store.decision.Rationale), `"execution_mode":"PAPER"`) || !strings.Contains(string(store.decision.Rationale), `"provider":"schwab"`) || !strings.Contains(string(store.decision.Rationale), `"portfolio_source":"arbion_isolated_paper_ledger"`) {
+		t.Fatalf("Schwab Paper immutable evidence was incomplete: marks=%#v rationale=%s", store.outcomeMarks, store.decision.Rationale)
+	}
+}
+
 func TestAIShadowRepeatProposalIsDeniedBeforeShadowExecution(t *testing.T) {
 	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", ProposedNotional: "1", Confidence: "MEDIUM", Thesis: "Repeat the prior direction", RiskFlags: []string{}, Limitations: []string{}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
 	service, store, _, ai, principal := aiEvaluationFixture("coinbase", decision)

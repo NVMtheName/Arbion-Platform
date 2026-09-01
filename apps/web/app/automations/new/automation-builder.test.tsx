@@ -203,6 +203,81 @@ describe("AutomationBuilder AI non-live launch", () => {
     });
   });
 
+  it("shows an exact Schwab Paper readiness contract without refreshing the provider", async () => {
+    vi.stubGlobal(
+      "fetch",
+      fetchFixtures({
+        ...connected,
+        accounts: [
+          {
+            id: "schwab-account",
+            display_name: "Schwab Brokerage",
+            provider: "schwab",
+            status: "active",
+          },
+        ],
+        buckets: [
+          {
+            id: "schwab-paper-budget",
+            name: "$1,000 Schwab Paper",
+            status: "ACTIVE",
+            is_reserve: false,
+            financial_account_id: "schwab-account",
+          },
+        ],
+      }),
+    );
+    render(<AutomationBuilder />);
+    expect(
+      await screen.findByRole("heading", {
+        name: /complete the saved configuration/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/schwab will supply broker real-time equity quotes/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /price history and liquidity remain explicitly unavailable/i,
+      ),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/allowed symbols/i), {
+      target: { value: "SPY" },
+    });
+    expect(
+      await screen.findByRole("heading", {
+        name: /saved configuration is ready for review/i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/configuration readiness is not market-data proof/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /first normal scheduled cycle must still prove fresh provider prices/i,
+      ),
+    ).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(5);
+  });
+
+  it("fails closed on duplicate or malformed allowed symbols", async () => {
+    vi.stubGlobal("fetch", fetchFixtures(connected));
+    render(<AutomationBuilder />);
+    const symbols = await screen.findByLabelText(/allowed symbols/i);
+    const button = screen.getByRole("button", {
+      name: /create ai paper draft/i,
+    });
+    fireEvent.change(symbols, { target: { value: "BTC, BTC" } });
+    expect(button).toBeDisabled();
+    expect(
+      screen.getByText(/enter 1–8 unique symbols using letters/i),
+    ).toBeInTheDocument();
+    fireEvent.change(symbols, { target: { value: "BTC/USD" } });
+    expect(button).toBeDisabled();
+    fireEvent.change(symbols, { target: { value: "BTC, ETH" } });
+    await waitFor(() => expect(button).toBeEnabled());
+  });
+
   it("saves owner-selected deterministic guardrails with the draft", async () => {
     const fixtureFetch = fetchFixtures(connected);
     vi.stubGlobal(
