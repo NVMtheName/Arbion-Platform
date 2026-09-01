@@ -229,6 +229,8 @@ func classifyScheduleError(err error) string {
 		return "PAPER_STATE_UNAVAILABLE"
 	case errors.Is(err, ErrEvaluationMarketDataStale):
 		return "MARKET_DATA_STALE"
+	case errors.Is(err, ErrEvaluationMarketDataNotRealtime):
+		return "MARKET_DATA_NOT_REALTIME"
 	case errors.Is(err, ErrEvaluationNoEligibleContracts):
 		return "NO_ELIGIBLE_OPTION_CONTRACTS"
 	case errors.Is(err, ErrInvalid):

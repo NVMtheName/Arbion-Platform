@@ -21,6 +21,7 @@ var (
 	ErrEvaluationParametersInvalid     = fmt.Errorf("%w: strategy parameters are invalid", ErrInvalid)
 	ErrEvaluationPaperStateUnavailable = fmt.Errorf("%w: paper state is unavailable", ErrInvalid)
 	ErrEvaluationMarketDataStale       = fmt.Errorf("%w: market data is stale", ErrInvalid)
+	ErrEvaluationMarketDataNotRealtime = fmt.Errorf("%w: market data is not explicitly real-time", ErrInvalid)
 	ErrEvaluationNoEligibleContracts   = fmt.Errorf("%w: no eligible option contracts", ErrInvalid)
 )
 
