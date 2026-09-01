@@ -36,6 +36,7 @@ import type {
   PaperExecutionCheckpoint,
   PaperExecutionSideCost,
   PaperExecutionSymbolCost,
+  PaperEvidenceReview,
   PaperGuardrailCheckCount,
   PaperGuardrailCheckChange,
   PaperGuardrailCheckFact,
@@ -119,6 +120,8 @@ type PaperPortfolioEnvelope = {
   paper_evidence_readiness_semantics?: string;
   paper_evidence_readiness_read_only?: boolean;
   paper_evidence_readiness_grants_authority?: boolean;
+  paper_evidence_review_semantics?: string;
+  paper_evidence_review_grants_authority?: boolean;
   broker_action_available?: boolean;
   live_promotion_available?: boolean;
   live_execution_available?: boolean;
@@ -4108,6 +4111,231 @@ function normalizedPaperEvidenceReadiness(
   };
 }
 
+function normalizedPaperEvidenceReview(
+  value: unknown,
+): PaperEvidenceReview | undefined {
+  const review = record(value);
+  if (!review) return;
+  const id = text(review, "id", "ID");
+  const strategyInstanceID = text(
+    review,
+    "strategy_instance_id",
+    "StrategyInstanceID",
+  );
+  const financialAccountID = text(
+    review,
+    "financial_account_id",
+    "FinancialAccountID",
+  );
+  const mandateID = text(review, "mandate_id", "MandateID");
+  const mandateVersion = number(review, "mandate_version", "MandateVersion");
+  const fingerprint = text(
+    review,
+    "evidence_fingerprint",
+    "EvidenceFingerprint",
+  );
+  const gateStatus = text(review, "gate_status", "GateStatus");
+  const evidenceStartedAt = text(
+    review,
+    "evidence_started_at",
+    "EvidenceStartedAt",
+  );
+  const evidenceEligibleAt = text(
+    review,
+    "evidence_eligible_at",
+    "EvidenceEligibleAt",
+  );
+  const evidenceAsOf = text(review, "evidence_as_of", "EvidenceAsOf");
+  const evidenceWindowHours = number(
+    review,
+    "evidence_window_hours",
+    "EvidenceWindowHours",
+  );
+  const decisionCount = number(review, "decision_count", "DecisionCount");
+  const portfolioVersion = number(
+    review,
+    "portfolio_version",
+    "PortfolioVersion",
+  );
+  const portfolioUpdatedAt = text(
+    review,
+    "portfolio_updated_at",
+    "PortfolioUpdatedAt",
+  );
+  const latestCheckpointRunID = text(
+    review,
+    "latest_checkpoint_run_id",
+    "LatestCheckpointRunID",
+  );
+  const latestCheckpointAsOf = text(
+    review,
+    "latest_checkpoint_as_of",
+    "LatestCheckpointAsOf",
+  );
+  const schedulerSampleCount = number(
+    review,
+    "scheduler_sample_count",
+    "SchedulerSampleCount",
+  );
+  const schedulerSuccessCount = number(
+    review,
+    "scheduler_success_count",
+    "SchedulerSuccessCount",
+  );
+  const schedulerFailureCount = number(
+    review,
+    "scheduler_failure_count",
+    "SchedulerFailureCount",
+  );
+  const lastScheduleStatus = text(
+    review,
+    "last_schedule_status",
+    "LastScheduleStatus",
+  );
+  const consecutiveFailures = number(
+    review,
+    "consecutive_schedule_failures",
+    "ConsecutiveScheduleFailures",
+  );
+  const routeContinuityStatus = text(
+    review,
+    "route_continuity_status",
+    "RouteContinuityStatus",
+  );
+  const inputCoverageStatus = text(
+    review,
+    "input_coverage_status",
+    "InputCoverageStatus",
+  );
+  const inputFreshnessStatus = text(
+    review,
+    "input_freshness_status",
+    "InputFreshnessStatus",
+  );
+  const ledgerContractStatus = text(
+    review,
+    "ledger_contract_status",
+    "LedgerContractStatus",
+  );
+  const noLiveSafetyStatus = text(
+    review,
+    "no_live_safety_status",
+    "NoLiveSafetyStatus",
+  );
+  const executionBoundary = text(
+    review,
+    "execution_boundary",
+    "ExecutionBoundary",
+  );
+  const reviewScope = text(review, "review_scope", "ReviewScope");
+  const grantsAuthority = flag(review, "grants_authority", "GrantsAuthority");
+  const livePromotionAvailable = flag(
+    review,
+    "live_promotion_available",
+    "LivePromotionAvailable",
+  );
+  const mfaMethod = text(review, "mfa_method", "MFAMethod");
+  const reviewedAt = text(review, "reviewed_at", "ReviewedAt");
+  const createdAt = text(review, "created_at", "CreatedAt");
+  const timestamps = [
+    evidenceStartedAt,
+    evidenceEligibleAt,
+    evidenceAsOf,
+    portfolioUpdatedAt,
+    latestCheckpointAsOf,
+    reviewedAt,
+    createdAt,
+  ];
+  const counts = [
+    mandateVersion,
+    evidenceWindowHours,
+    decisionCount,
+    portfolioVersion,
+    schedulerSampleCount,
+    schedulerSuccessCount,
+    schedulerFailureCount,
+    consecutiveFailures,
+  ];
+  if (
+    !id ||
+    !strategyInstanceID ||
+    !financialAccountID ||
+    !mandateID ||
+    !latestCheckpointRunID ||
+    !fingerprint ||
+    !/^[0-9a-f]{64}$/.test(fingerprint) ||
+    gateStatus !== "EVIDENCE_REVIEWABLE" ||
+    timestamps.some(
+      (timestamp) => !timestamp || Number.isNaN(Date.parse(timestamp)),
+    ) ||
+    counts.some(
+      (count) =>
+        count === undefined || !Number.isSafeInteger(count) || count < 0,
+    ) ||
+    mandateVersion! < 1 ||
+    evidenceWindowHours! < 168 ||
+    decisionCount! < 20 ||
+    portfolioVersion! < 1 ||
+    schedulerSampleCount! < 20 ||
+    schedulerSuccessCount! + schedulerFailureCount! > schedulerSampleCount! ||
+    lastScheduleStatus !== "SUCCEEDED" ||
+    consecutiveFailures !== 0 ||
+    !["STABLE", "CONTEXT_CHANGED"].includes(routeContinuityStatus ?? "") ||
+    inputCoverageStatus !== "COMPLETE" ||
+    inputFreshnessStatus !== "CURRENT_AT_DECISION" ||
+    ledgerContractStatus !== "RECONCILED" ||
+    noLiveSafetyStatus !== "CLEAR" ||
+    executionBoundary !== "PAPER_SIMULATION_ONLY" ||
+    reviewScope !== "PAPER_NON_LIVE_EVIDENCE_ONLY" ||
+    grantsAuthority !== false ||
+    livePromotionAvailable !== false ||
+    mfaMethod !== "totp" ||
+    Date.parse(evidenceEligibleAt!) - Date.parse(evidenceStartedAt!) !==
+      168 * 60 * 60 * 1000 ||
+    evidenceAsOf !== latestCheckpointAsOf ||
+    Date.parse(reviewedAt!) < Date.parse(evidenceAsOf!) ||
+    Date.parse(createdAt!) < Date.parse(reviewedAt!)
+  )
+    return;
+  return {
+    id,
+    strategy_instance_id: strategyInstanceID,
+    financial_account_id: financialAccountID,
+    mandate_id: mandateID,
+    mandate_version: mandateVersion!,
+    evidence_fingerprint: fingerprint,
+    gate_status: "EVIDENCE_REVIEWABLE",
+    evidence_started_at: evidenceStartedAt!,
+    evidence_eligible_at: evidenceEligibleAt!,
+    evidence_as_of: evidenceAsOf!,
+    evidence_window_hours: evidenceWindowHours!,
+    decision_count: decisionCount!,
+    portfolio_version: portfolioVersion!,
+    portfolio_updated_at: portfolioUpdatedAt!,
+    latest_checkpoint_run_id: latestCheckpointRunID!,
+    latest_checkpoint_as_of: latestCheckpointAsOf!,
+    scheduler_sample_count: schedulerSampleCount!,
+    scheduler_success_count: schedulerSuccessCount!,
+    scheduler_failure_count: schedulerFailureCount!,
+    last_schedule_status: "SUCCEEDED",
+    consecutive_schedule_failures: 0,
+    route_continuity_status: routeContinuityStatus as
+      | "STABLE"
+      | "CONTEXT_CHANGED",
+    input_coverage_status: "COMPLETE",
+    input_freshness_status: "CURRENT_AT_DECISION",
+    ledger_contract_status: "RECONCILED",
+    no_live_safety_status: "CLEAR",
+    execution_boundary: "PAPER_SIMULATION_ONLY",
+    review_scope: "PAPER_NON_LIVE_EVIDENCE_ONLY",
+    grants_authority: false,
+    live_promotion_available: false,
+    mfa_method: "totp",
+    reviewed_at: reviewedAt!,
+    created_at: createdAt!,
+  };
+}
+
 function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
   const portfolio = record(value);
   const rawPositions = portfolio?.positions ?? portfolio?.Positions;
@@ -4139,6 +4367,45 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
   const evidenceReadiness = normalizedPaperEvidenceReadiness(
     portfolio?.evidence_readiness ?? portfolio?.EvidenceReadiness,
   );
+  const rawEvidenceReviewFingerprint = text(
+    portfolio,
+    "evidence_review_fingerprint",
+    "EvidenceReviewFingerprint",
+  );
+  const evidenceReviewFingerprint = rawEvidenceReviewFingerprint || undefined;
+  const rawLatestEvidenceReview =
+    portfolio?.latest_evidence_review ?? portfolio?.LatestEvidenceReview;
+  const latestEvidenceReview = normalizedPaperEvidenceReview(
+    rawLatestEvidenceReview,
+  );
+  const currentEvidenceReviewed = flag(
+    portfolio,
+    "current_evidence_reviewed",
+    "CurrentEvidenceReviewed",
+  );
+  const latestReviewWasSupplied = rawLatestEvidenceReview != null;
+  const fingerprintValid =
+    evidenceReviewFingerprint === undefined ||
+    /^[0-9a-f]{64}$/.test(evidenceReviewFingerprint);
+  const reviewContractValid =
+    currentEvidenceReviewed !== undefined &&
+    fingerprintValid &&
+    (!latestReviewWasSupplied || Boolean(latestEvidenceReview)) &&
+    (evidenceReadiness?.status !== "EVIDENCE_REVIEWABLE" ||
+      Boolean(evidenceReviewFingerprint)) &&
+    (!currentEvidenceReviewed ||
+      Boolean(
+        latestEvidenceReview &&
+          evidenceReviewFingerprint &&
+          latestEvidenceReview.evidence_fingerprint ===
+            evidenceReviewFingerprint,
+      )) &&
+    !(
+      !currentEvidenceReviewed &&
+      latestEvidenceReview &&
+      evidenceReviewFingerprint &&
+      latestEvidenceReview.evidence_fingerprint === evidenceReviewFingerprint
+    );
   if (
     !currency ||
     !startingCash ||
@@ -4202,6 +4469,16 @@ function normalizedPaperPortfolio(value: unknown): PaperPortfolio | undefined {
     activity_cadence: activityCadence,
     guardrail_evidence: guardrailEvidence,
     evidence_readiness: evidenceReadiness,
+    evidence_review_fingerprint: reviewContractValid
+      ? evidenceReviewFingerprint
+      : undefined,
+    latest_evidence_review: reviewContractValid
+      ? latestEvidenceReview
+      : undefined,
+    current_evidence_reviewed: reviewContractValid
+      ? currentEvidenceReviewed
+      : undefined,
+    evidence_review_contract_valid: reviewContractValid,
     updated_at: updatedAt,
   };
 }
@@ -5047,6 +5324,16 @@ async function fleetItem(
     paperPortfolioResult.payload?.live_promotion_available === false &&
     paperPortfolioResult.payload?.live_execution_available === false &&
     Boolean(paperPortfolio?.evidence_readiness);
+  const paperEvidenceReviewContractAvailable =
+    runtimeExecutionMode === "PAPER" &&
+    paperPortfolioResult.payload?.paper_evidence_review_semantics ===
+      "IMMUTABLE_MFA_BACKED_PAPER_OWNER_REVIEW" &&
+    paperPortfolioResult.payload?.paper_evidence_review_grants_authority ===
+      false &&
+    paperPortfolioResult.payload?.broker_action_available === false &&
+    paperPortfolioResult.payload?.live_promotion_available === false &&
+    paperPortfolioResult.payload?.live_execution_available === false &&
+    paperPortfolio?.evidence_review_contract_valid === true;
   const paperPortfolioAvailable =
     expectsOperationalData &&
     runtimeExecutionMode === "PAPER" &&
@@ -5355,6 +5642,13 @@ async function fleetItem(
         ? paperEvidenceReadinessContractAvailable
         : undefined,
     paperEvidenceReadiness: paperPortfolio?.evidence_readiness,
+    paperEvidenceReviewContractAvailable:
+      runtimeExecutionMode === "PAPER"
+        ? paperEvidenceReviewContractAvailable
+        : undefined,
+    paperEvidenceReviewFingerprint: paperPortfolio?.evidence_review_fingerprint,
+    paperLatestEvidenceReview: paperPortfolio?.latest_evidence_review,
+    paperCurrentEvidenceReviewed: paperPortfolio?.current_evidence_reviewed,
     paperExecutionTotalFees: paperPortfolio?.execution_costs?.total_fees,
     paperExecutionTotalAdverseSlippage:
       paperPortfolio?.execution_costs?.total_adverse_slippage,

@@ -669,9 +669,38 @@ export type PaperAutonomyEvidenceGate = {
 
 export type PaperEvidenceReview = {
   id: string;
+  strategy_instance_id: string;
+  financial_account_id: string;
+  mandate_id: string;
+  mandate_version: number;
   evidence_fingerprint: string;
+  gate_status: "EVIDENCE_REVIEWABLE";
+  evidence_started_at: string;
+  evidence_eligible_at: string;
+  evidence_as_of: string;
+  evidence_window_hours: number;
+  decision_count: number;
+  portfolio_version: number;
+  portfolio_updated_at: string;
   latest_checkpoint_run_id: string;
+  latest_checkpoint_as_of: string;
+  scheduler_sample_count: number;
+  scheduler_success_count: number;
+  scheduler_failure_count: number;
+  last_schedule_status: "SUCCEEDED";
+  consecutive_schedule_failures: 0;
+  route_continuity_status: "STABLE" | "CONTEXT_CHANGED";
+  input_coverage_status: "COMPLETE";
+  input_freshness_status: "CURRENT_AT_DECISION";
+  ledger_contract_status: "RECONCILED";
+  no_live_safety_status: "CLEAR";
+  execution_boundary: "PAPER_SIMULATION_ONLY";
+  review_scope: "PAPER_NON_LIVE_EVIDENCE_ONLY";
+  grants_authority: false;
+  live_promotion_available: false;
+  mfa_method: "totp";
   reviewed_at: string;
+  created_at: string;
 };
 
 export type PaperPortfolio = {
@@ -689,6 +718,7 @@ export type PaperPortfolio = {
   evidence_review_fingerprint?: string;
   latest_evidence_review?: PaperEvidenceReview;
   current_evidence_reviewed?: boolean;
+  evidence_review_contract_valid?: boolean;
   updated_at: string;
 };
 

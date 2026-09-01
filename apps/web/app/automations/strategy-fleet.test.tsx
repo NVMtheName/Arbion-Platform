@@ -14,6 +14,7 @@ import {
   projectStrategyFleetInputCoverageChangeLedger,
   projectStrategyFleetInputCoverageMatrix,
   projectStrategyFleetPersistentInputGapRegister,
+  projectStrategyFleetPaperReviewStatus,
   projectStrategyFleetOperatingBrief,
   projectStrategyFleetProvenanceDigest,
   projectStrategyFleetScheduleRecovery,
@@ -23,6 +24,10 @@ import {
   StrategyFleet,
   type StrategyFleetItem,
 } from "./strategy-fleet";
+import type {
+  PaperAutonomyEvidenceGate,
+  PaperEvidenceReview,
+} from "./paper-portfolio-summary";
 
 const coinbaseEngine: StrategyFleetItem = {
   id: "ai-mandate",
@@ -264,6 +269,183 @@ const coinbaseEngine: StrategyFleetItem = {
   reconciliationFresh: true,
 };
 
+const currentReviewFingerprint = "a".repeat(64);
+const priorReviewFingerprint = "b".repeat(64);
+
+const paperReviewableGate: PaperAutonomyEvidenceGate = {
+  status: "EVIDENCE_REVIEWABLE",
+  calculation_method: "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_READINESS_GATE",
+  as_of: "2026-09-08T12:00:00Z",
+  review_scope: "OWNER_REVIEW_EVIDENCE_ONLY",
+  execution_boundary: "PAPER_SIMULATION_ONLY",
+  minimum_decision_count: 20,
+  minimum_evidence_window_hours: 168,
+  evidence_window_hours: 168,
+  decision_count: 24,
+  abstention_count: 18,
+  proposal_count: 6,
+  deterministic_deny_count: 1,
+  simulated_fill_count: 5,
+  first_decision_at: "2026-09-01T12:00:00Z",
+  latest_decision_at: "2026-09-08T12:00:00Z",
+  last_schedule_status: "SUCCEEDED",
+  consecutive_schedule_failures: 0,
+  attributed_decision_count: 24,
+  telemetry_complete_count: 24,
+  bounded_memory_count: 24,
+  routes: [
+    {
+      ai_provider: "openai",
+      model_id: "gpt-5.6-sol",
+      profile: "deep",
+      financial_provider: "coinbase",
+      decision_count: 24,
+    },
+  ],
+  ledger_contracts_reconciled: true,
+  safety: {
+    status: "CLEAR",
+    live_mandate_count: 0,
+    ai_order_intent_count: 0,
+    invalid_strategy_mode_count: 0,
+    invalid_execution_mode_count: 0,
+    platform_executable_risk_count: 0,
+    non_simulation_fill_count: 0,
+  },
+  review_packet: {
+    status: "EVIDENCE_REVIEWABLE",
+    calculation_method: "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_REVIEW_PACKET",
+    evidence_started_at: "2026-09-01T12:00:00Z",
+    evidence_eligible_at: "2026-09-08T12:00:00Z",
+    as_of: "2026-09-08T12:00:00Z",
+    elapsed_seconds: 604800,
+    remaining_seconds: 0,
+    scheduler_sample_count: 24,
+    scheduler_success_count: 24,
+    scheduler_failure_count: 0,
+    scheduler_safe_wait_count: 0,
+    route_continuity_status: "STABLE",
+    input_coverage_status: "COMPLETE",
+    input_freshness_status: "CURRENT_AT_DECISION",
+    freshness_threshold_seconds: 300,
+    market_observation_count: 72,
+    fresh_market_decision_count: 24,
+    maximum_market_age_seconds: 2,
+    first_market_observed_at: "2026-09-01T12:00:00Z",
+    latest_market_observed_at: "2026-09-08T12:00:00Z",
+    ledger_contract_status: "RECONCILED",
+    no_live_safety_status: "CLEAR",
+    evidence_ready_for_human_review: true,
+    owner_guidance: "Review the exact saved Paper evidence checkpoint.",
+    grants_authority: false,
+    live_promotion_available: false,
+    threshold_change_ledger: {
+      status: "AVAILABLE",
+      calculation_method: "IMMUTABLE_PAPER_EVIDENCE_THRESHOLD_CHANGE_LEDGER",
+      strategy_instance_id: "coinbase-shadow-instance",
+      execution_mode: "PAPER",
+      source_run_count: 24,
+      checkpoint_count: 1,
+      capped: false,
+      checkpoints: [
+        {
+          schedule_run_id: "paper-run-24",
+          as_of: "2026-09-08T12:00:00Z",
+          elapsed_seconds: 604800,
+          remaining_seconds: 0,
+          evidence_window_hours: 168,
+          decision_count: 24,
+          decision_delta: 1,
+          route_continuity_status: "STABLE",
+          route_continuity_change: "UNCHANGED",
+          input_coverage_status: "COMPLETE",
+          input_coverage_change: "UNCHANGED",
+          input_freshness_status: "CURRENT_AT_DECISION",
+          scheduler_status: "SUCCEEDED",
+          consecutive_failures: 0,
+          scheduler_change: "UNCHANGED",
+          evidence_status: "EVIDENCE_REVIEWABLE",
+          progress_classification: "NORMAL_COLLECTION",
+          routes: [
+            {
+              ai_provider: "openai",
+              model_id: "gpt-5.6-sol",
+              profile: "deep",
+              financial_provider: "coinbase",
+              decision_count: 24,
+            },
+          ],
+          blockers: [],
+          added_blocker_codes: [],
+          resolved_blocker_codes: ["EVIDENCE_WINDOW_INCOMPLETE"],
+        },
+      ],
+      grants_authority: false,
+      live_promotion_available: false,
+    },
+  },
+  blockers: [],
+  live_execution_available: false,
+};
+
+function paperEvidenceReview(
+  evidenceFingerprint = currentReviewFingerprint,
+): PaperEvidenceReview {
+  return {
+    id: "paper-review-1",
+    strategy_instance_id: "coinbase-shadow-instance",
+    financial_account_id: "coinbase-account",
+    mandate_id: "ai-mandate",
+    mandate_version: 6,
+    evidence_fingerprint: evidenceFingerprint,
+    gate_status: "EVIDENCE_REVIEWABLE",
+    evidence_started_at: "2026-09-01T12:00:00Z",
+    evidence_eligible_at: "2026-09-08T12:00:00Z",
+    evidence_as_of: "2026-09-08T12:00:00Z",
+    evidence_window_hours: 168,
+    decision_count: 24,
+    portfolio_version: 10,
+    portfolio_updated_at: "2026-09-08T12:00:00Z",
+    latest_checkpoint_run_id: "paper-run-24",
+    latest_checkpoint_as_of: "2026-09-08T12:00:00Z",
+    scheduler_sample_count: 24,
+    scheduler_success_count: 24,
+    scheduler_failure_count: 0,
+    last_schedule_status: "SUCCEEDED",
+    consecutive_schedule_failures: 0,
+    route_continuity_status: "STABLE",
+    input_coverage_status: "COMPLETE",
+    input_freshness_status: "CURRENT_AT_DECISION",
+    ledger_contract_status: "RECONCILED",
+    no_live_safety_status: "CLEAR",
+    execution_boundary: "PAPER_SIMULATION_ONLY",
+    review_scope: "PAPER_NON_LIVE_EVIDENCE_ONLY",
+    grants_authority: false,
+    live_promotion_available: false,
+    mfa_method: "totp",
+    reviewed_at: "2026-09-08T12:05:00Z",
+    created_at: "2026-09-08T12:05:00Z",
+  };
+}
+
+function paperReviewItem(
+  overrides: Partial<StrategyFleetItem> = {},
+): StrategyFleetItem {
+  return {
+    ...coinbaseEngine,
+    title: "AI Paper Engine",
+    executionMode: "PAPER",
+    evidenceAvailable: undefined,
+    evidenceStatus: undefined,
+    paperEvidenceReadinessContractAvailable: true,
+    paperEvidenceReadiness: paperReviewableGate,
+    paperEvidenceReviewContractAvailable: true,
+    paperEvidenceReviewFingerprint: currentReviewFingerprint,
+    paperCurrentEvidenceReviewed: false,
+    ...overrides,
+  };
+}
+
 describe("StrategyFleet", () => {
   afterEach(cleanup);
 
@@ -282,6 +464,125 @@ describe("StrategyFleet", () => {
     expect(reconciliationFreshWithinTwentyFourHours("invalid", now)).toBe(
       false,
     );
+  });
+
+  it("classifies exact Paper owner-review checkpoints without inferring authority", () => {
+    expect(
+      projectStrategyFleetPaperReviewStatus(
+        paperReviewItem({
+          paperEvidenceReadiness: {
+            ...paperReviewableGate,
+            status: "COLLECTING_EVIDENCE",
+            evidence_window_hours: 48,
+            review_packet: {
+              ...paperReviewableGate.review_packet,
+              status: "COLLECTING_EVIDENCE",
+              evidence_ready_for_human_review: false,
+            },
+          },
+          paperEvidenceReviewFingerprint: undefined,
+        }),
+      )?.state,
+    ).toBe("COLLECTING");
+
+    expect(
+      projectStrategyFleetPaperReviewStatus(paperReviewItem()),
+    ).toMatchObject({
+      state: "REVIEWABLE_UNREVIEWED",
+      attention: true,
+      evidenceFingerprint: currentReviewFingerprint,
+      checkpointRunID: "paper-run-24",
+    });
+
+    expect(
+      projectStrategyFleetPaperReviewStatus(
+        paperReviewItem({
+          paperCurrentEvidenceReviewed: true,
+          paperLatestEvidenceReview: paperEvidenceReview(),
+        }),
+      ),
+    ).toMatchObject({
+      state: "CURRENT_REVIEWED",
+      attention: false,
+      mfaMethod: "totp",
+      reviewedAt: "2026-09-08T12:05:00Z",
+    });
+
+    expect(
+      projectStrategyFleetPaperReviewStatus(
+        paperReviewItem({
+          paperLatestEvidenceReview: paperEvidenceReview(
+            priorReviewFingerprint,
+          ),
+        }),
+      )?.state,
+    ).toBe("STALE");
+
+    expect(
+      projectStrategyFleetPaperReviewStatus(
+        paperReviewItem({
+          paperEvidenceReadiness: {
+            ...paperReviewableGate,
+            status: "REVIEW_REQUIRED",
+          },
+        }),
+      )?.state,
+    ).toBe("REVIEW_REQUIRED");
+  });
+
+  it("fails Paper review status closed on a cross-account immutable record", () => {
+    expect(
+      projectStrategyFleetPaperReviewStatus(
+        paperReviewItem({
+          paperLatestEvidenceReview: {
+            ...paperEvidenceReview(),
+            financial_account_id: "another-account",
+          },
+        }),
+      ),
+    ).toMatchObject({ state: "UNAVAILABLE", attention: true });
+  });
+
+  it("automatically exposes stale Paper review evidence without accepting MFA in the fleet", () => {
+    render(
+      <StrategyFleet
+        items={[
+          paperReviewItem({
+            paperLatestEvidenceReview: paperEvidenceReview(
+              priorReviewFingerprint,
+            ),
+          }),
+        ]}
+      />,
+    );
+
+    const attestations = screen.getAllByRole("region", {
+      name: "AI Paper Engine Paper owner review attestation",
+    });
+    expect(attestations.length).toBeGreaterThanOrEqual(2);
+    expect(attestations[0]).toHaveTextContent("Prior review is stale");
+    expect(attestations[0]).toHaveTextContent(currentReviewFingerprint);
+    expect(attestations[0]).toHaveTextContent(priorReviewFingerprint);
+    expect(attestations[0]).toHaveTextContent("coinbase-account");
+    expect(attestations[0]).toHaveTextContent("Version 6");
+    expect(attestations[0]).toHaveTextContent("paper-run-24");
+    expect(attestations[0]).toHaveTextContent("TOTP verified");
+    expect(
+      within(attestations[0]).getByRole("link", {
+        name: /Open detailed owner review/i,
+      }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#paper-evidence-review");
+
+    const aiOperationsPanel = screen
+      .getByText("Paper owner-review status")
+      .closest("details");
+    expect(aiOperationsPanel).toHaveAttribute("open");
+    expect(
+      screen.queryByLabelText(/authenticator code/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /record Paper evidence review/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("uses a five-minute grace boundary before a scheduled cycle is overdue", () => {
@@ -2403,9 +2704,19 @@ describe("StrategyFleet", () => {
       <StrategyFleet
         items={[
           {
-            ...coinbaseEngine,
-            title: "AI Paper Engine",
-            executionMode: "PAPER",
+            ...paperReviewItem({
+              paperEvidenceReadiness: {
+                ...paperReviewableGate,
+                status: "COLLECTING_EVIDENCE",
+                evidence_window_hours: 48,
+                review_packet: {
+                  ...paperReviewableGate.review_packet,
+                  status: "COLLECTING_EVIDENCE",
+                  evidence_ready_for_human_review: false,
+                },
+              },
+              paperEvidenceReviewFingerprint: undefined,
+            }),
             capitalBucketName: "Coinbase AI Paper",
             capitalReservationAmount: "900.0000000000",
             capitalReservationBasis: "PAPER_STARTING_CASH",
@@ -2439,8 +2750,8 @@ describe("StrategyFleet", () => {
       within(commandDeck).getByText("Healthy schedule"),
     ).toBeInTheDocument();
     expect(
-      within(commandDeck).getByText("Succeeded · 0 failures"),
-    ).toBeInTheDocument();
+      within(commandDeck).getAllByText("Succeeded · 0 failures").length,
+    ).toBeGreaterThanOrEqual(1);
     const dataHealth = screen.getByRole("region", {
       name: "AI Paper Engine account data health",
     });
@@ -2478,6 +2789,8 @@ describe("StrategyFleet", () => {
             evidenceAvailable: undefined,
             evidenceStatus: undefined,
             paperEvidenceReadinessContractAvailable: true,
+            paperEvidenceReviewContractAvailable: true,
+            paperCurrentEvidenceReviewed: false,
             paperEvidenceReadiness: {
               status: "COLLECTING_EVIDENCE",
               calculation_method:
@@ -2613,7 +2926,7 @@ describe("StrategyFleet", () => {
     );
 
     const gate = screen
-      .getByText("Paper autonomy evidence gate")
+      .getByText("Paper autonomy evidence + owner review")
       .closest("details");
     expect(gate).not.toHaveAttribute("open");
     expect(gate).toHaveTextContent("Collecting evidence");

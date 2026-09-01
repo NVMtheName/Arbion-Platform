@@ -7,6 +7,7 @@ import type {
   PaperActivityCadence,
   PaperAutonomyEvidenceGate,
   PaperGuardrailEvidence,
+  PaperEvidenceReview,
   PaperTradeSequenceEvidence,
 } from "./paper-portfolio-summary";
 
@@ -200,6 +201,10 @@ export type StrategyFleetItem = {
   paperGuardrailEvidence?: PaperGuardrailEvidence;
   paperEvidenceReadinessContractAvailable?: boolean;
   paperEvidenceReadiness?: PaperAutonomyEvidenceGate;
+  paperEvidenceReviewContractAvailable?: boolean;
+  paperEvidenceReviewFingerprint?: string;
+  paperLatestEvidenceReview?: PaperEvidenceReview;
+  paperCurrentEvidenceReviewed?: boolean;
   paperTradeSequence?: PaperTradeSequenceEvidence;
   paperExecutionTimeline?: Array<{
     sequence: number;
@@ -1622,7 +1627,190 @@ function reconciliationHealthy(item: StrategyFleetItem) {
   );
 }
 
+export type StrategyFleetPaperReviewState =
+  | "COLLECTING"
+  | "REVIEWABLE_UNREVIEWED"
+  | "CURRENT_REVIEWED"
+  | "STALE"
+  | "REVIEW_REQUIRED"
+  | "UNAVAILABLE";
+
+export type StrategyFleetPaperReviewStatus = {
+  state: StrategyFleetPaperReviewState;
+  label: string;
+  guidance: string;
+  attention: boolean;
+  evidenceFingerprint?: string;
+  checkpointRunID?: string;
+  checkpointAsOf?: string;
+  reviewedAt?: string;
+  mfaMethod?: "totp";
+  latestReview?: PaperEvidenceReview;
+};
+
+function exactReviewTimestamp(value?: string) {
+  return Boolean(value && !Number.isNaN(Date.parse(value)));
+}
+
+function paperReviewBindingIsExact(
+  item: StrategyFleetItem,
+  review: PaperEvidenceReview,
+) {
+  return Boolean(
+    item.strategyInstanceID &&
+      item.financialAccountID &&
+      item.runtimeMandateVersion &&
+      review.strategy_instance_id === item.strategyInstanceID &&
+      review.financial_account_id === item.financialAccountID &&
+      review.mandate_id === item.id &&
+      review.mandate_version === item.runtimeMandateVersion &&
+      /^[0-9a-f]{64}$/.test(review.evidence_fingerprint) &&
+      review.gate_status === "EVIDENCE_REVIEWABLE" &&
+      review.evidence_window_hours >= 168 &&
+      review.decision_count >= 20 &&
+      review.portfolio_version >= 1 &&
+      review.latest_checkpoint_run_id &&
+      review.evidence_as_of === review.latest_checkpoint_as_of &&
+      review.scheduler_sample_count >= 20 &&
+      review.scheduler_success_count + review.scheduler_failure_count <=
+        review.scheduler_sample_count &&
+      review.last_schedule_status === "SUCCEEDED" &&
+      review.consecutive_schedule_failures === 0 &&
+      ["STABLE", "CONTEXT_CHANGED"].includes(review.route_continuity_status) &&
+      review.input_coverage_status === "COMPLETE" &&
+      review.input_freshness_status === "CURRENT_AT_DECISION" &&
+      review.ledger_contract_status === "RECONCILED" &&
+      review.no_live_safety_status === "CLEAR" &&
+      review.execution_boundary === "PAPER_SIMULATION_ONLY" &&
+      review.review_scope === "PAPER_NON_LIVE_EVIDENCE_ONLY" &&
+      review.grants_authority === false &&
+      review.live_promotion_available === false &&
+      review.mfa_method === "totp" &&
+      exactReviewTimestamp(review.evidence_started_at) &&
+      exactReviewTimestamp(review.evidence_eligible_at) &&
+      exactReviewTimestamp(review.evidence_as_of) &&
+      exactReviewTimestamp(review.portfolio_updated_at) &&
+      exactReviewTimestamp(review.latest_checkpoint_as_of) &&
+      exactReviewTimestamp(review.reviewed_at) &&
+      exactReviewTimestamp(review.created_at) &&
+      Date.parse(review.evidence_eligible_at) -
+        Date.parse(review.evidence_started_at) ===
+        168 * 60 * 60 * 1000 &&
+      Date.parse(review.reviewed_at) >= Date.parse(review.evidence_as_of),
+  );
+}
+
+export function projectStrategyFleetPaperReviewStatus(
+  item: StrategyFleetItem,
+): StrategyFleetPaperReviewStatus | null {
+  if (item.executionMode !== "PAPER" || !isAI(item)) return null;
+  const unavailable = (): StrategyFleetPaperReviewStatus => ({
+    state: "UNAVAILABLE",
+    label: "Review evidence unavailable",
+    guidance:
+      "Arbion cannot prove the exact owner-review fingerprint, checkpoint, identity, or non-live boundary and will not infer a review state.",
+    attention: true,
+  });
+  const gate = item.paperEvidenceReadiness;
+  const latest = item.paperLatestEvidenceReview;
+  if (
+    item.paperEvidenceReadinessContractAvailable !== true ||
+    item.paperEvidenceReviewContractAvailable !== true ||
+    !gate ||
+    item.paperCurrentEvidenceReviewed === undefined ||
+    gate.execution_boundary !== "PAPER_SIMULATION_ONLY" ||
+    gate.review_scope !== "OWNER_REVIEW_EVIDENCE_ONLY" ||
+    gate.live_execution_available !== false ||
+    gate.review_packet.grants_authority !== false ||
+    gate.review_packet.live_promotion_available !== false ||
+    (latest && !paperReviewBindingIsExact(item, latest))
+  )
+    return unavailable();
+
+  if (gate.status === "UNAVAILABLE") return unavailable();
+  if (gate.status === "REVIEW_REQUIRED") {
+    return {
+      state: "REVIEW_REQUIRED",
+      label: "Review required",
+      guidance:
+        "One or more saved readiness checks need review. No acknowledgment can be recorded until the exact gate is reviewable again.",
+      attention: true,
+      latestReview: latest,
+      reviewedAt: latest?.reviewed_at,
+      mfaMethod: latest?.mfa_method,
+    };
+  }
+  if (gate.status === "COLLECTING_EVIDENCE") {
+    return {
+      state: "COLLECTING",
+      label: "Collecting evidence",
+      guidance:
+        "No owner action is required while the bounded decision and seven-day evidence window continue collecting.",
+      attention: false,
+      latestReview: latest,
+      reviewedAt: latest?.reviewed_at,
+      mfaMethod: latest?.mfa_method,
+    };
+  }
+  if (gate.status !== "EVIDENCE_REVIEWABLE") return unavailable();
+  const fingerprint = item.paperEvidenceReviewFingerprint;
+  const checkpoints = gate.review_packet.threshold_change_ledger.checkpoints;
+  const checkpoint = checkpoints.at(-1);
+  if (
+    !fingerprint ||
+    !/^[0-9a-f]{64}$/.test(fingerprint) ||
+    !checkpoint?.schedule_run_id ||
+    checkpoint.as_of !== gate.as_of ||
+    checkpoint.evidence_status !== "EVIDENCE_REVIEWABLE"
+  )
+    return unavailable();
+  if (item.paperCurrentEvidenceReviewed) {
+    if (!latest || latest.evidence_fingerprint !== fingerprint)
+      return unavailable();
+    return {
+      state: "CURRENT_REVIEWED",
+      label: "Current checkpoint reviewed",
+      guidance:
+        "This exact Paper fingerprint and scheduler checkpoint has an immutable MFA-backed owner acknowledgment. It grants no authority.",
+      attention: false,
+      evidenceFingerprint: fingerprint,
+      checkpointRunID: latest.latest_checkpoint_run_id,
+      checkpointAsOf: latest.latest_checkpoint_as_of,
+      reviewedAt: latest.reviewed_at,
+      mfaMethod: latest.mfa_method,
+      latestReview: latest,
+    };
+  }
+  if (latest) {
+    if (latest.evidence_fingerprint === fingerprint) return unavailable();
+    return {
+      state: "STALE",
+      label: "Prior review is stale",
+      guidance:
+        "A prior MFA-backed acknowledgment remains immutable, but it does not cover this newer fingerprint and scheduler checkpoint.",
+      attention: true,
+      evidenceFingerprint: fingerprint,
+      checkpointRunID: checkpoint.schedule_run_id,
+      checkpointAsOf: checkpoint.as_of,
+      reviewedAt: latest.reviewed_at,
+      mfaMethod: latest.mfa_method,
+      latestReview: latest,
+    };
+  }
+  return {
+    state: "REVIEWABLE_UNREVIEWED",
+    label: "Reviewable · not acknowledged",
+    guidance:
+      "The exact non-live Paper gate is ready for owner review. Any acknowledgment must be completed with fresh TOTP on the detailed Paper page.",
+    attention: true,
+    evidenceFingerprint: fingerprint,
+    checkpointRunID: checkpoint.schedule_run_id,
+    checkpointAsOf: checkpoint.as_of,
+  };
+}
+
 function needsReview(item: StrategyFleetItem) {
+  const paperReview = projectStrategyFleetPaperReviewStatus(item);
   return (
     item.instanceStatus === "ERROR" ||
     item.currentState === "ERROR" ||
@@ -1644,8 +1832,10 @@ function needsReview(item: StrategyFleetItem) {
         item.paperExecutionCostsContractAvailable === false ||
         item.paperExecutionCostsStatus === "UNAVAILABLE" ||
         item.paperEvidenceReadinessContractAvailable === false ||
+        item.paperEvidenceReviewContractAvailable === false ||
         item.paperEvidenceReadiness?.status === "REVIEW_REQUIRED" ||
         item.paperEvidenceReadiness?.status === "UNAVAILABLE" ||
+        paperReview?.attention === true ||
         item.paperOutcomeReconciliationStatus === "UNAVAILABLE" ||
         item.paperOutcomeReconciliationStatus === "MISMATCH")) ||
     paperOutcomeLimitBreach(item) ||
@@ -1712,6 +1902,14 @@ function healthLabel(item: StrategyFleetItem) {
     return "Scheduled cycle is overdue";
   if (requiresShadowEvidence(item) && item.evidenceAvailable === false)
     return "Evidence status unavailable";
+  const paperReview = projectStrategyFleetPaperReviewStatus(item);
+  if (paperReview?.state === "UNAVAILABLE")
+    return "Paper review evidence unavailable";
+  if (paperReview?.state === "REVIEW_REQUIRED")
+    return "Paper evidence needs review";
+  if (paperReview?.state === "REVIEWABLE_UNREVIEWED")
+    return "Paper evidence is reviewable";
+  if (paperReview?.state === "STALE") return "Paper review is stale";
   if (item.decisionAvailable === false) return "Decision status unavailable";
   if (item.scheduleStatus === "FAILED" || item.consecutiveFailures > 0)
     return "Schedule needs review";
@@ -1893,6 +2091,37 @@ export function selectStrategyFleetNextAction(
         "Arbion could not refresh the bounded immutable journal window and will not infer a recent AI action.",
       href: destination,
       actionLabel: "Refresh decision pulse",
+    };
+  }
+  const paperReview = projectStrategyFleetPaperReviewStatus(item);
+  if (
+    paperReview &&
+    [
+      "REVIEWABLE_UNREVIEWED",
+      "STALE",
+      "REVIEW_REQUIRED",
+      "UNAVAILABLE",
+    ].includes(paperReview.state)
+  ) {
+    const canAcknowledge = ["REVIEWABLE_UNREVIEWED", "STALE"].includes(
+      paperReview.state,
+    );
+    return {
+      ...identity,
+      key: `paper-evidence-review:${item.id}`,
+      priority: 9,
+      tone: canAcknowledge ? "READY" : "ATTENTION",
+      eyebrow: canAcknowledge
+        ? "PAPER EVIDENCE REVIEWABLE"
+        : "PAPER REVIEW EVIDENCE NEEDS REVIEW",
+      title: canAcknowledge
+        ? `Review ${item.title} Paper evidence`
+        : `Inspect ${item.title} Paper review evidence`,
+      detail: paperReview.guidance,
+      href: `${destination}#paper-evidence-review`,
+      actionLabel: canAcknowledge
+        ? "Open Paper evidence review"
+        : "Inspect Paper evidence",
     };
   }
   if (
@@ -5985,6 +6214,82 @@ function StrategyFleetExposureOutcomes({ item }: { item: StrategyFleetItem }) {
   );
 }
 
+function StrategyFleetPaperReviewAttestation({
+  item,
+}: {
+  item: StrategyFleetItem;
+}) {
+  const status = projectStrategyFleetPaperReviewStatus(item);
+  if (!status) return null;
+  const review = status.latestReview;
+  return (
+    <section
+      className={`strategy-fleet-paper-review-status is-${status.state.toLowerCase().replaceAll("_", "-")}`}
+      aria-label={`${item.title} Paper owner review attestation`}
+    >
+      <header>
+        <div>
+          <span>OWNER REVIEW ATTESTATION</span>
+          <strong>{status.label}</strong>
+        </div>
+        <span>{status.attention ? "OWNER REVIEW" : "ON COURSE"}</span>
+      </header>
+      <p>{status.guidance}</p>
+      <details open={status.attention}>
+        <summary>Exact immutable review evidence</summary>
+        <dl>
+          <div>
+            <dt>Financial account</dt>
+            <dd>{item.accountName}</dd>
+            <code>{item.financialAccountID ?? "UNAVAILABLE"}</code>
+          </div>
+          <div>
+            <dt>Mandate</dt>
+            <dd>Version {item.runtimeMandateVersion ?? "UNAVAILABLE"}</dd>
+            <code>{item.id}</code>
+          </div>
+          <div>
+            <dt>Current fingerprint</dt>
+            <dd>
+              {status.evidenceFingerprint ? "Exact SHA-256" : "Not issued"}
+            </dd>
+            <code>{status.evidenceFingerprint ?? "UNAVAILABLE"}</code>
+          </div>
+          <div>
+            <dt>Current checkpoint</dt>
+            <dd>{readableTime(status.checkpointAsOf)}</dd>
+            <code>{status.checkpointRunID ?? "UNAVAILABLE"}</code>
+          </div>
+          <div>
+            <dt>Latest recorded review</dt>
+            <dd>{readableTime(status.reviewedAt)}</dd>
+            <code>{review?.evidence_fingerprint ?? "NONE"}</code>
+          </div>
+          <div>
+            <dt>MFA-backed record</dt>
+            <dd>
+              {status.mfaMethod === "totp" ? "TOTP verified" : "Not recorded"}
+            </dd>
+            <code>{review?.id ?? "NONE"}</code>
+          </div>
+        </dl>
+        <p>
+          Paper simulation only · owner/account scoped · immutable history ·
+          grants no authority · live promotion unavailable
+        </p>
+      </details>
+      <footer>
+        <Link
+          href={`/automations/${encodeURIComponent(item.id)}#paper-evidence-review`}
+        >
+          Open detailed owner review →
+        </Link>
+        <span>Fresh TOTP is accepted only on the detailed Paper page</span>
+      </footer>
+    </section>
+  );
+}
+
 function StrategyFleetPaperEvidenceGate({ item }: { item: StrategyFleetItem }) {
   if (item.executionMode !== "PAPER") return null;
   if (
@@ -5993,21 +6298,25 @@ function StrategyFleetPaperEvidenceGate({ item }: { item: StrategyFleetItem }) {
   )
     return null;
   const gate = item.paperEvidenceReadiness;
+  const reviewStatus = projectStrategyFleetPaperReviewStatus(item);
   const available =
     item.paperEvidenceReadinessContractAvailable === true && Boolean(gate);
   const attention =
     !available ||
     gate?.status === "REVIEW_REQUIRED" ||
-    gate?.status === "UNAVAILABLE";
-  const statusLabel = !available
-    ? "Evidence unavailable"
-    : gate!.status === "COLLECTING_EVIDENCE"
-      ? "Collecting evidence"
-      : gate!.status === "EVIDENCE_REVIEWABLE"
-        ? "Owner reviewable"
-        : gate!.status === "REVIEW_REQUIRED"
-          ? "Review required"
-          : "Unavailable";
+    gate?.status === "UNAVAILABLE" ||
+    reviewStatus?.attention === true;
+  const statusLabel =
+    reviewStatus?.label ??
+    (!available
+      ? "Evidence unavailable"
+      : gate!.status === "COLLECTING_EVIDENCE"
+        ? "Collecting evidence"
+        : gate!.status === "EVIDENCE_REVIEWABLE"
+          ? "Owner reviewable"
+          : gate!.status === "REVIEW_REQUIRED"
+            ? "Review required"
+            : "Unavailable");
   return (
     <details
       className={`strategy-fleet-exposure-outcomes is-paper${attention ? " is-attention" : ""}`}
@@ -6015,8 +6324,8 @@ function StrategyFleetPaperEvidenceGate({ item }: { item: StrategyFleetItem }) {
     >
       <summary>
         <span>
-          <strong>Paper autonomy evidence gate</strong>
-          <small>Seven-day / 20-decision owner-review threshold</small>
+          <strong>Paper autonomy evidence + owner review</strong>
+          <small>Seven-day / 20-decision threshold and exact attestation</small>
         </span>
         <span>{statusLabel}</span>
       </summary>
@@ -6031,6 +6340,7 @@ function StrategyFleetPaperEvidenceGate({ item }: { item: StrategyFleetItem }) {
         </div>
       ) : (
         <div>
+          <StrategyFleetPaperReviewAttestation item={item} />
           <section
             className="paper-evidence-review-packet"
             aria-label="Paper autonomy evidence review packet"
@@ -7186,6 +7496,70 @@ function aiOperationsPanelStateLabel(
   return "Unavailable";
 }
 
+function StrategyFleetPaperReviewStatusView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const engines = items
+    .filter((item) => isAI(item) && item.executionMode === "PAPER")
+    .map((item) => ({
+      item,
+      status: projectStrategyFleetPaperReviewStatus(item),
+    }));
+  if (engines.length === 0) return null;
+  const unavailableCount = engines.filter(
+    ({ status }) => !status || status.state === "UNAVAILABLE",
+  ).length;
+  const attentionCount = engines.filter(
+    ({ status }) => status?.attention === true,
+  ).length;
+  const currentCount = engines.filter(
+    ({ status }) => status?.state === "CURRENT_REVIEWED",
+  ).length;
+  const collectingCount = engines.filter(
+    ({ status }) => status?.state === "COLLECTING",
+  ).length;
+  const label =
+    unavailableCount > 0
+      ? "Some Paper owner-review evidence is unavailable."
+      : attentionCount > 0
+        ? `${attentionCount} Paper ${attentionCount === 1 ? "engine has" : "engines have"} an owner-review signal.`
+        : "Every Paper owner-review state is on course.";
+  return (
+    <section
+      className={`strategy-fleet-paper-review-board${unavailableCount > 0 || attentionCount > 0 ? " is-attention" : ""}`}
+      aria-label={label}
+    >
+      <header>
+        <div>
+          <p className="eyebrow">PAPER OWNER REVIEW</p>
+          <h3>{label}</h3>
+          <p>
+            Exact immutable fingerprints and scheduler checkpoints only. The
+            fleet view cannot accept MFA or change an engine.
+          </p>
+        </div>
+        <span>
+          {currentCount} current · {collectingCount} collecting ·{" "}
+          {attentionCount} review
+        </span>
+      </header>
+      <ol>
+        {engines.map(({ item }) => (
+          <li key={item.id}>
+            <StrategyFleetPaperReviewAttestation item={item} />
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Owner-scoped saved evidence · detailed page only for fresh TOTP · no
+        promotion · no broker action · no live path
+      </footer>
+    </section>
+  );
+}
+
 function StrategyFleetAIOperationsWorkspace({
   items,
 }: {
@@ -7197,6 +7571,17 @@ function StrategyFleetAIOperationsWorkspace({
   const changes = projectStrategyFleetInputCoverageChangeLedger(items);
   const gaps = projectStrategyFleetPersistentInputGapRegister(items);
   const freshness = projectStrategyFleetEvidenceFreshnessBoard(items);
+  const paperReviewStatuses = items
+    .map((item) => projectStrategyFleetPaperReviewStatus(item))
+    .filter((status): status is StrategyFleetPaperReviewStatus =>
+      Boolean(status),
+    );
+  const paperReviewPanelState: StrategyFleetAIOperationsPanelState =
+    paperReviewStatuses.some((status) => status.state === "UNAVAILABLE")
+      ? "UNAVAILABLE"
+      : paperReviewStatuses.some((status) => status.attention)
+        ? "ATTENTION"
+        : "VERIFIED";
   const currentGapCount =
     coverage.partialCategoryCount + coverage.unavailableCategoryCount;
   const repeatedGapCount =
@@ -7208,6 +7593,18 @@ function StrategyFleetAIOperationsWorkspace({
     state: StrategyFleetAIOperationsPanelState;
     content: ReactNode;
   }> = [
+    ...(paperReviewStatuses.length > 0
+      ? [
+          {
+            key: "paper-owner-review",
+            title: "Paper owner-review status",
+            description:
+              "Exact collecting, reviewable, current, stale, and review-required attestations",
+            state: paperReviewPanelState,
+            content: <StrategyFleetPaperReviewStatusView items={items} />,
+          },
+        ]
+      : []),
     {
       key: "decision",
       title: "Decision route + conclusion",
@@ -7334,6 +7731,21 @@ function StrategyFleetAIOperationsWorkspace({
             wait · {freshness.staleCount + freshness.unavailableCount} review
           </dd>
         </div>
+        {paperReviewStatuses.length > 0 && (
+          <div>
+            <dt>Paper owner review</dt>
+            <dd>
+              {
+                paperReviewStatuses.filter(
+                  (status) => status.state === "CURRENT_REVIEWED",
+                ).length
+              }{" "}
+              current ·{" "}
+              {paperReviewStatuses.filter((status) => status.attention).length}{" "}
+              review
+            </dd>
+          </div>
+        )}
       </dl>
       <div className="strategy-fleet-ai-operations-panels">
         <header>
