@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { scheduleFailureGuidance } from "../../automations/schedule-failure-guidance";
 import type { FinancialAccount, FinancialConnection } from "./page";
 
 export type FinancialContinuityRun = {
@@ -68,6 +69,7 @@ export type FinancialContinuityProjection = {
     recoveredAt?: string;
     priorIncidentAt?: string;
     errorCodes: string[];
+    schedulerErrorCodes: string[];
     accounts: FinancialAccount[];
     engines: FinancialContinuityEngine[];
   }>;
@@ -299,6 +301,14 @@ export function projectFinancialContinuityCenter({
         connection.status !== "active" ||
         connectionAccounts.some((account) => account.status !== "active") ||
         schedulerAffected;
+      const schedulerErrorCodes = [
+        ...new Set(
+          connectionEngines
+            .filter((engine) => engine.schedule_status === "FAILED")
+            .map((engine) => engine.recent_runs[0]?.error_code)
+            .filter((code): code is string => Boolean(code)),
+        ),
+      ].sort();
 
       let state: FinancialContinuityState = "CURRENT";
       let label = "Connection current";
@@ -316,6 +326,16 @@ export function projectFinancialContinuityCenter({
         label = "Authorization expired";
         guidance =
           "Use the existing provider reconnect control. Dependent non-live cycles remain fail-closed until current authorization evidence returns.";
+        attention = true;
+      } else if (
+        schedulerAffected &&
+        connection.status === "active" &&
+        connectionAccounts.every((account) => account.status === "active")
+      ) {
+        state = "SCHEDULER_AFFECTED";
+        label = "Authorization active; dependent engine paused safely";
+        guidance =
+          "The provider connection and linked account are active. A saved non-live engine check stopped the latest cycle separately; review its exact reason below. No model or broker action ran after that stop.";
         attention = true;
       } else if (dependencyAffected) {
         state = "SCHEDULER_AFFECTED";
@@ -373,6 +393,7 @@ export function projectFinancialContinuityCenter({
               .filter((code): code is string => Boolean(code)),
           ),
         ].sort(),
+        schedulerErrorCodes,
         accounts: connectionAccounts,
         engines: connectionEngines,
       };
@@ -585,6 +606,18 @@ export function FinancialContinuityCenter({
                         : "No recovery pairing required"}
                     </small>
                   </div>
+                  <div>
+                    <dt>Engine readiness</dt>
+                    <dd>
+                      {connection.schedulerErrorCodes.length > 0
+                        ? connection.schedulerErrorCodes.join(" · ")
+                        : "No current engine failure"}
+                    </dd>
+                    <small>
+                      Connection authorization and non-live market-data
+                      readiness are checked separately.
+                    </small>
+                  </div>
                 </dl>
                 <section
                   aria-label={`${providerName(connection.provider)} dependent engines`}
@@ -599,26 +632,49 @@ export function FinancialContinuityCenter({
                     <ul>
                       {connection.engines.map((engine) => (
                         <li key={engine.instance_id}>
-                          <div>
-                            <strong>
-                              AI{" "}
-                              {engine.execution_mode === "PAPER"
-                                ? "Paper"
-                                : "Shadow"}
-                            </strong>
-                            <span>{engine.execution_mode}</span>
-                          </div>
-                          <p>
-                            {engine.account_name} · {engine.schedule_status} ·{" "}
-                            {engine.consecutive_failures} failures · next{" "}
-                            {timestamp(engine.schedule_next_run_at)} UTC
-                          </p>
-                          <code>{engine.account_id}</code>
-                          <Link
-                            href={`/automations/${encodeURIComponent(engine.mandate_id ?? "")}#runtime-evidence`}
-                          >
-                            Open immutable engine evidence →
-                          </Link>
+                          {(() => {
+                            const currentCode =
+                              engine.schedule_status === "FAILED"
+                                ? engine.recent_runs[0]?.error_code
+                                : undefined;
+                            const recovery = currentCode
+                              ? scheduleFailureGuidance(
+                                  currentCode,
+                                  engine.provider,
+                                )
+                              : undefined;
+                            return (
+                              <>
+                                <div>
+                                  <strong>
+                                    AI{" "}
+                                    {engine.execution_mode === "PAPER"
+                                      ? "Paper"
+                                      : "Shadow"}
+                                  </strong>
+                                  <span>{engine.execution_mode}</span>
+                                </div>
+                                <p>
+                                  {engine.account_name} ·{" "}
+                                  {engine.schedule_status} ·{" "}
+                                  {engine.consecutive_failures} failures · next{" "}
+                                  {timestamp(engine.schedule_next_run_at)} UTC
+                                </p>
+                                {currentCode && recovery && (
+                                  <p className="financial-continuity-engine-guidance">
+                                    <strong>Saved reason: {currentCode}</strong>{" "}
+                                    · {recovery.message}
+                                  </p>
+                                )}
+                                <code>{engine.account_id}</code>
+                                <Link
+                                  href={`/automations/${encodeURIComponent(engine.mandate_id ?? "")}#runtime-evidence`}
+                                >
+                                  Open immutable engine evidence →
+                                </Link>
+                              </>
+                            );
+                          })()}
                         </li>
                       ))}
                     </ul>
