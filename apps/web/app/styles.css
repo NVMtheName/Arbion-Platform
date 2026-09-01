@@ -112,6 +112,37 @@ body {
   transition: color 160ms ease;
   white-space: nowrap;
 }
+.app-navigation a.has-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.connection-navigation-health {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border: 1px solid #647a70;
+  border-radius: 999px;
+  background: #35473f;
+  box-shadow: 0 0 0 3px rgba(100, 122, 112, 0.09);
+}
+.connection-navigation-health.is-current {
+  border-color: #82e5ad;
+  background: var(--brand-mint);
+  box-shadow: 0 0 0 3px rgba(94, 224, 160, 0.11);
+}
+.connection-navigation-health.is-renewal-needed {
+  border-color: #f4cf82;
+  background: #e6af47;
+  box-shadow: 0 0 0 3px rgba(230, 175, 71, 0.12);
+}
+.connection-navigation-health.is-connection-failed,
+.connection-navigation-health.is-unavailable {
+  border-color: #f39b9b;
+  background: #ca6969;
+  box-shadow: 0 0 0 3px rgba(202, 105, 105, 0.12);
+}
 .app-navigation a:hover,
 .app-navigation a:focus-visible,
 .app-navigation a.is-current {
