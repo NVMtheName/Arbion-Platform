@@ -14,6 +14,18 @@ type Rationale = {
   limitations?: string[];
   market_observed_at?: string;
   input_evidence?: Record<string, unknown>;
+  quote_reference?: Record<string, unknown>;
+};
+
+type ProposalQuoteReference = {
+  symbol: string;
+  side: string;
+  price: string;
+  basis: string;
+  provider: string;
+  feed: string;
+  quality: string;
+  observedAt: string;
 };
 
 function read(entry: RawDecision, key: string, legacy: string) {
@@ -119,6 +131,50 @@ function contextNumber(entry: Record<string, unknown>, key: string) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function proposalQuoteReference(
+  facts: Rationale,
+  executionSymbol: string | undefined,
+  executionPrice: string | undefined,
+): ProposalQuoteReference | undefined {
+  const reference = facts.quote_reference;
+  if (!reference) return undefined;
+  const symbol = contextValue(reference, "symbol");
+  const side = contextValue(reference, "side");
+  const price = contextValue(reference, "price");
+  const basis = contextValue(reference, "basis");
+  const provider = contextValue(reference, "provider");
+  const feed = contextValue(reference, "feed");
+  const quality = contextValue(reference, "quality");
+  const observedAt = contextValue(reference, "observed_at");
+  const sideBasis =
+    side === "BUY"
+      ? ["ASK", "MARK_FALLBACK", "LAST_FALLBACK"]
+      : side === "SELL"
+        ? ["BID", "MARK_FALLBACK", "LAST_FALLBACK"]
+        : [];
+  if (
+    !symbol ||
+    symbol !== facts.symbol ||
+    (executionSymbol && symbol !== executionSymbol) ||
+    !side ||
+    side !== facts.side ||
+    !price ||
+    !/^\d+(\.\d+)?$/.test(price) ||
+    !/[1-9]/.test(price) ||
+    (executionPrice && price !== executionPrice) ||
+    !basis ||
+    !sideBasis.includes(basis) ||
+    !provider ||
+    !feed ||
+    !quality ||
+    !observedAt ||
+    Number.isNaN(new Date(observedAt).valueOf())
+  ) {
+    return undefined;
+  }
+  return { symbol, side, price, basis, provider, feed, quality, observedAt };
+}
+
 function historyCoverage(market: Record<string, unknown>) {
   const status = contextValue(market, "history_status") ?? "UNAVAILABLE";
   if (status === "UNAVAILABLE") return "History unavailable";
@@ -217,6 +273,12 @@ export function AIDecisionJournal({
             const quantity = field(entry, "quantity", "Quantity");
             const price = field(entry, "price", "Price");
             const notional = field(entry, "notional", "Notional");
+            const proposed = facts.decision === "PROPOSE";
+            const quoteReference = proposalQuoteReference(
+              facts,
+              executionSymbol,
+              paper ? undefined : price,
+            );
             const riskFlags = strings(facts.risk_flags);
             const limitations = strings(facts.limitations);
             const inputEvidence = facts.input_evidence;
@@ -328,6 +390,64 @@ export function AIDecisionJournal({
                     </dd>
                   </div>
                 </dl>
+
+                {proposed && (
+                  <section
+                    className="journal-execution-evidence"
+                    aria-label="Proposal quote reference"
+                  >
+                    <h4>Proposal quote reference</h4>
+                    {quoteReference ? (
+                      <>
+                        <p>
+                          Exact provider-derived price Arbion used to size this
+                          non-live {quoteReference.side.toLowerCase()} proposal.
+                        </p>
+                        <dl className="journal-facts journal-execution-facts">
+                          <div>
+                            <dt>Symbol and side</dt>
+                            <dd>
+                              {quoteReference.symbol} ·{" "}
+                              {label(quoteReference.side)}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Reference price</dt>
+                            <dd>{dollars(quoteReference.price)}</dd>
+                          </div>
+                          <div>
+                            <dt>Price basis</dt>
+                            <dd>{label(quoteReference.basis)}</dd>
+                          </div>
+                          <div>
+                            <dt>Financial provider</dt>
+                            <dd>{label(quoteReference.provider)}</dd>
+                          </div>
+                          <div>
+                            <dt>Market feed</dt>
+                            <dd>{label(quoteReference.feed)}</dd>
+                          </div>
+                          <div>
+                            <dt>Market quality</dt>
+                            <dd>{label(quoteReference.quality)}</dd>
+                          </div>
+                          <div>
+                            <dt>Observed</dt>
+                            <dd>{timestamp(quoteReference.observedAt)} UTC</dd>
+                          </div>
+                        </dl>
+                      </>
+                    ) : (
+                      <p className="security-note">
+                        Quote reference UNAVAILABLE. This legacy or incomplete
+                        proposal does not contain a complete exact provider,
+                        side-specific price, feed, quality, and observation-time
+                        chain. Arbion does not infer one from nearby market
+                        data.
+                      </p>
+                    )}
+                  </section>
+                )}
 
                 {riskDenied && controlReasons.length > 0 && (
                   <div className="journal-reasons">

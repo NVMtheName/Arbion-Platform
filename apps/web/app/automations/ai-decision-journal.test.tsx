@@ -388,6 +388,12 @@ describe("AI Decision Journal", () => {
     expect(screen.getByText("Held by controls · XRP")).toBeInTheDocument();
     expect(screen.getByText("Control denial")).toBeInTheDocument();
     expect(
+      screen.getByRole("region", { name: "Proposal quote reference" }),
+    ).toHaveTextContent("Quote reference UNAVAILABLE");
+    expect(
+      screen.getByText(/does not infer one from nearby market data/i),
+    ).toBeInTheDocument();
+    expect(
       screen.queryByRole("region", { name: "Hypothetical trade evidence" }),
     ).not.toBeInTheDocument();
     expect(
@@ -423,6 +429,16 @@ describe("AI Decision Journal", () => {
               confidence: "LOW",
               thesis: "Cautiously trim the weakest performer.",
               market_observed_at: "2026-08-25T21:12:01Z",
+              quote_reference: {
+                symbol: "XRP",
+                side: "SELL",
+                price: "1.4300000000",
+                basis: "BID",
+                provider: "coinbase",
+                feed: "rest_ticker",
+                quality: "REAL_TIME_SINGLE_VENUE",
+                observed_at: "2026-08-25T21:12:01Z",
+              },
             },
           },
         ]}
@@ -445,8 +461,21 @@ describe("AI Decision Journal", () => {
     expect(
       screen.getByRole("heading", { name: "Hypothetical trade evidence" }),
     ).toBeInTheDocument();
+    const quoteReference = screen.getByRole("region", {
+      name: "Proposal quote reference",
+    });
+    expect(within(quoteReference).getByText("XRP · Sell")).toBeInTheDocument();
+    expect(within(quoteReference).getByText("Bid")).toBeInTheDocument();
+    expect(within(quoteReference).getByText("Coinbase")).toBeInTheDocument();
+    expect(within(quoteReference).getByText("Rest Ticker")).toBeInTheDocument();
+    expect(
+      within(quoteReference).getByText("Real Time Single Venue"),
+    ).toBeInTheDocument();
+    expect(
+      within(quoteReference).getByText("Aug 25, 2026, 9:12 PM UTC"),
+    ).toBeInTheDocument();
     expect(screen.getByText("0.6993006993 XRP")).toBeInTheDocument();
-    expect(screen.getByText("$1.43")).toBeInTheDocument();
+    expect(screen.getAllByText("$1.43")).toHaveLength(2);
     expect(screen.getByText("Would Have Submitted")).toBeInTheDocument();
     expect(screen.getByText("Allow")).toBeInTheDocument();
     expect(screen.getByText("1-hour mark")).toBeInTheDocument();
@@ -455,5 +484,52 @@ describe("AI Decision Journal", () => {
     expect(
       screen.getByText(/not a fill, realized return/i),
     ).toBeInTheDocument();
+  });
+
+  it("keeps a Paper proposal reference distinct from its simulated fill price", () => {
+    render(
+      <AIDecisionJournal
+        executionMode="PAPER"
+        decisions={[
+          {
+            ID: "paper-decision",
+            Source: "AI",
+            DecisionType: "ALLOW_SIMULATED_FILLED",
+            CreatedAt: "2026-09-01T19:00:00Z",
+            RiskEvaluationID: "paper-risk",
+            ExecutionRecordID: "paper-execution",
+            RiskDecision: "ALLOW",
+            ExecutionStatus: "SIMULATED_FILLED",
+            Symbol: "BTC",
+            Side: "BUY",
+            Price: "101.2525000000",
+            Notional: "100.0000000000",
+            StructuredRationale: {
+              decision: "PROPOSE",
+              symbol: "BTC",
+              side: "BUY",
+              proposed_notional: "100",
+              quote_reference: {
+                symbol: "BTC",
+                side: "BUY",
+                price: "101.0000000000",
+                basis: "ASK",
+                provider: "coinbase",
+                feed: "rest_ticker",
+                quality: "REAL_TIME_SINGLE_VENUE",
+                observed_at: "2026-09-01T18:59:58Z",
+              },
+            },
+          },
+        ]}
+      />,
+    );
+
+    const quoteReference = screen.getByRole("region", {
+      name: "Proposal quote reference",
+    });
+    expect(within(quoteReference).getByText("$101")).toBeInTheDocument();
+    expect(within(quoteReference).getByText("Ask")).toBeInTheDocument();
+    expect(quoteReference).not.toHaveTextContent("UNAVAILABLE");
   });
 });

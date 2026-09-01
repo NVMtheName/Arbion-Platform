@@ -746,6 +746,9 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 	if !json.Valid(decision.Rationale) || len(decision.Rationale) == 0 || decision.Rationale[0] != '{' {
 		return ErrInvalid
 	}
+	if (source == "AI" && !validAIProposalQuoteReferenceEvidence(decision, evaluatedAt)) || (source != "AI" && decision.QuoteReference != nil) {
+		return ErrInvalid
+	}
 	reasonCodes, err := json.Marshal(evaluation.ReasonCodes)
 	if err != nil {
 		return err
@@ -754,14 +757,18 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 	if err != nil {
 		return err
 	}
-	executionMetadata, err := json.Marshal(map[string]any{
+	executionMetadataFields := map[string]any{
 		"candidate_count":          decision.CandidateCount,
 		"expected_state":           result.ExpectedState,
 		"live_execution_available": false,
 		"proposed_notional":        action.Notional,
 		"reason":                   result.Reason,
 		"simulation_only":          instance.ExecutionMode == Paper,
-	})
+	}
+	if source == "AI" {
+		executionMetadataFields["quote_reference"] = decision.QuoteReference
+	}
+	executionMetadata, err := json.Marshal(executionMetadataFields)
 	if err != nil {
 		return err
 	}
