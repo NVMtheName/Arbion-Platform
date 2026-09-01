@@ -222,6 +222,74 @@ describe("FinancialContinuityCenter", () => {
     expect(affected.connections[0].recoveredAt).toBeUndefined();
   });
 
+  it("separates active Schwab authorization from a saved market-data readiness stop", () => {
+    const schwabConnection = connection({
+      id: "schwab-connection",
+      provider: "schwab",
+      display_name: "Charles Schwab",
+      authorization_expires_at: "2026-09-08T16:00:00Z",
+    });
+    const schwabAccount = account({
+      id: "schwab-account",
+      provider_connection_id: "schwab-connection",
+      provider: "schwab",
+      display_name: "Schwab Brokerage",
+    });
+    const failed = run({
+      id: "run-schwab-market-data",
+      scheduled_for: "2026-09-01T15:35:00Z",
+      completed_at: "2026-09-01T15:35:12Z",
+      next_run_at: "2026-09-01T16:35:00Z",
+      status: "FAILED",
+      error_code: "MARKET_DATA_NOT_REALTIME",
+      consecutive_failures: 1,
+    });
+    const schwabEngine = engine({
+      mandate_id: "mandate-schwab",
+      instance_id: "instance-schwab",
+      connection_id: "schwab-connection",
+      account_id: "schwab-account",
+      account_name: "Schwab Brokerage",
+      provider: "schwab",
+      execution_mode: "SHADOW",
+      schedule_status: "FAILED",
+      schedule_completed_at: failed.completed_at ?? undefined,
+      schedule_next_run_at: failed.next_run_at ?? undefined,
+      consecutive_failures: 1,
+      recent_runs: [failed],
+    });
+
+    const result = projectFinancialContinuityCenter({
+      connections: [schwabConnection],
+      accounts: [schwabAccount],
+      engines: [schwabEngine],
+      observedAt,
+    });
+    expect(result.connections[0]).toMatchObject({
+      state: "SCHEDULER_AFFECTED",
+      label: "Authorization active; dependent engine paused safely",
+      schedulerErrorCodes: ["MARKET_DATA_NOT_REALTIME"],
+    });
+
+    render(
+      <FinancialContinuityCenter
+        connections={[schwabConnection]}
+        accounts={[schwabAccount]}
+        engines={[schwabEngine]}
+        observedAt={observedAt}
+      />,
+    );
+    expect(
+      screen.getByText("Authorization active; dependent engine paused safely"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Schwab did not explicitly mark the saved quote/),
+    ).toHaveTextContent(/stopped before the AI model/i);
+    expect(
+      screen.getByText(/Connection authorization and non-live/),
+    ).toBeVisible();
+  });
+
   it("fails closed on incomplete inventory, future evidence, and duplicate identity", () => {
     const noAccounts = projectFinancialContinuityCenter({
       connections: [connection()],

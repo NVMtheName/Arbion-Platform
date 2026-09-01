@@ -7367,6 +7367,18 @@ button:disabled {
   font-size: 0.72rem;
   line-height: 1.45;
 }
+.financial-continuity-center
+  details
+  section
+  li
+  .financial-continuity-engine-guidance {
+  padding: 10px 12px;
+  border: 1px solid rgba(246, 190, 93, 0.34);
+  border-radius: 9px;
+  background: rgba(246, 190, 93, 0.08);
+  color: #d8e3dd;
+  line-height: 1.55;
+}
 .financial-continuity-center details section a {
   display: inline-block;
   margin-top: 9px;
