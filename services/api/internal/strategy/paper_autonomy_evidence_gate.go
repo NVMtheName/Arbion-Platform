@@ -114,6 +114,7 @@ func projectPaperAutonomyEvidenceGate(
 		FreshnessThresholdSeconds: PaperAutonomyEvidenceFreshnessSeconds,
 		RouteContinuityStatus:     "UNAVAILABLE", InputCoverageStatus: "UNAVAILABLE", InputFreshnessStatus: "UNAVAILABLE",
 		LedgerContractStatus: "UNAVAILABLE", NoLiveSafetyStatus: "CLEAR", GrantsAuthority: false, LivePromotionAvailable: false,
+		ThresholdChangeLedger: projectPaperAutonomyThresholdChangeLedger(instanceStartedAt, runs, decisions),
 	}
 	result.Safety = PaperNoLiveSafetyEvidence{
 		Status: "CLEAR", LiveMandateCount: safetyCounts.LiveMandates, AIOrderIntentCount: safetyCounts.AIOrderIntents,

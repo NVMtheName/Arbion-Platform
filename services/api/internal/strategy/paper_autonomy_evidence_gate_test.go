@@ -71,6 +71,50 @@ func TestPaperAutonomyEvidenceGateCollectsBeforeThresholds(t *testing.T) {
 	if gate.ReviewPacket.Status != PaperAutonomyEvidenceCollecting || gate.ReviewPacket.ElapsedSeconds != 48*60*60 || gate.ReviewPacket.RemainingSeconds != 120*60*60 || gate.ReviewPacket.EvidenceReadyForHumanReview {
 		t.Fatalf("collecting packet must expose the exact remaining window without granting review authority: %#v", gate.ReviewPacket)
 	}
+	ledger := gate.ReviewPacket.ThresholdChangeLedger
+	if ledger.Status != "AVAILABLE" || ledger.CalculationMethod != PaperAutonomyThresholdChangeLedgerMethod || ledger.StrategyInstanceID != "instance" || ledger.ExecutionMode != Paper || ledger.SourceRunCount != 12 || ledger.CheckpointCount != PaperAutonomyThresholdChangeLedgerLimit || !ledger.Capped || ledger.GrantsAuthority || ledger.LivePromotionAvailable {
+		t.Fatalf("threshold change ledger lost its bounded non-authoritative contract: %#v", ledger)
+	}
+	latest := ledger.Checkpoints[len(ledger.Checkpoints)-1]
+	if latest.ScheduleRunID != runs[len(runs)-1].ID || latest.PreviousScheduleRunID != runs[len(runs)-2].ID || latest.DecisionCount != 12 || latest.DecisionDelta != 1 || latest.ProgressClassification != "NORMAL_COLLECTION" || latest.RouteContinuityStatus != "STABLE" || latest.InputCoverageStatus != "COMPLETE" || latest.InputFreshnessStatus != "CURRENT_AT_DECISION" || latest.SchedulerChange != "UNCHANGED" || len(latest.AddedBlockerCodes) != 0 || len(latest.ResolvedBlockerCodes) != 0 {
+		t.Fatalf("latest threshold checkpoint lost exact progress evidence: %#v", latest)
+	}
+}
+
+func TestPaperAutonomyThresholdChangeLedgerPreservesIncidentAndRecovery(t *testing.T) {
+	asOf := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+	startedAt := asOf.Add(-48 * time.Hour)
+	runs, decisions := paperEvidenceFixture(asOf, 6, startedAt)
+	errorCode := "AI_PROVIDER_UNAVAILABLE"
+	runs[3].Status = "FAILED"
+	runs[3].ErrorCode = &errorCode
+	runs[3].AIDecision = nil
+	runs[3].ExecutionStatus = nil
+	runs[3].ConsecutiveFailures = 1
+	decisions = append(decisions[:3], decisions[4:]...)
+	ledger := projectPaperAutonomyThresholdChangeLedger(startedAt, runs, decisions)
+	if ledger.Status != "AVAILABLE" || ledger.CheckpointCount != 6 || ledger.Capped {
+		t.Fatalf("incident ledger should remain exactly available: %#v", ledger)
+	}
+	failed := ledger.Checkpoints[3]
+	if failed.SchedulerChange != "INCIDENT_OPENED" || failed.ProgressClassification != "REVIEW_REGRESSION" || failed.EvidenceStatus != PaperAutonomyEvidenceReviewRequired || len(failed.AddedBlockerCodes) != 1 || failed.AddedBlockerCodes[0] != "SCHEDULER_NOT_HEALTHY" {
+		t.Fatalf("failed checkpoint lost exact incident evidence: %#v", failed)
+	}
+	recovered := ledger.Checkpoints[4]
+	if recovered.SchedulerChange != "RECOVERED" || recovered.ProgressClassification != "RECOVERED" || recovered.EvidenceStatus != PaperAutonomyEvidenceCollecting || len(recovered.ResolvedBlockerCodes) != 1 || recovered.ResolvedBlockerCodes[0] != "SCHEDULER_NOT_HEALTHY" {
+		t.Fatalf("recovered checkpoint lost exact recovery evidence: %#v", recovered)
+	}
+}
+
+func TestPaperAutonomyThresholdChangeLedgerFailsClosedOnDuplicateRun(t *testing.T) {
+	asOf := time.Date(2026, 8, 31, 12, 0, 0, 0, time.UTC)
+	startedAt := asOf.Add(-48 * time.Hour)
+	runs, decisions := paperEvidenceFixture(asOf, 3, startedAt)
+	runs[2].ID = runs[1].ID
+	ledger := projectPaperAutonomyThresholdChangeLedger(startedAt, runs, decisions)
+	if ledger.Status != PaperAutonomyEvidenceUnavailable || ledger.CheckpointCount != 0 || len(ledger.Checkpoints) != 0 || ledger.GrantsAuthority || ledger.LivePromotionAvailable {
+		t.Fatalf("duplicate immutable scheduler identity must fail closed: %#v", ledger)
+	}
 }
 
 func TestPaperAutonomyEvidenceGateRequiresReviewForCurrentSafetyFailure(t *testing.T) {
