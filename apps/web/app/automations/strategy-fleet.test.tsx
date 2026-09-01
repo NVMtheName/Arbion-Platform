@@ -18,6 +18,7 @@ import {
   projectStrategyFleetConnectionContinuity,
   projectStrategyFleetOperatingBrief,
   projectStrategyFleetProvenanceDigest,
+  projectStrategyFleetQuoteCoverageLedger,
   projectStrategyFleetScheduleRecovery,
   projectStrategyFleetScheduleReliability,
   reconciliationFreshWithinTwentyFourHours,
@@ -156,8 +157,18 @@ const coinbaseEngine: StrategyFleetItem = {
   latestQuoteFormation: {
     status: "NOT_APPLICABLE",
     decisionID: "decision-abstain",
+    decisionAt: "2026-08-26T16:17:39Z",
     executionStatus: "CANCELED",
   },
+  quoteFormationWindowAvailable: true,
+  recentQuoteFormations: [
+    {
+      status: "NOT_APPLICABLE",
+      decisionID: "decision-abstain",
+      decisionAt: "2026-08-26T16:17:39Z",
+      executionStatus: "CANCELED",
+    },
+  ],
   priorDecisionID: "decision-abstain-prior",
   priorDecisionType: "ABSTAIN",
   priorDecisionAt: "2026-08-26T15:17:39Z",
@@ -2990,6 +3001,175 @@ describe("StrategyFleet", () => {
       "Reference-only hypothetical evidence. No simulated fill, broker order, or live execution exists.",
     );
     expect(quote).toHaveTextContent("shadow-quote");
+  });
+
+  it("projects bounded quote coverage without counting abstentions as gaps", () => {
+    const ledger = projectStrategyFleetQuoteCoverageLedger([
+      {
+        ...coinbaseEngine,
+        recentQuoteFormations: [
+          {
+            status: "EXACT",
+            decisionID: "decision-exact-new",
+            decisionAt: "2026-08-26T16:17:39Z",
+            proposedActionID: "action-exact-new",
+            riskEvaluationID: "risk-exact-new",
+            executionRecordID: "shadow-exact-new",
+            executionStatus: "WOULD_HAVE_SUBMITTED",
+            symbol: "BTC",
+            side: "BUY",
+            referencePrice: "81234.1200000000",
+            basis: "ASK",
+            provider: "coinbase",
+            feed: "rest_ticker",
+            quality: "REAL_TIME_SINGLE_VENUE",
+            observedAt: "2026-08-26T16:17:38Z",
+          },
+          {
+            status: "NOT_APPLICABLE",
+            decisionID: "decision-abstain-window",
+            decisionAt: "2026-08-26T15:17:39Z",
+            executionStatus: "CANCELED",
+          },
+          {
+            status: "LEGACY_UNAVAILABLE",
+            decisionID: "decision-legacy-window",
+            decisionAt: "2026-08-26T14:17:39Z",
+            proposedActionID: "action-legacy-window",
+            riskEvaluationID: "risk-legacy-window",
+            executionRecordID: "shadow-legacy-window",
+          },
+          {
+            status: "EXACT",
+            decisionID: "decision-exact-old",
+            decisionAt: "2026-08-26T13:17:39Z",
+            proposedActionID: "action-exact-old",
+            riskEvaluationID: "risk-exact-old",
+            executionRecordID: "shadow-exact-old",
+            executionStatus: "WOULD_HAVE_SUBMITTED",
+            symbol: "ETH",
+            side: "SELL",
+            referencePrice: "2500.0000000000",
+            basis: "BID",
+            provider: "coinbase",
+            feed: "rest_ticker",
+            quality: "REAL_TIME_SINGLE_VENUE",
+            observedAt: "2026-08-26T13:17:38Z",
+          },
+        ],
+      },
+    ]);
+
+    expect(ledger).toMatchObject({
+      status: "VERIFIED",
+      engineCount: 1,
+      proposalCount: 3,
+      abstentionCount: 1,
+      exactCount: 2,
+      legacyUnavailableCount: 1,
+      unavailableCount: 0,
+      mismatchCount: 0,
+    });
+    expect(ledger.engines[0]).toMatchObject({
+      state: "LEGACY_GAPS",
+      sampleCount: 4,
+      proposalCount: 3,
+      abstentionCount: 1,
+      exactCount: 2,
+      firstCoveredAt: "2026-08-26T13:17:39Z",
+      latestCoveredAt: "2026-08-26T16:17:39Z",
+    });
+  });
+
+  it("requires the exact simulation-only fill chain for Paper quote coverage", () => {
+    const paperFormation = {
+      status: "EXACT" as const,
+      decisionID: "paper-coverage-decision",
+      decisionAt: "2026-08-26T16:17:39Z",
+      proposedActionID: "paper-coverage-action",
+      riskEvaluationID: "paper-coverage-risk",
+      executionRecordID: "paper-coverage-execution",
+      executionStatus: "SIMULATED_FILLED",
+      symbol: "ETH",
+      side: "BUY" as const,
+      referencePrice: "2500.0000000000",
+      basis: "ASK" as const,
+      provider: "coinbase",
+      feed: "rest_ticker",
+      quality: "REAL_TIME_SINGLE_VENUE",
+      observedAt: "2026-08-26T16:17:38Z",
+      paperFillID: "paper-coverage-fill",
+      paperFillPrice: "2506.2500000000",
+      paperFee: "0.2506250000",
+      paperAdverseSlippage: "0.1250000000",
+      paperSimulatedAt: "2026-08-26T16:17:39Z",
+    };
+    const paper = {
+      ...coinbaseEngine,
+      title: "AI Paper Engine",
+      executionMode: "PAPER",
+      recentQuoteFormations: [paperFormation],
+    };
+
+    expect(projectStrategyFleetQuoteCoverageLedger([paper])).toMatchObject({
+      status: "VERIFIED",
+      proposalCount: 1,
+      exactCount: 1,
+      engines: [{ state: "COVERED" }],
+    });
+    expect(
+      projectStrategyFleetQuoteCoverageLedger([
+        {
+          ...paper,
+          recentQuoteFormations: [
+            { ...paperFormation, paperFillID: undefined },
+          ],
+        },
+      ]),
+    ).toMatchObject({
+      status: "UNAVAILABLE",
+      engines: [{ state: "UNAVAILABLE" }],
+    });
+  });
+
+  it("surfaces a quote mismatch in the owner coverage ledger", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            recentQuoteFormations: [
+              {
+                status: "MISMATCH",
+                decisionID: "decision-mismatch-window",
+                decisionAt: "2026-08-26T16:17:39Z",
+                proposedActionID: "action-mismatch-window",
+                riskEvaluationID: "risk-mismatch-window",
+                executionRecordID: "shadow-mismatch-window",
+              },
+              {
+                status: "NOT_APPLICABLE",
+                decisionID: "decision-abstain-window",
+                decisionAt: "2026-08-26T15:17:39Z",
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    const coverage = screen.getByRole("region", {
+      name: "Recent quote evidence needs review.",
+    });
+    expect(coverage).toHaveTextContent("0 / 1");
+    expect(coverage).toHaveTextContent("1 proposals");
+    expect(coverage).toHaveTextContent("Evidence mismatch");
+    expect(coverage).toHaveTextContent("no reference is inferred");
+    expect(
+      within(coverage).getByRole("link", {
+        name: /Open immutable decision/i,
+      }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#decision-journal");
   });
 
   it("shows the exact Paper quote-to-simulation price-formation chain", () => {

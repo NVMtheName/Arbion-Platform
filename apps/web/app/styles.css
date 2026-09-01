@@ -2639,6 +2639,263 @@ button:disabled {
   color: #6f888e;
   font-size: 0.52rem;
 }
+.strategy-fleet-quote-coverage {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(25, 201, 214, 0.2);
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(25, 201, 214, 0.08),
+      transparent 34%
+    ),
+    rgba(2, 12, 14, 0.78);
+}
+.strategy-fleet-quote-coverage.needs-review {
+  border-color: rgba(216, 169, 82, 0.48);
+}
+.strategy-fleet-quote-coverage > header,
+.strategy-fleet-quote-coverage > header > div,
+.strategy-fleet-quote-coverage-engines > li > header,
+.strategy-fleet-quote-coverage-engines > li > header > div,
+.strategy-fleet-quote-coverage-engines details > summary,
+.strategy-fleet-quote-coverage-engines details > summary > span:first-child,
+.strategy-fleet-quote-coverage-engines details > ol > li > header,
+.strategy-fleet-quote-coverage-engines details > ol > li > footer {
+  display: flex;
+}
+.strategy-fleet-quote-coverage > header {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.strategy-fleet-quote-coverage > header > div {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+}
+.strategy-fleet-quote-coverage > header h2 {
+  margin: 0;
+  color: #e4f6f7;
+  font-size: clamp(1rem, 2vw, 1.35rem);
+}
+.strategy-fleet-quote-coverage > header p:not(.eyebrow) {
+  max-width: 780px;
+  margin: 2px 0 0;
+  color: #7f9ba1;
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+.strategy-fleet-quote-coverage > header > span {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 1px solid rgba(25, 201, 214, 0.24);
+  border-radius: 999px;
+  color: #79decf;
+  font-size: 0.57rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.strategy-fleet-quote-coverage.needs-review > header > span {
+  border-color: rgba(216, 169, 82, 0.34);
+  color: #e1bd79;
+}
+.strategy-fleet-quote-coverage-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 15px 0 0;
+}
+.strategy-fleet-quote-coverage-summary > div,
+.strategy-fleet-quote-coverage-engines > li > dl > div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(25, 201, 214, 0.12);
+  border-radius: 10px;
+  background: rgba(2, 10, 13, 0.72);
+}
+.strategy-fleet-quote-coverage dt,
+.strategy-fleet-quote-coverage dd {
+  margin: 0;
+}
+.strategy-fleet-quote-coverage dt {
+  color: #6f888e;
+  font-size: 0.52rem;
+  font-weight: 740;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.strategy-fleet-quote-coverage dd {
+  overflow: hidden;
+  margin-top: 4px;
+  color: #c8e1e4;
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+}
+.strategy-fleet-quote-coverage-engines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-fleet-quote-coverage-engines > li {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(25, 201, 214, 0.15);
+  border-radius: 14px;
+  background: rgba(3, 15, 18, 0.76);
+}
+.strategy-fleet-quote-coverage-engines > li.is-paper {
+  border-color: rgba(116, 144, 255, 0.24);
+  background: rgba(7, 12, 27, 0.76);
+}
+.strategy-fleet-quote-coverage-engines > li.is-attention,
+.strategy-fleet-quote-coverage-engines > li.is-unavailable {
+  border-color: rgba(216, 169, 82, 0.5);
+}
+.strategy-fleet-quote-coverage-engines > li > header {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.strategy-fleet-quote-coverage-engines > li > header > div {
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.strategy-fleet-quote-coverage-engines > li > header small {
+  color: #708c91;
+  font-size: 0.54rem;
+}
+.strategy-fleet-quote-coverage-engines > li > header strong {
+  color: #d9f4f6;
+  font-size: 0.72rem;
+}
+.strategy-fleet-quote-coverage-engines > li > header > span {
+  flex: 0 0 auto;
+  color: #78dccb;
+  font-size: 0.56rem;
+  font-weight: 760;
+}
+.strategy-fleet-quote-coverage-engines > li.is-attention > header > span,
+.strategy-fleet-quote-coverage-engines > li.is-unavailable > header > span,
+.strategy-fleet-quote-coverage-engines > li.is-legacy-gaps > header > span {
+  color: #e1bd79;
+}
+.strategy-fleet-quote-coverage-engines > li > dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 11px 0 0;
+}
+.strategy-fleet-quote-coverage-engines details {
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(25, 201, 214, 0.12);
+  border-radius: 10px;
+}
+.strategy-fleet-quote-coverage-engines details > summary {
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.strategy-fleet-quote-coverage-engines
+  details
+  > summary::-webkit-details-marker {
+  display: none;
+}
+.strategy-fleet-quote-coverage-engines details > summary:focus-visible {
+  outline: 2px solid #19c9d6;
+  outline-offset: -2px;
+}
+.strategy-fleet-quote-coverage-engines details > summary > span:first-child {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+}
+.strategy-fleet-quote-coverage-engines details > summary strong {
+  color: #cce8ea;
+  font-size: 0.62rem;
+}
+.strategy-fleet-quote-coverage-engines details > summary small,
+.strategy-fleet-quote-coverage-engines details > summary > span:last-child {
+  color: #718d93;
+  font-size: 0.52rem;
+}
+.strategy-fleet-quote-coverage-engines details > p {
+  margin: 0;
+  padding: 0 10px 10px;
+  color: #7d989d;
+  font-size: 0.57rem;
+  line-height: 1.5;
+}
+.strategy-fleet-quote-coverage-engines details > ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0 10px 10px;
+  list-style: none;
+}
+.strategy-fleet-quote-coverage-engines details > ol > li {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(25, 201, 214, 0.1);
+  border-radius: 8px;
+  background: rgba(1, 8, 10, 0.62);
+}
+.strategy-fleet-quote-coverage-engines details > ol > li > header {
+  justify-content: space-between;
+  gap: 8px;
+  color: #6f8b90;
+  font-size: 0.5rem;
+}
+.strategy-fleet-quote-coverage-engines details > ol > li > strong {
+  display: block;
+  margin-top: 6px;
+  color: #d7eff1;
+  font-size: 0.64rem;
+}
+.strategy-fleet-quote-coverage-engines details > ol > li > p {
+  margin: 4px 0 0;
+  color: #809ba0;
+  font-size: 0.54rem;
+  line-height: 1.5;
+}
+.strategy-fleet-quote-coverage-engines details > ol > li > dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 8px 0 0;
+}
+.strategy-fleet-quote-coverage-engines details > ol > li > dl > div {
+  min-width: 0;
+}
+.strategy-fleet-quote-coverage-engines details > ol > li > dl dd {
+  white-space: nowrap;
+}
+.strategy-fleet-quote-coverage-engines details > ol > li > footer {
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 8px;
+}
+.strategy-fleet-quote-coverage-engines details > ol > li > footer a {
+  color: #70dbaf;
+  font-size: 0.53rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.strategy-fleet-quote-coverage > footer {
+  margin-top: 12px;
+  color: #6f888e;
+  font-size: 0.54rem;
+}
 .strategy-fleet-exposure-outcomes {
   margin-top: 10px;
   overflow: hidden;
@@ -7100,6 +7357,18 @@ button:disabled {
   }
   .strategy-fleet-price-formation,
   .strategy-fleet-quote-identities {
+    grid-template-columns: 1fr;
+  }
+  .strategy-fleet-quote-coverage > header,
+  .strategy-fleet-quote-coverage-engines > li > header,
+  .strategy-fleet-quote-coverage-engines details > summary,
+  .strategy-fleet-quote-coverage-engines details > ol > li > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .strategy-fleet-quote-coverage-summary,
+  .strategy-fleet-quote-coverage-engines > li > dl,
+  .strategy-fleet-quote-coverage-engines details > ol > li > dl {
     grid-template-columns: 1fr;
   }
   .strategy-fleet-exposure-outcomes > summary,

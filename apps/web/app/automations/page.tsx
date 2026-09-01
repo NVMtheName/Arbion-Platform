@@ -4869,6 +4869,7 @@ function latestQuoteFormation(
   if (!decisionID || !decisionType) return;
   const identity = {
     decisionID,
+    decisionAt: text(decision, "created_at", "CreatedAt"),
     proposedActionID: text(decision, "proposed_action_id", "ProposedActionID"),
     riskEvaluationID: text(decision, "risk_evaluation_id", "RiskEvaluationID"),
     executionRecordID: text(
@@ -5485,6 +5486,23 @@ async function fleetItem(
     asList(paperFillsResult.payload?.fills),
     paperPortfolio?.execution_costs?.timeline,
   );
+  const recentQuoteFormations = decisionAvailable
+    ? aiDecisions
+        .slice(0, 10)
+        .map((decision) =>
+          latestQuoteFormation(
+            decision,
+            runtimeExecutionMode,
+            paperFillContractAvailable,
+            asList(paperFillsResult.payload?.fills),
+            paperPortfolio?.execution_costs?.timeline,
+          ),
+        )
+        .filter(
+          (formation): formation is StrategyFleetQuoteFormation =>
+            formation !== undefined,
+        )
+    : [];
   const paperRealizedContractAvailable =
     runtimeExecutionMode === "PAPER" &&
     paperPortfolioResult.payload?.realized_outcome_semantics ===
@@ -6089,6 +6107,9 @@ async function fleetItem(
       latestDecisionProvenance.marketEventQualities,
     latestDecisionMarketEventCount: latestDecisionProvenance.marketEventCount,
     latestQuoteFormation: quoteFormation,
+    quoteFormationWindowAvailable:
+      decisionAvailable && recentQuoteFormations.length === aiDecisions.length,
+    recentQuoteFormations,
     priorDecisionID: text(priorAIDecision, "id", "ID"),
     priorDecisionType: text(priorAIDecision, "decision_type", "DecisionType"),
     priorDecisionAt: text(priorAIDecision, "created_at", "CreatedAt"),
