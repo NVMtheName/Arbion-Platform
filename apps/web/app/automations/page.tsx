@@ -5450,6 +5450,7 @@ async function fleetItem(
       text(account, "display_name", "DisplayName") ?? "Connected account",
     provider: text(account, "provider", "Provider") ?? "connected_account",
     accountStatus: text(account, "status", "Status"),
+    financialConnectionID,
     financialConnectionAvailable: expectsOperationalData
       ? financialConnectionContextAvailable && Boolean(financialConnection)
       : undefined,
@@ -5461,6 +5462,16 @@ async function fleetItem(
       financialConnection,
       "authorization_expires_at",
       "AuthorizationExpiresAt",
+    ),
+    financialConnectionLastVerifiedAt: text(
+      financialConnection,
+      "last_synced_at",
+      "LastSyncedAt",
+    ),
+    financialAccountLastSyncedAt: text(
+      account,
+      "last_synced_at",
+      "LastSyncedAt",
     ),
     capitalContextAvailable: expectsCapitalData
       ? capitalContextAvailable

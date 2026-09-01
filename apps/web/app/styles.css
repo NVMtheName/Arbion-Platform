@@ -4404,6 +4404,245 @@ button:disabled {
 .strategy-fleet-ai-operations > footer {
   margin-top: 14px;
 }
+.strategy-fleet-connection-continuity {
+  padding: 24px;
+  border: 1px solid rgba(67, 198, 177, 0.28);
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at 96% 0%,
+      rgba(67, 198, 177, 0.12),
+      transparent 28rem
+    ),
+    rgba(3, 18, 22, 0.92);
+}
+.strategy-fleet-connection-continuity.is-attention,
+.strategy-fleet-connection-continuity.is-unavailable {
+  border-color: rgba(216, 169, 82, 0.42);
+}
+.strategy-fleet-connection-continuity > header,
+.strategy-fleet-connection-continuity summary,
+.strategy-fleet-connection-continuity summary > span:first-child,
+.strategy-fleet-connection-continuity
+  summary
+  > span:first-child
+  > span:last-child,
+.strategy-fleet-connection-continuity details > div > footer,
+.strategy-fleet-connection-continuity details section li > div {
+  display: flex;
+  align-items: center;
+}
+.strategy-fleet-connection-continuity > header {
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 22px;
+}
+.strategy-fleet-connection-continuity > header > div {
+  max-width: 760px;
+}
+.strategy-fleet-connection-continuity h3 {
+  margin: 6px 0 7px;
+  color: #e7fff9;
+  font-size: clamp(1.08rem, 2vw, 1.48rem);
+}
+.strategy-fleet-connection-continuity > header p:last-child,
+.strategy-fleet-connection-continuity details > div > p,
+.strategy-fleet-connection-continuity details > div > footer,
+.strategy-fleet-connection-continuity details section li p {
+  color: #779892;
+  font-size: 0.64rem;
+  line-height: 1.55;
+}
+.strategy-fleet-connection-continuity > header > span {
+  flex: 0 0 auto;
+  color: #8fded0;
+  font-size: 0.62rem;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+}
+.strategy-fleet-connection-continuity > ol,
+.strategy-fleet-connection-continuity details section ul {
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.strategy-fleet-connection-continuity > ol {
+  display: grid;
+  gap: 9px;
+}
+.strategy-fleet-connection-continuity details {
+  overflow: hidden;
+  border: 1px solid rgba(67, 198, 177, 0.18);
+  border-radius: 13px;
+  background: rgba(2, 11, 17, 0.72);
+}
+.strategy-fleet-connection-continuity details.is-expiring-soon,
+.strategy-fleet-connection-continuity details.is-expired,
+.strategy-fleet-connection-continuity details.is-scheduler-affected,
+.strategy-fleet-connection-continuity details.is-unavailable {
+  border-color: rgba(216, 169, 82, 0.38);
+}
+.strategy-fleet-connection-continuity summary {
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+.strategy-fleet-connection-continuity summary::-webkit-details-marker {
+  display: none;
+}
+.strategy-fleet-connection-continuity summary:focus-visible {
+  outline: 2px solid #8fded0;
+  outline-offset: -2px;
+}
+.strategy-fleet-connection-continuity summary > span:first-child {
+  gap: 11px;
+}
+.strategy-fleet-connection-continuity
+  summary
+  > span:first-child
+  > span:last-child {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+}
+.strategy-fleet-connection-continuity summary strong,
+.strategy-fleet-connection-continuity details section h4 {
+  color: #dffcf6;
+}
+.strategy-fleet-connection-continuity summary strong {
+  font-size: 0.75rem;
+}
+.strategy-fleet-connection-continuity summary small {
+  color: #708e8a;
+  font-size: 0.58rem;
+}
+.strategy-fleet-connection-continuity summary > span:last-child {
+  color: #83d5c6;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.strategy-fleet-connection-continuity
+  details:not(.is-current):not(.is-recovered)
+  summary
+  > span:last-child {
+  color: #e1bd79;
+}
+.strategy-fleet-connection-continuity details > div {
+  padding: 3px 16px 16px;
+  border-top: 1px solid rgba(67, 198, 177, 0.12);
+}
+.strategy-fleet-connection-continuity details > div > p {
+  margin: 13px 0;
+}
+.strategy-fleet-connection-continuity details > div > dl {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid rgba(67, 198, 177, 0.13);
+  border-radius: 10px;
+  background: rgba(67, 198, 177, 0.11);
+}
+.strategy-fleet-connection-continuity details > div > dl > div {
+  min-width: 0;
+  padding: 12px;
+  background: rgba(3, 15, 22, 0.96);
+}
+.strategy-fleet-connection-continuity dt,
+.strategy-fleet-connection-continuity dd {
+  margin: 0;
+}
+.strategy-fleet-connection-continuity dt {
+  color: #708e8a;
+  font-size: 0.54rem;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.strategy-fleet-connection-continuity dd {
+  margin-top: 5px;
+  color: #d9f8f1;
+  font-size: 0.67rem;
+  font-weight: 720;
+  line-height: 1.4;
+}
+.strategy-fleet-connection-continuity dl code,
+.strategy-fleet-connection-continuity dl small,
+.strategy-fleet-connection-continuity details section li code {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: #6f918a;
+  font-size: 0.53rem;
+  line-height: 1.42;
+}
+.strategy-fleet-connection-continuity details section {
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(67, 198, 177, 0.1);
+}
+.strategy-fleet-connection-continuity details section h4 {
+  margin: 0;
+  font-size: 0.68rem;
+}
+.strategy-fleet-connection-continuity details section ul {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+}
+.strategy-fleet-connection-continuity details section li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 14px;
+  padding: 10px 11px;
+  border-radius: 9px;
+  background: rgba(67, 198, 177, 0.055);
+}
+.strategy-fleet-connection-continuity details section li > div,
+.strategy-fleet-connection-continuity details section li p,
+.strategy-fleet-connection-continuity details section li code {
+  grid-column: 1;
+}
+.strategy-fleet-connection-continuity details section li > div {
+  justify-content: space-between;
+  gap: 10px;
+}
+.strategy-fleet-connection-continuity details section li > div strong,
+.strategy-fleet-connection-continuity details section li > div span {
+  font-size: 0.6rem;
+}
+.strategy-fleet-connection-continuity details section li > div span {
+  color: #83d5c6;
+  font-weight: 760;
+}
+.strategy-fleet-connection-continuity details section li p {
+  margin: 0;
+}
+.strategy-fleet-connection-continuity details section li a {
+  align-self: center;
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  color: #8fded0;
+  font-size: 0.58rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.strategy-fleet-connection-continuity details > div > footer {
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 12px;
+}
+.strategy-fleet-connection-continuity details > div > footer a {
+  flex: 0 0 auto;
+  color: #8fded0;
+  font-size: 0.62rem;
+  font-weight: 740;
+  text-decoration: none;
+}
 .strategy-fleet-reliability-center {
   margin-top: 20px;
   padding: 28px;
@@ -6464,6 +6703,8 @@ button:disabled {
   .strategy-fleet-command-deck > header,
   .strategy-fleet-advanced-evidence > header,
   .strategy-fleet-ai-operations > header,
+  .strategy-fleet-connection-continuity > header,
+  .strategy-fleet-connection-continuity details > div > footer,
   .strategy-fleet-paper-review-board > header,
   .strategy-fleet-paper-review-status > header,
   .strategy-fleet-paper-review-status > footer,
@@ -6578,6 +6819,16 @@ button:disabled {
   .strategy-fleet-freshness-summary,
   .strategy-fleet-evidence-chain-list > li > dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .strategy-fleet-connection-continuity details > div > dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .strategy-fleet-connection-continuity details section li {
+    grid-template-columns: 1fr;
+  }
+  .strategy-fleet-connection-continuity details section li a {
+    grid-column: 1;
+    grid-row: auto;
   }
   .strategy-fleet-input-matrix-list > li > footer {
     align-items: flex-start;

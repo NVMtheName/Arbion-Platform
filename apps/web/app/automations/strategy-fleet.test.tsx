@@ -15,6 +15,7 @@ import {
   projectStrategyFleetInputCoverageMatrix,
   projectStrategyFleetPersistentInputGapRegister,
   projectStrategyFleetPaperReviewStatus,
+  projectStrategyFleetConnectionContinuity,
   projectStrategyFleetOperatingBrief,
   projectStrategyFleetProvenanceDigest,
   projectStrategyFleetScheduleRecovery,
@@ -43,6 +44,9 @@ const coinbaseEngine: StrategyFleetItem = {
   financialConnectionAvailable: true,
   financialConnectionContextAvailable: true,
   financialConnectionStatus: "active",
+  financialConnectionID: "coinbase-connection",
+  financialConnectionLastVerifiedAt: "2026-08-26T16:10:00Z",
+  financialAccountLastSyncedAt: "2026-08-26T16:10:00Z",
   capitalContextAvailable: true,
   capitalBindingValid: true,
   capitalBucketName: "Coinbase AI Shadow",
@@ -541,6 +545,210 @@ describe("StrategyFleet", () => {
         }),
       ),
     ).toMatchObject({ state: "UNAVAILABLE", attention: true });
+  });
+
+  it("proves one current financial connection can safely serve Paper and Shadow engines", () => {
+    const continuity = projectStrategyFleetConnectionContinuity([
+      coinbaseEngine,
+      {
+        ...paperReviewItem(),
+        id: "coinbase-paper-mandate",
+        strategyInstanceID: "coinbase-paper-instance",
+        capitalBucketID: "coinbase-paper-bucket",
+        capitalReservationID: "coinbase-paper-reservation",
+        title: "Coinbase AI Paper",
+      },
+    ]);
+
+    expect(continuity).toMatchObject({
+      status: "VERIFIED",
+      connectionCount: 1,
+      currentCount: 1,
+      recoveredCount: 0,
+      attentionCount: 0,
+      unavailableCount: 0,
+    });
+    expect(continuity.connections[0]).toMatchObject({
+      id: "coinbase-connection",
+      provider: "coinbase",
+      state: "CURRENT",
+      accountCount: 1,
+      engineCount: 2,
+      paperEngineCount: 1,
+      shadowEngineCount: 1,
+      lastVerifiedAt: "2026-08-26T16:10:00Z",
+      latestAccountSyncedAt: "2026-08-26T16:10:00Z",
+    });
+  });
+
+  it("uses the exact 24-hour authorization-expiry boundary", () => {
+    const atBoundary = projectStrategyFleetConnectionContinuity([
+      {
+        ...coinbaseEngine,
+        financialAuthorizationExpiresAt: "2026-08-27T16:30:00Z",
+      },
+    ]);
+    expect(atBoundary.connections[0]).toMatchObject({
+      state: "EXPIRING_SOON",
+      authorizationRemainingSeconds: 86400,
+      attention: true,
+    });
+
+    const outsideBoundary = projectStrategyFleetConnectionContinuity([
+      {
+        ...coinbaseEngine,
+        financialAuthorizationExpiresAt: "2026-08-27T16:30:00.001Z",
+      },
+    ]);
+    expect(outsideBoundary.connections[0].state).toBe("CURRENT");
+
+    const expired = projectStrategyFleetConnectionContinuity([
+      {
+        ...coinbaseEngine,
+        financialAuthorizationExpiresAt: "2026-08-26T16:30:00Z",
+      },
+    ]);
+    expect(expired.connections[0]).toMatchObject({
+      state: "EXPIRED",
+      authorizationRemainingSeconds: 0,
+      attention: true,
+    });
+  });
+
+  it("pairs only exact connection-stage failures with a later automatic recovery", () => {
+    const recovered = projectStrategyFleetConnectionContinuity([
+      {
+        ...coinbaseEngine,
+        scheduleLastCompletedAt: "2026-08-26T15:00:12Z",
+        nextRunAt: "2026-08-26T16:00:12Z",
+        scheduleRecentRuns: [
+          {
+            id: "refresh-recovered",
+            scheduledFor: "2026-08-26T15:00:00Z",
+            completedAt: "2026-08-26T15:00:12Z",
+            nextRunAt: "2026-08-26T16:00:12Z",
+            status: "SUCCEEDED",
+            duplicateRecovered: false,
+            consecutiveFailures: 0,
+          },
+          {
+            id: "refresh-failed",
+            scheduledFor: "2026-08-26T14:00:00Z",
+            completedAt: "2026-08-26T14:00:10Z",
+            nextRunAt: "2026-08-26T15:00:00Z",
+            status: "FAILED",
+            errorCode: "RECONCILIATION_REFRESH_FAILED",
+            duplicateRecovered: false,
+            consecutiveFailures: 1,
+          },
+        ],
+      },
+    ]);
+    expect(recovered.connections[0]).toMatchObject({
+      state: "RECOVERED",
+      priorIncidentAt: "2026-08-26T14:00:10Z",
+      recoveredAt: "2026-08-26T15:00:12Z",
+      schedulerErrorCodes: ["RECONCILIATION_REFRESH_FAILED"],
+      attention: false,
+    });
+
+    const unrelatedProviderFailure = projectStrategyFleetConnectionContinuity([
+      {
+        ...coinbaseEngine,
+        scheduleLastCompletedAt: "2026-08-26T15:00:12Z",
+        nextRunAt: "2026-08-26T16:00:12Z",
+        scheduleRecentRuns: [
+          {
+            id: "provider-recovered",
+            scheduledFor: "2026-08-26T15:00:00Z",
+            completedAt: "2026-08-26T15:00:12Z",
+            nextRunAt: "2026-08-26T16:00:12Z",
+            status: "SUCCEEDED",
+            duplicateRecovered: false,
+            consecutiveFailures: 0,
+          },
+          {
+            id: "provider-failed",
+            scheduledFor: "2026-08-26T14:00:00Z",
+            completedAt: "2026-08-26T14:00:10Z",
+            nextRunAt: "2026-08-26T15:00:00Z",
+            status: "FAILED",
+            errorCode: "AI_PROVIDER_UNAVAILABLE",
+            duplicateRecovered: false,
+            consecutiveFailures: 1,
+          },
+        ],
+      },
+    ]);
+    expect(unrelatedProviderFailure.connections[0]).toMatchObject({
+      state: "CURRENT",
+      schedulerErrorCodes: [],
+    });
+  });
+
+  it("fails financial continuity closed on shared-identity drift or future sync evidence", () => {
+    const providerDrift = projectStrategyFleetConnectionContinuity([
+      coinbaseEngine,
+      {
+        ...coinbaseEngine,
+        id: "drifted-engine",
+        strategyInstanceID: "drifted-instance",
+        provider: "schwab",
+      },
+    ]);
+    expect(providerDrift.connections[0]).toMatchObject({
+      state: "UNAVAILABLE",
+      attention: true,
+    });
+
+    const futureSync = projectStrategyFleetConnectionContinuity([
+      {
+        ...coinbaseEngine,
+        financialAccountLastSyncedAt: "2026-08-26T16:30:00.001Z",
+      },
+    ]);
+    expect(futureSync.connections[0]).toMatchObject({
+      state: "UNAVAILABLE",
+      attention: true,
+    });
+  });
+
+  it("automatically exposes expiring financial authorization without a reconnect action", () => {
+    render(
+      <StrategyFleet
+        items={[
+          {
+            ...coinbaseEngine,
+            financialAuthorizationExpiresAt: "2026-08-27T15:30:00Z",
+          },
+        ]}
+      />,
+    );
+
+    const panel = screen
+      .getByText("Financial connection continuity")
+      .closest("details");
+    expect(panel).toHaveAttribute("open");
+    const continuity = screen.getByRole("region", {
+      name: "1 financial connection needs owner attention.",
+    });
+    expect(continuity).toHaveTextContent(
+      "Authorization expires within 24 hours",
+    );
+    expect(continuity).toHaveTextContent("23h 0m remaining");
+    expect(continuity).toHaveTextContent("coinbase-connection");
+    expect(continuity).toHaveTextContent("coinbase-account");
+    expect(
+      within(continuity).getByRole("link", { name: /Open Connections/i }),
+    ).toHaveAttribute("href", "/connections");
+    expect(
+      within(continuity).getByRole("link", {
+        name: /Immutable engine evidence/i,
+      }),
+    ).toHaveAttribute("href", "/automations/ai-mandate#runtime-evidence");
+    expect(
+      within(continuity).queryByRole("button", { name: /reconnect/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("automatically exposes stale Paper review evidence without accepting MFA in the fleet", () => {

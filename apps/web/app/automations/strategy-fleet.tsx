@@ -78,10 +78,13 @@ export type StrategyFleetItem = {
   accountName: string;
   provider: string;
   accountStatus?: string;
+  financialConnectionID?: string;
   financialConnectionAvailable?: boolean;
   financialConnectionContextAvailable?: boolean;
   financialConnectionStatus?: string;
   financialAuthorizationExpiresAt?: string;
+  financialConnectionLastVerifiedAt?: string;
+  financialAccountLastSyncedAt?: string;
   capitalContextAvailable?: boolean;
   capitalBindingValid?: boolean;
   capitalBucketName?: string;
@@ -1806,6 +1809,387 @@ export function projectStrategyFleetPaperReviewStatus(
     evidenceFingerprint: fingerprint,
     checkpointRunID: checkpoint.schedule_run_id,
     checkpointAsOf: checkpoint.as_of,
+  };
+}
+
+export type StrategyFleetConnectionContinuityState =
+  | "CURRENT"
+  | "EXPIRING_SOON"
+  | "EXPIRED"
+  | "SCHEDULER_AFFECTED"
+  | "RECOVERED"
+  | "UNAVAILABLE";
+
+export type StrategyFleetConnectionContinuity = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  connectionCount: number;
+  currentCount: number;
+  recoveredCount: number;
+  attentionCount: number;
+  unavailableCount: number;
+  connections: Array<{
+    id: string;
+    provider: string;
+    connectionStatus?: string;
+    state: StrategyFleetConnectionContinuityState;
+    label: string;
+    guidance: string;
+    attention: boolean;
+    authorizationExpiresAt?: string;
+    authorizationRemainingSeconds?: number;
+    lastVerifiedAt?: string;
+    latestAccountSyncedAt?: string;
+    priorIncidentAt?: string;
+    recoveredAt?: string;
+    schedulerErrorCodes: string[];
+    accountCount: number;
+    engineCount: number;
+    paperEngineCount: number;
+    shadowEngineCount: number;
+    accounts: Array<{ id: string; name: string; lastSyncedAt?: string }>;
+    engines: Array<{
+      id: string;
+      title: string;
+      executionMode: string;
+      accountID: string;
+      accountName: string;
+      scheduleStatus?: string;
+      consecutiveFailures: number;
+      nextRunAt?: string;
+    }>;
+  }>;
+};
+
+const connectionRecoveryCodes = new Set(["RECONCILIATION_REFRESH_FAILED"]);
+
+function continuityTime(value?: string) {
+  if (!value) return;
+  const milliseconds = Date.parse(value);
+  return Number.isNaN(milliseconds) ? undefined : milliseconds;
+}
+
+export function projectStrategyFleetConnectionContinuity(
+  items: StrategyFleetItem[],
+): StrategyFleetConnectionContinuity {
+  const operational = items.filter(
+    (item) => isAI(item) && item.instanceStatus === "ACTIVE",
+  );
+  const grouped = new Map<string, StrategyFleetItem[]>();
+  for (const item of operational) {
+    const key = item.financialConnectionID || `unavailable:${item.id}`;
+    grouped.set(key, [...(grouped.get(key) ?? []), item]);
+  }
+
+  const connections = [...grouped.entries()]
+    .map(([connectionID, engines]) => {
+      const first = engines[0];
+      const observedAt = continuityTime(first.freshnessObservedAt);
+      const expiresAt = continuityTime(first.financialAuthorizationExpiresAt);
+      const lastVerifiedAt = continuityTime(
+        first.financialConnectionLastVerifiedAt,
+      );
+      const accountSyncTimes = engines.map((item) =>
+        continuityTime(item.financialAccountLastSyncedAt),
+      );
+      const exactScheduleEvidence = engines.every((item) => {
+        const recentRuns = item.scheduleRecentRuns ?? [];
+        const latest = recentRuns[0];
+        const completedTimes = recentRuns.map((run) =>
+          continuityTime(run.completedAt),
+        );
+        return Boolean(
+          observedAt !== undefined &&
+            item.scheduleAvailable === true &&
+            item.scheduleHistoryAvailable === true &&
+            recentRuns.length > 0 &&
+            recentRuns.length <= 12 &&
+            recentRuns.every(validScheduleRunEvidence) &&
+            new Set(recentRuns.map((run) => run.id)).size ===
+              recentRuns.length &&
+            completedTimes.every(
+              (completedAt, index) =>
+                completedAt !== undefined &&
+                completedAt <= observedAt &&
+                (index === 0 || completedAt <= completedTimes[index - 1]!),
+            ) &&
+            latest?.status === item.scheduleStatus &&
+            latest?.consecutiveFailures === item.consecutiveFailures &&
+            sameInstant(latest?.completedAt, item.scheduleLastCompletedAt) &&
+            sameInstant(latest?.nextRunAt, item.nextRunAt),
+        );
+      });
+      const exactConnectionEvidence =
+        !connectionID.startsWith("unavailable:") &&
+        Boolean(first.financialConnectionID) &&
+        first.financialConnectionAvailable === true &&
+        first.financialConnectionContextAvailable === true &&
+        Boolean(first.financialConnectionStatus) &&
+        Boolean(first.financialConnectionLastVerifiedAt) &&
+        observedAt !== undefined &&
+        lastVerifiedAt !== undefined &&
+        lastVerifiedAt <= observedAt &&
+        (first.financialAuthorizationExpiresAt === undefined ||
+          expiresAt !== undefined) &&
+        accountSyncTimes.every(
+          (timestamp) => timestamp !== undefined && timestamp <= observedAt,
+        ) &&
+        exactScheduleEvidence &&
+        engines.every(
+          (item) =>
+            item.financialConnectionID === first.financialConnectionID &&
+            item.provider === first.provider &&
+            item.financialConnectionStatus ===
+              first.financialConnectionStatus &&
+            item.financialAuthorizationExpiresAt ===
+              first.financialAuthorizationExpiresAt &&
+            item.financialConnectionLastVerifiedAt ===
+              first.financialConnectionLastVerifiedAt &&
+            item.freshnessObservedAt === first.freshnessObservedAt &&
+            Boolean(item.financialAccountID) &&
+            item.financialConnectionAvailable === true &&
+            item.financialConnectionContextAvailable === true,
+        );
+
+      const accounts = new Map<
+        string,
+        { id: string; name: string; lastSyncedAt?: string }
+      >();
+      for (const engine of engines) {
+        const accountID = engine.financialAccountID ?? "UNAVAILABLE";
+        const existing = accounts.get(accountID);
+        if (
+          existing &&
+          (existing.name !== engine.accountName ||
+            existing.lastSyncedAt !== engine.financialAccountLastSyncedAt)
+        ) {
+          return {
+            id: connectionID,
+            provider: first.provider,
+            connectionStatus: first.financialConnectionStatus,
+            state: "UNAVAILABLE" as const,
+            label: "Continuity evidence unavailable",
+            guidance:
+              "Arbion cannot prove one exact account-sync identity for this financial connection and will not infer continuity.",
+            attention: true,
+            schedulerErrorCodes: [],
+            accountCount: accounts.size,
+            engineCount: engines.length,
+            paperEngineCount: engines.filter(
+              (engine) => engine.executionMode === "PAPER",
+            ).length,
+            shadowEngineCount: engines.filter(
+              (engine) => engine.executionMode === "SHADOW",
+            ).length,
+            accounts: [...accounts.values()],
+            engines: engines.map((engine) => ({
+              id: engine.id,
+              title: engine.title,
+              executionMode: engine.executionMode,
+              accountID: engine.financialAccountID ?? "UNAVAILABLE",
+              accountName: engine.accountName,
+              scheduleStatus: engine.scheduleStatus,
+              consecutiveFailures: engine.consecutiveFailures,
+              nextRunAt: engine.nextRunAt,
+            })),
+          };
+        }
+        accounts.set(accountID, {
+          id: accountID,
+          name: engine.accountName,
+          lastSyncedAt: engine.financialAccountLastSyncedAt,
+        });
+      }
+
+      const savedRuns = engines.flatMap((engine) =>
+        (engine.scheduleRecentRuns ?? []).map((run) => ({ engine, run })),
+      );
+      const invalidRunTiming = savedRuns.some(({ run }) => {
+        if (run.completedAt === undefined) return false;
+        const completedAt = continuityTime(run.completedAt);
+        return (
+          completedAt === undefined ||
+          observedAt === undefined ||
+          completedAt > observedAt
+        );
+      });
+      const connectionFailures = savedRuns
+        .filter(
+          ({ run }) =>
+            run.status === "FAILED" &&
+            Boolean(
+              run.errorCode && connectionRecoveryCodes.has(run.errorCode),
+            ),
+        )
+        .sort(
+          (left, right) =>
+            (continuityTime(left.run.completedAt) ?? 0) -
+            (continuityTime(right.run.completedAt) ?? 0),
+        );
+      const latestConnectionFailure = connectionFailures.at(-1);
+      const latestFailureAt = continuityTime(
+        latestConnectionFailure?.run.completedAt,
+      );
+      const latestFailureEngineID = latestConnectionFailure?.engine.id;
+      const laterSuccess =
+        latestFailureAt === undefined || latestFailureEngineID === undefined
+          ? undefined
+          : savedRuns
+              .filter(
+                ({ engine, run }) =>
+                  engine.id === latestFailureEngineID &&
+                  run.status === "SUCCEEDED" &&
+                  (continuityTime(run.completedAt) ?? 0) > latestFailureAt,
+              )
+              .sort(
+                (left, right) =>
+                  (continuityTime(left.run.completedAt) ?? 0) -
+                  (continuityTime(right.run.completedAt) ?? 0),
+              )[0];
+      const scheduleAffected = engines.some(
+        (engine) =>
+          engine.scheduleAvailable !== true ||
+          engine.scheduleHistoryAvailable !== true ||
+          engine.scheduleStatus === "FAILED" ||
+          engine.consecutiveFailures > 0 ||
+          ["OVERDUE", "UNAVAILABLE"].includes(
+            engine.scheduleTimingStatus ?? "UNAVAILABLE",
+          ),
+      );
+      const expired =
+        first.financialConnectionStatus === "expired" ||
+        first.financialConnectionStatus === "revoked" ||
+        (expiresAt !== undefined &&
+          observedAt !== undefined &&
+          expiresAt <= observedAt);
+      const expiringSoon =
+        !expired &&
+        expiresAt !== undefined &&
+        observedAt !== undefined &&
+        expiresAt - observedAt <= 24 * 60 * 60 * 1000;
+      const recovered =
+        latestConnectionFailure !== undefined && laterSuccess !== undefined;
+
+      let state: StrategyFleetConnectionContinuityState = "CURRENT";
+      let label = "Connection current";
+      let guidance =
+        "No owner action is required. Arbion will continue the next guarded non-live cycle on schedule.";
+      let attention = false;
+      if (!exactConnectionEvidence || invalidRunTiming) {
+        state = "UNAVAILABLE";
+        label = "Continuity evidence unavailable";
+        guidance =
+          "Arbion cannot prove the exact connection, verification, account-sync, or scheduler timestamps and will not infer continuity.";
+        attention = true;
+      } else if (expired) {
+        state = "EXPIRED";
+        label = "Authorization expired";
+        guidance =
+          "Reconnect this provider in Connections. Guarded non-live cycles remain fail-closed until current authorization evidence returns.";
+        attention = true;
+      } else if (
+        first.financialConnectionStatus !== "active" ||
+        engines.some((engine) => engine.accountStatus !== "active") ||
+        scheduleAffected
+      ) {
+        state = "SCHEDULER_AFFECTED";
+        label = "Connection or schedule needs review";
+        guidance =
+          "Inspect the saved connection and engine evidence. Arbion does not claim the connection caused a scheduler issue without an exact failure code.";
+        attention = true;
+      } else if (expiringSoon) {
+        state = "EXPIRING_SOON";
+        label = "Authorization expires within 24 hours";
+        guidance =
+          "Reconnect this provider before the exact expiry time to avoid a fail-closed interruption to future non-live cycles.";
+        attention = true;
+      } else if (recovered) {
+        state = "RECOVERED";
+        label = "Automatically recovered";
+        guidance =
+          "A saved provider-input failure remains immutable and a later automatic cycle succeeded. No owner action is required now.";
+      }
+
+      const sortedAccounts = [...accounts.values()].sort((left, right) =>
+        left.name.localeCompare(right.name),
+      );
+      return {
+        id: connectionID,
+        provider: first.provider,
+        connectionStatus: first.financialConnectionStatus,
+        state,
+        label,
+        guidance,
+        attention,
+        authorizationExpiresAt: first.financialAuthorizationExpiresAt,
+        authorizationRemainingSeconds:
+          expiresAt !== undefined && observedAt !== undefined
+            ? Math.floor((expiresAt - observedAt) / 1000)
+            : undefined,
+        lastVerifiedAt: first.financialConnectionLastVerifiedAt,
+        latestAccountSyncedAt: sortedAccounts
+          .map((account) => account.lastSyncedAt)
+          .filter((timestamp): timestamp is string => Boolean(timestamp))
+          .sort((left, right) => Date.parse(right) - Date.parse(left))[0],
+        priorIncidentAt: latestConnectionFailure?.run.completedAt,
+        recoveredAt: laterSuccess?.run.completedAt,
+        schedulerErrorCodes: [
+          ...new Set(
+            connectionFailures
+              .map(({ run }) => run.errorCode)
+              .filter((code): code is string => Boolean(code)),
+          ),
+        ].sort(),
+        accountCount: sortedAccounts.length,
+        engineCount: engines.length,
+        paperEngineCount: engines.filter(
+          (engine) => engine.executionMode === "PAPER",
+        ).length,
+        shadowEngineCount: engines.filter(
+          (engine) => engine.executionMode === "SHADOW",
+        ).length,
+        accounts: sortedAccounts,
+        engines: engines
+          .map((engine) => ({
+            id: engine.id,
+            title: engine.title,
+            executionMode: engine.executionMode,
+            accountID: engine.financialAccountID ?? "UNAVAILABLE",
+            accountName: engine.accountName,
+            scheduleStatus: engine.scheduleStatus,
+            consecutiveFailures: engine.consecutiveFailures,
+            nextRunAt: engine.nextRunAt,
+          }))
+          .sort((left, right) => left.title.localeCompare(right.title)),
+      };
+    })
+    .sort((left, right) =>
+      `${left.provider}:${left.id}`.localeCompare(
+        `${right.provider}:${right.id}`,
+      ),
+    );
+  const unavailableCount = connections.filter(
+    (connection) => connection.state === "UNAVAILABLE",
+  ).length;
+  const attentionCount = connections.filter(
+    (connection) => connection.attention,
+  ).length;
+  return {
+    status:
+      unavailableCount > 0
+        ? "UNAVAILABLE"
+        : attentionCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    connectionCount: connections.length,
+    currentCount: connections.filter(
+      (connection) => connection.state === "CURRENT",
+    ).length,
+    recoveredCount: connections.filter(
+      (connection) => connection.state === "RECOVERED",
+    ).length,
+    attentionCount,
+    unavailableCount,
+    connections,
   };
 }
 
@@ -7496,6 +7880,176 @@ function aiOperationsPanelStateLabel(
   return "Unavailable";
 }
 
+function continuityRemainingTime(seconds?: number) {
+  if (seconds === undefined) return "No saved fixed expiry";
+  if (seconds === 0) return "Expired now";
+  if (seconds < 0)
+    return `Expired ${readableEvidenceDuration(Math.abs(seconds))} ago`;
+  return `${readableEvidenceDuration(seconds)} remaining`;
+}
+
+function StrategyFleetConnectionContinuityView({
+  items,
+}: {
+  items: StrategyFleetItem[];
+}) {
+  const continuity = projectStrategyFleetConnectionContinuity(items);
+  const label =
+    continuity.status === "UNAVAILABLE"
+      ? "Some financial connection continuity evidence is unavailable."
+      : continuity.status === "ATTENTION"
+        ? `${continuity.attentionCount} financial ${continuity.attentionCount === 1 ? "connection needs" : "connections need"} owner attention.`
+        : continuity.recoveredCount > 0
+          ? `${continuity.recoveredCount} financial ${continuity.recoveredCount === 1 ? "connection has" : "connections have"} exact automatic recovery evidence.`
+          : "Every financial connection is current and on schedule.";
+  return (
+    <section
+      className={`strategy-fleet-connection-continuity is-${continuity.status.toLowerCase()}`}
+      aria-label={label}
+    >
+      <header>
+        <div>
+          <p className="eyebrow">FINANCIAL CONNECTION CONTINUITY</p>
+          <h3>{label}</h3>
+          <p>
+            Saved connection, authorization, account-sync, and scheduler facts
+            only. A scheduler failure is never attributed to a connection
+            without an exact saved code.
+          </p>
+        </div>
+        <span>
+          {continuity.connectionCount} connections · {continuity.currentCount}{" "}
+          current · {continuity.recoveredCount} recovered ·{" "}
+          {continuity.attentionCount} review
+        </span>
+      </header>
+      <ol>
+        {continuity.connections.map((connection) => (
+          <li key={connection.id}>
+            <details
+              className={`is-${connection.state.toLowerCase().replaceAll("_", "-")}`}
+              open={connection.attention}
+            >
+              <summary>
+                <span>
+                  <span
+                    aria-hidden="true"
+                    className={`provider-mark provider-${connection.provider.toLowerCase()}`}
+                  >
+                    {connection.provider.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span>
+                    <strong>{readable(connection.provider)}</strong>
+                    <small>{connection.label}</small>
+                  </span>
+                </span>
+                <span>
+                  {connection.attention ? "OWNER REVIEW" : "ON COURSE"}
+                </span>
+              </summary>
+              <div>
+                <p>{connection.guidance}</p>
+                <dl>
+                  <div>
+                    <dt>Exact connection</dt>
+                    <dd>{exactState(connection.connectionStatus)}</dd>
+                    <code>{connection.id}</code>
+                  </div>
+                  <div>
+                    <dt>Authorization</dt>
+                    <dd>
+                      {continuityRemainingTime(
+                        connection.authorizationRemainingSeconds,
+                      )}
+                    </dd>
+                    <small>
+                      {connection.authorizationExpiresAt
+                        ? `Expires ${readableTime(connection.authorizationExpiresAt)}`
+                        : "No expiration timestamp is saved for this credential type"}
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Last verified</dt>
+                    <dd>{readableTime(connection.lastVerifiedAt)}</dd>
+                    <small>
+                      Latest account sync{" "}
+                      {readableTime(connection.latestAccountSyncedAt)}
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Connection use</dt>
+                    <dd>
+                      {connection.engineCount} engines ·{" "}
+                      {connection.accountCount}{" "}
+                      {connection.accountCount === 1 ? "account" : "accounts"}
+                    </dd>
+                    <small>
+                      {connection.paperEngineCount} Paper ·{" "}
+                      {connection.shadowEngineCount} Shadow ·{" "}
+                      {connection.engineCount > 1
+                        ? "shared identity"
+                        : "isolated identity"}
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Saved incident</dt>
+                    <dd>
+                      {connection.schedulerErrorCodes.length > 0
+                        ? connection.schedulerErrorCodes.join(" · ")
+                        : "No connection-stage failure in the bounded window"}
+                    </dd>
+                    <small>
+                      {connection.recoveredAt
+                        ? `Recovered ${readableTime(connection.recoveredAt)}`
+                        : connection.priorIncidentAt
+                          ? `Latest ${readableTime(connection.priorIncidentAt)}`
+                          : "No recovery pairing required"}
+                    </small>
+                  </div>
+                </dl>
+                <section
+                  aria-label={`${readable(connection.provider)} engine continuity`}
+                >
+                  <h4>Guarded engines</h4>
+                  <ul>
+                    {connection.engines.map((engine) => (
+                      <li key={engine.id}>
+                        <div>
+                          <strong>{engine.title}</strong>
+                          <span>{readable(engine.executionMode)}</span>
+                        </div>
+                        <p>
+                          {engine.accountName} ·{" "}
+                          {exactState(engine.scheduleStatus)} ·{" "}
+                          {engine.consecutiveFailures} failures · next{" "}
+                          {readableTime(engine.nextRunAt)}
+                        </p>
+                        <code>{engine.accountID}</code>
+                        <Link
+                          href={`/automations/${encodeURIComponent(engine.id)}#runtime-evidence`}
+                        >
+                          Immutable engine evidence →
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+                <footer>
+                  <Link href="/connections">Open Connections →</Link>
+                  <span>
+                    Read-only evidence · no reconnect, provider refresh, cycle,
+                    order, or live path
+                  </span>
+                </footer>
+              </div>
+            </details>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 function StrategyFleetPaperReviewStatusView({
   items,
 }: {
@@ -7571,6 +8125,7 @@ function StrategyFleetAIOperationsWorkspace({
   const changes = projectStrategyFleetInputCoverageChangeLedger(items);
   const gaps = projectStrategyFleetPersistentInputGapRegister(items);
   const freshness = projectStrategyFleetEvidenceFreshnessBoard(items);
+  const connectionContinuity = projectStrategyFleetConnectionContinuity(items);
   const paperReviewStatuses = items
     .map((item) => projectStrategyFleetPaperReviewStatus(item))
     .filter((status): status is StrategyFleetPaperReviewStatus =>
@@ -7593,6 +8148,14 @@ function StrategyFleetAIOperationsWorkspace({
     state: StrategyFleetAIOperationsPanelState;
     content: ReactNode;
   }> = [
+    {
+      key: "financial-connection-continuity",
+      title: "Financial connection continuity",
+      description:
+        "Authorization timing, saved verification, account sync, engine sharing, and automatic recovery",
+      state: connectionContinuity.status,
+      content: <StrategyFleetConnectionContinuityView items={items} />,
+    },
     ...(paperReviewStatuses.length > 0
       ? [
           {
@@ -7722,6 +8285,14 @@ function StrategyFleetAIOperationsWorkspace({
           <dd>
             {coverage.availableCategoryCount} available · {currentGapCount}{" "}
             limited
+          </dd>
+        </div>
+        <div>
+          <dt>Financial continuity</dt>
+          <dd>
+            {connectionContinuity.currentCount} current ·{" "}
+            {connectionContinuity.recoveredCount} recovered ·{" "}
+            {connectionContinuity.attentionCount} review
           </dd>
         </div>
         <div>
