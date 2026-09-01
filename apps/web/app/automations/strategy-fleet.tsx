@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { compareExactDecimals } from "../exact-money";
 import { PaperEvidenceThresholdChangeLedger } from "./paper-evidence-threshold-change-ledger";
+import { scheduleFailureGuidance } from "./schedule-failure-guidance";
 import type {
   PaperActivityCadence,
   PaperAutonomyEvidenceGate,
@@ -3896,11 +3897,16 @@ export function projectStrategyFleetAutomaticCycleFailureTaxonomy(
           : recoveredFailureCount > 0
             ? ("RECOVERED" as const)
             : ("CLEAR" as const);
+    const currentErrorCode =
+      state === "ATTENTION" ? latestSample?.run.errorCode : undefined;
+    const currentGuidance = currentErrorCode
+      ? scheduleFailureGuidance(currentErrorCode, item.provider)
+      : undefined;
     const followUp =
       state === "UNAVAILABLE"
         ? "Review immutable scheduler history before relying on this taxonomy. Arbion will not infer a missing failure code."
         : state === "ATTENTION"
-          ? "Review the current credential-free scheduler classification and let the next guarded cycle attempt automatic recovery. Do not rerun the model manually."
+          ? `${currentGuidance?.actionLabel ?? "Operator correction"}: ${currentGuidance?.message ?? "Review the current credential-free scheduler classification before the next guarded cycle."} Do not rerun the model manually.`
           : state === "RECOVERED"
             ? "No owner action is required. Earlier failures remain saved and a later automatic cycle recovered successfully."
             : state === "SAFE_WAIT"
@@ -3921,8 +3927,7 @@ export function projectStrategyFleetAutomaticCycleFailureTaxonomy(
       safeWaitCount,
       firstFailureAt: failures[0]?.run.completedAt,
       latestFailureAt: failures.at(-1)?.run.completedAt,
-      currentErrorCode:
-        state === "ATTENTION" ? latestSample?.run.errorCode : undefined,
+      currentErrorCode,
       codes,
       followUp,
       evidenceHref: `/automations/${encodeURIComponent(item.id)}#schedule-controls`,
