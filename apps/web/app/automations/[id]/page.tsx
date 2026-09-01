@@ -50,6 +50,10 @@ import {
   ShadowEvidenceReviewControls,
   type ShadowEvidenceReviewRecord,
 } from "../shadow-evidence-review-controls";
+import {
+  PaperEvidenceReviewControls,
+  type PaperEvidenceReviewRecord,
+} from "../paper-evidence-review-controls";
 import { AIShadowDecisionWorkspace } from "../ai-shadow-decision-workspace";
 import { StrategySimulationWorkbench } from "../strategy-simulation-workbench";
 import {
@@ -242,6 +246,7 @@ export default async function MandateReview({
     scheduleResponse,
     scheduleRunsResponse,
     portfolioResponse,
+    paperEvidenceReviewsResponse,
     paperFillsResponse,
     capitalReservationResponse,
   ] = instanceID
@@ -255,6 +260,7 @@ export default async function MandateReview({
           "schedule",
           "schedule-runs?limit=12",
           "paper-portfolio",
+          "paper-evidence-reviews?limit=8",
           "ai-paper-fills?limit=25",
           "capital-reservation",
         ].map(async (suffix) => {
@@ -267,7 +273,7 @@ export default async function MandateReview({
             : {};
         }),
       )
-    : [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}];
+    : [{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}];
   const paperPortfolio = portfolioResponse.paper_portfolio as
     | PaperPortfolio
     | undefined;
@@ -455,6 +461,26 @@ export default async function MandateReview({
           }
         />
       )}
+      {automationType === "AI_AUTONOMOUS" &&
+        executionMode === "PAPER" &&
+        instanceID && (
+          <PaperEvidenceReviewControls
+            strategyInstanceId={instanceID}
+            portfolio={paperPortfolio}
+            initialReviews={
+              Array.isArray(paperEvidenceReviewsResponse.evidence_reviews)
+                ? (paperEvidenceReviewsResponse.evidence_reviews as PaperEvidenceReviewRecord[])
+                : []
+            }
+            initialCursor={String(
+              paperEvidenceReviewsResponse.next_cursor ?? "",
+            )}
+            historyAvailable={
+              paperEvidenceReviewsResponse.history_semantics ===
+              "IMMUTABLE_PAPER_OWNER_REVIEW_EVIDENCE"
+            }
+          />
+        )}
       {automationType === "AI_AUTONOMOUS" && executionMode === "SHADOW" && (
         <AutonomyReadinessControlPlane
           provider={financialProvider}

@@ -667,6 +667,13 @@ export type PaperAutonomyEvidenceGate = {
   live_execution_available: false;
 };
 
+export type PaperEvidenceReview = {
+  id: string;
+  evidence_fingerprint: string;
+  latest_checkpoint_run_id: string;
+  reviewed_at: string;
+};
+
 export type PaperPortfolio = {
   strategy_instance_id: string;
   currency: string;
@@ -679,6 +686,9 @@ export type PaperPortfolio = {
   activity_cadence?: PaperActivityCadence;
   guardrail_evidence?: PaperGuardrailEvidence;
   evidence_readiness?: PaperAutonomyEvidenceGate;
+  evidence_review_fingerprint?: string;
+  latest_evidence_review?: PaperEvidenceReview;
+  current_evidence_reviewed?: boolean;
   updated_at: string;
 };
 

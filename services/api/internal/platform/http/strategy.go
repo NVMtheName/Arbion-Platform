@@ -76,6 +76,8 @@ func registerStrategyRoutes(m *stdhttp.ServeMux, h *authHandler) {
 	m.Handle("GET /api/strategy-instances/{id}/shadow-evidence-reviews", h.require(stdhttp.HandlerFunc(h.strategyShadowEvidenceReviews)))
 	m.Handle("POST /api/strategy-instances/{id}/shadow-evidence-reviews", h.require(stdhttp.HandlerFunc(h.recordShadowEvidenceReview)))
 	m.Handle("GET /api/strategy-instances/{id}/paper-portfolio", h.require(stdhttp.HandlerFunc(h.strategyPaperPortfolio)))
+	m.Handle("GET /api/strategy-instances/{id}/paper-evidence-reviews", h.require(stdhttp.HandlerFunc(h.strategyPaperEvidenceReviews)))
+	m.Handle("POST /api/strategy-instances/{id}/paper-evidence-reviews", h.require(stdhttp.HandlerFunc(h.recordPaperEvidenceReview)))
 	m.Handle("GET /api/strategy-instances/{id}/ai-paper-fills", h.require(stdhttp.HandlerFunc(h.strategyAIPaperFills)))
 	m.Handle("GET /api/strategy-instances/{id}/schedule", h.require(stdhttp.HandlerFunc(h.strategySchedule)))
 	m.Handle("GET /api/strategy-instances/{id}/schedule-runs", h.require(stdhttp.HandlerFunc(h.strategyScheduleRuns)))
@@ -271,6 +273,32 @@ func decodeShadowEvidenceReviewCursor(encoded string) (*strategy.ShadowEvidenceR
 	return &strategy.ShadowEvidenceReviewCursor{ReviewedAt: decoded.ReviewedAt, ID: decoded.ID}, nil
 }
 
+func encodePaperEvidenceReviewCursor(cursor *strategy.PaperEvidenceReviewCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	payload, _ := json.Marshal(shadowEvidenceReviewCursorPayload{ReviewedAt: cursor.ReviewedAt, ID: cursor.ID})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodePaperEvidenceReviewCursor(encoded string) (*strategy.PaperEvidenceReviewCursor, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	if len(encoded) > 512 {
+		return nil, strategy.ErrInvalid
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, strategy.ErrInvalid
+	}
+	var decoded shadowEvidenceReviewCursorPayload
+	if err = json.Unmarshal(payload, &decoded); err != nil || decoded.ReviewedAt.IsZero() || !journalUUID.MatchString(decoded.ID) {
+		return nil, strategy.ErrInvalid
+	}
+	return &strategy.PaperEvidenceReviewCursor{ReviewedAt: decoded.ReviewedAt, ID: decoded.ID}, nil
+}
+
 func (h *authHandler) decisionJournal(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	limit := defaultJournalPageSize
 	if value := r.URL.Query().Get("limit"); value != "" {
@@ -335,9 +363,9 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 	case errors.Is(e, strategy.ErrMandateStale):
 		writeError(w, 409, "MANDATE_NOT_READY", "The strategy's pinned mandate version is not eligible for this non-live action.")
 	case errors.Is(e, strategy.ErrEvidenceNotReviewable):
-		writeError(w, 409, "EVIDENCE_NOT_REVIEWABLE", "This exact Shadow evidence snapshot has not reached the durable review gate.")
+		writeError(w, 409, "EVIDENCE_NOT_REVIEWABLE", "This exact non-live evidence snapshot has not reached the durable review gate.")
 	case errors.Is(e, strategy.ErrEvidenceSnapshotChanged):
-		writeError(w, 409, "EVIDENCE_SNAPSHOT_CHANGED", "The Shadow evidence changed. Refresh and review the current snapshot before recording your acknowledgment.")
+		writeError(w, 409, "EVIDENCE_SNAPSHOT_CHANGED", "The non-live evidence changed. Refresh and review the current snapshot before recording your acknowledgment.")
 	case errors.Is(e, strategy.ErrEvidenceReviewStepUp):
 		writeError(w, 403, "EVIDENCE_REVIEW_MFA_REQUIRED", "Enter a fresh code from your authenticator app to record this non-live evidence review.")
 	case errors.Is(e, strategy.ErrConflict):
@@ -638,9 +666,69 @@ func (h *authHandler) strategyPaperPortfolio(w stdhttp.ResponseWriter, r *stdhtt
 		"paper_evidence_readiness_semantics":        "IMMUTABLE_PAPER_AUTONOMY_EVIDENCE_READINESS_GATE",
 		"paper_evidence_readiness_read_only":        true,
 		"paper_evidence_readiness_grants_authority": false,
+		"paper_evidence_review_semantics":           "IMMUTABLE_MFA_BACKED_PAPER_OWNER_REVIEW",
+		"paper_evidence_review_grants_authority":    false,
 		"broker_action_available":                   false,
 		"live_promotion_available":                  false,
 		"live_execution_available":                  false,
+	})
+}
+
+func (h *authHandler) recordPaperEvidenceReview(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if !h.csrf(r) {
+		writeError(w, 403, "csrf_rejected", "Request origin is not allowed.")
+		return
+	}
+	var command strategy.PaperEvidenceReviewCommand
+	if !decode(w, r, &command) {
+		return
+	}
+	review, err := h.strategies.RecordPaperEvidenceReview(r.Context(), principal(r), r.PathValue("id"), command)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 201, map[string]any{
+		"evidence_review":                  review,
+		"review_scope":                     strategy.PaperEvidenceReviewScope,
+		"evidence_review_grants_authority": false,
+		"broker_action_available":          false,
+		"live_promotion_available":         false,
+		"live_execution_available":         false,
+	})
+}
+
+func (h *authHandler) strategyPaperEvidenceReviews(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	limit := defaultShadowEvidenceReviewPageSize
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 50 {
+			writeError(w, 400, "INVALID_PAGINATION", "Limit must be between 1 and 50.")
+			return
+		}
+		limit = parsed
+	}
+	cursor, err := decodePaperEvidenceReviewCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		writeError(w, 400, "INVALID_PAGINATION", "The Paper evidence review cursor is invalid.")
+		return
+	}
+	page, err := h.strategies.PaperEvidenceReviews(r.Context(), principal(r), r.PathValue("id"), limit, cursor)
+	if err != nil {
+		h.strategyError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, 200, map[string]any{
+		"evidence_reviews":                 page.Reviews,
+		"next_cursor":                      encodePaperEvidenceReviewCursor(page.NextCursor),
+		"history_semantics":                "IMMUTABLE_PAPER_OWNER_REVIEW_EVIDENCE",
+		"review_scope":                     strategy.PaperEvidenceReviewScope,
+		"evidence_review_grants_authority": false,
+		"broker_action_available":          false,
+		"live_promotion_available":         false,
+		"live_execution_available":         false,
 	})
 }
 

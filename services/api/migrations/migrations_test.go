@@ -285,6 +285,29 @@ func TestShadowEvidenceReviewIsImmutableOwnerScopedAndNonExecuting(t *testing.T)
 	}
 }
 
+func TestPaperEvidenceReviewIsImmutableOwnerAccountScopedAndNonExecuting(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00039_paper_evidence_reviews.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"paper_evidence_reviews", "strategy_instance_id,user_id", "financial_account_id,user_id", "mandate_id,mandate_version",
+		"evidence_hash bytea", "octet_length(evidence_hash) = 32", "EVIDENCE_REVIEWABLE", "decision_count >= 20", "evidence_window_hours >= 168",
+		"portfolio_version", "portfolio_updated_at", "latest_checkpoint_run_id", "nonlive_schedule_runs", "Paper evidence review checkpoint is stale", "PAPER_SIMULATION_ONLY", "PAPER_NON_LIVE_EVIDENCE_ONLY",
+		"grants_authority = false", "live_promotion_available = false", "mfa_method = 'totp'", "enforce_paper_evidence_review_source",
+		"paper_evidence_reviews_immutable", "reject_nonlive_history_mutation", "cannot remove immutable Paper evidence review history",
+	} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("Paper evidence review migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"provider_order", "broker_order", "submission", "credential", "private_key", "access_token"} {
+		if strings.Contains(strings.ToLower(string(body)), prohibited) {
+			t.Errorf("Paper evidence review migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestPaperLifecycleMigrationIsImmutableOwnerScopedAndNonLive(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00013_paper_lifecycle_events.sql")
 	if err != nil {

@@ -323,6 +323,13 @@ func (s *Service) VerifyShadowEvidenceReviewStepUp(ctx context.Context, userID, 
 	return s.verifyTOTPOnlyStepUp(ctx, userID, code, "shadow_evidence_review")
 }
 
+// VerifyPaperEvidenceReviewStepUp consumes one fresh authenticator step for
+// an immutable Paper evidence acknowledgment. This is human-review evidence
+// only and deliberately cannot authorize promotion or execution.
+func (s *Service) VerifyPaperEvidenceReviewStepUp(ctx context.Context, userID, code string) (string, time.Time, error) {
+	return s.verifyTOTPOnlyStepUp(ctx, userID, code, "paper_evidence_review")
+}
+
 func (s *Service) verifyTOTPOnlyStepUp(ctx context.Context, userID, code, purpose string) (string, time.Time, error) {
 	if s.mfaStore == nil || s.mfaProtector == nil || userID == "" {
 		return "", time.Time{}, ErrMFAUnavailable

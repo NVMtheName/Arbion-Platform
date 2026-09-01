@@ -21,9 +21,9 @@ var (
 	ErrCapitalReservation      = errors.New("capital bucket cannot establish an exact non-live reservation")
 	ErrOpenExposure            = errors.New("paper strategy still has open simulated positions")
 	ErrMandateStale            = errors.New("strategy mandate is not current and ready")
-	ErrEvidenceNotReviewable   = errors.New("shadow evidence is not reviewable")
-	ErrEvidenceSnapshotChanged = errors.New("shadow evidence snapshot changed")
-	ErrEvidenceReviewStepUp    = errors.New("fresh authenticator code required for shadow evidence review")
+	ErrEvidenceNotReviewable   = errors.New("non-live evidence is not reviewable")
+	ErrEvidenceSnapshotChanged = errors.New("non-live evidence snapshot changed")
+	ErrEvidenceReviewStepUp    = errors.New("fresh authenticator code required for non-live evidence review")
 )
 
 type Persistence interface {
@@ -61,6 +61,14 @@ type ShadowEvidenceReviewReader interface {
 }
 type ShadowEvidenceReviewStepUp interface {
 	VerifyShadowEvidenceReviewStepUp(context.Context, string, string) (string, time.Time, error)
+	VerifyPaperEvidenceReviewStepUp(context.Context, string, string) (string, time.Time, error)
+}
+type PaperEvidenceReviewStore interface {
+	CreatePaperEvidenceReview(context.Context, string, PaperEvidenceReview) (PaperEvidenceReview, error)
+	LatestPaperEvidenceReview(context.Context, string, string) (*PaperEvidenceReview, error)
+}
+type PaperEvidenceReviewReader interface {
+	PaperEvidenceReviews(context.Context, string, string, int, *PaperEvidenceReviewCursor) ([]PaperEvidenceReview, error)
 }
 type ScheduleRunReader interface {
 	ScheduleRuns(context.Context, string, string, int, *ScheduleRunCursor) ([]ScheduleRun, error)
@@ -561,18 +569,8 @@ func (s *InstanceService) PaperPortfolio(c context.Context, p authorization.Prin
 	if !entitled(p) {
 		return PaperPortfolio{}, ErrForbidden
 	}
-	instance, err := s.store.Get(c, p.UserID, id)
-	if err != nil {
-		return PaperPortfolio{}, ErrNotFound
-	}
-	if instance.ExecutionMode != Paper {
-		return PaperPortfolio{}, ErrInvalid
-	}
-	portfolio, err := s.store.PaperPortfolio(c, p.UserID, id)
-	if err != nil {
-		return PaperPortfolio{}, ErrNotFound
-	}
-	return portfolio, nil
+	_, portfolio, err := s.loadPaperPortfolio(c, p.UserID, id)
+	return portfolio, err
 }
 
 func (s *InstanceService) AIPaperSpotFills(c context.Context, p authorization.Principal, id string, limit int, cursor *AIPaperSpotFillCursor) (AIPaperSpotFillPage, error) {
