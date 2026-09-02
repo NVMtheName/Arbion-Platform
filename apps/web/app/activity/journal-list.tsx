@@ -392,6 +392,10 @@ export function JournalList({ entries }: { entries: JournalEntry[] }) {
               entry.risk_decision === "DENY" ||
               entry.execution_status === "ERROR" ||
               entry.execution_status === "SIMULATED_REJECTED";
+            const reconciliationReviewRequired =
+              entry.risk_reason_codes?.includes(
+                "RECONCILIATION_DRIFT_DETECTED",
+              ) === true;
             return (
               <article
                 className="journal-entry"
@@ -523,9 +527,18 @@ export function JournalList({ entries }: { entries: JournalEntry[] }) {
                       ? "Simulation evidence only — no real broker order was sent."
                       : "Would-have-submitted evidence only — no real broker order was sent."}
                   </p>
-                  <Link href={`/automations/${entry.mandate_id}`}>
-                    Review mandate
-                  </Link>
+                  <div className="journal-entry-actions">
+                    {reconciliationReviewRequired && (
+                      <Link
+                        href={`/accounts/${entry.financial_account_id}#reconciliation-resolution-title`}
+                      >
+                        Resolve account evidence
+                      </Link>
+                    )}
+                    <Link href={`/automations/${entry.mandate_id}`}>
+                      Review mandate
+                    </Link>
+                  </div>
                 </footer>
               </article>
             );

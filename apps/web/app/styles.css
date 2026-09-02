@@ -10905,6 +10905,12 @@ button:disabled {
   padding-top: 20px;
   border-top: 1px solid #244237;
 }
+.journal-entry-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
 .journal-entry footer a,
 .journal-empty a,
 .journal-pagination a {
@@ -18276,8 +18282,14 @@ main:has(> .app-page-header) {
   }
   .decision-review-index > ol > li > footer > div,
   .journal-entry > footer,
-  .journal-entry > footer a {
+  .journal-entry > footer a,
+  .journal-entry-actions {
     width: 100%;
+  }
+  .journal-entry-actions {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
   }
   .decision-review-index > ol > li > footer a,
   .journal-entry > footer a {
