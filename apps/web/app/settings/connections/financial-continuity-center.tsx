@@ -82,6 +82,17 @@ export type SchwabMarketDataReadiness = {
       blockedAt: string;
       recoveredAt: string;
     };
+    connectionQuoteCheckpoint: {
+      state:
+        | "WAITING_FOR_QUOTE_CHECK"
+        | "QUOTE_PASSED"
+        | "QUOTE_STILL_BLOCKED"
+        | "UNAVAILABLE";
+      label: string;
+      guidance: string;
+      connectionVerifiedAt: string;
+      latestEvaluationAt: string;
+    };
     quoteIncidentStatus: "AVAILABLE" | "UNAVAILABLE";
     quoteIncidentWindow:
       | "COMPLETE_LOADED_HISTORY"
@@ -178,6 +189,11 @@ const schwabAutomaticRetryCodes = new Set([
   "MARKET_DATA_STALE",
 ]);
 const schwabQuoteHistoryLimit = 6;
+const schwabQuoteFailureCodes = new Set([
+  "MARKET_DATA_DELAYED",
+  "MARKET_DATA_REALTIME_UNCONFIRMED",
+  "MARKET_DATA_NOT_REALTIME",
+]);
 
 function milliseconds(value?: string | null) {
   if (!value) return;
@@ -417,6 +433,74 @@ function savedSpan(value: number) {
   const totalMinutes = totalSeconds / 60;
   if (totalMinutes < 60) return `${totalMinutes.toFixed(3)} minutes saved span`;
   return `${(totalMinutes / 60).toFixed(3)} hours saved span`;
+}
+
+function projectSchwabConnectionQuoteCheckpoint({
+  connectionVerifiedAt,
+  latestEvaluationAt,
+  scheduleStatus,
+  errorCode,
+}: {
+  connectionVerifiedAt?: string | null;
+  latestEvaluationAt?: string | null;
+  scheduleStatus?: string;
+  errorCode?: string;
+}) {
+  const verifiedAt = milliseconds(connectionVerifiedAt);
+  const evaluatedAt = milliseconds(latestEvaluationAt);
+  const unavailable = {
+    state: "UNAVAILABLE" as const,
+    label: "Connection-to-quote order unavailable",
+    guidance:
+      "Arbion cannot prove the saved connection verification and newest automatic quote evaluation in one exact time sequence.",
+    connectionVerifiedAt: connectionVerifiedAt ?? "",
+    latestEvaluationAt: latestEvaluationAt ?? "",
+  };
+  if (verifiedAt === undefined || evaluatedAt === undefined) return unavailable;
+  if (verifiedAt > evaluatedAt) {
+    return {
+      state: "WAITING_FOR_QUOTE_CHECK" as const,
+      label: "Newer connection verification is waiting for a quote check",
+      guidance:
+        "The saved connection verification occurred after the newest automatic quote evaluation. The next guarded cycle will test quote quality without a manual refresh.",
+      connectionVerifiedAt: connectionVerifiedAt!,
+      latestEvaluationAt: latestEvaluationAt!,
+    };
+  }
+  if (scheduleStatus === "SUCCEEDED" && !errorCode) {
+    return {
+      state: "QUOTE_PASSED" as const,
+      label: "A later automatic quote check passed",
+      guidance:
+        "The newest automatic evaluation occurred after the saved connection verification and passed the strict broker real-time quote gate.",
+      connectionVerifiedAt: connectionVerifiedAt!,
+      latestEvaluationAt: latestEvaluationAt!,
+    };
+  }
+  if (
+    scheduleStatus === "FAILED" &&
+    errorCode &&
+    schwabQuoteFailureCodes.has(errorCode)
+  ) {
+    return {
+      state: "QUOTE_STILL_BLOCKED" as const,
+      label: "A later quote check still stopped safely",
+      guidance: `The saved connection verification predates the newest automatic quote evaluation, which recorded ${errorCode}. This proves the sequence only; it does not prove provider cause or account entitlement.`,
+      connectionVerifiedAt: connectionVerifiedAt!,
+      latestEvaluationAt: latestEvaluationAt!,
+    };
+  }
+  if (scheduleStatus === "SKIPPED" && errorCode === "OUTSIDE_SESSION") {
+    return {
+      state: "WAITING_FOR_QUOTE_CHECK" as const,
+      label: "Connection verified; market session is still pending",
+      guidance:
+        "The saved connection verification predates an exact OUTSIDE_SESSION wait, which did not evaluate quote quality. The next supported market session remains automatic.",
+      connectionVerifiedAt: connectionVerifiedAt!,
+      latestEvaluationAt: latestEvaluationAt!,
+    };
+  }
+  return unavailable;
 }
 
 function schwabReadinessProof(
@@ -823,6 +907,12 @@ export function projectSchwabMarketDataReadiness({
       const openIncident = quoteIncidents.incidents.find(
         (incident) => incident.state === "OPEN",
       );
+      const connectionQuoteCheckpoint = projectSchwabConnectionQuoteCheckpoint({
+        connectionVerifiedAt: connection?.last_synced_at,
+        latestEvaluationAt: engine.schedule_completed_at,
+        scheduleStatus: engine.schedule_status,
+        errorCode: latest?.error_code ?? undefined,
+      });
       const exact = Boolean(
         connection &&
           engine.mandate_id &&
@@ -872,6 +962,7 @@ export function projectSchwabMarketDataReadiness({
           quoteHistorySampleCount: quoteHistory.sampleCount,
           quoteHistoryCapped: quoteHistory.capped,
           quoteRecovery: undefined,
+          connectionQuoteCheckpoint,
           quoteIncidentStatus: quoteIncidents.status,
           quoteIncidentWindow,
           quoteSafeWaitCount: quoteIncidents.safeWaitCount,
@@ -958,6 +1049,7 @@ export function projectSchwabMarketDataReadiness({
         quoteHistorySampleCount: quoteHistory.sampleCount,
         quoteHistoryCapped: quoteHistory.capped,
         quoteRecovery,
+        connectionQuoteCheckpoint,
         quoteIncidentStatus: quoteIncidents.status,
         quoteIncidentWindow,
         quoteSafeWaitCount: quoteIncidents.safeWaitCount,
@@ -1145,6 +1237,55 @@ export function SchwabMarketDataReadinessView({
                     </small>
                   </aside>
                 ) : null}
+                <aside
+                  className={`schwab-connection-quote-checkpoint is-${engine.connectionQuoteCheckpoint.state.toLowerCase().replaceAll("_", "-")}`}
+                  aria-label={`Connection verification and quote checkpoint for ${engine.accountName}`}
+                >
+                  <header>
+                    <div>
+                      <strong>Connection verification → quote check</strong>
+                      <small>{engine.connectionQuoteCheckpoint.label}</small>
+                    </div>
+                    <span>
+                      {engine.connectionQuoteCheckpoint.state === "QUOTE_PASSED"
+                        ? "PASSED"
+                        : engine.connectionQuoteCheckpoint.state ===
+                            "QUOTE_STILL_BLOCKED"
+                          ? "STILL BLOCKED"
+                          : engine.connectionQuoteCheckpoint.state ===
+                              "WAITING_FOR_QUOTE_CHECK"
+                            ? "WAITING"
+                            : "UNAVAILABLE"}
+                    </span>
+                  </header>
+                  <p>{engine.connectionQuoteCheckpoint.guidance}</p>
+                  <dl>
+                    <div>
+                      <dt>Saved connection verification</dt>
+                      <dd>
+                        {`${timestamp(
+                          engine.connectionQuoteCheckpoint.connectionVerifiedAt,
+                        )} UTC`}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Newest automatic evaluation</dt>
+                      <dd>
+                        {`${timestamp(
+                          engine.connectionQuoteCheckpoint.latestEvaluationAt,
+                        )} UTC`}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Next automatic check</dt>
+                      <dd>{timestamp(engine.nextRunAt)} UTC</dd>
+                    </div>
+                  </dl>
+                  <footer>
+                    Saved-time ordering only · no provider cause or entitlement
+                    inferred
+                  </footer>
+                </aside>
                 <dl>
                   <div>
                     <dt>Configured market scope</dt>

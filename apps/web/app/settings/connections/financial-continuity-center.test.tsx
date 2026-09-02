@@ -681,6 +681,148 @@ describe("FinancialContinuityCenter", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows when a later automatic quote check still blocks after connection verification", () => {
+    const latest = run({
+      id: "run-after-connection-verification",
+      scheduled_for: "2026-09-01T15:35:00Z",
+      completed_at: "2026-09-01T15:35:12Z",
+      next_run_at: "2026-09-01T16:35:00Z",
+      status: "FAILED",
+      error_code: "MARKET_DATA_DELAYED",
+      consecutive_failures: 2,
+    });
+    const schwabConnection = connection({
+      id: "schwab-connection",
+      provider: "schwab",
+      last_synced_at: "2026-09-01T15:30:00Z",
+    });
+    const schwabEngine = schwabReadinessEngine({
+      schedule_completed_at: latest.completed_at ?? undefined,
+      schedule_next_run_at: latest.next_run_at ?? undefined,
+      consecutive_failures: 2,
+      recent_runs: [latest],
+    });
+    const result = projectSchwabMarketDataReadiness({
+      connections: [schwabConnection],
+      engines: [schwabEngine],
+    });
+
+    expect(result.engines[0].connectionQuoteCheckpoint).toEqual({
+      state: "QUOTE_STILL_BLOCKED",
+      label: "A later quote check still stopped safely",
+      guidance:
+        "The saved connection verification predates the newest automatic quote evaluation, which recorded MARKET_DATA_DELAYED. This proves the sequence only; it does not prove provider cause or account entitlement.",
+      connectionVerifiedAt: "2026-09-01T15:30:00Z",
+      latestEvaluationAt: "2026-09-01T15:35:12Z",
+    });
+
+    render(
+      <SchwabMarketDataReadinessView
+        connections={[schwabConnection]}
+        engines={[schwabEngine]}
+      />,
+    );
+    expect(
+      screen.getByText("Connection verification → quote check"),
+    ).toBeVisible();
+    expect(screen.getByText("STILL BLOCKED")).toBeVisible();
+    expect(
+      screen.getByText(/proves the sequence only.*does not prove provider/i),
+    ).toBeVisible();
+  });
+
+  it("waits for the next automatic quote check when connection verification is newer", () => {
+    const latest = run({
+      id: "run-before-newer-connection-verification",
+      scheduled_for: "2026-09-01T15:35:00Z",
+      completed_at: "2026-09-01T15:35:12Z",
+      next_run_at: "2026-09-01T16:35:00Z",
+      status: "FAILED",
+      error_code: "MARKET_DATA_DELAYED",
+      consecutive_failures: 1,
+    });
+    const result = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({
+          id: "schwab-connection",
+          provider: "schwab",
+          last_synced_at: "2026-09-01T15:40:00Z",
+        }),
+      ],
+      engines: [
+        schwabReadinessEngine({
+          schedule_completed_at: latest.completed_at ?? undefined,
+          schedule_next_run_at: latest.next_run_at ?? undefined,
+          consecutive_failures: 1,
+          recent_runs: [latest],
+        }),
+      ],
+    });
+
+    expect(result.engines[0].connectionQuoteCheckpoint).toMatchObject({
+      state: "WAITING_FOR_QUOTE_CHECK",
+      label: "Newer connection verification is waiting for a quote check",
+      connectionVerifiedAt: "2026-09-01T15:40:00Z",
+      latestEvaluationAt: "2026-09-01T15:35:12Z",
+    });
+  });
+
+  it("proves a broker-real-time quote passed after connection verification", () => {
+    const latest = run({
+      id: "run-passed-after-connection-verification",
+      scheduled_for: "2026-09-01T15:35:00Z",
+      completed_at: "2026-09-01T15:35:12Z",
+      next_run_at: "2026-09-01T16:35:00Z",
+      status: "SUCCEEDED",
+      error_code: null,
+      consecutive_failures: 0,
+    });
+    const result = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({
+          id: "schwab-connection",
+          provider: "schwab",
+          last_synced_at: "2026-09-01T15:30:00Z",
+        }),
+      ],
+      engines: [
+        schwabReadinessEngine({
+          schedule_status: "SUCCEEDED",
+          schedule_completed_at: latest.completed_at ?? undefined,
+          schedule_next_run_at: latest.next_run_at ?? undefined,
+          consecutive_failures: 0,
+          recent_runs: [latest],
+        }),
+      ],
+    });
+
+    expect(result.engines[0].connectionQuoteCheckpoint).toMatchObject({
+      state: "QUOTE_PASSED",
+      label: "A later automatic quote check passed",
+      connectionVerifiedAt: "2026-09-01T15:30:00Z",
+      latestEvaluationAt: "2026-09-01T15:35:12Z",
+    });
+  });
+
+  it("does not infer connection-to-quote ordering without an exact verification time", () => {
+    const result = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({
+          id: "schwab-connection",
+          provider: "schwab",
+          last_synced_at: null,
+        }),
+      ],
+      engines: [schwabReadinessEngine()],
+    });
+
+    expect(result.engines[0].connectionQuoteCheckpoint).toMatchObject({
+      state: "UNAVAILABLE",
+      label: "Connection-to-quote order unavailable",
+      connectionVerifiedAt: "",
+    });
+  });
+
   it("does not infer recovery when saved quote history is not contiguous", () => {
     const recovered = run({
       id: "run-recovered-after-unknown",
