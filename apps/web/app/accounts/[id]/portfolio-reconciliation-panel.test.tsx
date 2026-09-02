@@ -138,6 +138,9 @@ describe("PortfolioReconciliationPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Review active")).toBeInTheDocument();
     expect(
+      screen.getByRole("region", { name: "Reconciliation resolution" }),
+    ).toHaveAttribute("id", "reconciliation-resolution-title");
+    expect(
       screen.getByText(/1 tradable-inventory change holds new AI proposals/i),
     ).toBeInTheDocument();
     expect(

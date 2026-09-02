@@ -17214,6 +17214,7 @@ h1 {
 .reconciliation-resolution {
   display: grid;
   gap: 12px;
+  scroll-margin-block-start: 112px;
   margin-top: 14px;
   padding: 16px;
   border: 1px solid rgba(139, 181, 163, 0.14);
@@ -17227,6 +17228,12 @@ h1 {
 .reconciliation-resolution.is-evidence_required {
   border-color: rgba(229, 185, 93, 0.24);
   background: rgba(83, 63, 20, 0.11);
+}
+.reconciliation-resolution:target {
+  border-color: rgba(124, 229, 236, 0.5);
+  box-shadow:
+    0 0 0 3px rgba(124, 229, 236, 0.08),
+    0 20px 42px rgba(2, 10, 8, 0.24);
 }
 .reconciliation-resolution > header,
 .reconciliation-resolution > footer {

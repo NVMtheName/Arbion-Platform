@@ -175,6 +175,10 @@ describe("signed-in command content continuity", () => {
     expect(reconciliation).toContain("reconciliation-resolution");
     expect(reconciliation).toContain("Review immutable snapshot history");
     expect(styles).toMatch(
+      /\.reconciliation-resolution\s*\{[^}]*scroll-margin-block-start:\s*112px;/,
+    );
+    expect(styles).toMatch(/\.reconciliation-resolution:target\s*\{/);
+    expect(styles).toMatch(
       /@media \(max-width:\s*900px\)[\s\S]*?\.reconciliation-resolution > footer\s*\{[^}]*flex-direction:\s*column;/,
     );
     expect(styles).toMatch(
