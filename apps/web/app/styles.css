@@ -10911,10 +10911,62 @@ button:disabled {
   justify-content: flex-end;
   gap: 16px;
 }
+.journal-filters {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 24px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.journal-filters button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-height: 42px;
+  padding: 9px 13px;
+  border: 1px solid #29434c;
+  border-radius: 999px;
+  color: #a9bdc0;
+  background: rgba(5, 15, 19, 0.72);
+  font-size: 0.76rem;
+  font-weight: 720;
+  cursor: pointer;
+}
+.journal-filters button span {
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  color: #dff7f4;
+  background: #19343a;
+  font-size: 0.67rem;
+}
+.journal-filters button:hover,
+.journal-filters button:focus-visible,
+.journal-filters button.is-active {
+  border-color: rgba(25, 201, 214, 0.55);
+  color: #e8ffff;
+  background: rgba(25, 201, 214, 0.11);
+}
 .journal-entry footer a,
 .journal-empty a,
+.journal-empty button,
 .journal-pagination a {
   color: var(--brand-cyan);
+}
+.journal-empty button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.journal-empty button:hover,
+.journal-empty button:focus-visible {
+  color: #e8ffff;
 }
 .journal-empty {
   padding: 32px;
