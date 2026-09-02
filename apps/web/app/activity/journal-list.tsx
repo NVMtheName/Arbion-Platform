@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 
 export type JournalEntry = {
   id: string;
@@ -208,6 +211,16 @@ function providerLabel(value?: string) {
   return value ? label(value) : "Unavailable";
 }
 
+type JournalFilter = "ALL" | "PAPER" | "SHADOW" | "NEEDS_REVIEW";
+
+function needsReview(entry: JournalEntry) {
+  return (
+    entry.risk_decision === "DENY" ||
+    entry.execution_status === "ERROR" ||
+    entry.execution_status === "SIMULATED_REJECTED"
+  );
+}
+
 function DecisionReviewIndex({ entries }: { entries: JournalEntry[] }) {
   const items = projectDecisionReviewIndex(entries);
   if (items.length === 0) return null;
@@ -335,6 +348,7 @@ function DecisionReviewIndex({ entries }: { entries: JournalEntry[] }) {
 }
 
 export function JournalList({ entries }: { entries: JournalEntry[] }) {
+  const [filter, setFilter] = useState<JournalFilter>("ALL");
   const allowed = entries.filter(
     (entry) => entry.risk_decision === "ALLOW",
   ).length;
@@ -345,6 +359,22 @@ export function JournalList({ entries }: { entries: JournalEntry[] }) {
     (entry) => entry.execution_mode === "PAPER",
   ).length;
   const shadow = entries.length - paper;
+  const review = entries.filter(needsReview).length;
+  const filters: Array<{
+    value: JournalFilter;
+    label: string;
+    count: number;
+  }> = [
+    { value: "ALL", label: "All records", count: entries.length },
+    { value: "PAPER", label: "Paper", count: paper },
+    { value: "SHADOW", label: "Shadow", count: shadow },
+    { value: "NEEDS_REVIEW", label: "Needs review", count: review },
+  ];
+  const visibleEntries = entries.filter((entry) => {
+    if (filter === "ALL") return true;
+    if (filter === "NEEDS_REVIEW") return needsReview(entry);
+    return entry.execution_mode === filter;
+  });
 
   return (
     <>
@@ -369,7 +399,23 @@ export function JournalList({ entries }: { entries: JournalEntry[] }) {
         </article>
       </section>
 
-      <DecisionReviewIndex entries={entries} />
+      {entries.length > 0 && (
+        <nav className="journal-filters" aria-label="Journal view filters">
+          {filters.map((item) => (
+            <button
+              aria-pressed={filter === item.value}
+              className={filter === item.value ? "is-active" : ""}
+              key={item.value}
+              onClick={() => setFilter(item.value)}
+              type="button"
+            >
+              {item.label} <span>{item.count}</span>
+            </button>
+          ))}
+        </nav>
+      )}
+
+      <DecisionReviewIndex entries={visibleEntries} />
 
       {entries.length === 0 ? (
         <section className="journal-empty">
@@ -381,17 +427,26 @@ export function JournalList({ entries }: { entries: JournalEntry[] }) {
           </p>
           <Link href="/automations">View automations</Link>
         </section>
+      ) : visibleEntries.length === 0 ? (
+        <section className="journal-empty">
+          <p className="eyebrow">NO MATCHING RECORDS</p>
+          <h2>This journal view is clear.</h2>
+          <p>
+            No saved records on this page match the selected filter. Choose
+            another view to continue reviewing immutable evidence.
+          </p>
+          <button type="button" onClick={() => setFilter("ALL")}>
+            Show all records
+          </button>
+        </section>
       ) : (
         <section
           className="journal-timeline"
           aria-label="Decision journal entries"
         >
-          {entries.map((entry) => {
+          {visibleEntries.map((entry) => {
             const facts = rationaleFacts(entry.structured_rationale ?? {});
-            const reviewRequired =
-              entry.risk_decision === "DENY" ||
-              entry.execution_status === "ERROR" ||
-              entry.execution_status === "SIMULATED_REJECTED";
+            const reviewRequired = needsReview(entry);
             const reconciliationReviewRequired =
               entry.risk_reason_codes?.includes(
                 "RECONCILIATION_DRIFT_DETECTED",

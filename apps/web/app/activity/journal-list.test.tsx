@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -206,5 +206,51 @@ describe("Decision Journal", () => {
       "href",
       "/accounts/account-1#reconciliation-resolution-title",
     );
+  });
+
+  it("filters the current immutable page by mode and review state", () => {
+    const shadow: JournalEntry = {
+      ...entry,
+      id: "decision-shadow",
+      account_display_name: "Coinbase Shadow",
+      execution_mode: "SHADOW",
+      risk_decision: "DENY",
+      execution_status: "RISK_DENIED",
+      risk_reason_codes: ["RECONCILIATION_DRIFT_DETECTED"],
+      symbol: "BTC",
+    };
+
+    render(<JournalList entries={[entry, shadow]} />);
+
+    expect(
+      screen.getByRole("button", { name: "All records 2" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Paper 1" }));
+    expect(screen.getByText("Wheel · AAPL")).toBeInTheDocument();
+    expect(screen.queryByText("Wheel · BTC")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Needs review 1" }));
+    expect(screen.queryByText("Wheel · AAPL")).not.toBeInTheDocument();
+    expect(screen.getByText("Wheel · BTC")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Resolve account evidence" }),
+    ).toHaveAttribute(
+      "href",
+      "/accounts/account-1#reconciliation-resolution-title",
+    );
+  });
+
+  it("explains an empty filtered view without hiding saved history", () => {
+    render(<JournalList entries={[entry]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Needs review 0" }));
+    expect(screen.getByText("This journal view is clear.")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "All records 1" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all records" }));
+    expect(screen.getByText("Wheel · AAPL")).toBeInTheDocument();
   });
 });
