@@ -425,10 +425,11 @@ func (s *PostgresStore) StrategyDecisionEntries(c context.Context, userID, insta
 }
 
 const journalColumns = `d.id::text,d.created_at,d.strategy_instance_id::text,d.financial_account_id::text,a.display_name,d.mandate_id::text,d.mandate_version,i.strategy_identifier,i.execution_mode,d.strategy_state,d.resulting_state,d.source,d.decision_type,d.structured_rationale,r.decision,r.approval_required,r.reason_codes,r.checks,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.price::text,x.notional::text`
+const journalJoins = ` FROM decision_journal_entries d JOIN strategy_instances i ON i.id=d.strategy_instance_id AND i.user_id=d.user_id JOIN financial_accounts a ON a.id=d.financial_account_id AND a.user_id=d.user_id LEFT JOIN risk_evaluations r ON r.id=d.risk_evaluation_id AND r.user_id=d.user_id LEFT JOIN nonlive_execution_records x ON x.id=d.execution_record_id AND x.user_id=d.user_id`
 
-func scanJournalActivity(rows pgx.Rows) (JournalActivity, error) {
+func scanJournalActivity(row pgx.Row) (JournalActivity, error) {
 	var activity JournalActivity
-	err := rows.Scan(
+	err := row.Scan(
 		&activity.ID, &activity.CreatedAt, &activity.StrategyInstanceID,
 		&activity.FinancialAccountID, &activity.AccountDisplayName,
 		&activity.MandateID, &activity.MandateVersion, &activity.StrategyIdentifier,
@@ -443,11 +444,10 @@ func scanJournalActivity(rows pgx.Rows) (JournalActivity, error) {
 }
 
 func (s *PostgresStore) Journal(c context.Context, userID string, limit int, cursor *JournalCursor) ([]JournalActivity, error) {
-	const joins = ` FROM decision_journal_entries d JOIN strategy_instances i ON i.id=d.strategy_instance_id AND i.user_id=d.user_id JOIN financial_accounts a ON a.id=d.financial_account_id AND a.user_id=d.user_id LEFT JOIN risk_evaluations r ON r.id=d.risk_evaluation_id AND r.user_id=d.user_id LEFT JOIN nonlive_execution_records x ON x.id=d.execution_record_id AND x.user_id=d.user_id`
-	query := `SELECT ` + journalColumns + joins + ` WHERE d.user_id=$1 ORDER BY d.created_at DESC,d.id DESC LIMIT $2`
+	query := `SELECT ` + journalColumns + journalJoins + ` WHERE d.user_id=$1 ORDER BY d.created_at DESC,d.id DESC LIMIT $2`
 	args := []any{userID, limit}
 	if cursor != nil {
-		query = `SELECT ` + journalColumns + joins + ` WHERE d.user_id=$1 AND (d.created_at,d.id) < ($2,$3::uuid) ORDER BY d.created_at DESC,d.id DESC LIMIT $4`
+		query = `SELECT ` + journalColumns + journalJoins + ` WHERE d.user_id=$1 AND (d.created_at,d.id) < ($2,$3::uuid) ORDER BY d.created_at DESC,d.id DESC LIMIT $4`
 		args = []any{userID, cursor.CreatedAt, cursor.ID, limit}
 	}
 	rows, err := s.db.Query(c, query, args...)
@@ -464,6 +464,14 @@ func (s *PostgresStore) Journal(c context.Context, userID string, limit int, cur
 		activities = append(activities, activity)
 	}
 	return activities, rows.Err()
+}
+
+func (s *PostgresStore) JournalEntry(c context.Context, userID, id string) (JournalActivity, error) {
+	activity, err := scanJournalActivity(s.db.QueryRow(c, `SELECT `+journalColumns+journalJoins+` WHERE d.user_id=$1 AND d.id=$2::uuid`, userID, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return JournalActivity{}, ErrNotFound
+	}
+	return activity, err
 }
 func (s *PostgresStore) StrategyExecutionEntries(c context.Context, userID, instanceID string, limit int, after *StrategyExecutionCursor) ([]StrategyExecutionEvidence, error) {
 	query := `SELECT x.id::text,x.strategy_instance_id::text,x.mandate_version,x.mode,x.status,x.symbol,x.instrument,x.side,x.quantity::text,x.price::text,x.notional::text,x.created_at

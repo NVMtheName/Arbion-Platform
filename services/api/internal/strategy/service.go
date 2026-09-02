@@ -35,6 +35,7 @@ type Persistence interface {
 	Get(context.Context, string, string) (Instance, error)
 	PaperPortfolio(context.Context, string, string) (PaperPortfolio, error)
 	Journal(context.Context, string, int, *JournalCursor) ([]JournalActivity, error)
+	JournalEntry(context.Context, string, string) (JournalActivity, error)
 	Schedule(context.Context, string, string) (ScheduleStatus, error)
 	RecordLifecycle(context.Context, string, string, LifecycleCommand, time.Time) (LifecycleResult, error)
 }
@@ -622,6 +623,18 @@ func (s *InstanceService) Journal(c context.Context, p authorization.Principal, 
 		page.NextCursor = &JournalCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 	}
 	return page, nil
+}
+
+// JournalEntry returns one immutable owner-scoped journal record directly so
+// saved links remain valid after newer records move it beyond a feed page.
+func (s *InstanceService) JournalEntry(c context.Context, p authorization.Principal, id string) (JournalActivity, error) {
+	if !entitled(p) {
+		return JournalActivity{}, ErrForbidden
+	}
+	if id == "" {
+		return JournalActivity{}, ErrInvalid
+	}
+	return s.store.JournalEntry(c, p.UserID, id)
 }
 
 func (s *InstanceService) Schedule(c context.Context, p authorization.Principal, id string) (ScheduleStatus, error) {

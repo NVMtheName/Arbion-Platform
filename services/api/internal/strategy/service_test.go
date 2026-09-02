@@ -12,6 +12,9 @@ import (
 
 type journalPersistenceFake struct {
 	entries                 []JournalActivity
+	journalEntry            JournalActivity
+	journalEntryError       error
+	requestedJournalID      string
 	scheduleRuns            []ScheduleRun
 	requestedUser           string
 	requestedLimit          int
@@ -285,6 +288,11 @@ func (f *journalPersistenceFake) Journal(_ context.Context, userID string, limit
 	}
 	return f.entries[:limit], nil
 }
+func (f *journalPersistenceFake) JournalEntry(_ context.Context, userID, id string) (JournalActivity, error) {
+	f.requestedUser = userID
+	f.requestedJournalID = id
+	return f.journalEntry, f.journalEntryError
+}
 func (*journalPersistenceFake) Schedule(context.Context, string, string) (ScheduleStatus, error) {
 	return ScheduleStatus{}, nil
 }
@@ -553,6 +561,26 @@ func TestJournalRequiresAutomationEntitlement(t *testing.T) {
 	_, err := service.Journal(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, 25, nil)
 	if !errors.Is(err, ErrForbidden) || store.requestedUser != "" {
 		t.Fatalf("unentitled journal request was not rejected: %v", err)
+	}
+}
+
+func TestJournalEntryIsOwnerScopedAndRequiresAutomationEntitlement(t *testing.T) {
+	entry := JournalActivity{ID: "11111111-1111-4111-8111-111111111111", DecisionType: "ABSTAIN"}
+	store := &journalPersistenceFake{journalEntry: entry}
+	service := NewInstanceService(store, nil)
+	principal := authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFounder}
+
+	got, err := service.JournalEntry(context.Background(), principal, entry.ID)
+	if err != nil || got.ID != entry.ID || store.requestedUser != "owner" || store.requestedJournalID != entry.ID {
+		t.Fatalf("exact journal entry was not owner-scoped: entry=%#v store=%#v err=%v", got, store, err)
+	}
+
+	store.requestedUser, store.requestedJournalID = "", ""
+	if _, err = service.JournalEntry(context.Background(), authorization.Principal{UserID: "owner", Entitlement: authorization.EntitlementFree}, entry.ID); !errors.Is(err, ErrForbidden) || store.requestedUser != "" || store.requestedJournalID != "" {
+		t.Fatalf("unentitled exact journal lookup reached persistence: user=%q id=%q err=%v", store.requestedUser, store.requestedJournalID, err)
+	}
+	if _, err = service.JournalEntry(context.Background(), principal, ""); !errors.Is(err, ErrInvalid) || store.requestedJournalID != "" {
+		t.Fatalf("empty journal identifier reached persistence: id=%q err=%v", store.requestedJournalID, err)
 	}
 }
 

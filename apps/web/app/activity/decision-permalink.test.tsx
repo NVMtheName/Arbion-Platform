@@ -36,21 +36,21 @@ describe("DecisionPermalink", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     installClipboard(writeText);
     render(
-      <DecisionPermalink href="/activity?cursor=opaque+cursor&view=paper#decision-1" />,
+      <DecisionPermalink href="/activity?cursor=opaque+cursor&view=paper&decision=decision-1#decision-decision-1" />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Copy exact link" }));
 
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(
-        "http://localhost:3000/activity?cursor=opaque+cursor&view=paper#decision-1",
+        "http://localhost:3000/activity?cursor=opaque+cursor&view=paper&decision=decision-1#decision-decision-1",
       ),
     );
     expect(
       screen.getByRole("button", { name: "Link copied" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("The filtered journal link is ready to share."),
+      screen.getByText("The durable owner-scoped record link is ready."),
     ).toHaveAttribute("aria-live", "polite");
   });
 

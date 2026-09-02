@@ -334,6 +334,13 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || len(lifecyclePage) != 1 || lifecyclePage[0].Source != "LIFECYCLE" || lifecyclePage[0].DecisionType != string(ExpireWorthless) || lifecyclePage[0].RiskDecision != nil || lifecyclePage[0].ExecutionStatus != nil {
 		t.Fatalf("paper lifecycle journal projection is incomplete: %#v %v", lifecyclePage, err)
 	}
+	exactLifecycle, err := store.JournalEntry(ctx, userID, lifecyclePage[0].ID)
+	if err != nil || exactLifecycle.ID != lifecyclePage[0].ID || exactLifecycle.DecisionType != lifecyclePage[0].DecisionType || exactLifecycle.FinancialAccountID != accountID {
+		t.Fatalf("exact owner journal projection is incomplete: %#v %v", exactLifecycle, err)
+	}
+	if _, err = store.JournalEntry(ctx, "99999999-9999-4999-8999-999999999999", lifecyclePage[0].ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("exact journal lookup crossed its owner boundary: %v", err)
+	}
 
 	readyInstance, err := store.Get(ctx, userID, instance.ID)
 	if err != nil {

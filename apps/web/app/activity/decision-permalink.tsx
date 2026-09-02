@@ -31,7 +31,7 @@ export function DecisionPermalink({ href }: { href: string }) {
         className={status === "FAILED" ? "is-error" : undefined}
       >
         {status === "COPIED"
-          ? "The filtered journal link is ready to share."
+          ? "The durable owner-scoped record link is ready."
           : status === "FAILED"
             ? "Copy is unavailable. Open the exact record and copy its address instead."
             : ""}
