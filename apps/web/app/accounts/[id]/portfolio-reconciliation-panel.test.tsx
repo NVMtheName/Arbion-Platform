@@ -111,6 +111,7 @@ describe("PortfolioReconciliationPanel", () => {
           blocks_new_actions: false,
           change_count: 0,
           blocking_change_count: 0,
+          previous_reconciliation_id: drift.id,
           changes: [],
         },
       }),
@@ -134,6 +135,15 @@ describe("PortfolioReconciliationPanel", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(/This gate can hold new AI proposals/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Review active")).toBeInTheDocument();
+    expect(
+      screen.getByText(/1 tradable-inventory change holds new AI proposals/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /hold clears only when a later complete snapshot matches/i,
+      ),
     ).toBeInTheDocument();
     const button = screen.getByRole("button", {
       name: "Confirm review & reconcile",
@@ -160,6 +170,15 @@ describe("PortfolioReconciliationPanel", () => {
     await waitFor(() =>
       expect(screen.getByText("AI proposal gate clear")).toBeInTheDocument(),
     );
+    expect(screen.getByText("Resolution recorded")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Prior checkpoint: Position change detected/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", {
+        name: "Review immutable snapshot history",
+      }),
+    ).toHaveAttribute("href", "#reconciliation-history-title");
   });
 
   it("shows exact unavailable-only movement without presenting it as tradable drift", async () => {

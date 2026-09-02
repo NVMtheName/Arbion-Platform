@@ -17211,6 +17211,91 @@ h1 {
   border-color: rgba(229, 185, 93, 0.28);
   color: #e8c87e;
 }
+.reconciliation-resolution {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid rgba(139, 181, 163, 0.14);
+  border-radius: 13px;
+  background: rgba(2, 12, 10, 0.34);
+}
+.reconciliation-resolution.is-active_review {
+  border-color: rgba(238, 137, 118, 0.26);
+  background: rgba(77, 31, 27, 0.13);
+}
+.reconciliation-resolution.is-evidence_required {
+  border-color: rgba(229, 185, 93, 0.24);
+  background: rgba(83, 63, 20, 0.11);
+}
+.reconciliation-resolution > header,
+.reconciliation-resolution > footer {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.reconciliation-resolution h3,
+.reconciliation-resolution p {
+  margin: 0;
+}
+.reconciliation-resolution h3 {
+  margin-top: 4px;
+  color: #e5f4ec;
+  font-size: 0.94rem;
+}
+.reconciliation-resolution > header > strong {
+  padding: 6px 9px;
+  border: 1px solid rgba(139, 181, 163, 0.16);
+  border-radius: 999px;
+  color: #a9e8cf;
+  font-size: 0.64rem;
+  white-space: nowrap;
+}
+.reconciliation-resolution.is-active_review > header > strong {
+  border-color: rgba(238, 137, 118, 0.3);
+  color: #f2a794;
+}
+.reconciliation-resolution.is-evidence_required > header > strong {
+  border-color: rgba(229, 185, 93, 0.28);
+  color: #e8c87e;
+}
+.reconciliation-resolution > p {
+  color: #83998f;
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+.reconciliation-resolution > p time {
+  color: #b8cec3;
+}
+.reconciliation-resolution > footer {
+  padding-top: 11px;
+  border-top: 1px solid rgba(139, 181, 163, 0.1);
+}
+.reconciliation-resolution > footer > div {
+  display: grid;
+  gap: 5px;
+  max-width: 720px;
+}
+.reconciliation-resolution > footer strong {
+  color: #dcece4;
+  font-size: 0.68rem;
+}
+.reconciliation-resolution > footer span {
+  color: #789086;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+.reconciliation-resolution > footer a {
+  display: inline-flex;
+  min-block-size: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  color: var(--brand-mint);
+  font-size: 0.68rem;
+  font-weight: 740;
+  text-align: right;
+}
 .reconciliation-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -17459,6 +17544,13 @@ h1 {
   .reconciliation-review-action label {
     max-width: none;
   }
+  .reconciliation-resolution > footer {
+    flex-direction: column;
+  }
+  .reconciliation-resolution > footer a {
+    width: 100%;
+    text-align: left;
+  }
   .reconciliation-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -17586,6 +17678,10 @@ h1 {
   }
   .reconciliation-console {
     padding: 18px;
+  }
+  .reconciliation-resolution > header {
+    flex-direction: column;
+    gap: 9px;
   }
   .reconciliation-metrics {
     grid-template-columns: 1fr;
