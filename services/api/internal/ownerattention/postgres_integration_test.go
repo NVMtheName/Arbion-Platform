@@ -136,6 +136,28 @@ func TestPostgresAttentionIsOwnerScopedCurrentAndCredentialFree(t *testing.T) {
 			t.Fatalf("active attention code %s was missing: %#v", code, items)
 		}
 	}
+	if _, err = pool.Exec(ctx, `UPDATE provider_connections SET provider_name='schwab' WHERE id=$1`, financialConnectionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE financial_accounts SET provider_name='schwab' WHERE id=$1`, accountID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE nonlive_strategy_schedules SET last_error_code='MARKET_DATA_REALTIME_UNCONFIRMED' WHERE strategy_instance_id=$1`, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	classifiedItems, err := NewPostgresStore(pool).Items(ctx, ownerID, 50)
+	if err != nil {
+		t.Fatalf("Schwab attention classification did not compile: %v", err)
+	}
+	var schwabAttentionFound bool
+	for _, item := range classifiedItems {
+		if item.ID == instanceID && item.Code == "SCHWAB_MARKET_DATA_ATTENTION" {
+			schwabAttentionFound = true
+		}
+	}
+	if !schwabAttentionFound {
+		t.Fatalf("Schwab market-data attention was not classified exactly: %#v", classifiedItems)
+	}
 	projectedJSON, err := json.Marshal(items)
 	if err != nil {
 		t.Fatal(err)

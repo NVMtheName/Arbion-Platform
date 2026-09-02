@@ -855,6 +855,7 @@ export function SchwabMarketDataReadinessView({
   return (
     <section
       className={`schwab-market-readiness${attention ? " needs-review" : ""}`}
+      id="schwab-market-readiness"
       aria-label={headline}
     >
       <header>
