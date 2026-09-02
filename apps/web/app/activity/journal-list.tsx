@@ -272,32 +272,46 @@ function DecisionReviewIndex({ entries }: { entries: JournalEntry[] }) {
                 )}
               </section>
             </div>
-            <dl>
-              <div>
-                <dt>AI route</dt>
-                <dd>
+            <details
+              className="decision-review-index-evidence"
+              open={item.provenanceStatus === "UNAVAILABLE"}
+            >
+              <summary>
+                <span>Provenance + market evidence</span>
+                <strong>
                   {item.provenanceStatus === "VERIFIED"
-                    ? `${providerLabel(item.aiProvider)} · ${item.modelID} · ${label(item.profile ?? "")}`
-                    : "Unavailable — not inferred"}
-                </dd>
-              </div>
-              <div>
-                <dt>Financial evidence</dt>
-                <dd>
-                  {item.provenanceStatus === "VERIFIED"
-                    ? `${providerLabel(item.financialProvider)} · ${item.marketSymbols.join(" · ")}`
-                    : "Unavailable — not inferred"}
-                </dd>
-              </div>
-              <div>
-                <dt>Market snapshot</dt>
-                <dd>
-                  {item.provenanceStatus === "VERIFIED" && item.marketObservedAt
-                    ? `${timestamp(item.marketObservedAt)} UTC · ${item.marketFeeds.map(label).join(" + ")} · ${item.marketQualities.map(label).join(" + ")}`
-                    : "Unavailable — not inferred"}
-                </dd>
-              </div>
-            </dl>
+                    ? "Verified"
+                    : "Review unavailable evidence"}
+                </strong>
+              </summary>
+              <dl>
+                <div>
+                  <dt>AI route</dt>
+                  <dd>
+                    {item.provenanceStatus === "VERIFIED"
+                      ? `${providerLabel(item.aiProvider)} · ${item.modelID} · ${label(item.profile ?? "")}`
+                      : "Unavailable — not inferred"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Financial evidence</dt>
+                  <dd>
+                    {item.provenanceStatus === "VERIFIED"
+                      ? `${providerLabel(item.financialProvider)} · ${item.marketSymbols.join(" · ")}`
+                      : "Unavailable — not inferred"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Market snapshot</dt>
+                  <dd>
+                    {item.provenanceStatus === "VERIFIED" &&
+                    item.marketObservedAt
+                      ? `${timestamp(item.marketObservedAt)} UTC · ${item.marketFeeds.map(label).join(" + ")} · ${item.marketQualities.map(label).join(" + ")}`
+                      : "Unavailable — not inferred"}
+                  </dd>
+                </div>
+              </dl>
+            </details>
             <footer>
               <span>{decisionComparisonLabel(item)}</span>
               <div>
@@ -374,6 +388,10 @@ export function JournalList({ entries }: { entries: JournalEntry[] }) {
         >
           {entries.map((entry) => {
             const facts = rationaleFacts(entry.structured_rationale ?? {});
+            const reviewRequired =
+              entry.risk_decision === "DENY" ||
+              entry.execution_status === "ERROR" ||
+              entry.execution_status === "SIMULATED_REJECTED";
             return (
               <article
                 className="journal-entry"
@@ -410,7 +428,10 @@ export function JournalList({ entries }: { entries: JournalEntry[] }) {
                   </div>
                 </header>
 
-                <dl className="journal-facts">
+                <dl
+                  className="journal-entry-snapshot"
+                  aria-label="Decision outcome"
+                >
                   <div>
                     <dt>Decision</dt>
                     <dd>{label(entry.decision_type)}</dd>
@@ -423,62 +444,78 @@ export function JournalList({ entries }: { entries: JournalEntry[] }) {
                         : "Not applicable"}
                     </dd>
                   </div>
-                  <div>
-                    <dt>State</dt>
-                    <dd>
-                      {label(entry.strategy_state)}
-                      {entry.resulting_state &&
-                      entry.resulting_state !== entry.strategy_state
-                        ? ` → ${label(entry.resulting_state)}`
-                        : ""}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Proposed action</dt>
-                    <dd>
-                      {[
-                        entry.side && label(entry.side),
-                        entry.quantity,
-                        entry.instrument,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ") || "No action"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Price</dt>
-                    <dd>{money(entry.price)}</dd>
-                  </div>
-                  <div>
-                    <dt>Notional</dt>
-                    <dd>{money(entry.notional)}</dd>
-                  </div>
                 </dl>
 
-                {(entry.risk_reason_codes?.length ?? 0) > 0 && (
-                  <div className="journal-reasons">
-                    <strong>Risk reasons</strong>
-                    <ul>
-                      {entry.risk_reason_codes?.map((reason) => (
-                        <li key={reason}>{label(reason)}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {facts.length > 0 && (
-                  <details>
-                    <summary>Structured rationale</summary>
-                    <dl className="journal-rationale">
-                      {facts.map(([key, value]) => (
-                        <div key={key}>
-                          <dt>{label(key)}</dt>
-                          <dd>{String(value)}</dd>
-                        </div>
-                      ))}
+                <details
+                  className="journal-entry-evidence"
+                  open={reviewRequired}
+                >
+                  <summary>
+                    <span>Review immutable details</span>
+                    <strong>
+                      {reviewRequired ? "Review required" : "Evidence saved"}
+                    </strong>
+                  </summary>
+                  <div>
+                    <dl className="journal-facts">
+                      <div>
+                        <dt>State</dt>
+                        <dd>
+                          {label(entry.strategy_state)}
+                          {entry.resulting_state &&
+                          entry.resulting_state !== entry.strategy_state
+                            ? ` → ${label(entry.resulting_state)}`
+                            : ""}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Proposed action</dt>
+                        <dd>
+                          {[
+                            entry.side && label(entry.side),
+                            entry.quantity,
+                            entry.instrument,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "No action"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Price</dt>
+                        <dd>{money(entry.price)}</dd>
+                      </div>
+                      <div>
+                        <dt>Notional</dt>
+                        <dd>{money(entry.notional)}</dd>
+                      </div>
                     </dl>
-                  </details>
-                )}
+
+                    {(entry.risk_reason_codes?.length ?? 0) > 0 && (
+                      <div className="journal-reasons">
+                        <strong>Risk reasons</strong>
+                        <ul>
+                          {entry.risk_reason_codes?.map((reason) => (
+                            <li key={reason}>{label(reason)}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {facts.length > 0 && (
+                      <section className="journal-rationale-evidence">
+                        <h3>Structured rationale</h3>
+                        <dl className="journal-rationale">
+                          {facts.map(([key, value]) => (
+                            <div key={key}>
+                              <dt>{label(key)}</dt>
+                              <dd>{String(value)}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </section>
+                    )}
+                  </div>
+                </details>
 
                 <footer>
                   <p>

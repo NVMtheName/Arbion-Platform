@@ -148,6 +148,24 @@ describe("signed-in command content continuity", () => {
     expect(paper.match(/data-label=/g)).toHaveLength(20);
   });
 
+  it("keeps the Activity journal concise and reviewable on phones", () => {
+    const styles = appSource("./styles.css");
+    const journal = appSource("./activity/journal-list.tsx");
+
+    expect(journal).toContain("decision-review-index-evidence");
+    expect(journal).toContain("journal-entry-snapshot");
+    expect(journal).toContain("journal-entry-evidence");
+    expect(styles).toMatch(
+      /@media \(max-width:\s*700px\)[\s\S]*?\.journal-summary\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/,
+    );
+    expect(styles).toMatch(
+      /@media \(max-width:\s*480px\)[\s\S]*?\.journal-summary,[\s\S]*?\.journal-entry-snapshot\s*\{[^}]*grid-template-columns:\s*1fr;/,
+    );
+    expect(styles).toMatch(
+      /@media \(max-width:\s*480px\)[\s\S]*?\.decision-review-index-evidence > summary,[\s\S]*?\.journal-entry-evidence > summary\s*\{[^}]*flex-direction:\s*column;/,
+    );
+  });
+
   it.each([
     [
       "Dashboard",
