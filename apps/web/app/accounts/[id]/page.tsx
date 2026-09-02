@@ -3,7 +3,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { AppPageHeader } from "../../app-page-header";
+import { FinancialInputChainSummary } from "../../dashboard/financial-input-chain-summary";
 import { formatExactMoney } from "../../exact-money";
+import { loadAccountFinancialInputChain } from "./account-financial-input-chain";
 import {
   AccountCircuitBreakerControls,
   type AccountCircuitBreaker,
@@ -86,6 +88,13 @@ export default async function AccountPage({
         }
       ).circuit_breaker ?? null)
     : undefined;
+  const accountInputChain = await loadAccountFinancialInputChain({
+    accountID: account.id,
+    base,
+    headers,
+    observedAt: new Date(),
+  });
+  if (accountInputChain.unauthorized) redirect("/login");
 
   if (account.provider === "coinbase") {
     const portfolioResponse = await fetch(
@@ -98,6 +107,11 @@ export default async function AccountPage({
       return (
         <main className="connections-page crypto-account-page command-content-continuity">
           <AppPageHeader backHref="/accounts" backLabel="Accounts" />
+          <FinancialInputChainSummary
+            projection={accountInputChain.projection}
+            available={accountInputChain.available}
+            scope="account"
+          />
           <p className="eyebrow">COINBASE · READ-ONLY CONNECTION</p>
           <h1>{account.display_name}</h1>
           <p className="unavailable">
@@ -315,6 +329,11 @@ export default async function AccountPage({
     return (
       <main className="connections-page crypto-account-page command-content-continuity">
         <AppPageHeader backHref="/accounts" backLabel="Accounts" />
+        <FinancialInputChainSummary
+          projection={accountInputChain.projection}
+          available={accountInputChain.available}
+          scope="account"
+        />
         <CryptoPortfolioCommandCenter
           accountID={account.id}
           capitalPolicies={capitalPolicies}
@@ -406,6 +425,11 @@ export default async function AccountPage({
       <AppPageHeader backHref="/accounts" backLabel="Accounts" />
       <p className="eyebrow">CHARLES SCHWAB · CONNECTED ACCOUNT</p>
       <h1>{account.display_name}</h1>
+      <FinancialInputChainSummary
+        projection={accountInputChain.projection}
+        available={accountInputChain.available}
+        scope="account"
+      />
       <section className="dashboard-grid">
         <article>
           <h2>Account Value</h2>

@@ -97,4 +97,53 @@ describe("Dashboard financial input chain", () => {
     expect(region).toHaveTextContent("Existing controls remain unchanged");
     expect(region).toHaveTextContent("Read-only saved evidence");
   });
+
+  it("shows an explicit account checkpoint when no active engine is attached", () => {
+    render(
+      <FinancialInputChainSummary
+        available
+        projection={{
+          status: "VERIFIED",
+          engineCount: 0,
+          currentCount: 0,
+          waitingCount: 0,
+          blockedCount: 0,
+          unavailableCount: 0,
+          engines: [],
+        }}
+        scope="account"
+      />,
+    );
+
+    const region = screen.getByRole("region", {
+      name: "No active AI engine uses this account.",
+    });
+    expect(region).toHaveTextContent("No trading activity was started");
+    expect(region).toHaveTextContent("active Paper or Shadow engine");
+  });
+
+  it("uses an account-specific current-state headline", () => {
+    render(
+      <FinancialInputChainSummary
+        available
+        projection={{
+          ...projection,
+          status: "VERIFIED",
+          currentCount: 2,
+          blockedCount: 0,
+          engines: projection.engines.map((engine) => ({
+            ...engine,
+            state: "CURRENT",
+          })),
+        }}
+        scope="account"
+      />,
+    );
+
+    expect(
+      screen.getByRole("region", {
+        name: "This account’s AI input chain is current.",
+      }),
+    ).toBeVisible();
+  });
 });
