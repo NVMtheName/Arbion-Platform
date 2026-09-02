@@ -42,7 +42,16 @@ describe("Decision Journal", () => {
   it("renders useful decision evidence with an explicit non-live boundary", () => {
     render(<JournalList entries={[entry]} />);
 
-    expect(screen.getByText("Wheel · AAPL")).toBeInTheDocument();
+    const heading = screen.getByText("Wheel · AAPL");
+    const decision = heading.closest("article");
+    expect(decision).toHaveAttribute("id", "decision-decision-1");
+    expect(decision).toHaveAttribute("tabindex", "-1");
+    expect(decision).toHaveAttribute(
+      "aria-labelledby",
+      "decision-decision-1-title",
+    );
+    expect(heading).toHaveAttribute("id", "decision-decision-1-title");
+    expect(screen.getByText("Linked decision")).toBeInTheDocument();
     expect(screen.getByText("Risk Allow")).toBeInTheDocument();
     expect(screen.getByText("Simulated Filled")).toBeInTheDocument();
     expect(screen.getByText("$125.00")).toBeInTheDocument();

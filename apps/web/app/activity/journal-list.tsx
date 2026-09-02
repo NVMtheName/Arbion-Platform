@@ -485,16 +485,21 @@ export function JournalList({
               ) === true;
             return (
               <article
+                aria-labelledby={`decision-${entry.id}-title`}
                 className="journal-entry"
                 id={`decision-${entry.id}`}
                 key={entry.id}
+                tabIndex={-1}
               >
+                <span className="journal-entry-link-status">
+                  Linked decision
+                </span>
                 <header>
                   <div>
                     <time dateTime={entry.created_at}>
                       {timestamp(entry.created_at)} UTC
                     </time>
-                    <h2>
+                    <h2 id={`decision-${entry.id}-title`}>
                       {label(entry.strategy_identifier)}
                       {entry.symbol ? ` · ${entry.symbol}` : ""}
                     </h2>
