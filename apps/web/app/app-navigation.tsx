@@ -345,6 +345,14 @@ export function AppNavigation({ className = "" }: { className?: string }) {
   const pendingDestination = destinations.find(
     (destination) => destination.href === pendingHref,
   );
+  const currentDestination = destinations.find((destination) =>
+    isCurrent(pathname, destination.matches),
+  );
+  const navigationStatus = pendingDestination
+    ? `Opening ${pendingDestination.label}`
+    : currentDestination
+      ? `${currentDestination.label} selected`
+      : "Current section unavailable";
   return (
     <nav
       ref={navigationRef}
@@ -392,11 +400,9 @@ export function AppNavigation({ className = "" }: { className?: string }) {
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        aria-label={
-          pendingDestination ? `Opening ${pendingDestination.label}` : undefined
-        }
+        aria-label={navigationStatus}
       >
-        {pendingDestination ? `Opening ${pendingDestination.label}` : ""}
+        {navigationStatus}
       </span>
     </nav>
   );
