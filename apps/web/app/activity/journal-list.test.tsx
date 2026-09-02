@@ -181,5 +181,30 @@ describe("Decision Journal", () => {
     ).toHaveAttribute("open");
     expect(screen.getByText("Review required")).toBeInTheDocument();
     expect(screen.getByText("Capital Limit Exceeded")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Resolve account evidence" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("links an exact reconciliation denial to its account resolution evidence", () => {
+    render(
+      <JournalList
+        entries={[
+          {
+            ...entry,
+            risk_decision: "DENY",
+            execution_status: "RISK_DENIED",
+            risk_reason_codes: ["RECONCILIATION_DRIFT_DETECTED"],
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("link", { name: "Resolve account evidence" }),
+    ).toHaveAttribute(
+      "href",
+      "/accounts/account-1#reconciliation-resolution-title",
+    );
   });
 });
