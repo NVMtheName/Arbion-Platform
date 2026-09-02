@@ -29,6 +29,7 @@ type AttentionPresentation = {
 };
 
 const connectionHref = () => "/connections";
+const schwabReadinessHref = () => "/connections#schwab-market-readiness";
 const riskHref = () => "/settings/risk";
 const accountHref = (item: OwnerAttentionItem) =>
   item.resource_id ? `/accounts/${item.resource_id}` : "/accounts";
@@ -40,6 +41,13 @@ const automationHref = (item: OwnerAttentionItem) =>
   item.resource_id ? `/automations/${item.resource_id}` : "/automations";
 
 const presentations: Record<string, AttentionPresentation> = {
+  SCHWAB_MARKET_DATA_ATTENTION: {
+    title: "Schwab market data needs review",
+    detail:
+      "Schwab authorization is active, but the latest saved quote did not prove broker-realtime quality. The AI cycle stopped before the model.",
+    linkLabel: "Review Schwab readiness",
+    href: schwabReadinessHref,
+  },
   SCHEDULE_FAILURE: {
     title: "Scheduled evaluation needs attention",
     detail:

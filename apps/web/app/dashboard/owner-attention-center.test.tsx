@@ -109,4 +109,35 @@ describe("Owner Attention Center", () => {
     expect(region).toHaveTextContent("not inferring a healthy state");
     expect(region).not.toHaveTextContent("No active issues.");
   });
+
+  it("routes Schwab quote-quality attention directly to its readiness proof", () => {
+    render(
+      <OwnerAttentionCenter
+        available
+        attention={{
+          ...clearAttention,
+          status: "ATTENTION",
+          total: 1,
+          attention_count: 1,
+          items: [
+            {
+              id: "schwab-schedule-1",
+              code: "SCHWAB_MARKET_DATA_ATTENTION",
+              severity: "ATTENTION",
+              resource_type: "AUTOMATION",
+              resource_id: "mandate-schwab",
+              occurred_at: "2026-09-02T14:35:05Z",
+              count: 1,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Schwab market data needs review")).toBeVisible();
+    expect(screen.getByText(/stopped before the model/i)).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: /Review Schwab readiness/i }),
+    ).toHaveAttribute("href", "/connections#schwab-market-readiness");
+  });
 });

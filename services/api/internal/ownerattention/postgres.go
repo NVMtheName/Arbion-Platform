@@ -30,7 +30,14 @@ WITH latest_reconciliation AS (
 ), attention AS (
   SELECT
     s.strategy_instance_id::text AS id,
-    'SCHEDULE_FAILURE'::text AS code,
+    CASE WHEN a.provider_name='schwab' AND p.provider_name='schwab'
+      AND s.last_error_code IN (
+        'MARKET_DATA_DELAYED',
+        'MARKET_DATA_REALTIME_UNCONFIRMED',
+        'MARKET_DATA_NOT_REALTIME'
+      )
+      THEN 'SCHWAB_MARKET_DATA_ATTENTION'
+      ELSE 'SCHEDULE_FAILURE' END AS code,
     'ATTENTION'::text AS severity,
     'AUTOMATION'::text AS resource_type,
     i.automation_mandate_id::text AS resource_id,
@@ -39,6 +46,10 @@ WITH latest_reconciliation AS (
   FROM nonlive_strategy_schedules s
   JOIN strategy_instances i
     ON i.id=s.strategy_instance_id AND i.user_id=s.user_id
+  JOIN financial_accounts a
+    ON a.id=i.financial_account_id AND a.user_id=i.user_id
+  JOIN provider_connections p
+    ON p.id=a.provider_connection_id AND p.user_id=a.user_id
   WHERE i.user_id=$1 AND i.status IN ('ACTIVE','PAUSED')
     AND (s.last_status='FAILED' OR s.consecutive_failures>0)
 
