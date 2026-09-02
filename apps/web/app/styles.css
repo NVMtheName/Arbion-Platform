@@ -8219,6 +8219,66 @@ button:disabled {
   flex: 0 0 auto;
   text-align: right;
 }
+.schwab-connection-quote-checkpoint {
+  margin: 0 18px 16px;
+  overflow: hidden;
+  border: 1px solid rgba(111, 170, 255, 0.22);
+  border-radius: 12px;
+  background: rgba(7, 20, 24, 0.72);
+}
+.schwab-connection-quote-checkpoint.is-quote-still-blocked {
+  border-color: rgba(245, 190, 92, 0.3);
+  background: rgba(56, 37, 10, 0.14);
+}
+.schwab-connection-quote-checkpoint > header,
+.schwab-connection-quote-checkpoint > footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 14px;
+}
+.schwab-connection-quote-checkpoint > header {
+  border-bottom: 1px solid rgba(111, 170, 255, 0.14);
+}
+.schwab-connection-quote-checkpoint > header strong,
+.schwab-connection-quote-checkpoint > header small {
+  display: block;
+}
+.schwab-connection-quote-checkpoint > header strong {
+  color: #d7e7df;
+  font-size: 0.75rem;
+}
+.schwab-connection-quote-checkpoint > header small,
+.schwab-connection-quote-checkpoint > p,
+.schwab-connection-quote-checkpoint > footer {
+  color: #789087;
+  font-size: 0.65rem;
+  line-height: 1.5;
+}
+.schwab-connection-quote-checkpoint > header > span {
+  flex: 0 0 auto;
+  color: #8de3b2;
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+.schwab-connection-quote-checkpoint.is-quote-still-blocked > header > span {
+  color: #f3d79a;
+}
+.schwab-connection-quote-checkpoint > p {
+  margin: 0;
+  padding: 13px 14px;
+}
+.schwab-market-readiness .schwab-connection-quote-checkpoint > dl {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+}
+.schwab-connection-quote-checkpoint > footer {
+  border-top: 1px solid rgba(111, 170, 255, 0.12);
+}
 .schwab-market-readiness dl > div {
   min-width: 0;
   padding: 13px;
@@ -17048,6 +17108,13 @@ h1 {
   }
   .schwab-quote-recovery small {
     text-align: left;
+  }
+  .schwab-connection-quote-checkpoint > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .schwab-market-readiness .schwab-connection-quote-checkpoint > dl {
+    grid-template-columns: 1fr;
   }
   .schwab-quote-incidents > header,
   .schwab-quote-incidents > footer,
