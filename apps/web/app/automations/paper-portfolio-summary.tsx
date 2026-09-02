@@ -1702,7 +1702,7 @@ export function PaperPortfolioSummary({
             {(realized!.symbols ?? []).length > 0 ? (
               <div className="paper-position-table-wrap">
                 <table
-                  className="paper-position-table"
+                  className="paper-position-table paper-primary-evidence-table"
                   aria-label="Exact per-symbol Paper realized outcomes"
                 >
                   <thead>
@@ -1717,8 +1717,8 @@ export function PaperPortfolioSummary({
                   <tbody>
                     {realized!.symbols.map((symbol) => (
                       <tr key={`${symbol.instrument}:${symbol.symbol}`}>
-                        <td>{symbol.symbol}</td>
-                        <td>
+                        <td data-label="Symbol">{symbol.symbol}</td>
+                        <td data-label="Realized simulated P&amp;L">
                           <span
                             className={performanceClass(
                               symbol.realized_profit_loss,
@@ -1730,11 +1730,13 @@ export function PaperPortfolioSummary({
                             )}
                           </span>
                         </td>
-                        <td>
+                        <td data-label="Buy / sale fills">
                           {symbol.buy_fill_count} / {symbol.sell_fill_count}
                         </td>
-                        <td>{quantity(symbol.ending_position_quantity)}</td>
-                        <td>
+                        <td data-label="Ending quantity">
+                          {quantity(symbol.ending_position_quantity)}
+                        </td>
+                        <td data-label="Ending average cost">
                           {symbol.ending_average_cost
                             ? money(
                                 symbol.ending_average_cost,
@@ -3079,7 +3081,7 @@ export function PaperPortfolioSummary({
       {positions.length > 0 ? (
         <div className="paper-position-table-wrap">
           <table
-            className="paper-position-table"
+            className="paper-position-table paper-primary-evidence-table"
             aria-label="Simulated paper positions"
           >
             <thead>
@@ -3104,18 +3106,22 @@ export function PaperPortfolioSummary({
                   <tr
                     key={`${position.instrument}-${position.symbol}-${position.option_type ?? "equity"}-${position.expiration ?? "none"}-${index}`}
                   >
-                    <td>
+                    <td data-label="Status">
                       <span
                         className={`paper-position-status ${position.is_open ? "is-open" : "is-closed"}`}
                       >
                         {position.is_open ? "Open" : "Closed"}
                       </span>
                     </td>
-                    <td>{position.symbol}</td>
-                    <td>{contract(position, portfolio.currency)}</td>
-                    <td>{quantity(position.quantity)}</td>
-                    <td>{money(position.average_price, portfolio.currency)}</td>
-                    <td>
+                    <td data-label="Symbol">{position.symbol}</td>
+                    <td data-label="Position">
+                      {contract(position, portfolio.currency)}
+                    </td>
+                    <td data-label="Quantity">{quantity(position.quantity)}</td>
+                    <td data-label="Average simulation price">
+                      {money(position.average_price, portfolio.currency)}
+                    </td>
+                    <td data-label="Latest AI snapshot price">
                       {valuation ? (
                         <>
                           {money(valuation.price, portfolio.currency)} ·{" "}
@@ -3129,12 +3135,12 @@ export function PaperPortfolioSummary({
                         "Unavailable"
                       )}
                     </td>
-                    <td>
+                    <td data-label="Simulated market value">
                       {valuation
                         ? money(valuation.marketValue, portfolio.currency)
                         : "Unavailable"}
                     </td>
-                    <td>
+                    <td data-label="Unrealized P&amp;L">
                       {valuation ? (
                         <span
                           className={performanceClass(
@@ -3152,7 +3158,7 @@ export function PaperPortfolioSummary({
                         "Unavailable"
                       )}
                     </td>
-                    <td>
+                    <td data-label="24h market move">
                       {valuation ? (
                         <span
                           className={performanceClass(
@@ -3187,7 +3193,7 @@ export function PaperPortfolioSummary({
         {fills.length > 0 ? (
           <div className="paper-position-table-wrap">
             <table
-              className="paper-position-table"
+              className="paper-position-table paper-primary-evidence-table"
               aria-label="Immutable AI Paper simulated fills"
             >
               <thead>
@@ -3203,17 +3209,21 @@ export function PaperPortfolioSummary({
               <tbody>
                 {fills.map((fill) => (
                   <tr key={fill.id} id={`paper-fill-${fill.id}`}>
-                    <td>{new Date(fill.simulated_at).toLocaleString()}</td>
-                    <td>
+                    <td data-label="Time">
+                      {new Date(fill.simulated_at).toLocaleString()}
+                    </td>
+                    <td data-label="Action">
                       {fill.side} {fill.symbol}
                     </td>
-                    <td>{quantity(fill.quantity)}</td>
-                    <td>
+                    <td data-label="Quantity">{quantity(fill.quantity)}</td>
+                    <td data-label="Market → simulated fill">
                       {money(fill.reference_price, portfolio.currency)} →{" "}
                       {money(fill.fill_price, portfolio.currency)}
                     </td>
-                    <td>{money(fill.fee, portfolio.currency)}</td>
-                    <td>
+                    <td data-label="Fee">
+                      {money(fill.fee, portfolio.currency)}
+                    </td>
+                    <td data-label="Market source">
                       {fill.market_provider} · {fill.market_feed} ·{" "}
                       {fill.market_quality}
                     </td>

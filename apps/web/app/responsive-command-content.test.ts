@@ -128,6 +128,26 @@ describe("signed-in command content continuity", () => {
     );
   });
 
+  it("turns primary Paper evidence into semantic narrow-screen cards", () => {
+    const styles = appSource("./styles.css");
+    const paper = appSource("./automations/paper-portfolio-summary.tsx");
+
+    expect(styles).toMatch(
+      /@media \(max-width:\s*700px\)[\s\S]*?\.paper-primary-evidence-table tbody tr\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/,
+    );
+    expect(styles).toMatch(
+      /@media \(max-width:\s*480px\)[\s\S]*?\.paper-primary-evidence-table tbody tr\s*\{[^}]*grid-template-columns:\s*1fr;/,
+    );
+    expect(styles).toMatch(
+      /\.paper-primary-evidence-table td::before\s*\{[^}]*content:\s*attr\(data-label\);/,
+    );
+    expect(styles).toMatch(
+      /\.paper-position-table-wrap\s*\{[^}]*overflow-x:\s*auto;[^}]*overscroll-behavior-inline:\s*contain;/,
+    );
+    expect(paper.match(/paper-primary-evidence-table/g)).toHaveLength(3);
+    expect(paper.match(/data-label=/g)).toHaveLength(20);
+  });
+
   it.each([
     [
       "Dashboard",
