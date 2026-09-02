@@ -10275,6 +10275,7 @@ button:disabled {
   font-size: 0.76rem;
   font-weight: 720;
   cursor: pointer;
+  text-decoration: none;
 }
 .decision-replay-filters button span {
   display: grid;
@@ -10918,7 +10919,7 @@ button:disabled {
   overflow-x: auto;
   scrollbar-width: thin;
 }
-.journal-filters button {
+.journal-filters a {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -10933,7 +10934,7 @@ button:disabled {
   font-weight: 720;
   cursor: pointer;
 }
-.journal-filters button span {
+.journal-filters a span {
   display: grid;
   min-width: 20px;
   height: 20px;
@@ -10943,30 +10944,17 @@ button:disabled {
   background: #19343a;
   font-size: 0.67rem;
 }
-.journal-filters button:hover,
-.journal-filters button:focus-visible,
-.journal-filters button.is-active {
+.journal-filters a:hover,
+.journal-filters a:focus-visible,
+.journal-filters a.is-active {
   border-color: rgba(25, 201, 214, 0.55);
   color: #e8ffff;
   background: rgba(25, 201, 214, 0.11);
 }
 .journal-entry footer a,
 .journal-empty a,
-.journal-empty button,
 .journal-pagination a {
   color: var(--brand-cyan);
-}
-.journal-empty button {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-}
-.journal-empty button:hover,
-.journal-empty button:focus-visible {
-  color: #e8ffff;
 }
 .journal-empty {
   padding: 32px;

@@ -3,7 +3,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../app-page-header";
-import { JournalList, type JournalEntry } from "./journal-list";
+import {
+  activityJournalHref,
+  JournalList,
+  normalizeJournalFilter,
+  type JournalEntry,
+} from "./journal-list";
 
 type JournalResponse = {
   entries: JournalEntry[];
@@ -14,9 +19,10 @@ type JournalResponse = {
 export default async function ActivityPage({
   searchParams,
 }: {
-  searchParams: Promise<{ cursor?: string }>;
+  searchParams: Promise<{ cursor?: string; view?: string }>;
 }) {
-  const { cursor = "" } = await searchParams;
+  const { cursor = "", view } = await searchParams;
+  const filter = normalizeJournalFilter(view);
   const jar = await cookies();
   const api = process.env.API_BASE_URL ?? "http://localhost:8080";
   const query = new URLSearchParams({ limit: "25" });
@@ -59,13 +65,24 @@ export default async function ActivityPage({
         have submitted. Neither mode sends a broker order.
       </p>
 
-      <JournalList entries={data.entries ?? []} />
+      <JournalList
+        cursor={cursor}
+        entries={data.entries ?? []}
+        filter={filter}
+      />
 
       <nav className="journal-pagination" aria-label="Decision journal pages">
-        {cursor ? <Link href="/activity">← Newest</Link> : <span />}
+        {cursor ? (
+          <Link href={activityJournalHref({ filter })}>← Newest</Link>
+        ) : (
+          <span />
+        )}
         {data.next_cursor ? (
           <Link
-            href={`/activity?cursor=${encodeURIComponent(data.next_cursor)}`}
+            href={activityJournalHref({
+              cursor: data.next_cursor,
+              filter,
+            })}
           >
             Older entries →
           </Link>

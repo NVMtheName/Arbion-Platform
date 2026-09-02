@@ -1,7 +1,4 @@
-"use client";
-
 import Link from "next/link";
-import { useState } from "react";
 
 export type JournalEntry = {
   id: string;
@@ -211,7 +208,33 @@ function providerLabel(value?: string) {
   return value ? label(value) : "Unavailable";
 }
 
-type JournalFilter = "ALL" | "PAPER" | "SHADOW" | "NEEDS_REVIEW";
+export type JournalFilter = "ALL" | "PAPER" | "SHADOW" | "NEEDS_REVIEW";
+
+export function normalizeJournalFilter(value?: string | null): JournalFilter {
+  if (value === "paper") return "PAPER";
+  if (value === "shadow") return "SHADOW";
+  if (value === "review") return "NEEDS_REVIEW";
+  return "ALL";
+}
+
+export function activityJournalHref({
+  cursor,
+  filter,
+}: {
+  cursor?: string;
+  filter: JournalFilter;
+}) {
+  const query = new URLSearchParams();
+  if (cursor) query.set("cursor", cursor);
+  if (filter !== "ALL") {
+    query.set(
+      "view",
+      filter === "NEEDS_REVIEW" ? "review" : filter.toLowerCase(),
+    );
+  }
+  const encoded = query.toString();
+  return encoded ? `/activity?${encoded}` : "/activity";
+}
 
 function needsReview(entry: JournalEntry) {
   return (
@@ -347,8 +370,15 @@ function DecisionReviewIndex({ entries }: { entries: JournalEntry[] }) {
   );
 }
 
-export function JournalList({ entries }: { entries: JournalEntry[] }) {
-  const [filter, setFilter] = useState<JournalFilter>("ALL");
+export function JournalList({
+  entries,
+  filter = "ALL",
+  cursor = "",
+}: {
+  entries: JournalEntry[];
+  filter?: JournalFilter;
+  cursor?: string;
+}) {
   const allowed = entries.filter(
     (entry) => entry.risk_decision === "ALLOW",
   ).length;
@@ -402,15 +432,17 @@ export function JournalList({ entries }: { entries: JournalEntry[] }) {
       {entries.length > 0 && (
         <nav className="journal-filters" aria-label="Journal view filters">
           {filters.map((item) => (
-            <button
-              aria-pressed={filter === item.value}
+            <Link
+              aria-current={filter === item.value ? "page" : undefined}
               className={filter === item.value ? "is-active" : ""}
+              href={activityJournalHref({
+                cursor,
+                filter: item.value,
+              })}
               key={item.value}
-              onClick={() => setFilter(item.value)}
-              type="button"
             >
               {item.label} <span>{item.count}</span>
-            </button>
+            </Link>
           ))}
         </nav>
       )}
@@ -435,9 +467,9 @@ export function JournalList({ entries }: { entries: JournalEntry[] }) {
             No saved records on this page match the selected filter. Choose
             another view to continue reviewing immutable evidence.
           </p>
-          <button type="button" onClick={() => setFilter("ALL")}>
+          <Link href={activityJournalHref({ cursor, filter: "ALL" })}>
             Show all records
-          </button>
+          </Link>
         </section>
       ) : (
         <section
