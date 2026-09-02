@@ -166,6 +166,25 @@ describe("signed-in command content continuity", () => {
     );
   });
 
+  it("keeps reconciliation resolution evidence readable on narrow screens", () => {
+    const styles = appSource("./styles.css");
+    const reconciliation = appSource(
+      "./accounts/[id]/portfolio-reconciliation-panel.tsx",
+    );
+
+    expect(reconciliation).toContain("reconciliation-resolution");
+    expect(reconciliation).toContain("Review immutable snapshot history");
+    expect(styles).toMatch(
+      /@media \(max-width:\s*900px\)[\s\S]*?\.reconciliation-resolution > footer\s*\{[^}]*flex-direction:\s*column;/,
+    );
+    expect(styles).toMatch(
+      /@media \(max-width:\s*560px\)[\s\S]*?\.reconciliation-resolution > header\s*\{[^}]*flex-direction:\s*column;/,
+    );
+    expect(styles).toMatch(
+      /\.reconciliation-resolution > footer a\s*\{[^}]*min-block-size:\s*44px;/,
+    );
+  });
+
   it.each([
     [
       "Dashboard",

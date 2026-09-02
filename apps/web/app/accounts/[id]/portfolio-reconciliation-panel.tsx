@@ -90,6 +90,92 @@ function changeDescription(change: PortfolioReconciliationChange) {
   return `${quantity(change.previous_quantity)} → ${quantity(change.current_quantity)}`;
 }
 
+type ReconciliationResolution = {
+  status: "ACTIVE_REVIEW" | "RESOLVED" | "EVIDENCE_REQUIRED" | "CLEAR";
+  eyebrow: string;
+  label: string;
+  detail: string;
+  nextStep: string;
+  previous?: PortfolioReconciliation;
+};
+
+function countLabel(count: number, singular: string) {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+function reconciliationResolution(
+  report: PortfolioReconciliation,
+  history: PortfolioReconciliation[],
+): ReconciliationResolution {
+  const previous = report.previous_reconciliation_id
+    ? history.find((item) => item.id === report.previous_reconciliation_id)
+    : undefined;
+  const recordedOnly = Math.max(
+    0,
+    report.change_count - report.blocking_change_count,
+  );
+
+  if (report.comparison_status === "DRIFT_DETECTED") {
+    return {
+      status: "ACTIVE_REVIEW",
+      eyebrow: "ACTIVE HOLD · SAVED EVIDENCE",
+      label: "Review active",
+      detail: `${countLabel(report.blocking_change_count, "tradable-inventory change")} ${report.blocking_change_count === 1 ? "holds" : "hold"} new AI proposals. ${countLabel(recordedOnly, "additional non-blocking change")} ${recordedOnly === 1 ? "remains" : "remain"} saved as context.`,
+      nextStep:
+        "Review the exact tradable-inventory change below, acknowledge it, then reconcile. The hold clears only when a later complete snapshot matches the reviewed state.",
+      previous,
+    };
+  }
+
+  if (
+    report.comparison_status === "MATCHED" &&
+    previous?.comparison_status === "DRIFT_DETECTED"
+  ) {
+    return {
+      status: "RESOLVED",
+      eyebrow: "RECORDED RESOLUTION · SAVED EVIDENCE",
+      label: "Resolution recorded",
+      detail:
+        "The current complete snapshot no longer contains a blocking tradable-inventory difference from the reviewed state.",
+      nextStep:
+        "No owner action is required. New AI proposals remain subject to every other deterministic guardrail.",
+      previous,
+    };
+  }
+
+  if (
+    report.comparison_status === "BASELINE" ||
+    report.comparison_status === "INCOMPLETE"
+  ) {
+    return {
+      status: "EVIDENCE_REQUIRED",
+      eyebrow: "EVIDENCE GATE · SAVED EVIDENCE",
+      label:
+        report.comparison_status === "BASELINE"
+          ? "Comparison pending"
+          : "Evidence incomplete",
+      detail:
+        report.comparison_status === "BASELINE"
+          ? "This is the first complete saved snapshot, so Arbion does not yet have a second state to compare."
+          : "The latest saved snapshot does not contain complete balance and position evidence.",
+      nextStep:
+        "Capture another complete provider snapshot. Arbion keeps new AI proposals held until exact comparison evidence is available.",
+      previous,
+    };
+  }
+
+  return {
+    status: "CLEAR",
+    eyebrow: "CURRENT GATE · SAVED EVIDENCE",
+    label: "Gate clear",
+    detail:
+      "The latest complete snapshot contains no blocking tradable-inventory change.",
+    nextStep:
+      "No owner action is required. New AI proposals remain subject to every other deterministic guardrail.",
+    previous,
+  };
+}
+
 export function PortfolioReconciliationPanel({
   accountID,
   accountName,
@@ -118,6 +204,9 @@ export function PortfolioReconciliationPanel({
   const [message, setMessage] = useState("");
   const [driftReviewed, setDriftReviewed] = useState(false);
   const driftReviewRequired = report?.comparison_status === "DRIFT_DETECTED";
+  const resolution = report
+    ? reconciliationResolution(report, history)
+    : undefined;
 
   async function reconcile() {
     setBusy(true);
@@ -280,6 +369,42 @@ export function PortfolioReconciliationPanel({
               {observedAt(report.observed_at)}
             </time>
           </div>
+          {resolution && (
+            <section
+              className={`reconciliation-resolution is-${resolution.status.toLowerCase()}`}
+              aria-labelledby="reconciliation-resolution-title"
+            >
+              <header>
+                <div>
+                  <p className="eyebrow">{resolution.eyebrow}</p>
+                  <h3 id="reconciliation-resolution-title">
+                    Reconciliation resolution
+                  </h3>
+                </div>
+                <strong>{resolution.label}</strong>
+              </header>
+              <p>{resolution.detail}</p>
+              {resolution.previous && (
+                <p>
+                  Prior checkpoint:{" "}
+                  {statusLabel(resolution.previous.comparison_status)} at{" "}
+                  <time dateTime={resolution.previous.observed_at}>
+                    {observedAt(resolution.previous.observed_at)}
+                  </time>
+                  .
+                </p>
+              )}
+              <footer>
+                <div>
+                  <strong>Next safe step</strong>
+                  <span>{resolution.nextStep}</span>
+                </div>
+                <a href="#reconciliation-history-title">
+                  Review immutable snapshot history
+                </a>
+              </footer>
+            </section>
+          )}
           <div className="reconciliation-metrics">
             <article>
               <span>Balance feed</span>
