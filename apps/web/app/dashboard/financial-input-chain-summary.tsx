@@ -42,19 +42,27 @@ function stateLabel(
 export function FinancialInputChainSummary({
   projection,
   available,
+  scope = "fleet",
 }: {
   projection?: FinancialInputChainProjection;
   available: boolean;
+  scope?: "fleet" | "account";
 }) {
-  if (available && projection?.engineCount === 0) return null;
+  if (scope === "fleet" && available && projection?.engineCount === 0)
+    return null;
+  const empty = available && projection?.engineCount === 0;
   const status =
     !available || !projection ? "unavailable" : projection.status.toLowerCase();
   const headline =
     !available || !projection
       ? "Financial input status is unavailable."
-      : projection.status === "VERIFIED"
-        ? "Every AI input chain is current."
-        : `${projection.waitingCount + projection.blockedCount + projection.unavailableCount} AI input ${projection.waitingCount + projection.blockedCount + projection.unavailableCount === 1 ? "chain needs" : "chains need"} attention.`;
+      : empty
+        ? "No active AI engine uses this account."
+        : projection.status === "VERIFIED"
+          ? scope === "account"
+            ? "This account’s AI input chain is current."
+            : "Every AI input chain is current."
+          : `${projection.waitingCount + projection.blockedCount + projection.unavailableCount} AI input ${projection.waitingCount + projection.blockedCount + projection.unavailableCount === 1 ? "chain needs" : "chains need"} attention.`;
 
   return (
     <section
@@ -66,8 +74,9 @@ export function FinancialInputChainSummary({
           <p className="command-kicker">FINANCIAL INPUT CHAIN</p>
           <h2 id="dashboard-input-chain-title">{headline}</h2>
           <p>
-            Saved connection → portfolio → automatic evaluation, kept separate
-            for every Paper and Shadow engine.
+            {empty
+              ? "Connect this account to a Paper or Shadow strategy when you are ready."
+              : "Saved connection → portfolio → automatic evaluation, kept separate for every Paper and Shadow engine."}
           </p>
         </div>
         <Link href="/connections#financial-input-chain">
@@ -81,6 +90,14 @@ export function FinancialInputChainSummary({
           <p>
             Existing controls remain unchanged while this read-only saved
             evidence view recovers.
+          </p>
+        </div>
+      ) : empty ? (
+        <div className="dashboard-input-chain-empty" role="status">
+          <strong>No trading activity was started.</strong>
+          <p>
+            This read-only checkpoint will appear automatically after an active
+            Paper or Shadow engine is attached to the account.
           </p>
         </div>
       ) : (

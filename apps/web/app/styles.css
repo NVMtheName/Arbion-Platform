@@ -16477,17 +16477,26 @@ h1 {
   color: #62786e;
   font-size: 0.62rem;
 }
-.dashboard-input-chain-unavailable {
+.dashboard-input-chain-unavailable,
+.dashboard-input-chain-empty {
   margin: 14px;
   padding: 16px;
   border: 1px dashed rgba(245, 190, 92, 0.25);
   border-radius: 12px;
 }
-.dashboard-input-chain-unavailable strong {
+.dashboard-input-chain-empty {
+  border-color: rgba(111, 170, 255, 0.2);
+}
+.dashboard-input-chain-unavailable strong,
+.dashboard-input-chain-empty strong {
   color: #e7d8b9;
   font-size: 0.78rem;
 }
-.dashboard-input-chain-unavailable p {
+.dashboard-input-chain-empty strong {
+  color: #cadff8;
+}
+.dashboard-input-chain-unavailable p,
+.dashboard-input-chain-empty p {
   margin: 6px 0 0;
   color: #8b8170;
   font-size: 0.7rem;
