@@ -85,4 +85,22 @@ describe("signed-in command content continuity", () => {
       /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?scroll-behavior:\s*auto !important;[\s\S]*?transition-duration:\s*0\.01ms !important;/,
     );
   });
+
+  it("provides a visible-on-focus skip path without moving the header", () => {
+    const header = appSource("./app-page-header.tsx");
+    const styles = appSource("./styles.css");
+
+    expect(header).toContain('href="#app-main-content"');
+    expect(header).toContain('id="app-main-content"');
+    expect(header).toContain("tabIndex={-1}");
+    expect(styles).toMatch(
+      /\.app-skip-link\s*\{[^}]*position:\s*absolute;[^}]*opacity:\s*0;[^}]*transform:\s*translateY\(-160%\);/,
+    );
+    expect(styles).toMatch(
+      /\.app-skip-link:focus-visible\s*\{[^}]*opacity:\s*1;[^}]*transform:\s*translateY\(0\);/,
+    );
+    expect(styles).toMatch(
+      /\.app-main-content-target\s*\{[^}]*block-size:\s*0;[^}]*scroll-margin-block-start:\s*112px;[^}]*outline:\s*none;/,
+    );
+  });
 });

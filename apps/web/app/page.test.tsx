@@ -59,6 +59,14 @@ describe("Authentication experience", () => {
 
   it("renders the branded application header with clear navigation", () => {
     render(<AppPageHeader backHref="/accounts" backLabel="Accounts" />);
+    expect(
+      screen.getByRole("link", { name: "Skip to main content" }),
+    ).toHaveAttribute("href", "#app-main-content");
+    expect(document.querySelectorAll("#app-main-content")).toHaveLength(1);
+    expect(document.querySelector("#app-main-content")).toHaveAttribute(
+      "tabindex",
+      "-1",
+    );
     expect(screen.getByRole("img", { name: "Arbion" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Arbion home" })).toHaveAttribute(
       "href",
