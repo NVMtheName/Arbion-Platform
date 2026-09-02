@@ -69,6 +69,35 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 	if err = store.SyncAccounts(ctx, userID, connectionA, []financial.FinancialAccount{{Provider: "coinbase", ProviderAccountID: providerIDA, DisplayName: "Portfolio A refreshed", AccountType: "digital_asset_portfolio", BaseCurrency: "USD", Capabilities: financial.Capabilities{}}}); err != nil {
 		t.Fatal(err)
 	}
+	checkpoints, err := store.ListAccountSyncCheckpoints(ctx, userID, accountA, 10, "")
+	if err != nil || len(checkpoints) != 1 {
+		t.Fatalf("first immutable sync checkpoint was not saved: %#v err=%v", checkpoints, err)
+	}
+	firstCheckpoint := checkpoints[0]
+	if firstCheckpoint.ID == "" || firstCheckpoint.OperationID == "" || firstCheckpoint.FinancialAccountID != accountA || firstCheckpoint.ProviderConnectionID != connectionA || firstCheckpoint.Provider != "coinbase" || firstCheckpoint.SourceOperation != "PROVIDER_ACCOUNT_DISCOVERY" || firstCheckpoint.Outcome != "SAVED" || firstCheckpoint.AccountCount != 1 || firstCheckpoint.CompletedAt.Before(firstCheckpoint.ObservedAt) {
+		t.Fatalf("immutable sync checkpoint identity was incomplete: %#v", firstCheckpoint)
+	}
+	if err = store.SyncAccounts(ctx, userID, connectionA, []financial.FinancialAccount{{Provider: "coinbase", ProviderAccountID: providerIDA, DisplayName: "Portfolio A refreshed again", AccountType: "digital_asset_portfolio", BaseCurrency: "USD", Capabilities: financial.Capabilities{}}}); err != nil {
+		t.Fatal(err)
+	}
+	checkpoints, err = store.ListAccountSyncCheckpoints(ctx, userID, accountA, 1, "")
+	if err != nil || len(checkpoints) != 1 || checkpoints[0].OperationID == firstCheckpoint.OperationID {
+		t.Fatalf("second sync did not create a distinct bounded checkpoint: %#v err=%v", checkpoints, err)
+	}
+	newestCheckpoint := checkpoints[0]
+	checkpoints, err = store.ListAccountSyncCheckpoints(ctx, userID, accountA, 2, newestCheckpoint.ID)
+	if err != nil || len(checkpoints) != 1 || checkpoints[0].ID != firstCheckpoint.ID {
+		t.Fatalf("sync checkpoint cursor did not return older evidence: %#v err=%v", checkpoints, err)
+	}
+	if _, err = store.ListAccountSyncCheckpoints(ctx, userID, accountB, 2, newestCheckpoint.ID); !errors.Is(err, ErrInvalidSyncCheckpointHistory) {
+		t.Fatalf("cross-account sync checkpoint cursor was accepted: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE financial_account_sync_checkpoints SET outcome='SAVED' WHERE id=$1`, newestCheckpoint.ID); err == nil {
+		t.Fatal("immutable financial account sync checkpoint was updateable")
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM financial_account_sync_operations WHERE id=$1`, newestCheckpoint.OperationID); err == nil {
+		t.Fatal("immutable financial account sync operation was deleteable")
+	}
 	var bStatus, bName string
 	if err = pool.QueryRow(ctx, `SELECT status,display_name FROM financial_accounts WHERE id=$1`, accountB).Scan(&bStatus, &bName); err != nil || bStatus != "active" || bName != "Portfolio B" {
 		t.Fatalf("sync crossed connection boundary: status=%q name=%q err=%v", bStatus, bName, err)

@@ -200,6 +200,7 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 		mux.Handle("DELETE /api/connections/financial/{id}", h.require(stdhttp.HandlerFunc(h.disconnectFinancial)))
 		mux.Handle("GET /api/accounts", h.require(stdhttp.HandlerFunc(h.listAccounts)))
 		mux.Handle("GET /api/accounts/{id}", h.require(stdhttp.HandlerFunc(h.getAccount)))
+		mux.Handle("GET /api/accounts/{id}/sync-checkpoints", h.require(stdhttp.HandlerFunc(h.accountSyncCheckpointHistory)))
 		mux.Handle("GET /api/accounts/{id}/balances", h.require(stdhttp.HandlerFunc(h.getBalances)))
 		mux.Handle("GET /api/accounts/{id}/positions", h.require(stdhttp.HandlerFunc(h.getPositions)))
 		mux.Handle("GET /api/accounts/{id}/reconciliations/latest", h.require(stdhttp.HandlerFunc(h.latestPortfolioReconciliation)))
@@ -326,6 +327,14 @@ func (h *authHandler) financialError(w stdhttp.ResponseWriter, e error) {
 		status = stdhttp.StatusBadRequest
 		code = "INVALID_RECONCILIATION_HISTORY"
 		message = "The reconciliation history request is invalid."
+	} else if errors.Is(e, financialconnection.ErrSyncCheckpointHistoryUnavailable) {
+		status = stdhttp.StatusServiceUnavailable
+		code = "SYNC_CHECKPOINT_HISTORY_UNAVAILABLE"
+		message = "Saved financial account sync history is temporarily unavailable."
+	} else if errors.Is(e, financialconnection.ErrInvalidSyncCheckpointHistory) {
+		status = stdhttp.StatusBadRequest
+		code = "INVALID_SYNC_CHECKPOINT_HISTORY"
+		message = "The saved financial account sync history request is invalid."
 	} else {
 		var pe *financial.ProviderError
 		if errors.As(e, &pe) {

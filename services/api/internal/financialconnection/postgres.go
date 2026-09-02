@@ -114,20 +114,51 @@ func (s *PostgresStore) SyncAccounts(ctx context.Context, user, connection strin
 		return e
 	}
 	defer tx.Rollback(ctx)
+	var observedAt time.Time
+	if e = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&observedAt); e != nil {
+		return e
+	}
 	_, e = tx.Exec(ctx, `UPDATE financial_accounts SET status='unavailable',updated_at=now() WHERE user_id=$1 AND provider_connection_id=$2`, user, connection)
 	if e != nil {
 		return e
 	}
+	accountIDs := make([]string, 0, len(accounts))
 	for _, a := range accounts {
 		caps, _ := json.Marshal(a.Capabilities)
-		_, e = tx.Exec(ctx, `INSERT INTO financial_accounts(user_id,provider_connection_id,provider_name,provider_account_id,display_name,masked_identifier,account_type,base_currency,status,capabilities) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'active',$9) ON CONFLICT(provider_connection_id,provider_account_id) DO UPDATE SET display_name=excluded.display_name,masked_identifier=excluded.masked_identifier,account_type=excluded.account_type,base_currency=excluded.base_currency,status='active',capabilities=excluded.capabilities,last_synced_at=now(),updated_at=now()`, user, connection, a.Provider, a.ProviderAccountID, a.DisplayName, a.MaskedIdentifier, a.AccountType, a.BaseCurrency, caps)
+		var accountID string
+		e = tx.QueryRow(ctx, `INSERT INTO financial_accounts(user_id,provider_connection_id,provider_name,provider_account_id,display_name,masked_identifier,account_type,base_currency,status,capabilities) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'active',$9) ON CONFLICT(provider_connection_id,provider_account_id) DO UPDATE SET display_name=excluded.display_name,masked_identifier=excluded.masked_identifier,account_type=excluded.account_type,base_currency=excluded.base_currency,status='active',capabilities=excluded.capabilities,last_synced_at=now(),updated_at=now() RETURNING id::text`, user, connection, a.Provider, a.ProviderAccountID, a.DisplayName, a.MaskedIdentifier, a.AccountType, a.BaseCurrency, caps).Scan(&accountID)
 		if e != nil {
 			return e
 		}
+		accountIDs = append(accountIDs, accountID)
 	}
 	_, e = tx.Exec(ctx, `UPDATE provider_connections SET last_verified_at=now(),updated_at=now() WHERE id=$1 AND user_id=$2`, connection, user)
 	if e != nil {
 		return e
+	}
+	if len(accountIDs) > 0 {
+		var operationID, providerName string
+		var completedAt time.Time
+		if e = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&completedAt); e != nil {
+			return e
+		}
+		e = tx.QueryRow(ctx, `INSERT INTO financial_account_sync_operations(user_id,provider_connection_id,provider_name,source_operation,outcome,account_count,observed_at,completed_at,created_at)
+			SELECT p.user_id,p.id,p.provider_name,'PROVIDER_ACCOUNT_DISCOVERY','SAVED',$3,$4,$5,$5
+			FROM provider_connections p
+			WHERE p.id=$2 AND p.user_id=$1 AND p.provider_category='financial'
+			RETURNING id::text,provider_name`, user, connection, len(accountIDs), observedAt, completedAt).Scan(&operationID, &providerName)
+		if errors.Is(e, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if e != nil {
+			return e
+		}
+		for _, accountID := range accountIDs {
+			_, e = tx.Exec(ctx, `INSERT INTO financial_account_sync_checkpoints(operation_id,user_id,provider_connection_id,financial_account_id,provider_name,observed_at,completed_at,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$7)`, operationID, user, connection, accountID, providerName, observedAt, completedAt)
+			if e != nil {
+				return e
+			}
+		}
 	}
 	return tx.Commit(ctx)
 }
