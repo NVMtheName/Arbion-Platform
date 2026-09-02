@@ -16343,6 +16343,156 @@ h1 {
   color: #657a70;
   font-size: 0.62rem;
 }
+.dashboard-input-chain {
+  overflow: hidden;
+  margin-bottom: 20px;
+  border: 1px solid rgba(111, 170, 255, 0.2);
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at 92% -30%,
+      rgba(111, 170, 255, 0.12),
+      transparent 28rem
+    ),
+    rgba(5, 17, 18, 0.88);
+}
+.dashboard-input-chain.is-attention,
+.dashboard-input-chain.is-unavailable {
+  border-color: rgba(245, 190, 92, 0.28);
+}
+.dashboard-input-chain > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 28px 20px;
+  border-bottom: 1px solid rgba(111, 170, 255, 0.13);
+}
+.dashboard-input-chain > header h2 {
+  margin: 7px 0 0;
+  color: #e4efe9;
+  font-size: clamp(1.25rem, 2vw, 1.75rem);
+  letter-spacing: -0.035em;
+}
+.dashboard-input-chain > header p:last-child {
+  margin: 8px 0 0;
+  color: #7e9288;
+  font-size: 0.74rem;
+  line-height: 1.55;
+}
+.dashboard-input-chain > header > a,
+.dashboard-input-chain details a {
+  color: var(--brand-cyan);
+  font-size: 0.7rem;
+  font-weight: 740;
+  text-decoration: none;
+}
+.dashboard-input-chain > header > a {
+  flex: 0 0 auto;
+}
+.dashboard-input-chain > ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 14px;
+  list-style: none;
+}
+.dashboard-input-chain > ol > li {
+  overflow: hidden;
+  border: 1px solid rgba(111, 170, 255, 0.13);
+  border-radius: 12px;
+  background: rgba(3, 13, 12, 0.66);
+}
+.dashboard-input-chain > ol > li:not(.is-current) {
+  border-color: rgba(245, 190, 92, 0.22);
+}
+.dashboard-input-chain details > summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.dashboard-input-chain details > summary::-webkit-details-marker {
+  display: none;
+}
+.dashboard-input-chain details > summary > span:nth-child(2) strong,
+.dashboard-input-chain details > summary > span:nth-child(2) small {
+  display: block;
+}
+.dashboard-input-chain details > summary > span:nth-child(2) strong {
+  overflow: hidden;
+  color: #dceae3;
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dashboard-input-chain details > summary > span:nth-child(2) small,
+.dashboard-input-chain-next {
+  color: #70867c;
+  font-size: 0.62rem;
+}
+.dashboard-input-chain-state {
+  padding: 6px 9px;
+  border: 1px solid rgba(94, 224, 160, 0.22);
+  border-radius: 999px;
+  color: #9ce7bd;
+  background: rgba(94, 224, 160, 0.08);
+  font-size: 0.6rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
+.dashboard-input-chain li:not(.is-current) .dashboard-input-chain-state {
+  border-color: rgba(245, 190, 92, 0.24);
+  color: #f0ce88;
+  background: rgba(245, 190, 92, 0.08);
+}
+.dashboard-input-chain details > div {
+  padding: 0 14px 14px 58px;
+}
+.dashboard-input-chain details > div > p {
+  margin: 0;
+  color: #82968c;
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+.dashboard-input-chain details footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(111, 170, 255, 0.1);
+}
+.dashboard-input-chain details footer > span {
+  color: #70867c;
+  font-size: 0.62rem;
+}
+.dashboard-input-chain > footer {
+  padding: 12px 28px 15px;
+  border-top: 1px solid rgba(111, 170, 255, 0.1);
+  color: #62786e;
+  font-size: 0.62rem;
+}
+.dashboard-input-chain-unavailable {
+  margin: 14px;
+  padding: 16px;
+  border: 1px dashed rgba(245, 190, 92, 0.25);
+  border-radius: 12px;
+}
+.dashboard-input-chain-unavailable strong {
+  color: #e7d8b9;
+  font-size: 0.78rem;
+}
+.dashboard-input-chain-unavailable p {
+  margin: 6px 0 0;
+  color: #8b8170;
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
 .ai-engine-cockpit {
   overflow: hidden;
   margin-bottom: 20px;
@@ -17104,6 +17254,27 @@ h1 {
     margin-inline: 22px;
   }
   .owner-attention-center > footer {
+    padding-inline: 22px;
+  }
+  .dashboard-input-chain > header,
+  .dashboard-input-chain details footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .dashboard-input-chain > header {
+    padding-inline: 22px;
+  }
+  .dashboard-input-chain details > summary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .dashboard-input-chain-state,
+  .dashboard-input-chain-next {
+    grid-column: 2;
+  }
+  .dashboard-input-chain details > div {
+    padding-left: 58px;
+  }
+  .dashboard-input-chain > footer {
     padding-inline: 22px;
   }
   .portfolio-command {

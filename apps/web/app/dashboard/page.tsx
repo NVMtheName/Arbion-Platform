@@ -8,6 +8,12 @@ import {
   type DashboardMoney,
 } from "./command-center-dashboard";
 import type { OwnerAttentionOverview } from "./owner-attention-center";
+import {
+  type FinancialContinuityEngine,
+  type FinancialContinuityRun,
+  projectFinancialInputChains,
+} from "../settings/connections/financial-continuity-center";
+import type { FinancialConnection } from "../settings/connections/page";
 
 type User = {
   email: string;
@@ -20,10 +26,11 @@ type Preference = { connection_id: string; model_id: string };
 
 type Account = {
   id: string;
+  provider_connection_id: string;
   provider: string;
   display_name: string;
   status: string;
-  last_synced_at?: string;
+  last_synced_at?: string | null;
 };
 
 type Balances = {
@@ -49,6 +56,11 @@ type CryptoPortfolio = {
 
 type AutomationRecord = Record<string, unknown>;
 type StrategyInstanceRecord = Record<string, unknown>;
+
+type DashboardEngineInventory = {
+  summary: DashboardAIEngineSummary;
+  inputChain: FinancialContinuityEngine;
+};
 
 function recordString(
   record: Record<string, unknown> | undefined,
@@ -92,6 +104,15 @@ function recordObject(
     : undefined;
 }
 
+function continuityScheduleTiming(nextRunAt: string | undefined, now: Date) {
+  if (!nextRunAt || Number.isNaN(now.valueOf())) return "UNAVAILABLE" as const;
+  const nextRun = new Date(nextRunAt);
+  if (Number.isNaN(nextRun.valueOf())) return "UNAVAILABLE" as const;
+  return nextRun.valueOf() < now.valueOf() - 5 * 60 * 1000
+    ? ("OVERDUE" as const)
+    : ("ON_SCHEDULE" as const);
+}
+
 async function fetchDashboardJSON<T>(
   url: string,
   headers: { cookie: string },
@@ -111,7 +132,8 @@ async function aiEngineSummaries(
   accounts: Account[],
   base: string,
   headers: { cookie: string },
-): Promise<DashboardAIEngineSummary[]> {
+  observedAt: Date,
+): Promise<DashboardEngineInventory[]> {
   const engines = instances.filter((instance) => {
     const executionMode = recordString(
       instance,
@@ -146,12 +168,21 @@ async function aiEngineSummaries(
         (item) => recordString(item, "id", "ID") === mandateID,
       );
       const account = accounts.find((item) => item.id === accountID);
-      const [scheduleResult, decisionsResult, scorecardResult] =
+      const [scheduleResult, historyResult, decisionsResult, scorecardResult] =
         await Promise.all([
           fetchDashboardJSON<{
             schedule?: Record<string, unknown>;
           }>(
             `${base}/api/strategy-instances/${encodeURIComponent(id)}/schedule`,
+            headers,
+          ),
+          fetchDashboardJSON<{
+            runs?: FinancialContinuityRun[];
+            history_semantics?: string;
+            broker_action_available?: boolean;
+            live_execution_available?: boolean;
+          }>(
+            `${base}/api/strategy-instances/${encodeURIComponent(id)}/schedule-runs?limit=12`,
             headers,
           ),
           fetchDashboardJSON<{
@@ -173,6 +204,9 @@ async function aiEngineSummaries(
               }),
         ]);
       const schedule = scheduleResult.payload?.schedule;
+      const recentRuns = Array.isArray(historyResult.payload?.runs)
+        ? historyResult.payload.runs
+        : [];
       const lastDecision = decisionsResult.payload?.decisions?.find(
         (decision) => recordString(decision, "source", "Source") === "AI",
       );
@@ -191,7 +225,22 @@ async function aiEngineSummaries(
           ? (rawEvidenceGate as Record<string, unknown>)
           : undefined;
 
-      return {
+      const scheduleCompletedAt = recordString(
+        schedule,
+        "last_completed_at",
+        "LastCompletedAt",
+      );
+      const nextRunAt = recordString(schedule, "next_run_at", "NextRunAt");
+      const scheduleStatus = recordString(
+        schedule,
+        "last_status",
+        "LastStatus",
+      );
+      const consecutiveFailures =
+        recordNumber(schedule, "consecutive_failures", "ConsecutiveFailures") ??
+        0;
+
+      const summary: DashboardAIEngineSummary = {
         id,
         mandateID,
         accountName: account?.display_name ?? "Connected account",
@@ -206,8 +255,8 @@ async function aiEngineSummaries(
           "last_evaluated_at",
           "LastEvaluatedAt",
         ),
-        nextRunAt: recordString(schedule, "next_run_at", "NextRunAt"),
-        scheduleStatus: recordString(schedule, "last_status", "LastStatus"),
+        nextRunAt,
+        scheduleStatus,
         scheduleAvailable: scheduleResult.available,
         journalAvailable: decisionsResult.available,
         evidenceAvailable:
@@ -246,12 +295,7 @@ async function aiEngineSummaries(
             "minimum_evidence_window_hours",
             "MinimumEvidenceWindowHours",
           ) ?? 168,
-        consecutiveFailures:
-          recordNumber(
-            schedule,
-            "consecutive_failures",
-            "ConsecutiveFailures",
-          ) ?? 0,
+        consecutiveFailures,
         lastDecision: recordString(
           lastDecision,
           "decision_type",
@@ -290,6 +334,41 @@ async function aiEngineSummaries(
           "OutputUsage",
         ),
       };
+      return {
+        summary,
+        inputChain: {
+          mandate_id: mandateID,
+          instance_id: id,
+          connection_id: account?.provider_connection_id,
+          account_id: accountID,
+          account_name: account?.display_name,
+          provider: account?.provider,
+          execution_mode: executionMode,
+          instance_status: recordString(instance, "status", "Status"),
+          current_state: recordString(
+            instance,
+            "current_state",
+            "CurrentState",
+          ),
+          schedule_available: scheduleResult.available,
+          schedule_history_available: Boolean(
+            historyResult.available &&
+              historyResult.payload?.history_semantics ===
+                "IMMUTABLE_NONLIVE_SCHEDULER_EVIDENCE" &&
+              historyResult.payload?.broker_action_available === false &&
+              historyResult.payload?.live_execution_available === false,
+          ),
+          schedule_status: scheduleStatus,
+          schedule_completed_at: scheduleCompletedAt,
+          schedule_next_run_at: nextRunAt,
+          schedule_timing_status: continuityScheduleTiming(
+            nextRunAt,
+            observedAt,
+          ),
+          consecutive_failures: consecutiveFailures,
+          recent_runs: recentRuns,
+        },
+      };
     }),
   );
 }
@@ -305,7 +384,7 @@ async function accountSummary(
     provider: account.provider,
     displayName: account.display_name,
     status: account.status,
-    asOf: account.last_synced_at,
+    asOf: account.last_synced_at ?? undefined,
   };
 
   try {
@@ -337,7 +416,7 @@ async function accountSummary(
           portfolio.pricing_state !== "READY"
             ? "partial"
             : "ready",
-        asOf: portfolio.pricing_as_of ?? account.last_synced_at,
+        asOf: portfolio.pricing_as_of ?? account.last_synced_at ?? undefined,
       };
     }
 
@@ -387,7 +466,8 @@ export default async function Dashboard() {
   const { user } = (await response.json()) as { user: User };
 
   const [
-    connectionsResponse,
+    aiConnectionsResponse,
+    financialConnectionsResponse,
     accountsResponse,
     preferenceResponse,
     automationsResponse,
@@ -395,6 +475,10 @@ export default async function Dashboard() {
     attentionResponse,
   ] = await Promise.all([
     fetch(`${api}/api/connections/ai`, { headers, cache: "no-store" }),
+    fetch(`${api}/api/connections/financial`, {
+      headers,
+      cache: "no-store",
+    }),
     fetch(`${api}/api/accounts`, { headers, cache: "no-store" }),
     fetch(`${api}/api/settings/neural-engine`, {
       headers,
@@ -411,19 +495,36 @@ export default async function Dashboard() {
     }).catch(() => null),
   ]);
 
-  const connections = connectionsResponse.ok
-    ? ((
-        (await connectionsResponse.json()) as {
-          connections?: { status?: string }[] | null;
-        }
-      ).connections ?? [])
+  const aiConnectionsPayload = aiConnectionsResponse.ok
+    ? (((await aiConnectionsResponse.json()) as {
+        connections?: { status?: string }[] | null;
+      }) ?? undefined)
+    : undefined;
+  const financialConnectionsPayload = financialConnectionsResponse.ok
+    ? ((await financialConnectionsResponse.json()) as {
+        connections?: FinancialConnection[] | null;
+      })
+    : undefined;
+  const accountsPayload = accountsResponse.ok
+    ? ((await accountsResponse.json()) as {
+        accounts?: Account[] | null;
+      })
+    : undefined;
+  const instancesPayload = instancesResponse.ok
+    ? ((await instancesResponse.json()) as {
+        strategy_instances?: StrategyInstanceRecord[] | null;
+      })
+    : undefined;
+  const aiConnections = Array.isArray(aiConnectionsPayload?.connections)
+    ? aiConnectionsPayload.connections
     : [];
-  const accounts = accountsResponse.ok
-    ? ((
-        (await accountsResponse.json()) as {
-          accounts?: Account[] | null;
-        }
-      ).accounts ?? [])
+  const financialConnections = Array.isArray(
+    financialConnectionsPayload?.connections,
+  )
+    ? financialConnectionsPayload.connections
+    : [];
+  const accounts = Array.isArray(accountsPayload?.accounts)
+    ? accountsPayload.accounts
     : [];
   const preference = preferenceResponse.ok
     ? (
@@ -439,12 +540,8 @@ export default async function Dashboard() {
         }
       ).automations ?? [])
     : [];
-  const instances = instancesResponse.ok
-    ? ((
-        (await instancesResponse.json()) as {
-          strategy_instances?: StrategyInstanceRecord[] | null;
-        }
-      ).strategy_instances ?? [])
+  const instances = Array.isArray(instancesPayload?.strategy_instances)
+    ? instancesPayload.strategy_instances
     : [];
   const attention = attentionResponse?.ok
     ? (
@@ -456,12 +553,35 @@ export default async function Dashboard() {
   const activeAccounts = accounts.filter(
     (account) => account.status === "active",
   );
-  const [accountSummaries, engines] = await Promise.all([
+  const continuityObservedAt = new Date();
+  const [accountSummaries, engineInventory] = await Promise.all([
     Promise.all(
       activeAccounts.map((account) => accountSummary(account, api, headers)),
     ),
-    aiEngineSummaries(instances, automations, accounts, api, headers),
+    aiEngineSummaries(
+      instances,
+      automations,
+      accounts,
+      api,
+      headers,
+      continuityObservedAt,
+    ),
   ]);
+  const engines = engineInventory.map((item) => item.summary);
+  const financialInputChains = projectFinancialInputChains({
+    connections: financialConnections,
+    accounts,
+    engines: engineInventory.map((item) => item.inputChain),
+    observedAt: continuityObservedAt.toISOString(),
+  });
+  const financialInputChainsAvailable = Boolean(
+    financialConnectionsResponse.ok &&
+      accountsResponse.ok &&
+      instancesResponse.ok &&
+      Array.isArray(financialConnectionsPayload?.connections) &&
+      Array.isArray(accountsPayload?.accounts) &&
+      Array.isArray(instancesPayload?.strategy_instances),
+  );
 
   return (
     <CommandCenterDashboard
@@ -469,8 +589,10 @@ export default async function Dashboard() {
       aiEngines={engines}
       attention={attention}
       attentionAvailable={attentionResponse?.ok === true}
+      financialInputChains={financialInputChains}
+      financialInputChainsAvailable={financialInputChainsAvailable}
       connectionCount={
-        connections.filter((connection) => connection.status === "active")
+        aiConnections.filter((connection) => connection.status === "active")
           .length
       }
       modelConfigured={preference !== null}
