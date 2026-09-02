@@ -258,7 +258,7 @@ export function PortfolioHoldingsLedger({
               <tbody>
                 {visible.map((holding) => (
                   <tr key={holding.key}>
-                    <td>
+                    <td data-label="Asset">
                       <strong>{holding.symbol}</strong>
                       <small>
                         {holding.instrumentType
@@ -267,13 +267,13 @@ export function PortfolioHoldingsLedger({
                         {holding.direction === "short" ? " · short" : ""}
                       </small>
                     </td>
-                    <td>
+                    <td data-label="Account">
                       <Link href={`/accounts/${holding.accountID}`}>
                         {holding.accountName}
                       </Link>
                       <small>{providerLabel(holding.provider)}</small>
                     </td>
-                    <td>
+                    <td data-label="Quantity">
                       <strong>{decimal(holding.quantity)}</strong>
                       {(holding.availableQuantity !== undefined ||
                         holding.unavailableQuantity !== undefined) && (
@@ -291,7 +291,7 @@ export function PortfolioHoldingsLedger({
                         </small>
                       )}
                     </td>
-                    <td>
+                    <td data-label="Avg. purchase price">
                       {holding.averagePrice ? (
                         <strong>{money(holding.averagePrice)}</strong>
                       ) : (
@@ -305,7 +305,7 @@ export function PortfolioHoldingsLedger({
                         </>
                       )}
                     </td>
-                    <td>
+                    <td data-label="Current price">
                       <strong>{money(holding.currentPrice)}</strong>
                       <small>
                         {holding.priceBasis
@@ -315,6 +315,7 @@ export function PortfolioHoldingsLedger({
                     </td>
                     <td
                       className={movementClass(holding.dayProfitLoss?.amount)}
+                      data-label="Day / 24h change"
                     >
                       <strong>{money(holding.dayProfitLoss, true)}</strong>
                       <small>
@@ -322,11 +323,12 @@ export function PortfolioHoldingsLedger({
                         {holding.changeWindow}
                       </small>
                     </td>
-                    <td>
+                    <td data-label="Market value">
                       <strong>{money(holding.marketValue)}</strong>
                     </td>
                     <td
                       className={movementClass(holding.totalProfitLoss?.amount)}
+                      data-label="Total return"
                     >
                       {holding.totalProfitLoss ? (
                         <>

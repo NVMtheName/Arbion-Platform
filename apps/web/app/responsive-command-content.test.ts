@@ -106,6 +106,28 @@ describe("signed-in command content continuity", () => {
     );
   });
 
+  it("turns dense owner evidence into scan-friendly narrow-screen cards", () => {
+    const styles = appSource("./styles.css");
+    const holdings = appSource("./accounts/portfolio-holdings-ledger.tsx");
+
+    expect(styles).toMatch(
+      /@media \(max-width:\s*760px\)[\s\S]*?\.holdings-table-wrap tbody tr\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/,
+    );
+    expect(styles).toMatch(
+      /@media \(max-width:\s*760px\)[\s\S]*?\.holdings-table-wrap td::before\s*\{[^}]*content:\s*attr\(data-label\);/,
+    );
+    expect(styles).toMatch(
+      /@media \(max-width:\s*560px\)[\s\S]*?\.holdings-table-wrap tbody tr\s*\{[^}]*grid-template-columns:\s*1fr;/,
+    );
+    expect(styles).toMatch(
+      /@media \(max-width:\s*390px\)[\s\S]*?\.strategy-fleet-command-deck > ol > li > dl\s*\{[^}]*grid-template-columns:\s*1fr;/,
+    );
+    expect(holdings.match(/data-label=/g)).toHaveLength(8);
+    expect(styles).toMatch(
+      /\.holdings-table-wrap table\s*\{[^}]*min-width:\s*1300px;/,
+    );
+  });
+
   it.each([
     [
       "Dashboard",

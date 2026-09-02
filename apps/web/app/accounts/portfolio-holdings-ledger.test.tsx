@@ -76,6 +76,22 @@ describe("PortfolioHoldingsLedger", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("BTC")).toBeInTheDocument();
     expect(screen.getByText("AAPL")).toBeInTheDocument();
+    const btcRow = screen.getByText("BTC").closest("tr");
+    expect(btcRow).not.toBeNull();
+    expect(
+      within(btcRow!)
+        .getAllByRole("cell")
+        .map((cell) => cell.dataset.label),
+    ).toEqual([
+      "Asset",
+      "Account",
+      "Quantity",
+      "Avg. purchase price",
+      "Current price",
+      "Day / 24h change",
+      "Market value",
+      "Total return",
+    ]);
     expect(
       screen.getByText(/0.3 available · 0.2 staked \/ unavailable/),
     ).toBeInTheDocument();
