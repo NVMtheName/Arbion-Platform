@@ -32,6 +32,10 @@ const connectionHref = () => "/connections";
 const riskHref = () => "/settings/risk";
 const accountHref = (item: OwnerAttentionItem) =>
   item.resource_id ? `/accounts/${item.resource_id}` : "/accounts";
+const accountReconciliationHref = (item: OwnerAttentionItem) =>
+  item.resource_id
+    ? `/accounts/${item.resource_id}#reconciliation-resolution-title`
+    : "/accounts";
 const automationHref = (item: OwnerAttentionItem) =>
   item.resource_id ? `/automations/${item.resource_id}` : "/automations";
 
@@ -48,14 +52,14 @@ const presentations: Record<string, AttentionPresentation> = {
     detail:
       "New autonomous actions are blocked until you review the immutable account reconciliation.",
     linkLabel: "Review account",
-    href: accountHref,
+    href: accountReconciliationHref,
   },
   PORTFOLIO_EVIDENCE_REQUIRED: {
     title: "Portfolio evidence needs review",
     detail:
       "The latest provider snapshot is incomplete. New autonomous actions remain blocked for this account.",
     linkLabel: "Review account",
-    href: accountHref,
+    href: accountReconciliationHref,
   },
   AI_CONNECTION_ATTENTION: {
     title: "AI connection needs attention",

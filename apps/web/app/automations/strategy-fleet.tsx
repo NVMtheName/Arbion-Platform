@@ -2473,7 +2473,7 @@ export function selectStrategyFleetNextAction(
               ? "The latest immutable broker snapshot is older than the 24-hour autonomy threshold. New proposals remain fail-closed until current evidence is recorded."
               : "Balance, position, match, or autonomy-control evidence is incomplete. New proposals remain fail-closed.",
       href: item.financialAccountID
-        ? `/accounts/${item.financialAccountID}#reconciliation-title`
+        ? `/accounts/${item.financialAccountID}${item.reconciliationAvailable === false ? "#reconciliation-title" : "#reconciliation-resolution-title"}`
         : "/accounts",
       actionLabel: "Review portfolio evidence",
     };
@@ -10710,7 +10710,7 @@ function StrategyFleetDataHealth({ item }: { item: StrategyFleetItem }) {
         </span>
         {item.financialAccountID && (
           <Link
-            href={`/accounts/${item.financialAccountID}#reconciliation-title`}
+            href={`/accounts/${item.financialAccountID}${!portfolioHealthy && item.reconciliationAvailable !== false ? "#reconciliation-resolution-title" : "#reconciliation-title"}`}
           >
             Account evidence →
           </Link>
