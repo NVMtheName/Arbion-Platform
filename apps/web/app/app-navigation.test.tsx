@@ -68,6 +68,26 @@ describe("persistent connection navigation health", () => {
     ).toBe(180);
   });
 
+  it.each([
+    [320, 610],
+    [390, 540],
+    [768, 162],
+    [1440, 0],
+  ])(
+    "keeps the active destination oriented at a %ipx viewport",
+    (viewportWidth, expectedScrollLeft) => {
+      expect(
+        resolveNavigationScrollLeft({
+          retainedScrollLeft: 0,
+          scrollWidth: 960,
+          viewportWidth,
+          activeStart: 850,
+          activeWidth: 80,
+        }),
+      ).toBe(expectedScrollLeft);
+    },
+  );
+
   it("reveals an active tab beyond either edge without vertical scrolling", () => {
     expect(
       resolveNavigationScrollLeft({
@@ -246,6 +266,21 @@ describe("persistent connection navigation health", () => {
       "aria-current",
       "page",
     );
+  });
+
+  it("keeps the current section announced when no route switch is pending", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ connections: [connection()] }),
+      }),
+    );
+    render(<AppNavigation />);
+
+    expect(
+      screen.getByRole("status", { name: "Portfolio selected" }),
+    ).toHaveTextContent("Portfolio selected");
   });
 
   it("keeps the current tab visible when the navigation viewport resizes", () => {

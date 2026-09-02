@@ -64,4 +64,25 @@ describe("signed-in command content continuity", () => {
       /@media \(max-width:\s*760px\)[\s\S]*?\.command-data-scroll::-webkit-scrollbar-thumb\s*\{[^}]*background:\s*rgba\(124, 229, 236, 0\.72\);/,
     );
   });
+
+  it("keeps the shared header geometry stable across route breakpoints", () => {
+    const styles = appSource("./styles.css");
+
+    expect(styles).toMatch(/:root\s*\{[^}]*scrollbar-gutter:\s*stable;/);
+    expect(styles).toMatch(
+      /main:has\(> \.app-page-header\)\s*\{[^}]*width:\s*min\(100%, var\(--app-shell-max-width\)\);[^}]*margin-inline:\s*auto;/,
+    );
+    expect(styles).toMatch(
+      /@media \(max-width:\s*900px\)[\s\S]*?\.app-page-header\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/,
+    );
+    expect(styles).toMatch(
+      /@media \(max-width:\s*900px\)[\s\S]*?\.app-page-header \.app-navigation\s*\{[^}]*grid-column:\s*1 \/ -1;[^}]*grid-row:\s*2;/,
+    );
+    expect(styles).toMatch(
+      /@media \(max-width:\s*900px\)[\s\S]*?\.app-page-header \.app-navigation a\s*\{[^}]*min-block-size:\s*44px;/,
+    );
+    expect(styles).toMatch(
+      /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?scroll-behavior:\s*auto !important;[\s\S]*?transition-duration:\s*0\.01ms !important;/,
+    );
+  });
 });
