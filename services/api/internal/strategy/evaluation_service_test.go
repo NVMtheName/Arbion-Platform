@@ -606,16 +606,17 @@ func TestSchwabAIFailsClosedUnlessProviderExplicitlyMarksQuoteRealtime(t *testin
 	for _, test := range []struct {
 		name     string
 		realtime *bool
+		want     error
 	}{
-		{name: "missing entitlement"},
-		{name: "delayed entitlement", realtime: func() *bool { value := false; return &value }()},
+		{name: "missing entitlement", want: ErrEvaluationMarketDataUnconfirmed},
+		{name: "delayed entitlement", realtime: func() *bool { value := false; return &value }(), want: ErrEvaluationMarketDataDelayed},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service, store, finances, ai, principal := aiEvaluationFixture("schwab", decision)
 			finances.realtime = test.realtime
 
 			_, err := service.Evaluate(context.Background(), principal, "ai-instance", "scheduled-ai:schwab-entitlement")
-			if !errors.Is(err, ErrEvaluationMarketDataNotRealtime) {
+			if !errors.Is(err, test.want) || !errors.Is(err, ErrEvaluationMarketDataNotRealtime) {
 				t.Fatalf("ambiguous Schwab market entitlement was not rejected: %v", err)
 			}
 			if finances.quoteCalls != 1 || ai.calls != 0 || store.commits != 0 || store.abstains != 0 || store.paperCommits != 0 {

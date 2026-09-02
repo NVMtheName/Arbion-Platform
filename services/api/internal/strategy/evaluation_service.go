@@ -988,8 +988,11 @@ func (s *EvaluationService) aiMarketFacts(ctx context.Context, principal authori
 			if !freshMarketTimestamp(quote.ProviderTimestamp, now) {
 				return nil, ErrEvaluationMarketDataStale
 			}
-			if quote.Realtime == nil || !*quote.Realtime {
-				return nil, ErrEvaluationMarketDataNotRealtime
+			if quote.Realtime == nil {
+				return nil, ErrEvaluationMarketDataUnconfirmed
+			}
+			if !*quote.Realtime {
+				return nil, ErrEvaluationMarketDataDelayed
 			}
 			facts = append(facts, neural.ShadowMarketFact{Symbol: strings.ToUpper(symbol), AssetClass: "EQUITY", Currency: "USD", Bid: financialDecimal(quote.Bid), Ask: financialDecimal(quote.Ask), Mark: financialDecimal(quote.Mark), Last: financialDecimal(quote.Last), Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: quote.ProviderTimestamp, HistoryStatus: "UNAVAILABLE", LiquidityStatus: "UNAVAILABLE"})
 		}

@@ -8,6 +8,8 @@ describe("scheduleFailureGuidance", () => {
     ["AI_PROVIDER_UNAVAILABLE", "AUTOMATIC_RETRY"],
     ["AI_CONNECTION_UNAVAILABLE", "OWNER_REVIEW"],
     ["AI_REQUEST_INVALID", "OPERATOR_REVIEW"],
+    ["MARKET_DATA_DELAYED", "OWNER_REVIEW"],
+    ["MARKET_DATA_REALTIME_UNCONFIRMED", "OWNER_REVIEW"],
     ["MARKET_DATA_NOT_REALTIME", "OWNER_REVIEW"],
     ["MARKET_DATA_INVALID", "OPERATOR_REVIEW"],
     ["INVALID", "OPERATOR_REVIEW"],
@@ -58,6 +60,16 @@ describe("scheduleFailureGuidance", () => {
         /Schwab.*did not explicitly mark.*real-time.*stopped before the AI model.*will not use delayed or ambiguous market prices/i,
       ),
     });
+  });
+
+  it("keeps explicit delayed and missing quote-quality evidence distinct", () => {
+    expect(
+      scheduleFailureGuidance("MARKET_DATA_DELAYED", "schwab").message,
+    ).toMatch(/explicitly marked.*delayed.*reconnecting.*does not change/i);
+    expect(
+      scheduleFailureGuidance("MARKET_DATA_REALTIME_UNCONFIRMED", "schwab")
+        .message,
+    ).toMatch(/did not include a real-time status.*rather than guessing/i);
   });
 
   it("explains that unusable Schwab prices stop before the model", () => {

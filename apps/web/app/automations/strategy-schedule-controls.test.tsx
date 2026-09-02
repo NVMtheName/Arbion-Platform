@@ -186,6 +186,8 @@ describe("StrategyScheduleControls", () => {
 
   it.each([
     ["MARKET_DATA_STALE", /after the data refreshes/i],
+    ["MARKET_DATA_DELAYED", /explicitly marked.*delayed/i],
+    ["MARKET_DATA_REALTIME_UNCONFIRMED", /rather than guessing/i],
     ["MARKET_DATA_NOT_REALTIME", /stopped before the AI model/i],
     ["NO_ELIGIBLE_OPTION_CONTRACTS", /review those filters/i],
     ["STRATEGY_CONFIGURATION_CHANGED", /review the automation/i],
