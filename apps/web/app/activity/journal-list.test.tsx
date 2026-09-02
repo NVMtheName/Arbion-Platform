@@ -55,7 +55,10 @@ describe("Decision Journal", () => {
     expect(screen.getByText("Linked decision")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Open exact record" }),
-    ).toHaveAttribute("href", "/activity#decision-decision-1");
+    ).toHaveAttribute(
+      "href",
+      "/activity?decision=decision-1#decision-decision-1",
+    );
     expect(
       screen.getByRole("button", { name: "Copy exact link" }),
     ).toBeInTheDocument();
@@ -132,7 +135,10 @@ describe("Decision Journal", () => {
     expect(screen.getByText("Coinbase · BTC · ETH")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Open newest record ↓" }),
-    ).toHaveAttribute("href", "#decision-decision-latest");
+    ).toHaveAttribute(
+      "href",
+      "/activity?decision=decision-latest#decision-decision-latest",
+    );
     expect(
       screen.getByText(/never reruns a model, calls a financial provider/i),
     ).toBeInTheDocument();
@@ -323,7 +329,29 @@ describe("Decision Journal", () => {
         decisionID: "decision/value",
       }),
     ).toBe(
-      "/activity?cursor=time%3A2026-09-02T10%3A00%3A35Z%2Fid+value&view=shadow#decision-decision%2Fvalue",
+      "/activity?cursor=time%3A2026-09-02T10%3A00%3A35Z%2Fid+value&view=shadow&decision=decision%2Fvalue#decision-decision%2Fvalue",
+    );
+  });
+
+  it("keeps an exact focused record visible outside its preserved filter context", () => {
+    render(
+      <JournalList
+        cursor="older-page"
+        entries={[entry]}
+        filter="SHADOW"
+        focused
+      />,
+    );
+
+    expect(screen.getByText("Wheel · AAPL")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("navigation", { name: "Journal view filters" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Open exact record" }),
+    ).toHaveAttribute(
+      "href",
+      "/activity?cursor=older-page&view=shadow&decision=decision-1#decision-decision-1",
     );
   });
 });

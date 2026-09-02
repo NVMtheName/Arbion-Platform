@@ -98,6 +98,22 @@ func TestDecisionJournalCursorRejectsMalformedInput(t *testing.T) {
 	}
 }
 
+func TestDecisionJournalRejectsMalformedExactIdentifier(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(stdhttp.MethodGet, "/api/decision-journal?decision_id=not-a-uuid", nil)
+	(&authHandler{}).decisionJournal(recorder, request)
+	if recorder.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("status=%d want=%d", recorder.Code, stdhttp.StatusBadRequest)
+	}
+	var body apiError
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error.Code != "INVALID_DECISION" || body.Error.Message == "" {
+		t.Fatalf("unexpected response: %#v", body)
+	}
+}
+
 func TestScheduleRunCursorRoundTripsAndRejectsMalformedInput(t *testing.T) {
 	want := &strategy.ScheduleRunCursor{
 		ScheduledFor: time.Date(2026, 8, 28, 1, 12, 30, 123, time.UTC),

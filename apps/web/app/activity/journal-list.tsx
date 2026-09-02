@@ -247,7 +247,9 @@ export function activityDecisionHref({
   filter: JournalFilter;
   decisionID: string;
 }) {
-  return `${activityJournalHref({ cursor, filter })}#decision-${encodeURIComponent(decisionID)}`;
+  const journalHref = activityJournalHref({ cursor, filter });
+  const separator = journalHref.includes("?") ? "&" : "?";
+  return `${journalHref}${separator}decision=${encodeURIComponent(decisionID)}#decision-${encodeURIComponent(decisionID)}`;
 }
 
 function needsReview(entry: JournalEntry) {
@@ -258,7 +260,15 @@ function needsReview(entry: JournalEntry) {
   );
 }
 
-function DecisionReviewIndex({ entries }: { entries: JournalEntry[] }) {
+function DecisionReviewIndex({
+  cursor,
+  entries,
+  filter,
+}: {
+  cursor: string;
+  entries: JournalEntry[];
+  filter: JournalFilter;
+}) {
   const items = projectDecisionReviewIndex(entries);
   if (items.length === 0) return null;
   return (
@@ -365,7 +375,13 @@ function DecisionReviewIndex({ entries }: { entries: JournalEntry[] }) {
             <footer>
               <span>{decisionComparisonLabel(item)}</span>
               <div>
-                <Link href={`#decision-${item.latestDecisionID}`}>
+                <Link
+                  href={activityDecisionHref({
+                    cursor,
+                    filter,
+                    decisionID: item.latestDecisionID,
+                  })}
+                >
                   Open newest record ↓
                 </Link>
                 <Link href={`/automations/${item.mandateID}`}>
@@ -388,10 +404,12 @@ export function JournalList({
   entries,
   filter = "ALL",
   cursor = "",
+  focused = false,
 }: {
   entries: JournalEntry[];
   filter?: JournalFilter;
   cursor?: string;
+  focused?: boolean;
 }) {
   const allowed = entries.filter(
     (entry) => entry.risk_decision === "ALLOW",
@@ -415,6 +433,7 @@ export function JournalList({
     { value: "NEEDS_REVIEW", label: "Needs review", count: review },
   ];
   const visibleEntries = entries.filter((entry) => {
+    if (focused) return true;
     if (filter === "ALL") return true;
     if (filter === "NEEDS_REVIEW") return needsReview(entry);
     return entry.execution_mode === filter;
@@ -443,7 +462,7 @@ export function JournalList({
         </article>
       </section>
 
-      {entries.length > 0 && (
+      {entries.length > 0 && !focused && (
         <nav className="journal-filters" aria-label="Journal view filters">
           {filters.map((item) => (
             <Link
@@ -461,7 +480,13 @@ export function JournalList({
         </nav>
       )}
 
-      <DecisionReviewIndex entries={visibleEntries} />
+      {!focused && (
+        <DecisionReviewIndex
+          cursor={cursor}
+          entries={visibleEntries}
+          filter={filter}
+        />
+      )}
 
       {entries.length === 0 ? (
         <section className="journal-empty">

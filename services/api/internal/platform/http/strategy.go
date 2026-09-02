@@ -300,6 +300,24 @@ func decodePaperEvidenceReviewCursor(encoded string) (*strategy.PaperEvidenceRev
 }
 
 func (h *authHandler) decisionJournal(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	if decisionID := r.URL.Query().Get("decision_id"); decisionID != "" {
+		if !journalUUID.MatchString(decisionID) {
+			writeError(w, 400, "INVALID_DECISION", "The journal decision identifier is invalid.")
+			return
+		}
+		entry, err := h.strategies.JournalEntry(r.Context(), principal(r), decisionID)
+		if err != nil {
+			h.strategyError(w, err)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, 200, map[string]any{
+			"entries":                  []strategy.JournalActivity{entry},
+			"next_cursor":              "",
+			"live_execution_available": false,
+		})
+		return
+	}
 	limit := defaultJournalPageSize
 	if value := r.URL.Query().Get("limit"); value != "" {
 		parsed, err := strconv.Atoi(value)
