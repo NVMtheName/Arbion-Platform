@@ -16,16 +16,26 @@ export function AppPageHeader({
   actions,
 }: AppPageHeaderProps) {
   return (
-    <header className="app-page-header">
-      <ArbionBrand className="section-brand" href="/dashboard" priority />
-      <AppNavigation />
-      <div className="app-page-header-actions">
-        {actions ?? (
-          <Link className="app-back-link" href={backHref}>
-            ← {backLabel}
-          </Link>
-        )}
-      </div>
-    </header>
+    <>
+      <header className="app-page-header">
+        <a className="app-skip-link" href="#app-main-content">
+          Skip to main content
+        </a>
+        <ArbionBrand className="section-brand" href="/dashboard" priority />
+        <AppNavigation />
+        <div className="app-page-header-actions">
+          {actions ?? (
+            <Link className="app-back-link" href={backHref}>
+              ← {backLabel}
+            </Link>
+          )}
+        </div>
+      </header>
+      <span
+        className="app-main-content-target"
+        id="app-main-content"
+        tabIndex={-1}
+      />
+    </>
   );
 }

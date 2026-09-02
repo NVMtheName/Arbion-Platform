@@ -86,6 +86,39 @@ body {
   box-shadow: 0 14px 30px rgba(2, 8, 6, 0.16);
   backdrop-filter: blur(16px);
 }
+.app-skip-link {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: 8px;
+  inset-inline-start: 8px;
+  padding: 10px 14px;
+  border: 1px solid rgba(124, 229, 236, 0.72);
+  border-radius: 9px;
+  background: #07110e;
+  color: #eff9f4;
+  font-size: 0.76rem;
+  font-weight: 760;
+  opacity: 0;
+  pointer-events: none;
+  text-decoration: none;
+  transform: translateY(-160%);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+.app-skip-link:focus-visible {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 3px;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.app-main-content-target {
+  display: block;
+  block-size: 0;
+  scroll-margin-block-start: 112px;
+  outline: none;
+}
 .section-brand {
   width: min(154px, 38vw);
 }
