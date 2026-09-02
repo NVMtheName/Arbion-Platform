@@ -6,6 +6,8 @@ import { AppPageHeader } from "../../app-page-header";
 import { FinancialInputChainSummary } from "../../dashboard/financial-input-chain-summary";
 import { formatExactMoney } from "../../exact-money";
 import { loadAccountFinancialInputChain } from "./account-financial-input-chain";
+import { AccountSyncHistoryPanel } from "./account-sync-history-panel";
+import { loadAccountSyncHistory } from "./account-sync-history";
 import {
   AccountCircuitBreakerControls,
   type AccountCircuitBreaker,
@@ -34,6 +36,7 @@ import {
 type Money = { amount: string; currency: string };
 type Account = {
   id: string;
+  provider_connection_id: string;
   provider: string;
   display_name: string;
   account_type: string;
@@ -94,7 +97,14 @@ export default async function AccountPage({
     headers,
     observedAt: new Date(),
   });
-  if (accountInputChain.unauthorized) redirect("/login");
+  const accountSyncHistory = await loadAccountSyncHistory({
+    account,
+    base,
+    headers,
+    viewedAt: new Date(),
+  });
+  if (accountInputChain.unauthorized || accountSyncHistory.unauthorized)
+    redirect("/login");
 
   if (account.provider === "coinbase") {
     const portfolioResponse = await fetch(
@@ -111,6 +121,10 @@ export default async function AccountPage({
             projection={accountInputChain.projection}
             available={accountInputChain.available}
             scope="account"
+          />
+          <AccountSyncHistoryPanel
+            account={account}
+            initial={accountSyncHistory}
           />
           <p className="eyebrow">COINBASE · READ-ONLY CONNECTION</p>
           <h1>{account.display_name}</h1>
@@ -334,6 +348,10 @@ export default async function AccountPage({
           available={accountInputChain.available}
           scope="account"
         />
+        <AccountSyncHistoryPanel
+          account={account}
+          initial={accountSyncHistory}
+        />
         <CryptoPortfolioCommandCenter
           accountID={account.id}
           capitalPolicies={capitalPolicies}
@@ -430,6 +448,7 @@ export default async function AccountPage({
         available={accountInputChain.available}
         scope="account"
       />
+      <AccountSyncHistoryPanel account={account} initial={accountSyncHistory} />
       <section className="dashboard-grid">
         <article>
           <h2>Account Value</h2>
