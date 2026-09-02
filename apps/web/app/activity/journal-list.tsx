@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { DecisionPermalink } from "./decision-permalink";
+
 export type JournalEntry = {
   id: string;
   created_at: string;
@@ -234,6 +236,18 @@ export function activityJournalHref({
   }
   const encoded = query.toString();
   return encoded ? `/activity?${encoded}` : "/activity";
+}
+
+export function activityDecisionHref({
+  cursor,
+  filter,
+  decisionID,
+}: {
+  cursor?: string;
+  filter: JournalFilter;
+  decisionID: string;
+}) {
+  return `${activityJournalHref({ cursor, filter })}#decision-${encodeURIComponent(decisionID)}`;
 }
 
 function needsReview(entry: JournalEntry) {
@@ -620,6 +634,13 @@ export function JournalList({
                       : "Would-have-submitted evidence only — no real broker order was sent."}
                   </p>
                   <div className="journal-entry-actions">
+                    <DecisionPermalink
+                      href={activityDecisionHref({
+                        cursor,
+                        filter,
+                        decisionID: entry.id,
+                      })}
+                    />
                     {reconciliationReviewRequired && (
                       <Link
                         href={`/accounts/${entry.financial_account_id}#reconciliation-resolution-title`}

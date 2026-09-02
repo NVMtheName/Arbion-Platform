@@ -10946,6 +10946,45 @@ button:disabled {
   justify-content: flex-end;
   gap: 16px;
 }
+.journal-entry-permalink {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 14px;
+}
+.journal-entry-permalink button {
+  min-block-size: 44px;
+  padding: 0;
+  border: 0;
+  color: var(--brand-cyan);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.journal-entry-permalink button:hover,
+.journal-entry-permalink button:focus-visible {
+  color: #e8ffff;
+}
+.journal-entry-permalink button:focus-visible {
+  border-radius: 5px;
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 4px;
+}
+.journal-entry-permalink > span {
+  flex-basis: 100%;
+  color: #9fd9c6;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  text-align: right;
+}
+.journal-entry-permalink > span:empty {
+  display: none;
+}
+.journal-entry-permalink > span.is-error {
+  color: #f2a794;
+}
 .journal-filters {
   display: flex;
   gap: 8px;
@@ -18367,6 +18406,15 @@ main:has(> .app-page-header) {
     align-items: flex-start;
     flex-direction: column;
     gap: 4px;
+  }
+  .journal-entry-permalink {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .journal-entry-permalink > span {
+    text-align: left;
   }
   .decision-review-index > ol > li > footer a,
   .journal-entry > footer a {
