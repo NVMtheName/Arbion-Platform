@@ -130,6 +130,12 @@ func TestPostgresAttentionIsOwnerScopedCurrentAndCredentialFree(t *testing.T) {
 		if foreignIDs[item.ID] {
 			t.Fatalf("foreign owner condition crossed the attention boundary: %#v", item)
 		}
+		if item.ID == instanceID && item.NextAutomaticCheckAt == nil {
+			t.Fatalf("scheduled attention omitted its next automatic check: %#v", item)
+		}
+		if item.ID != instanceID && item.NextAutomaticCheckAt != nil {
+			t.Fatalf("non-scheduled attention invented a next automatic check: %#v", item)
+		}
 	}
 	for code, found := range wantCodes {
 		if !found {
@@ -153,6 +159,9 @@ func TestPostgresAttentionIsOwnerScopedCurrentAndCredentialFree(t *testing.T) {
 	for _, item := range classifiedItems {
 		if item.ID == instanceID && item.Code == "SCHWAB_MARKET_DATA_ATTENTION" {
 			schwabAttentionFound = true
+			if item.NextAutomaticCheckAt == nil {
+				t.Fatalf("Schwab attention omitted its saved next check: %#v", item)
+			}
 		}
 	}
 	if !schwabAttentionFound {

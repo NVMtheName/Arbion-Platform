@@ -42,7 +42,8 @@ WITH latest_reconciliation AS (
     'AUTOMATION'::text AS resource_type,
     i.automation_mandate_id::text AS resource_id,
     COALESCE(s.last_completed_at,s.updated_at) AS occurred_at,
-    s.consecutive_failures::bigint AS count
+    s.consecutive_failures::bigint AS count,
+    s.next_run_at AS next_automatic_check_at
   FROM nonlive_strategy_schedules s
   JOIN strategy_instances i
     ON i.id=s.strategy_instance_id AND i.user_id=s.user_id
@@ -64,7 +65,8 @@ WITH latest_reconciliation AS (
     'ACCOUNT',
     r.financial_account_id::text,
     r.observed_at,
-    r.blocking_change_count::bigint
+    r.blocking_change_count::bigint,
+    NULL::timestamptz
   FROM latest_reconciliation r
   WHERE r.autonomy_enforcement_active AND r.blocks_new_actions
 
@@ -79,7 +81,8 @@ WITH latest_reconciliation AS (
     'CONNECTION',
     p.id::text,
     p.updated_at,
-    1::bigint
+    1::bigint,
+    NULL::timestamptz
   FROM provider_connections p
   WHERE p.user_id=$1
     AND p.provider_category IN ('ai','financial')
@@ -94,7 +97,8 @@ WITH latest_reconciliation AS (
     'ACCOUNT',
     a.id::text,
     a.updated_at,
-    1::bigint
+    1::bigint,
+    NULL::timestamptz
   FROM financial_accounts a
   WHERE a.user_id=$1 AND a.status='unavailable'
 
@@ -114,7 +118,8 @@ WITH latest_reconciliation AS (
       ELSE b.scope END,
     b.scope_id::text,
     b.engaged_at,
-    1::bigint
+    1::bigint,
+    NULL::timestamptz
   FROM risk_circuit_breakers b
   WHERE b.state='OPEN' AND (
     b.scope='GLOBAL' OR
@@ -129,7 +134,7 @@ WITH latest_reconciliation AS (
     ))
   )
 )
-SELECT id,code,severity,resource_type,resource_id,occurred_at,count
+SELECT id,code,severity,resource_type,resource_id,occurred_at,count,next_automatic_check_at
 FROM attention
 ORDER BY CASE severity WHEN 'STOPPED' THEN 0 ELSE 1 END,occurred_at DESC,id DESC
 LIMIT $2`, userID, limit)
@@ -140,7 +145,7 @@ LIMIT $2`, userID, limit)
 	items := []Item{}
 	for rows.Next() {
 		var item Item
-		if err = rows.Scan(&item.ID, &item.Code, &item.Severity, &item.ResourceType, &item.ResourceID, &item.OccurredAt, &item.Count); err != nil {
+		if err = rows.Scan(&item.ID, &item.Code, &item.Severity, &item.ResourceType, &item.ResourceID, &item.OccurredAt, &item.Count, &item.NextAutomaticCheckAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

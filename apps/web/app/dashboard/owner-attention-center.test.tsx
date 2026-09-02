@@ -128,6 +128,7 @@ describe("Owner Attention Center", () => {
               resource_id: "mandate-schwab",
               occurred_at: "2026-09-02T14:35:05Z",
               count: 1,
+              next_automatic_check_at: "2026-09-02T15:35:05Z",
             },
           ],
         }}
@@ -137,7 +138,43 @@ describe("Owner Attention Center", () => {
     expect(screen.getByText("Schwab market data needs review")).toBeVisible();
     expect(screen.getByText(/stopped before the model/i)).toBeVisible();
     expect(
+      screen.getByText(
+        "Next automatic check Sep 2, 3:35 PM UTC. No manual run needed.",
+      ),
+    ).toBeVisible();
+    expect(
       screen.getByRole("link", { name: /Review Schwab readiness/i }),
     ).toHaveAttribute("href", "/connections#schwab-market-readiness");
+  });
+
+  it("fails scheduled next-check timing closed when it is unavailable", () => {
+    render(
+      <OwnerAttentionCenter
+        available
+        attention={{
+          ...clearAttention,
+          status: "ATTENTION",
+          total: 1,
+          attention_count: 1,
+          items: [
+            {
+              id: "schedule-without-next-check",
+              code: "SCHEDULE_FAILURE",
+              severity: "ATTENTION",
+              resource_type: "AUTOMATION",
+              resource_id: "mandate-1",
+              occurred_at: "2026-09-02T14:35:05Z",
+              count: 1,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Next automatic check unavailable. Review the immutable schedule evidence.",
+      ),
+    ).toBeVisible();
   });
 });
