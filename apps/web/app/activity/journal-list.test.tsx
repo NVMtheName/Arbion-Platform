@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  activityDecisionHref,
   activityJournalHref,
   JournalList,
   normalizeJournalFilter,
@@ -52,6 +53,12 @@ describe("Decision Journal", () => {
     );
     expect(heading).toHaveAttribute("id", "decision-decision-1-title");
     expect(screen.getByText("Linked decision")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Open exact record" }),
+    ).toHaveAttribute("href", "/activity#decision-decision-1");
+    expect(
+      screen.getByRole("button", { name: "Copy exact link" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Risk Allow")).toBeInTheDocument();
     expect(screen.getByText("Simulated Filled")).toBeInTheDocument();
     expect(screen.getByText("$125.00")).toBeInTheDocument();
@@ -309,5 +316,14 @@ describe("Decision Journal", () => {
       "/activity?view=review",
     );
     expect(activityJournalHref({ filter: "ALL" })).toBe("/activity");
+    expect(
+      activityDecisionHref({
+        cursor: "time:2026-09-02T10:00:35Z/id value",
+        filter: "SHADOW",
+        decisionID: "decision/value",
+      }),
+    ).toBe(
+      "/activity?cursor=time%3A2026-09-02T10%3A00%3A35Z%2Fid+value&view=shadow#decision-decision%2Fvalue",
+    );
   });
 });
