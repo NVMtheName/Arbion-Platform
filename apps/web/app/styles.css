@@ -8372,6 +8372,70 @@ button:disabled {
 .schwab-market-readiness .schwab-quote-history li.is-legacy-ambiguous strong {
   color: #f3d79a;
 }
+.schwab-quote-incidents {
+  border-top: 1px solid rgba(139, 181, 163, 0.14);
+}
+.schwab-quote-incidents > header,
+.schwab-quote-incidents > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 14px;
+}
+.schwab-quote-incidents > header strong,
+.schwab-quote-incidents > header small {
+  display: block;
+}
+.schwab-quote-incidents > header strong {
+  color: #d7e7df;
+  font-size: 0.75rem;
+}
+.schwab-quote-incidents > header > span,
+.schwab-quote-incidents > header small,
+.schwab-quote-incidents > footer span {
+  color: #789087;
+  font-size: 0.64rem;
+}
+.schwab-quote-incidents > header > span {
+  font-weight: 800;
+}
+.schwab-quote-incidents > ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0 14px 14px;
+  list-style: none;
+}
+.schwab-market-readiness details .schwab-quote-incidents li {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  align-items: center;
+}
+.schwab-quote-incidents li > div strong,
+.schwab-quote-incidents li > div small {
+  display: block;
+}
+.schwab-quote-incidents li > div small {
+  margin-top: 3px;
+  color: #f3d79a;
+  font-size: 0.62rem;
+}
+.schwab-quote-incidents li.is-open {
+  border-color: rgba(245, 190, 92, 0.24);
+}
+.schwab-quote-incidents li.is-recovered strong {
+  color: #8de3b2;
+}
+.schwab-quote-incidents > p {
+  margin: 0;
+  padding: 0 14px 14px;
+  color: #82978e;
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+.schwab-quote-incidents > footer {
+  border-top: 1px solid rgba(139, 181, 163, 0.1);
+}
 .schwab-quote-history-unavailable {
   margin: 0;
   padding: 14px;
@@ -16930,6 +16994,13 @@ h1 {
   }
   .schwab-quote-recovery small {
     text-align: left;
+  }
+  .schwab-quote-incidents > header,
+  .schwab-quote-incidents > footer,
+  .schwab-market-readiness details .schwab-quote-incidents li {
+    align-items: flex-start;
+    grid-template-columns: 1fr;
+    flex-direction: column;
   }
   .schwab-entitlement-review > ol {
     grid-template-columns: 1fr;
