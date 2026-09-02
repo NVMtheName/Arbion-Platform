@@ -21,13 +21,14 @@ const (
 )
 
 type Item struct {
-	ID           string    `json:"id"`
-	Code         string    `json:"code"`
-	Severity     Severity  `json:"severity"`
-	ResourceType string    `json:"resource_type"`
-	ResourceID   *string   `json:"resource_id,omitempty"`
-	OccurredAt   time.Time `json:"occurred_at"`
-	Count        int64     `json:"count"`
+	ID                   string     `json:"id"`
+	Code                 string     `json:"code"`
+	Severity             Severity   `json:"severity"`
+	ResourceType         string     `json:"resource_type"`
+	ResourceID           *string    `json:"resource_id,omitempty"`
+	OccurredAt           time.Time  `json:"occurred_at"`
+	Count                int64      `json:"count"`
+	NextAutomaticCheckAt *time.Time `json:"next_automatic_check_at,omitempty"`
 }
 
 type Overview struct {

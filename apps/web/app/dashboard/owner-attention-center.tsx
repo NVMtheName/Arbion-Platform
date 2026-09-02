@@ -8,6 +8,7 @@ export type OwnerAttentionItem = {
   resource_id?: string;
   occurred_at: string;
   count: number;
+  next_automatic_check_at?: string;
 };
 
 export type OwnerAttentionOverview = {
@@ -204,6 +205,10 @@ export function OwnerAttentionCenter({
           {attention.items.map((item) => {
             const presentation =
               presentations[item.code] ?? unknownPresentation;
+            const scheduledAttention = [
+              "SCHEDULE_FAILURE",
+              "SCHWAB_MARKET_DATA_ATTENTION",
+            ].includes(item.code);
             return (
               <article
                 className={`is-${item.severity.toLowerCase()}`}
@@ -221,6 +226,13 @@ export function OwnerAttentionCenter({
                   {item.code === "SCHEDULE_FAILURE" && item.count > 1 && (
                     <small>{item.count} consecutive failed cycles</small>
                   )}
+                  {scheduledAttention ? (
+                    <small>
+                      {item.next_automatic_check_at
+                        ? `Next automatic check ${readableTime(item.next_automatic_check_at)}. No manual run needed.`
+                        : "Next automatic check unavailable. Review the immutable schedule evidence."}
+                    </small>
+                  ) : null}
                 </div>
                 <Link href={presentation.href(item)}>
                   {presentation.linkLabel} <span aria-hidden="true">→</span>
