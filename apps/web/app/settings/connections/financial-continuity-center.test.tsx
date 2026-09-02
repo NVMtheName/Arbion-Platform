@@ -345,6 +345,9 @@ describe("FinancialContinuityCenter", () => {
     });
     expect(result.engines[0]).toMatchObject({
       state: "ENTITLEMENT_REVIEW",
+      authorizationProof: "VERIFIED",
+      entitlementProof: "REVIEW",
+      quoteProof: "LEGACY_UNRESOLVED",
       connectionStatus: "active",
       symbols: ["SPY"],
       requiredQuality: "BROKER_REALTIME",
@@ -367,7 +370,10 @@ describe("FinancialContinuityCenter", () => {
       screen.getByText("Connected; real-time quote not confirmed"),
     ).toBeVisible();
     expect(screen.getByText("SPY")).toBeVisible();
-    expect(screen.getByText("BROKER_REALTIME")).toBeVisible();
+    expect(screen.getByText(/passes BROKER_REALTIME/)).toBeVisible();
+    expect(screen.getByText("VERIFIED")).toBeVisible();
+    expect(screen.getByText("REVIEW")).toBeVisible();
+    expect(screen.getByText("LEGACY_UNRESOLVED")).toBeVisible();
     expect(screen.getByText("2")).toBeVisible();
     expect(
       screen.getByText(/reconnecting alone does not prove/i),
@@ -411,6 +417,49 @@ describe("FinancialContinuityCenter", () => {
         ],
       });
       expect(result.engines[0].state).toBe(state);
+    },
+  );
+
+  it.each([
+    ["SUCCEEDED", null, "PROVEN", "BROKER_REALTIME"],
+    ["FAILED", "MARKET_DATA_DELAYED", "REVIEW", "DELAYED"],
+    [
+      "FAILED",
+      "MARKET_DATA_REALTIME_UNCONFIRMED",
+      "REVIEW",
+      "REALTIME_UNCONFIRMED",
+    ],
+    ["SKIPPED", "OUTSIDE_SESSION", "NOT_TESTED", "SESSION_WAIT"],
+    ["FAILED", "PROVIDER_UNAVAILABLE", "NOT_TESTED", "NOT_EVALUATED"],
+  ] as const)(
+    "separates authorization, entitlement, and quote proof for %s %s",
+    (status, errorCode, entitlementProof, quoteProof) => {
+      const latest = run({
+        id: `run-proof-${status}-${errorCode ?? "none"}`,
+        status,
+        error_code: errorCode,
+        consecutive_failures: status === "FAILED" ? 1 : 0,
+      });
+      const result = projectSchwabMarketDataReadiness({
+        connections: [
+          connection({ id: "schwab-connection", provider: "schwab" }),
+        ],
+        engines: [
+          schwabReadinessEngine({
+            schedule_status: status,
+            schedule_completed_at: latest.completed_at ?? undefined,
+            schedule_next_run_at: latest.next_run_at ?? undefined,
+            consecutive_failures: status === "FAILED" ? 1 : 0,
+            recent_runs: [latest],
+          }),
+        ],
+      });
+
+      expect(result.engines[0]).toMatchObject({
+        authorizationProof: "VERIFIED",
+        entitlementProof,
+        quoteProof,
+      });
     },
   );
 

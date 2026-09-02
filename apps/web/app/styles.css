@@ -8147,6 +8147,40 @@ button:disabled {
   font-size: 0.82rem;
   line-height: 1.55;
 }
+.schwab-market-readiness .schwab-readiness-path {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 18px;
+  padding: 0;
+  list-style: none;
+}
+.schwab-market-readiness .schwab-readiness-path li {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid rgba(111, 170, 255, 0.2);
+  border-radius: 12px;
+  background: rgba(6, 24, 20, 0.76);
+}
+.schwab-market-readiness .schwab-readiness-path small {
+  color: #6f887c;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.schwab-market-readiness .schwab-readiness-path strong {
+  color: #d7e7df;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.schwab-market-readiness .schwab-readiness-path span {
+  color: #71877d;
+  font-size: 0.66rem;
+  line-height: 1.45;
+}
 .schwab-market-readiness dl {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -16785,6 +16819,9 @@ h1 {
     flex-direction: column;
   }
   .schwab-market-readiness dl {
+    grid-template-columns: 1fr;
+  }
+  .schwab-market-readiness .schwab-readiness-path {
     grid-template-columns: 1fr;
   }
   .financial-continuity-center > ol,
