@@ -9040,6 +9040,42 @@ button:disabled {
   margin: 0;
   overflow-wrap: anywhere;
 }
+.decision-review-index-evidence {
+  border: 1px solid rgba(124, 235, 177, 0.14);
+  border-radius: 12px;
+  background: rgba(3, 13, 10, 0.52);
+}
+.decision-review-index-evidence > summary,
+.journal-entry-evidence > summary {
+  display: flex;
+  min-block-size: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 13px;
+  color: var(--brand-cyan);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.decision-review-index-evidence > summary::marker,
+.journal-entry-evidence > summary::marker {
+  color: #789188;
+}
+.decision-review-index-evidence > summary strong,
+.journal-entry-evidence > summary strong {
+  color: #8ba198;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-align: right;
+  text-transform: uppercase;
+}
+.decision-review-index-evidence[open] > summary,
+.journal-entry-evidence[open] > summary {
+  border-bottom: 1px solid rgba(124, 235, 177, 0.14);
+}
+.decision-review-index-evidence > dl {
+  padding: 14px;
+}
 .decision-review-index a {
   color: var(--brand-cyan);
 }
@@ -9116,6 +9152,53 @@ button:disabled {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin: 24px 0;
+}
+.journal-entry-snapshot {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 20px 0;
+}
+.journal-entry-snapshot > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #244237;
+  border-radius: 10px;
+  background: #07110e;
+}
+.journal-entry-snapshot dt,
+.journal-entry-snapshot dd {
+  margin: 0;
+}
+.journal-entry-snapshot dt {
+  color: #8ba198;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.journal-entry-snapshot dd {
+  color: #e6f4ed;
+  font-size: 1.05rem;
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+.journal-entry-evidence {
+  margin: 20px 0;
+  border: 1px solid rgba(124, 235, 177, 0.16);
+  border-radius: 12px;
+  background: rgba(3, 13, 10, 0.46);
+}
+.journal-entry-evidence > div {
+  padding: 0 14px 14px;
+}
+.journal-rationale-evidence h3 {
+  margin: 20px 0 0;
+  color: #cfe4da;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .journal-facts div,
 .journal-rationale div {
@@ -18071,6 +18154,39 @@ main:has(> .app-page-header) {
   }
 }
 
+@media (max-width: 700px) {
+  .journal-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .decision-review-index {
+    padding: 18px;
+  }
+  .decision-review-index > ol > li,
+  .journal-entry {
+    padding: 18px;
+  }
+  .decision-review-index > ol > li > header,
+  .journal-entry > header,
+  .journal-entry > footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .decision-review-index > ol > li > footer > div,
+  .journal-entry > footer,
+  .journal-entry > footer a {
+    width: 100%;
+  }
+  .decision-review-index > ol > li > footer a,
+  .journal-entry > footer a {
+    display: inline-flex;
+    min-block-size: 44px;
+    align-items: center;
+  }
+  .journal-entry-snapshot {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 520px) {
   .app-navigation {
     gap: 18px;
@@ -18088,6 +18204,37 @@ main:has(> .app-page-header) {
 }
 
 @media (max-width: 480px) {
+  .journal-page {
+    padding-inline: 16px;
+  }
+  .journal-summary,
+  .journal-entry-snapshot {
+    grid-template-columns: 1fr;
+  }
+  .decision-review-index,
+  .decision-review-index > ol > li,
+  .journal-entry {
+    padding: 14px;
+  }
+  .decision-review-index-evidence > summary,
+  .journal-entry-evidence > summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .decision-review-index-evidence > summary strong,
+  .journal-entry-evidence > summary strong {
+    text-align: left;
+  }
+  .journal-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .journal-pagination a {
+    display: inline-flex;
+    min-block-size: 44px;
+    align-items: center;
+  }
   .automation-page {
     padding-inline: 16px;
   }

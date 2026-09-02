@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   JournalList,
@@ -35,6 +35,8 @@ const entry: JournalEntry = {
 };
 
 describe("Decision Journal", () => {
+  afterEach(cleanup);
+
   it("renders useful decision evidence with an explicit non-live boundary", () => {
     render(<JournalList entries={[entry]} />);
 
@@ -47,6 +49,9 @@ describe("Decision Journal", () => {
         "Simulation evidence only — no real broker order was sent.",
       ),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("Review immutable details").closest("details"),
+    ).not.toHaveAttribute("open");
   });
 
   it("guides the owner when there are no recorded decisions", () => {
@@ -113,6 +118,9 @@ describe("Decision Journal", () => {
     expect(
       screen.getByText(/never reruns a model, calls a financial provider/i),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("Provenance + market evidence").closest("details"),
+    ).not.toHaveAttribute("open");
   });
 
   it("keeps Paper and Shadow evidence distinct and fails provenance closed", () => {
@@ -146,8 +154,32 @@ describe("Decision Journal", () => {
 
     render(<JournalList entries={[paper, shadow]} />);
     expect(screen.getAllByText("Unavailable — not inferred")).toHaveLength(6);
+    for (const summary of screen.getAllByText("Provenance + market evidence")) {
+      expect(summary.closest("details")).toHaveAttribute("open");
+    }
     expect(
       screen.getAllByText(/Paper and Shadow remain non-live/i).length,
     ).toBeGreaterThan(0);
+  });
+
+  it("automatically opens immutable detail when a decision needs review", () => {
+    render(
+      <JournalList
+        entries={[
+          {
+            ...entry,
+            risk_decision: "DENY",
+            execution_status: "RISK_DENIED",
+            risk_reason_codes: ["CAPITAL_LIMIT_EXCEEDED"],
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText("Review immutable details").closest("details"),
+    ).toHaveAttribute("open");
+    expect(screen.getByText("Review required")).toBeInTheDocument();
+    expect(screen.getByText("Capital Limit Exceeded")).toBeInTheDocument();
   });
 });
