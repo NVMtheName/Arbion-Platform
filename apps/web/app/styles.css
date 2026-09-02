@@ -9095,10 +9095,44 @@ button:disabled {
   gap: 18px;
 }
 .journal-entry {
+  position: relative;
+  scroll-margin-block-start: 120px;
   padding: 26px;
   border: 1px solid #244237;
   border-radius: 18px;
   background: #091a14;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+.journal-entry:target,
+.journal-entry:focus-visible {
+  border-color: rgba(124, 229, 236, 0.72);
+  outline: 3px solid rgba(124, 229, 236, 0.2);
+  outline-offset: 4px;
+  background: #0b211b;
+  box-shadow:
+    0 0 0 1px rgba(124, 229, 236, 0.2),
+    0 20px 48px rgba(2, 10, 8, 0.34);
+}
+.journal-entry-link-status {
+  display: none;
+  width: fit-content;
+  margin: 0 0 14px;
+  padding: 6px 9px;
+  border: 1px solid rgba(124, 229, 236, 0.42);
+  border-radius: 999px;
+  color: #a7f4ef;
+  background: rgba(25, 201, 214, 0.1);
+  font-size: 0.68rem;
+  font-weight: 780;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.journal-entry:target > .journal-entry-link-status,
+.journal-entry:focus-visible > .journal-entry-link-status {
+  display: inline-flex;
 }
 .journal-entry > header,
 .journal-entry > footer,
@@ -18300,6 +18334,9 @@ main:has(> .app-page-header) {
     min-block-size: 44px;
     align-items: center;
     touch-action: manipulation;
+  }
+  .journal-entry {
+    scroll-margin-block-start: 136px;
   }
 }
 
