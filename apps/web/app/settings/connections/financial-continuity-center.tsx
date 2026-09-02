@@ -83,6 +83,10 @@ export type SchwabMarketDataReadiness = {
       recoveredAt: string;
     };
     quoteIncidentStatus: "AVAILABLE" | "UNAVAILABLE";
+    quoteIncidentWindow:
+      | "COMPLETE_LOADED_HISTORY"
+      | "BOUNDED_SAVED_WINDOW"
+      | "UNAVAILABLE";
     quoteSafeWaitCount: number;
     quoteIncidents: Array<{
       id: string;
@@ -91,10 +95,21 @@ export type SchwabMarketDataReadiness = {
       startedAt: string;
       latestFailureAt: string;
       recoveredAt?: string;
+      durationMilliseconds: number;
       failureCount: number;
       safeWaitCount: number;
       errorCodes: string[];
     }>;
+    quoteSupportReference?: {
+      accountName: string;
+      symbols: string[];
+      errorCodes: string[];
+      firstObservedAt: string;
+      latestObservedAt: string;
+      nextRunAt: string;
+      durationMilliseconds: number;
+      window: "COMPLETE_LOADED_HISTORY" | "BOUNDED_SAVED_WINDOW";
+    };
     quoteHistory: Array<{
       id: string;
       state:
@@ -322,6 +337,7 @@ function projectSchwabQuoteIncidents(
     startedAt: string;
     latestFailureAt: string;
     recoveredAt?: string;
+    durationMilliseconds: number;
     failureCount: number;
     safeWaitCount: number;
     errorCodes: string[];
@@ -361,12 +377,17 @@ function projectSchwabQuoteIncidents(
         recurringAfterRecovery: recoverySeen,
         startedAt: row.completedAt,
         latestFailureAt: row.completedAt,
+        durationMilliseconds: 0,
         failureCount: 0,
         safeWaitCount: 0,
         errorCodes: [],
       };
     }
     current.latestFailureAt = row.completedAt;
+    current.durationMilliseconds = Math.max(
+      0,
+      milliseconds(row.completedAt)! - milliseconds(current.startedAt)!,
+    );
     current.failureCount += 1;
     if (!current.errorCodes.includes(row.errorCode)) {
       current.errorCodes.push(row.errorCode);
@@ -374,11 +395,28 @@ function projectSchwabQuoteIncidents(
   }
   if (current) incidents.push(current);
 
+  for (const incident of incidents) {
+    const endpoint = incident.recoveredAt ?? incident.latestFailureAt;
+    incident.durationMilliseconds = Math.max(
+      0,
+      milliseconds(endpoint)! - milliseconds(incident.startedAt)!,
+    );
+  }
+
   return {
     status: "AVAILABLE" as const,
     safeWaitCount,
     incidents: incidents.toReversed(),
   };
+}
+
+function savedSpan(value: number) {
+  const totalSeconds = value / 1000;
+  if (totalSeconds < 1) return `${value} ms saved span`;
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(3)} seconds saved span`;
+  const totalMinutes = totalSeconds / 60;
+  if (totalMinutes < 60) return `${totalMinutes.toFixed(3)} minutes saved span`;
+  return `${(totalMinutes / 60).toFixed(3)} hours saved span`;
 }
 
 function schwabReadinessProof(
@@ -776,6 +814,15 @@ export function projectSchwabMarketDataReadiness({
         engine.consecutive_failures,
       );
       const quoteIncidents = projectSchwabQuoteIncidents(quoteHistory);
+      const quoteIncidentWindow =
+        quoteIncidents.status !== "AVAILABLE"
+          ? ("UNAVAILABLE" as const)
+          : quoteHistory.capped
+            ? ("BOUNDED_SAVED_WINDOW" as const)
+            : ("COMPLETE_LOADED_HISTORY" as const);
+      const openIncident = quoteIncidents.incidents.find(
+        (incident) => incident.state === "OPEN",
+      );
       const exact = Boolean(
         connection &&
           engine.mandate_id &&
@@ -826,8 +873,10 @@ export function projectSchwabMarketDataReadiness({
           quoteHistoryCapped: quoteHistory.capped,
           quoteRecovery: undefined,
           quoteIncidentStatus: quoteIncidents.status,
+          quoteIncidentWindow,
           quoteSafeWaitCount: quoteIncidents.safeWaitCount,
           quoteIncidents: quoteIncidents.incidents,
+          quoteSupportReference: undefined,
           quoteHistory: quoteHistory.rows,
         };
       }
@@ -910,8 +959,23 @@ export function projectSchwabMarketDataReadiness({
         quoteHistoryCapped: quoteHistory.capped,
         quoteRecovery,
         quoteIncidentStatus: quoteIncidents.status,
+        quoteIncidentWindow,
         quoteSafeWaitCount: quoteIncidents.safeWaitCount,
         quoteIncidents: quoteIncidents.incidents,
+        quoteSupportReference: openIncident
+          ? {
+              accountName: engine.account_name!,
+              symbols,
+              errorCodes: openIncident.errorCodes,
+              firstObservedAt: openIncident.startedAt,
+              latestObservedAt: openIncident.latestFailureAt,
+              nextRunAt: engine.schedule_next_run_at!,
+              durationMilliseconds: openIncident.durationMilliseconds,
+              window: quoteHistory.capped
+                ? ("BOUNDED_SAVED_WINDOW" as const)
+                : ("COMPLETE_LOADED_HISTORY" as const),
+            }
+          : undefined,
         quoteHistory: quoteHistory.rows,
       };
     });
@@ -1269,6 +1333,7 @@ export function SchwabMarketDataReadinessView({
                                     {` · ${incident.errorCodes.join(" · ")}`}
                                     {` · visible since ${timestamp(incident.startedAt)} UTC`}
                                     {` · latest ${timestamp(incident.latestFailureAt)} UTC`}
+                                    {` · ${savedSpan(incident.durationMilliseconds)}`}
                                     {incident.recoveredAt
                                       ? ` · recovered ${timestamp(incident.recoveredAt)} UTC`
                                       : " · awaiting the next automatic check"}
@@ -1303,6 +1368,86 @@ export function SchwabMarketDataReadinessView({
                               : "Complete loaded history"}
                           </span>
                         </footer>
+                        {engine.quoteSupportReference ? (
+                          <aside className="schwab-support-reference">
+                            <header>
+                              <div>
+                                <strong>Safe Schwab support reference</strong>
+                                <small>
+                                  Copy these account-level facts only
+                                </small>
+                              </div>
+                              <span>NO CREDENTIALS</span>
+                            </header>
+                            <dl>
+                              <div>
+                                <dt>Account</dt>
+                                <dd>
+                                  {engine.quoteSupportReference.accountName}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Symbols</dt>
+                                <dd>
+                                  {engine.quoteSupportReference.symbols.join(
+                                    " · ",
+                                  )}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Saved quote codes</dt>
+                                <dd>
+                                  {engine.quoteSupportReference.errorCodes.join(
+                                    " · ",
+                                  )}
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>First saved failure</dt>
+                                <dd>
+                                  {timestamp(
+                                    engine.quoteSupportReference
+                                      .firstObservedAt,
+                                  )}{" "}
+                                  UTC
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Latest saved failure</dt>
+                                <dd>
+                                  {timestamp(
+                                    engine.quoteSupportReference
+                                      .latestObservedAt,
+                                  )}{" "}
+                                  UTC
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Next automatic check</dt>
+                                <dd>
+                                  {timestamp(
+                                    engine.quoteSupportReference.nextRunAt,
+                                  )}{" "}
+                                  UTC
+                                </dd>
+                              </div>
+                            </dl>
+                            <footer>
+                              <span>
+                                {savedSpan(
+                                  engine.quoteSupportReference
+                                    .durationMilliseconds,
+                                )}
+                              </span>
+                              <span>
+                                {engine.quoteSupportReference.window ===
+                                "BOUNDED_SAVED_WINDOW"
+                                  ? `Bounded newest ${schwabQuoteHistoryLimit}-check window; the incident may have started earlier`
+                                  : "Complete loaded history; first saved failure is exact"}
+                              </span>
+                            </footer>
+                          </aside>
+                        ) : null}
                       </section>
                     </>
                   ) : (

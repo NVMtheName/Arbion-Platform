@@ -369,7 +369,7 @@ describe("FinancialContinuityCenter", () => {
     expect(
       screen.getByText("Connected; real-time quote not confirmed"),
     ).toBeVisible();
-    expect(screen.getByText("SPY")).toBeVisible();
+    expect(screen.getAllByText("SPY")).toHaveLength(2);
     expect(screen.getByText(/passes BROKER_REALTIME/)).toBeVisible();
     expect(screen.getByText("VERIFIED")).toBeVisible();
     expect(screen.getByText("REVIEW")).toBeVisible();
@@ -547,12 +547,14 @@ describe("FinancialContinuityCenter", () => {
       quoteHistorySampleCount: 3,
       quoteHistoryCapped: false,
       quoteIncidentStatus: "AVAILABLE",
+      quoteIncidentWindow: "COMPLETE_LOADED_HISTORY",
       quoteSafeWaitCount: 0,
       quoteIncidents: [
         {
           state: "OPEN",
           recurringAfterRecovery: false,
           failureCount: 2,
+          durationMilliseconds: 3601000,
           errorCodes: [
             "MARKET_DATA_REALTIME_UNCONFIRMED",
             "MARKET_DATA_DELAYED",
@@ -586,6 +588,12 @@ describe("FinancialContinuityCenter", () => {
     expect(screen.getByText("Broker real-time check passed")).toBeVisible();
     expect(screen.getByText(/3 immutable scheduler results/)).toBeVisible();
     expect(screen.getByText("Open quote-quality incident")).toBeVisible();
+    expect(screen.getByText("1.000 hours saved span")).toBeVisible();
+    expect(screen.getByText("Safe Schwab support reference")).toBeVisible();
+    expect(screen.getByText("NO CREDENTIALS")).toBeVisible();
+    expect(
+      screen.getByText("Complete loaded history; first saved failure is exact"),
+    ).toBeVisible();
   });
 
   it("proves automatic Schwab quote recovery from bounded saved history", () => {
@@ -633,6 +641,7 @@ describe("FinancialContinuityCenter", () => {
     expect(result.engines[0]).toMatchObject({
       state: "READY",
       quoteIncidentStatus: "AVAILABLE",
+      quoteIncidentWindow: "COMPLETE_LOADED_HISTORY",
       quoteSafeWaitCount: 1,
       quoteIncidents: [
         {
@@ -640,6 +649,7 @@ describe("FinancialContinuityCenter", () => {
           recurringAfterRecovery: false,
           failureCount: 1,
           safeWaitCount: 1,
+          durationMilliseconds: 7202000,
           errorCodes: ["MARKET_DATA_DELAYED"],
           startedAt: delayed.completed_at,
           recoveredAt: recovered.completed_at,
@@ -718,6 +728,7 @@ describe("FinancialContinuityCenter", () => {
     expect(result.engines[0]).toMatchObject({
       quoteRecovery: undefined,
       quoteIncidentStatus: "UNAVAILABLE",
+      quoteIncidentWindow: "UNAVAILABLE",
       quoteSafeWaitCount: 0,
       quoteIncidents: [],
     });
@@ -766,15 +777,18 @@ describe("FinancialContinuityCenter", () => {
 
     expect(result.engines[0]).toMatchObject({
       quoteIncidentStatus: "AVAILABLE",
+      quoteIncidentWindow: "COMPLETE_LOADED_HISTORY",
       quoteIncidents: [
         {
           state: "OPEN",
           recurringAfterRecovery: true,
+          durationMilliseconds: 0,
           errorCodes: ["MARKET_DATA_REALTIME_UNCONFIRMED"],
         },
         {
           state: "RECOVERED",
           recurringAfterRecovery: false,
+          durationMilliseconds: 3600000,
           errorCodes: ["MARKET_DATA_DELAYED"],
           recoveredAt: recovered.completed_at,
         },
@@ -790,6 +804,62 @@ describe("FinancialContinuityCenter", () => {
       />,
     );
     expect(screen.getByText("Recurring after recovery")).toBeVisible();
+  });
+
+  it("marks the Schwab support reference as bounded when older history is capped", () => {
+    const runs = Array.from({ length: 7 }, (_, index) =>
+      run({
+        id: `run-capped-${index}`,
+        scheduled_for: `2026-09-02T${String(16 - index).padStart(2, "0")}:35:00Z`,
+        completed_at: `2026-09-02T${String(16 - index).padStart(2, "0")}:35:08Z`,
+        next_run_at: `2026-09-02T${String(17 - index).padStart(2, "0")}:35:00Z`,
+        status: "FAILED",
+        error_code: "MARKET_DATA_DELAYED",
+        consecutive_failures: 7 - index,
+      }),
+    );
+    const engine = schwabReadinessEngine({
+      schedule_completed_at: runs[0].completed_at ?? undefined,
+      schedule_next_run_at: runs[0].next_run_at ?? undefined,
+      consecutive_failures: 7,
+      recent_runs: runs,
+    });
+    const result = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({ id: "schwab-connection", provider: "schwab" }),
+      ],
+      engines: [engine],
+    });
+
+    expect(result.engines[0]).toMatchObject({
+      quoteHistorySampleCount: 7,
+      quoteHistoryCapped: true,
+      quoteIncidentWindow: "BOUNDED_SAVED_WINDOW",
+      quoteSupportReference: {
+        accountName: "Schwab Brokerage",
+        symbols: ["SPY"],
+        errorCodes: ["MARKET_DATA_DELAYED"],
+        firstObservedAt: runs[5].completed_at,
+        latestObservedAt: runs[0].completed_at,
+        nextRunAt: runs[0].next_run_at,
+        durationMilliseconds: 18000000,
+        window: "BOUNDED_SAVED_WINDOW",
+      },
+    });
+
+    render(
+      <SchwabMarketDataReadinessView
+        connections={[
+          connection({ id: "schwab-connection", provider: "schwab" }),
+        ]}
+        engines={[engine]}
+      />,
+    );
+    expect(
+      screen.getByText(
+        /Bounded newest 6-check window.*may have started earlier/,
+      ),
+    ).toBeVisible();
   });
 
   it("fails the Schwab quote-quality history closed on duplicate rows", () => {

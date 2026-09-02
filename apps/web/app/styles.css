@@ -8436,6 +8436,60 @@ button:disabled {
 .schwab-quote-incidents > footer {
   border-top: 1px solid rgba(139, 181, 163, 0.1);
 }
+.schwab-support-reference {
+  margin: 0 14px 14px;
+  overflow: hidden;
+  border: 1px solid rgba(111, 170, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(6, 24, 20, 0.7);
+}
+.schwab-support-reference > header,
+.schwab-support-reference > footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+}
+.schwab-support-reference > header {
+  border-bottom: 1px solid rgba(111, 170, 255, 0.16);
+}
+.schwab-support-reference > header strong,
+.schwab-support-reference > header small {
+  display: block;
+}
+.schwab-support-reference > header strong {
+  color: #d7e7df;
+  font-size: 0.72rem;
+}
+.schwab-support-reference > header small,
+.schwab-support-reference > footer span {
+  margin-top: 3px;
+  color: #789087;
+  font-size: 0.62rem;
+  line-height: 1.45;
+}
+.schwab-support-reference > header > span {
+  color: #8de3b2;
+  font-size: 0.62rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.schwab-market-readiness details .schwab-support-reference > dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+.schwab-support-reference > footer {
+  border-top: 1px solid rgba(111, 170, 255, 0.14);
+}
+.schwab-support-reference > footer span:last-child {
+  max-width: 460px;
+  text-align: right;
+}
 .schwab-quote-history-unavailable {
   margin: 0;
   padding: 14px;
@@ -16997,10 +17051,18 @@ h1 {
   }
   .schwab-quote-incidents > header,
   .schwab-quote-incidents > footer,
+  .schwab-support-reference > header,
+  .schwab-support-reference > footer,
   .schwab-market-readiness details .schwab-quote-incidents li {
     align-items: flex-start;
     grid-template-columns: 1fr;
     flex-direction: column;
+  }
+  .schwab-market-readiness details .schwab-support-reference > dl {
+    grid-template-columns: 1fr;
+  }
+  .schwab-support-reference > footer span:last-child {
+    text-align: left;
   }
   .schwab-entitlement-review > ol {
     grid-template-columns: 1fr;
