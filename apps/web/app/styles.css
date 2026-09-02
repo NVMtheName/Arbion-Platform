@@ -8190,6 +8190,35 @@ button:disabled {
   border-radius: 12px;
   background: rgba(139, 181, 163, 0.14);
 }
+.schwab-quote-recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 18px 16px;
+  padding: 13px 14px;
+  border: 1px solid rgba(94, 224, 160, 0.3);
+  border-radius: 12px;
+  background: rgba(24, 91, 62, 0.14);
+}
+.schwab-quote-recovery > div {
+  display: grid;
+  gap: 4px;
+}
+.schwab-quote-recovery strong {
+  color: #8de3b2;
+  font-size: 0.76rem;
+}
+.schwab-quote-recovery span,
+.schwab-quote-recovery small {
+  color: #789087;
+  font-size: 0.66rem;
+  line-height: 1.45;
+}
+.schwab-quote-recovery small {
+  flex: 0 0 auto;
+  text-align: right;
+}
 .schwab-market-readiness dl > div {
   min-width: 0;
   padding: 13px;
@@ -16894,6 +16923,13 @@ h1 {
   }
   .schwab-market-readiness .schwab-readiness-path {
     grid-template-columns: 1fr;
+  }
+  .schwab-quote-recovery {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .schwab-quote-recovery small {
+    text-align: left;
   }
   .schwab-entitlement-review > ol {
     grid-template-columns: 1fr;

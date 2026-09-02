@@ -77,6 +77,11 @@ export type SchwabMarketDataReadiness = {
     quoteHistoryStatus: "AVAILABLE" | "UNAVAILABLE";
     quoteHistorySampleCount: number;
     quoteHistoryCapped: boolean;
+    quoteRecovery?: {
+      errorCode: string;
+      blockedAt: string;
+      recoveredAt: string;
+    };
     quoteHistory: Array<{
       id: string;
       state:
@@ -256,6 +261,31 @@ function projectSchwabQuoteHistory(runs: FinancialContinuityRun[]) {
       completedAt: run.completed_at!,
     })),
   };
+}
+
+function projectSchwabQuoteRecovery(
+  history: ReturnType<typeof projectSchwabQuoteHistory>,
+  consecutiveFailures?: number,
+) {
+  if (
+    history.status !== "AVAILABLE" ||
+    consecutiveFailures !== 0 ||
+    history.rows[0]?.state !== "BROKER_REALTIME"
+  ) {
+    return;
+  }
+  for (const row of history.rows.slice(1)) {
+    if (row.state === "BROKER_REALTIME" || row.state === "NOT_EVALUATED") {
+      return;
+    }
+    if (row.state === "SESSION_WAIT") continue;
+    if (!row.errorCode) return;
+    return {
+      errorCode: row.errorCode,
+      blockedAt: row.completedAt,
+      recoveredAt: history.rows[0].completedAt,
+    };
+  }
 }
 
 function schwabReadinessProof(
@@ -648,6 +678,10 @@ export function projectSchwabMarketDataReadiness({
       const latest = engine.recent_runs[0];
       const symbols = engine.market_symbols ?? [];
       const quoteHistory = projectSchwabQuoteHistory(engine.recent_runs);
+      const quoteRecovery = projectSchwabQuoteRecovery(
+        quoteHistory,
+        engine.consecutive_failures,
+      );
       const exact = Boolean(
         connection &&
           engine.mandate_id &&
@@ -696,6 +730,7 @@ export function projectSchwabMarketDataReadiness({
           quoteHistoryStatus: quoteHistory.status,
           quoteHistorySampleCount: quoteHistory.sampleCount,
           quoteHistoryCapped: quoteHistory.capped,
+          quoteRecovery: undefined,
           quoteHistory: quoteHistory.rows,
         };
       }
@@ -776,6 +811,7 @@ export function projectSchwabMarketDataReadiness({
         quoteHistoryStatus: quoteHistory.status,
         quoteHistorySampleCount: quoteHistory.sampleCount,
         quoteHistoryCapped: quoteHistory.capped,
+        quoteRecovery,
         quoteHistory: quoteHistory.rows,
       };
     });
@@ -925,6 +961,26 @@ export function SchwabMarketDataReadinessView({
                     </span>
                   </li>
                 </ol>
+                {engine.quoteRecovery ? (
+                  <aside
+                    className="schwab-quote-recovery"
+                    aria-label={`Automatic Schwab quote recovery for ${engine.accountName}`}
+                  >
+                    <div>
+                      <strong>Automatic recovery proven</strong>
+                      <span>
+                        The saved quote gate moved from
+                        {` ${engine.quoteRecovery.errorCode}`} at
+                        {` ${timestamp(engine.quoteRecovery.blockedAt)} UTC`} to
+                        BROKER_REALTIME at
+                        {` ${timestamp(engine.quoteRecovery.recoveredAt)} UTC`}.
+                      </span>
+                    </div>
+                    <small>
+                      Failure streak reset to 0 · no manual cycle required
+                    </small>
+                  </aside>
+                ) : null}
                 <dl>
                   <div>
                     <dt>Configured market scope</dt>

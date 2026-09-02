@@ -574,6 +574,119 @@ describe("FinancialContinuityCenter", () => {
     expect(screen.getByText(/3 immutable scheduler results/)).toBeVisible();
   });
 
+  it("proves automatic Schwab quote recovery from bounded saved history", () => {
+    const recovered = run({
+      id: "run-recovered",
+      scheduled_for: "2026-09-02T15:35:00Z",
+      completed_at: "2026-09-02T15:35:08Z",
+      next_run_at: "2026-09-02T16:35:00Z",
+      status: "SUCCEEDED",
+      error_code: null,
+      consecutive_failures: 0,
+    });
+    const sessionWait = run({
+      id: "run-session-wait-before-recovery",
+      scheduled_for: "2026-09-02T14:35:00Z",
+      completed_at: "2026-09-02T14:35:02Z",
+      next_run_at: "2026-09-02T15:35:00Z",
+      status: "SKIPPED",
+      error_code: "OUTSIDE_SESSION",
+      consecutive_failures: 0,
+    });
+    const delayed = run({
+      id: "run-delayed-before-recovery",
+      scheduled_for: "2026-09-02T13:35:00Z",
+      completed_at: "2026-09-02T13:35:06Z",
+      next_run_at: "2026-09-02T14:35:00Z",
+      status: "FAILED",
+      error_code: "MARKET_DATA_DELAYED",
+      consecutive_failures: 1,
+    });
+    const engine = schwabReadinessEngine({
+      schedule_status: "SUCCEEDED",
+      schedule_completed_at: recovered.completed_at ?? undefined,
+      schedule_next_run_at: recovered.next_run_at ?? undefined,
+      consecutive_failures: 0,
+      recent_runs: [recovered, sessionWait, delayed],
+    });
+    const result = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({ id: "schwab-connection", provider: "schwab" }),
+      ],
+      engines: [engine],
+    });
+
+    expect(result.engines[0]).toMatchObject({
+      state: "READY",
+      quoteRecovery: {
+        errorCode: "MARKET_DATA_DELAYED",
+        blockedAt: delayed.completed_at,
+        recoveredAt: recovered.completed_at,
+      },
+    });
+
+    render(
+      <SchwabMarketDataReadinessView
+        connections={[
+          connection({ id: "schwab-connection", provider: "schwab" }),
+        ]}
+        engines={[engine]}
+      />,
+    );
+    expect(screen.getByText("Automatic recovery proven")).toBeVisible();
+    expect(
+      screen.getByText(/MARKET_DATA_DELAYED.*BROKER_REALTIME/),
+    ).toBeVisible();
+    expect(screen.getByText(/Failure streak reset to 0/)).toBeVisible();
+  });
+
+  it("does not infer recovery when saved quote history is not contiguous", () => {
+    const recovered = run({
+      id: "run-recovered-after-unknown",
+      scheduled_for: "2026-09-02T15:35:00Z",
+      completed_at: "2026-09-02T15:35:08Z",
+      next_run_at: "2026-09-02T16:35:00Z",
+      status: "SUCCEEDED",
+      error_code: null,
+      consecutive_failures: 0,
+    });
+    const unavailable = run({
+      id: "run-provider-unavailable",
+      scheduled_for: "2026-09-02T14:35:00Z",
+      completed_at: "2026-09-02T14:35:02Z",
+      next_run_at: "2026-09-02T15:35:00Z",
+      status: "FAILED",
+      error_code: "PROVIDER_UNAVAILABLE",
+      consecutive_failures: 1,
+    });
+    const delayed = run({
+      id: "run-delayed-before-unknown",
+      scheduled_for: "2026-09-02T13:35:00Z",
+      completed_at: "2026-09-02T13:35:06Z",
+      next_run_at: "2026-09-02T14:35:00Z",
+      status: "FAILED",
+      error_code: "MARKET_DATA_DELAYED",
+      consecutive_failures: 1,
+    });
+
+    const result = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({ id: "schwab-connection", provider: "schwab" }),
+      ],
+      engines: [
+        schwabReadinessEngine({
+          schedule_status: "SUCCEEDED",
+          schedule_completed_at: recovered.completed_at ?? undefined,
+          schedule_next_run_at: recovered.next_run_at ?? undefined,
+          consecutive_failures: 0,
+          recent_runs: [recovered, unavailable, delayed],
+        }),
+      ],
+    });
+
+    expect(result.engines[0].quoteRecovery).toBeUndefined();
+  });
+
   it("fails the Schwab quote-quality history closed on duplicate rows", () => {
     const newest = run({
       id: "run-duplicate",
