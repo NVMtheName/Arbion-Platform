@@ -4434,7 +4434,13 @@ describe("StrategyFleet", () => {
       }),
     ).toHaveAttribute(
       "href",
-      "/accounts/coinbase-account#reconciliation-title",
+      "/accounts/coinbase-account#reconciliation-resolution-title",
+    );
+    expect(
+      within(dataHealth).getByRole("link", { name: /Account evidence/i }),
+    ).toHaveAttribute(
+      "href",
+      "/accounts/coinbase-account#reconciliation-resolution-title",
     );
     expect(
       screen.getByText("Portfolio drift blocks proposals"),

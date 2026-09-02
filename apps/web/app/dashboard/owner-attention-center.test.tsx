@@ -90,7 +90,10 @@ describe("Owner Attention Center", () => {
     ).toHaveAttribute("href", "/automations/mandate-1");
     expect(
       screen.getByRole("link", { name: /review account/i }),
-    ).toHaveAttribute("href", "/accounts/account-1");
+    ).toHaveAttribute(
+      "href",
+      "/accounts/account-1#reconciliation-resolution-title",
+    );
     expect(region).not.toHaveTextContent("provider response");
     expect(region).not.toHaveTextContent("private stop reason");
     expect(region).not.toHaveTextContent("quantity");
