@@ -1,8 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  activityJournalHref,
   JournalList,
+  normalizeJournalFilter,
   projectDecisionReviewIndex,
   type JournalEntry,
 } from "./journal-list";
@@ -220,17 +222,40 @@ describe("Decision Journal", () => {
       symbol: "BTC",
     };
 
-    render(<JournalList entries={[entry, shadow]} />);
+    const { rerender } = render(
+      <JournalList cursor="opaque cursor" entries={[entry, shadow]} />,
+    );
 
-    expect(
-      screen.getByRole("button", { name: "All records 2" }),
-    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("link", { name: "All records 2" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("link", { name: "Paper 1" })).toHaveAttribute(
+      "href",
+      "/activity?cursor=opaque+cursor&view=paper",
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Paper 1" }));
+    rerender(
+      <JournalList
+        cursor="opaque cursor"
+        entries={[entry, shadow]}
+        filter="PAPER"
+      />,
+    );
     expect(screen.getByText("Wheel · AAPL")).toBeInTheDocument();
     expect(screen.queryByText("Wheel · BTC")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Paper 1" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Needs review 1" }));
+    rerender(
+      <JournalList
+        cursor="opaque cursor"
+        entries={[entry, shadow]}
+        filter="NEEDS_REVIEW"
+      />,
+    );
     expect(screen.queryByText("Wheel · AAPL")).not.toBeInTheDocument();
     expect(screen.getByText("Wheel · BTC")).toBeInTheDocument();
     expect(
@@ -242,15 +267,38 @@ describe("Decision Journal", () => {
   });
 
   it("explains an empty filtered view without hiding saved history", () => {
-    render(<JournalList entries={[entry]} />);
+    render(
+      <JournalList
+        cursor="older-page"
+        entries={[entry]}
+        filter="NEEDS_REVIEW"
+      />,
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Needs review 0" }));
     expect(screen.getByText("This journal view is clear.")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "All records 1" }),
-    ).toBeInTheDocument();
+      screen.getByRole("link", { name: "Show all records" }),
+    ).toHaveAttribute("href", "/activity?cursor=older-page");
+    expect(screen.queryByText("Wheel · AAPL")).not.toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "Show all records" }));
-    expect(screen.getByText("Wheel · AAPL")).toBeInTheDocument();
+  it("normalizes shareable journal views and preserves opaque cursors", () => {
+    expect(normalizeJournalFilter("paper")).toBe("PAPER");
+    expect(normalizeJournalFilter("shadow")).toBe("SHADOW");
+    expect(normalizeJournalFilter("review")).toBe("NEEDS_REVIEW");
+    expect(normalizeJournalFilter("unexpected")).toBe("ALL");
+    expect(normalizeJournalFilter()).toBe("ALL");
+    expect(
+      activityJournalHref({
+        cursor: "time:2026-09-02T10:00:35Z/id value",
+        filter: "SHADOW",
+      }),
+    ).toBe(
+      "/activity?cursor=time%3A2026-09-02T10%3A00%3A35Z%2Fid+value&view=shadow",
+    );
+    expect(activityJournalHref({ filter: "NEEDS_REVIEW" })).toBe(
+      "/activity?view=review",
+    );
+    expect(activityJournalHref({ filter: "ALL" })).toBe("/activity");
   });
 });
