@@ -76,6 +76,7 @@ type Auditor interface {
 type Service struct {
 	store           Store
 	reconciliations ReconciliationStore
+	syncCheckpoints SyncCheckpointStore
 	vault           credential.Vault
 	states          *oauthstate.Manager
 	providers       map[string]financial.BrokerProvider
@@ -87,6 +88,9 @@ func NewService(s Store, v credential.Vault, states *oauthstate.Manager, schwab 
 	service := &Service{store: s, vault: v, states: states, providers: map[string]financial.BrokerProvider{}, authorizers: map[string]Authorizer{}, audit: a}
 	if reconciliations, ok := s.(ReconciliationStore); ok {
 		service.reconciliations = reconciliations
+	}
+	if syncCheckpoints, ok := s.(SyncCheckpointStore); ok {
+		service.syncCheckpoints = syncCheckpoints
 	}
 	if schwab != nil {
 		service.providers["schwab"] = schwab

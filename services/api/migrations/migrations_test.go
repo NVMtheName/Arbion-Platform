@@ -59,6 +59,33 @@ func TestFinancialConnectionIdentityMigrationPreventsDuplicateProviderAccounts(t
 	}
 }
 
+func TestFinancialAccountSyncCheckpointMigrationIsForwardOnlyImmutableAndOwnerScoped(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00040_financial_account_sync_checkpoints.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"financial_account_sync_operations",
+		"financial_account_sync_checkpoints",
+		"PROVIDER_ACCOUNT_DISCOVERY",
+		"outcome = 'SAVED'",
+		"financial_account_id,user_id",
+		"enforce_financial_account_sync_operation_source",
+		"enforce_financial_account_sync_checkpoint_source",
+		"reject_financial_account_sync_history_mutation",
+		"cannot remove immutable financial account sync history",
+	} {
+		if !strings.Contains(strings.ReplaceAll(string(body), " ", ""), strings.ReplaceAll(required, " ", "")) {
+			t.Errorf("financial sync checkpoint migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"balances", "positions", "credential", "provider_payload", "broker_order", "LIVE_EXECUTION"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("financial sync checkpoint migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestNonLiveStrategyMigrationSeparatesSimulationAndHistory(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00008_nonlive_strategy.sql")
 	if err != nil {
