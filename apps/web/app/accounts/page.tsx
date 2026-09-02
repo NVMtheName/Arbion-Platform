@@ -155,10 +155,12 @@ export default async function Accounts() {
 
   return (
     <main className="connections-page portfolio-ledger-page command-content-continuity">
-      <AppPageHeader />
+      <AppPageHeader contentHeadingId="portfolio-page-title" />
       <section className="portfolio-ledger-hero">
         <p className="eyebrow">PORTFOLIO COMMAND CENTER</p>
-        <h1>Everything you own, finally in one view.</h1>
+        <h1 id="portfolio-page-title">
+          Everything you own, finally in one view.
+        </h1>
         <p className="lede">
           Scan price, movement, market value, and provider-supplied returns
           across every connected account—without changing a position or

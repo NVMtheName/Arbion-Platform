@@ -394,11 +394,13 @@ export default async function ConnectionsPage() {
   );
   return (
     <main className="connection-hub command-content-continuity">
-      <AppPageHeader />
+      <AppPageHeader contentHeadingId="connections-page-title" />
       <section className="connection-hub-hero">
         <div>
           <p className="eyebrow">CONNECTION HUB</p>
-          <h1>Connect once. See everything together.</h1>
+          <h1 id="connections-page-title">
+            Connect once. See everything together.
+          </h1>
           <p className="connection-hub-lede">
             Bring your own financial-provider and AI-provider credentials.
             Arbion keeps them encrypted, then gives you one place to choose an

@@ -84,9 +84,9 @@ export default async function SecurityPage() {
 
   return (
     <main className="connections-page security-page command-content-continuity">
-      <AppPageHeader />
+      <AppPageHeader contentHeadingId="security-page-title" />
       <p className="eyebrow">ACCOUNT SECURITY</p>
-      <h1>Protect your access.</h1>
+      <h1 id="security-page-title">Protect your access.</h1>
       <p className="security-note">
         Signed in as {user.email}. Email verification is{" "}
         {user.email_verified

@@ -58,7 +58,16 @@ describe("Authentication experience", () => {
   });
 
   it("renders the branded application header with clear navigation", () => {
-    render(<AppPageHeader backHref="/accounts" backLabel="Accounts" />);
+    render(
+      <>
+        <AppPageHeader
+          backHref="/accounts"
+          backLabel="Accounts"
+          contentHeadingId="portfolio-page-title"
+        />
+        <h1 id="portfolio-page-title">Portfolio command center</h1>
+      </>,
+    );
     expect(
       screen.getByRole("link", { name: "Skip to main content" }),
     ).toHaveAttribute("href", "#app-main-content");
@@ -66,6 +75,13 @@ describe("Authentication experience", () => {
     expect(document.querySelector("#app-main-content")).toHaveAttribute(
       "tabindex",
       "-1",
+    );
+    expect(document.querySelector("#app-main-content")).toHaveAttribute(
+      "aria-labelledby",
+      "portfolio-page-title",
+    );
+    expect(document.querySelector("#app-main-content")).toHaveAccessibleName(
+      "Portfolio command center",
     );
     expect(screen.getByRole("img", { name: "Arbion" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Arbion home" })).toHaveAttribute(

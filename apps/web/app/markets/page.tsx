@@ -93,9 +93,9 @@ export default async function MarketsPage() {
 
   return (
     <main className="markets-page command-content-continuity">
-      <AppPageHeader />
+      <AppPageHeader contentHeadingId="markets-page-title" />
       <p className="eyebrow">MARKET INTELLIGENCE</p>
-      <h1>See the market. Know the source.</h1>
+      <h1 id="markets-page-title">See the market. Know the source.</h1>
       <p className="lede">
         Arbion is building one read-only command center for equities, options,
         crypto, connected portfolio context, and primary-source insider filings.

@@ -303,6 +303,7 @@ export function CommandCenterDashboard({
   return (
     <main className="command-dashboard portfolio-dashboard command-content-continuity">
       <AppPageHeader
+        contentHeadingId="dashboard-page-title"
         actions={
           <div className="command-account-actions">
             {(user.role === "admin" || user.role === "superadmin") && (
@@ -323,7 +324,7 @@ export function CommandCenterDashboard({
           <p className="command-kicker">
             <span /> WELCOME, {firstName(user).toUpperCase()}
           </p>
-          <h1>Your portfolio. One clear view.</h1>
+          <h1 id="dashboard-page-title">Your portfolio. One clear view.</h1>
           <p>
             Real connected accounts, your chosen AI model, and your strategies
             together—without the infrastructure noise.

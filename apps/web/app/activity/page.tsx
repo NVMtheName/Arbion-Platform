@@ -29,9 +29,9 @@ export default async function ActivityPage({
   if (!response.ok) {
     return (
       <main className="journal-page command-content-continuity">
-        <AppPageHeader />
+        <AppPageHeader contentHeadingId="activity-page-title" />
         <p className="eyebrow">DECISION JOURNAL</p>
-        <h1>Journal unavailable</h1>
+        <h1 id="activity-page-title">Journal unavailable</h1>
         <p className="lede">
           Arbion could not load this page of activity. Return to the newest
           entries and try again.
@@ -46,9 +46,9 @@ export default async function ActivityPage({
 
   return (
     <main className="journal-page command-content-continuity">
-      <AppPageHeader />
+      <AppPageHeader contentHeadingId="activity-page-title" />
       <p className="eyebrow">DECISION JOURNAL</p>
-      <h1>Every decision, in context.</h1>
+      <h1 id="activity-page-title">Every decision, in context.</h1>
       <p className="lede">
         Review what each strategy proposed, how the deterministic risk gate
         responded, and what the non-live adapter recorded.

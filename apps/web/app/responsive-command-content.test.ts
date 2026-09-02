@@ -93,6 +93,8 @@ describe("signed-in command content continuity", () => {
     expect(header).toContain('href="#app-main-content"');
     expect(header).toContain('id="app-main-content"');
     expect(header).toContain("tabIndex={-1}");
+    expect(header).toContain("aria-labelledby={contentHeadingId}");
+    expect(header).toContain('"Main content start"');
     expect(styles).toMatch(
       /\.app-skip-link\s*\{[^}]*position:\s*absolute;[^}]*opacity:\s*0;[^}]*transform:\s*translateY\(-160%\);/,
     );
@@ -103,4 +105,31 @@ describe("signed-in command content continuity", () => {
       /\.app-main-content-target\s*\{[^}]*block-size:\s*0;[^}]*scroll-margin-block-start:\s*112px;[^}]*outline:\s*none;/,
     );
   });
+
+  it.each([
+    [
+      "Dashboard",
+      "./dashboard/command-center-dashboard.tsx",
+      "dashboard-page-title",
+    ],
+    ["Portfolio", "./accounts/page.tsx", "portfolio-page-title"],
+    ["Markets", "./markets/page.tsx", "markets-page-title"],
+    ["Automations", "./automations/page.tsx", "automations-page-title"],
+    ["Activity", "./activity/page.tsx", "activity-page-title"],
+    ["Capital", "./capital/page.tsx", "capital-page-title"],
+    [
+      "Connections",
+      "./settings/connections/page.tsx",
+      "connections-page-title",
+    ],
+    ["Security", "./settings/security/page.tsx", "security-page-title"],
+  ])(
+    "binds the %s skip target to its page-level heading",
+    (_label, source, headingId) => {
+      const page = appSource(source);
+
+      expect(page).toContain(`contentHeadingId="${headingId}"`);
+      expect(page).toContain(`id="${headingId}"`);
+    },
+  );
 });
