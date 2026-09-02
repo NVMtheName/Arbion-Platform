@@ -180,6 +180,36 @@ export type FinancialContinuityProjection = {
   }>;
 };
 
+export type FinancialInputChainProjection = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  engineCount: number;
+  currentCount: number;
+  waitingCount: number;
+  blockedCount: number;
+  unavailableCount: number;
+  engines: Array<{
+    instanceID: string;
+    mandateID: string;
+    provider: string;
+    accountName: string;
+    executionMode: "PAPER" | "SHADOW";
+    state:
+      | "CURRENT"
+      | "WAITING_FOR_ACCOUNT_SYNC"
+      | "WAITING_FOR_EVALUATION"
+      | "SAFE_BLOCKED"
+      | "UNAVAILABLE";
+    label: string;
+    guidance: string;
+    connectionVerifiedAt: string;
+    accountSyncedAt: string;
+    scheduleCompletedAt: string;
+    nextRunAt: string;
+    scheduleStatus: string;
+    errorCode?: string;
+  }>;
+};
+
 const connectionFailureCodes = new Set(["RECONCILIATION_REFRESH_FAILED"]);
 const schwabAutomaticRetryCodes = new Set([
   "PROVIDER",
@@ -868,6 +898,191 @@ export function projectFinancialContinuityCenter({
       0,
     ),
     connections: projected,
+  };
+}
+
+export function projectFinancialInputChains({
+  connections,
+  accounts,
+  engines,
+  observedAt,
+}: {
+  connections: FinancialConnection[];
+  accounts: FinancialAccount[];
+  engines: FinancialContinuityEngine[];
+  observedAt: string;
+}): FinancialInputChainProjection {
+  const observedTime = milliseconds(observedAt);
+  const connectionCounts = new Map<string, number>();
+  const accountCounts = new Map<string, number>();
+  const engineCounts = new Map<string, number>();
+  for (const connection of connections) {
+    connectionCounts.set(
+      connection.id,
+      (connectionCounts.get(connection.id) ?? 0) + 1,
+    );
+  }
+  for (const account of accounts) {
+    accountCounts.set(account.id, (accountCounts.get(account.id) ?? 0) + 1);
+  }
+  for (const engine of engines) {
+    if (!engine.instance_id) continue;
+    engineCounts.set(
+      engine.instance_id,
+      (engineCounts.get(engine.instance_id) ?? 0) + 1,
+    );
+  }
+
+  const projected = engines
+    .filter(
+      (engine) =>
+        engine.instance_status === "ACTIVE" &&
+        ["PAPER", "SHADOW"].includes(engine.execution_mode ?? ""),
+    )
+    .map((engine) => {
+      const connection = connections.find(
+        (candidate) => candidate.id === engine.connection_id,
+      );
+      const account = accounts.find(
+        (candidate) => candidate.id === engine.account_id,
+      );
+      const connectionTime = milliseconds(connection?.last_synced_at);
+      const accountTime = milliseconds(account?.last_synced_at);
+      const completedTime = milliseconds(engine.schedule_completed_at);
+      const nextRunTime = milliseconds(engine.schedule_next_run_at);
+      const latest = engine.recent_runs[0];
+      const exact = Boolean(
+        observedTime !== undefined &&
+          connection &&
+          account &&
+          engine.instance_id &&
+          engine.mandate_id &&
+          engine.connection_id === connection!.id &&
+          account!.provider_connection_id === connection!.id &&
+          engine.account_id === account!.id &&
+          engine.provider === connection!.provider &&
+          account!.provider === connection!.provider &&
+          connection!.status === "active" &&
+          account!.status === "active" &&
+          connectionCounts.get(connection!.id) === 1 &&
+          accountCounts.get(account!.id) === 1 &&
+          engineCounts.get(engine.instance_id!) === 1 &&
+          connectionTime !== undefined &&
+          accountTime !== undefined &&
+          completedTime !== undefined &&
+          nextRunTime !== undefined &&
+          connectionTime <= observedTime! &&
+          accountTime <= observedTime! &&
+          completedTime <= observedTime! &&
+          nextRunTime > completedTime &&
+          engine.schedule_available &&
+          engine.schedule_history_available &&
+          engine.schedule_timing_status &&
+          engine.schedule_timing_status !== "UNAVAILABLE" &&
+          Number.isInteger(engine.consecutive_failures) &&
+          (engine.consecutive_failures ?? -1) >= 0 &&
+          latest &&
+          validRun(latest) &&
+          latest.status === engine.schedule_status &&
+          latest.consecutive_failures === engine.consecutive_failures &&
+          sameInstant(latest.completed_at, engine.schedule_completed_at) &&
+          sameInstant(latest.next_run_at, engine.schedule_next_run_at),
+      );
+      const base = {
+        instanceID: engine.instance_id ?? "",
+        mandateID: engine.mandate_id ?? "",
+        provider: engine.provider ?? "",
+        accountName: engine.account_name ?? account?.display_name ?? "Account",
+        executionMode:
+          engine.execution_mode === "PAPER"
+            ? ("PAPER" as const)
+            : ("SHADOW" as const),
+        connectionVerifiedAt: connection?.last_synced_at ?? "",
+        accountSyncedAt: account?.last_synced_at ?? "",
+        scheduleCompletedAt: engine.schedule_completed_at ?? "",
+        nextRunAt: engine.schedule_next_run_at ?? "",
+        scheduleStatus: engine.schedule_status ?? "UNAVAILABLE",
+        errorCode: latest?.error_code ?? undefined,
+      };
+      if (!exact) {
+        return {
+          ...base,
+          state: "UNAVAILABLE" as const,
+          label: "Input chain unavailable",
+          guidance:
+            "Arbion cannot prove the exact saved connection, account-sync, and automatic evaluation sequence for this engine.",
+        };
+      }
+      if (connectionTime! > accountTime!) {
+        return {
+          ...base,
+          state: "WAITING_FOR_ACCOUNT_SYNC" as const,
+          label: "Waiting for a post-verification portfolio sync",
+          guidance:
+            "The saved connection verification is newer than the linked account snapshot. Arbion will not treat the older portfolio as post-verification evidence.",
+        };
+      }
+      if (accountTime! > completedTime!) {
+        return {
+          ...base,
+          state: "WAITING_FOR_EVALUATION" as const,
+          label: "Waiting for a post-sync automatic evaluation",
+          guidance:
+            "The saved account snapshot is newer than the latest engine completion. The next guarded cycle will evaluate the newer input automatically.",
+        };
+      }
+      if (
+        engine.schedule_status === "FAILED" ||
+        (engine.consecutive_failures ?? 0) > 0
+      ) {
+        return {
+          ...base,
+          state: "SAFE_BLOCKED" as const,
+          label: "Current saved input stopped safely",
+          guidance:
+            engine.provider === "schwab"
+              ? "The saved connection and account evidence reached the engine, but the newest Schwab cycle stopped on its separate quote-quality gate before AI."
+              : "The saved connection and account evidence reached the engine, but the newest non-live cycle stopped before any broker or live path.",
+        };
+      }
+      return {
+        ...base,
+        state: "CURRENT" as const,
+        label: "Saved financial input chain is current",
+        guidance:
+          "The newest automatic engine completion follows the saved connection verification and linked account portfolio sync.",
+      };
+    })
+    .sort((left, right) =>
+      `${left.provider}:${left.accountName}:${left.executionMode}`.localeCompare(
+        `${right.provider}:${right.accountName}:${right.executionMode}`,
+      ),
+    );
+  const unavailableCount = projected.filter(
+    (engine) => engine.state === "UNAVAILABLE",
+  ).length;
+  const waitingCount = projected.filter((engine) =>
+    ["WAITING_FOR_ACCOUNT_SYNC", "WAITING_FOR_EVALUATION"].includes(
+      engine.state,
+    ),
+  ).length;
+  const blockedCount = projected.filter(
+    (engine) => engine.state === "SAFE_BLOCKED",
+  ).length;
+  return {
+    status:
+      unavailableCount > 0
+        ? "UNAVAILABLE"
+        : waitingCount > 0 || blockedCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    engineCount: projected.length,
+    currentCount: projected.filter((engine) => engine.state === "CURRENT")
+      .length,
+    waitingCount,
+    blockedCount,
+    unavailableCount,
+    engines: projected,
   };
 }
 
@@ -1660,6 +1875,12 @@ export function FinancialContinuityCenter({
     engines,
     observedAt,
   });
+  const inputChains = projectFinancialInputChains({
+    connections,
+    accounts,
+    engines,
+    observedAt,
+  });
   if (center.connectionCount === 0) return null;
   const headline =
     center.status === "UNAVAILABLE"
@@ -1687,6 +1908,107 @@ export function FinancialContinuityCenter({
           engines
         </span>
       </header>
+      {inputChains.engineCount > 0 ? (
+        <section
+          className={`financial-input-chain is-${inputChains.status.toLowerCase()}`}
+          aria-label="Financial input chain snapshot"
+        >
+          <header>
+            <div>
+              <strong>Financial input chain</strong>
+              <small>Saved connection → portfolio → automatic evaluation</small>
+            </div>
+            <span>
+              {inputChains.currentCount} current · {inputChains.waitingCount}{" "}
+              waiting · {inputChains.blockedCount} safely blocked
+            </span>
+          </header>
+          <ol>
+            {inputChains.engines.map((engine) => {
+              const attention = engine.state !== "CURRENT";
+              return (
+                <li
+                  className={`is-${engine.state.toLowerCase().replaceAll("_", "-")}`}
+                  key={engine.instanceID}
+                >
+                  <header>
+                    <div>
+                      <span
+                        className={`provider-mark provider-${engine.provider}`}
+                        aria-hidden="true"
+                      >
+                        {providerName(engine.provider).slice(0, 1)}
+                      </span>
+                      <div>
+                        <strong>{engine.accountName}</strong>
+                        <small>
+                          {providerName(engine.provider)} ·{" "}
+                          {engine.executionMode === "PAPER"
+                            ? "Paper simulation"
+                            : "Shadow observation"}
+                        </small>
+                      </div>
+                    </div>
+                    <span>{attention ? "CHECKPOINT" : "CURRENT"}</span>
+                  </header>
+                  <h3>{engine.label}</h3>
+                  <p>{engine.guidance}</p>
+                  <div
+                    className="financial-input-chain-path"
+                    aria-label={`Saved financial input stages for ${engine.accountName}`}
+                  >
+                    <span>Connection</span>
+                    <i aria-hidden="true">→</i>
+                    <span>Portfolio</span>
+                    <i aria-hidden="true">→</i>
+                    <span>Engine</span>
+                  </div>
+                  <details open={attention}>
+                    <summary>
+                      <span>Exact saved evidence</span>
+                      <span>{engine.scheduleStatus}</span>
+                    </summary>
+                    <dl>
+                      <div>
+                        <dt>Connection verified</dt>
+                        <dd>{timestamp(engine.connectionVerifiedAt)} UTC</dd>
+                      </div>
+                      <div>
+                        <dt>Portfolio synced</dt>
+                        <dd>{timestamp(engine.accountSyncedAt)} UTC</dd>
+                      </div>
+                      <div>
+                        <dt>Engine completed</dt>
+                        <dd>{timestamp(engine.scheduleCompletedAt)} UTC</dd>
+                      </div>
+                      <div>
+                        <dt>Next automatic cycle</dt>
+                        <dd>{timestamp(engine.nextRunAt)} UTC</dd>
+                      </div>
+                    </dl>
+                    <footer>
+                      <span>
+                        {engine.errorCode
+                          ? `Saved stop: ${engine.errorCode}`
+                          : "No saved scheduler stop"}
+                      </span>
+                      <Link
+                        href={`/automations/${encodeURIComponent(engine.mandateID)}#runtime-evidence`}
+                      >
+                        Open immutable evidence →
+                      </Link>
+                    </footer>
+                  </details>
+                </li>
+              );
+            })}
+          </ol>
+          <footer>
+            Ordering proves only which saved input came first. It does not infer
+            provider cause, entitlement, decision quality, or live authority.
+          </footer>
+        </section>
+      ) : null}
       <ol>
         {center.connections.map((connection) => (
           <li key={connection.id}>
