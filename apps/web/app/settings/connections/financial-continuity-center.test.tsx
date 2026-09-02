@@ -8,6 +8,7 @@ import {
   type FinancialContinuityEngine,
   type FinancialContinuityRun,
   projectFinancialContinuityCenter,
+  projectFinancialInputChains,
   projectSchwabMarketDataReadiness,
 } from "./financial-continuity-center";
 
@@ -189,6 +190,183 @@ describe("FinancialContinuityCenter", () => {
       paperEngineCount: 0,
       shadowEngineCount: 1,
     });
+  });
+
+  it("proves and renders a current connection-to-portfolio-to-engine chain", () => {
+    const result = projectFinancialInputChains({
+      connections: [connection({ last_synced_at: "2026-09-01T15:30:00Z" })],
+      accounts: [account({ last_synced_at: "2026-09-01T15:40:00Z" })],
+      engines: [engine()],
+      observedAt,
+    });
+
+    expect(result).toMatchObject({
+      status: "VERIFIED",
+      engineCount: 1,
+      currentCount: 1,
+      waitingCount: 0,
+      blockedCount: 0,
+      unavailableCount: 0,
+    });
+    expect(result.engines[0]).toMatchObject({
+      state: "CURRENT",
+      provider: "coinbase",
+      accountName: "Coinbase Portfolio",
+      executionMode: "PAPER",
+      connectionVerifiedAt: "2026-09-01T15:30:00Z",
+      accountSyncedAt: "2026-09-01T15:40:00Z",
+      scheduleCompletedAt: "2026-09-01T15:45:20Z",
+      nextRunAt: "2026-09-01T16:45:00Z",
+    });
+
+    render(
+      <FinancialContinuityCenter
+        connections={[connection({ last_synced_at: "2026-09-01T15:30:00Z" })]}
+        accounts={[account({ last_synced_at: "2026-09-01T15:40:00Z" })]}
+        engines={[engine()]}
+        observedAt={observedAt}
+      />,
+    );
+    expect(
+      screen.getByRole("region", { name: "Financial input chain snapshot" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("Saved financial input chain is current"),
+    ).toBeVisible();
+    expect(
+      screen.getByLabelText(
+        "Saved financial input stages for Coinbase Portfolio",
+      ),
+    ).toHaveTextContent("Connection→Portfolio→Engine");
+    expect(
+      screen.getByRole("link", { name: /Open immutable evidence/ }),
+    ).toHaveAttribute("href", "/automations/mandate-paper#runtime-evidence");
+    expect(
+      screen.getByText(/Ordering proves only which saved input came first/),
+    ).toBeVisible();
+  });
+
+  it("waits for a portfolio sync after newer connection verification", () => {
+    const result = projectFinancialInputChains({
+      connections: [connection({ last_synced_at: "2026-09-01T15:50:00Z" })],
+      accounts: [account({ last_synced_at: "2026-09-01T15:40:00Z" })],
+      engines: [engine()],
+      observedAt,
+    });
+
+    expect(result).toMatchObject({
+      status: "ATTENTION",
+      currentCount: 0,
+      waitingCount: 1,
+      blockedCount: 0,
+      unavailableCount: 0,
+    });
+    expect(result.engines[0]).toMatchObject({
+      state: "WAITING_FOR_ACCOUNT_SYNC",
+      label: "Waiting for a post-verification portfolio sync",
+    });
+  });
+
+  it("waits for the next automatic evaluation after a newer portfolio sync", () => {
+    const result = projectFinancialInputChains({
+      connections: [connection({ last_synced_at: "2026-09-01T15:30:00Z" })],
+      accounts: [account({ last_synced_at: "2026-09-01T15:50:00Z" })],
+      engines: [engine()],
+      observedAt,
+    });
+
+    expect(result).toMatchObject({
+      status: "ATTENTION",
+      currentCount: 0,
+      waitingCount: 1,
+      blockedCount: 0,
+      unavailableCount: 0,
+    });
+    expect(result.engines[0]).toMatchObject({
+      state: "WAITING_FOR_EVALUATION",
+      label: "Waiting for a post-sync automatic evaluation",
+    });
+  });
+
+  it("keeps a current Schwab input chain separate from its quote-quality stop", () => {
+    const latest = run({
+      id: "run-schwab-delayed",
+      scheduled_for: "2026-09-01T15:35:00Z",
+      completed_at: "2026-09-01T15:35:12Z",
+      next_run_at: "2026-09-01T16:35:00Z",
+      status: "FAILED",
+      error_code: "MARKET_DATA_DELAYED",
+      consecutive_failures: 2,
+    });
+    const result = projectFinancialInputChains({
+      connections: [
+        connection({
+          id: "schwab-connection",
+          provider: "schwab",
+          last_synced_at: "2026-09-01T15:20:00Z",
+        }),
+      ],
+      accounts: [
+        account({
+          id: "schwab-account",
+          provider_connection_id: "schwab-connection",
+          provider: "schwab",
+          display_name: "Schwab Brokerage",
+          last_synced_at: "2026-09-01T15:30:00Z",
+        }),
+      ],
+      engines: [
+        schwabReadinessEngine({
+          schedule_completed_at: latest.completed_at ?? undefined,
+          schedule_next_run_at: latest.next_run_at ?? undefined,
+          consecutive_failures: 2,
+          recent_runs: [latest],
+        }),
+      ],
+      observedAt,
+    });
+
+    expect(result).toMatchObject({
+      status: "ATTENTION",
+      blockedCount: 1,
+      waitingCount: 0,
+      unavailableCount: 0,
+    });
+    expect(result.engines[0]).toMatchObject({
+      state: "SAFE_BLOCKED",
+      errorCode: "MARKET_DATA_DELAYED",
+      label: "Current saved input stopped safely",
+      guidance: expect.stringMatching(/separate quote-quality gate before AI/),
+    });
+  });
+
+  it("fails the financial input chain closed on incomplete or duplicate evidence", () => {
+    const incomplete = projectFinancialInputChains({
+      connections: [connection({ last_synced_at: null })],
+      accounts: [account()],
+      engines: [engine()],
+      observedAt,
+    });
+    const duplicateConnection = connection({
+      last_synced_at: "2026-09-01T15:30:00Z",
+    });
+    const duplicated = projectFinancialInputChains({
+      connections: [duplicateConnection, { ...duplicateConnection }],
+      accounts: [account({ last_synced_at: "2026-09-01T15:40:00Z" })],
+      engines: [engine()],
+      observedAt,
+    });
+
+    expect(incomplete).toMatchObject({
+      status: "UNAVAILABLE",
+      unavailableCount: 1,
+    });
+    expect(incomplete.engines[0].state).toBe("UNAVAILABLE");
+    expect(duplicated).toMatchObject({
+      status: "UNAVAILABLE",
+      unavailableCount: 1,
+    });
+    expect(duplicated.engines[0].state).toBe("UNAVAILABLE");
   });
 
   it("treats the exact 24-hour boundary as expiring soon and expiry as expired", () => {
