@@ -64,6 +64,16 @@ export type SchwabMarketDataReadiness = {
     consecutiveFailures: number;
     completedAt: string;
     nextRunAt: string;
+    authorizationProof: "VERIFIED" | "REVIEW" | "UNAVAILABLE";
+    entitlementProof: "PROVEN" | "REVIEW" | "NOT_TESTED" | "UNAVAILABLE";
+    quoteProof:
+      | "BROKER_REALTIME"
+      | "DELAYED"
+      | "REALTIME_UNCONFIRMED"
+      | "LEGACY_UNRESOLVED"
+      | "SESSION_WAIT"
+      | "NOT_EVALUATED"
+      | "UNAVAILABLE";
     quoteHistoryStatus: "AVAILABLE" | "UNAVAILABLE";
     quoteHistorySampleCount: number;
     quoteHistoryCapped: boolean;
@@ -245,6 +255,51 @@ function projectSchwabQuoteHistory(runs: FinancialContinuityRun[]) {
       errorCode: run.error_code ?? undefined,
       completedAt: run.completed_at!,
     })),
+  };
+}
+
+function schwabReadinessProof(
+  connectionStatus: string,
+  scheduleStatus?: string,
+  errorCode?: string,
+) {
+  if (connectionStatus !== "active") {
+    return {
+      authorizationProof: "REVIEW" as const,
+      entitlementProof: "NOT_TESTED" as const,
+      quoteProof: "NOT_EVALUATED" as const,
+    };
+  }
+  if (scheduleStatus === "SUCCEEDED" && !errorCode) {
+    return {
+      authorizationProof: "VERIFIED" as const,
+      entitlementProof: "PROVEN" as const,
+      quoteProof: "BROKER_REALTIME" as const,
+    };
+  }
+  if (scheduleStatus === "SKIPPED" && errorCode === "OUTSIDE_SESSION") {
+    return {
+      authorizationProof: "VERIFIED" as const,
+      entitlementProof: "NOT_TESTED" as const,
+      quoteProof: "SESSION_WAIT" as const,
+    };
+  }
+  const quoteProof = {
+    MARKET_DATA_DELAYED: "DELAYED" as const,
+    MARKET_DATA_REALTIME_UNCONFIRMED: "REALTIME_UNCONFIRMED" as const,
+    MARKET_DATA_NOT_REALTIME: "LEGACY_UNRESOLVED" as const,
+  }[errorCode ?? ""];
+  if (quoteProof) {
+    return {
+      authorizationProof: "VERIFIED" as const,
+      entitlementProof: "REVIEW" as const,
+      quoteProof,
+    };
+  }
+  return {
+    authorizationProof: "VERIFIED" as const,
+    entitlementProof: "NOT_TESTED" as const,
+    quoteProof: "NOT_EVALUATED" as const,
   };
 }
 
@@ -635,6 +690,9 @@ export function projectSchwabMarketDataReadiness({
           consecutiveFailures: engine.consecutive_failures ?? 0,
           completedAt: engine.schedule_completed_at ?? "",
           nextRunAt: engine.schedule_next_run_at ?? "",
+          authorizationProof: "UNAVAILABLE" as const,
+          entitlementProof: "UNAVAILABLE" as const,
+          quoteProof: "UNAVAILABLE" as const,
           quoteHistoryStatus: quoteHistory.status,
           quoteHistorySampleCount: quoteHistory.sampleCount,
           quoteHistoryCapped: quoteHistory.capped,
@@ -643,6 +701,11 @@ export function projectSchwabMarketDataReadiness({
       }
 
       const code = latest?.error_code ?? undefined;
+      const readinessProof = schwabReadinessProof(
+        connection!.status,
+        engine.schedule_status,
+        code,
+      );
       let state: SchwabMarketDataReadiness["engines"][number]["state"] =
         "UNAVAILABLE";
       let label = "Readiness evidence unavailable";
@@ -709,6 +772,7 @@ export function projectSchwabMarketDataReadiness({
         consecutiveFailures: engine.consecutive_failures!,
         completedAt: engine.schedule_completed_at!,
         nextRunAt: engine.schedule_next_run_at!,
+        ...readinessProof,
         quoteHistoryStatus: quoteHistory.status,
         quoteHistorySampleCount: quoteHistory.sampleCount,
         quoteHistoryCapped: quoteHistory.capped,
@@ -833,29 +897,37 @@ export function SchwabMarketDataReadinessView({
                   <span>{engineAttention ? "OWNER REVIEW" : "ON COURSE"}</span>
                 </header>
                 <p>{engine.guidance}</p>
+                <ol
+                  className="schwab-readiness-path"
+                  aria-label="Schwab readiness path"
+                >
+                  <li>
+                    <small>1 · Connection authorization</small>
+                    <strong>{engine.authorizationProof}</strong>
+                    <span>Saved connection: {engine.connectionStatus}</span>
+                  </li>
+                  <li>
+                    <small>2 · Market-data access</small>
+                    <strong>{engine.entitlementProof}</strong>
+                    <span>
+                      Proven only when the saved quote passes BROKER_REALTIME
+                    </span>
+                  </li>
+                  <li>
+                    <small>3 · Saved quote proof</small>
+                    <strong>{engine.quoteProof}</strong>
+                    <span>
+                      {engine.scheduleStatus}
+                      {engine.errorCode ? ` · ${engine.errorCode}` : ""}
+                      {` · ${timestamp(engine.completedAt)} UTC`}
+                    </span>
+                  </li>
+                </ol>
                 <dl>
-                  <div>
-                    <dt>Connection authorization</dt>
-                    <dd>{engine.connectionStatus}</dd>
-                    <small>Separate from quote entitlement</small>
-                  </div>
                   <div>
                     <dt>Configured market scope</dt>
                     <dd>{engine.symbols.join(" · ")}</dd>
                     <small>Exact pinned mandate universe</small>
-                  </div>
-                  <div>
-                    <dt>Required quote quality</dt>
-                    <dd>{engine.requiredQuality}</dd>
-                    <small>Delayed or ambiguous quotes fail closed</small>
-                  </div>
-                  <div>
-                    <dt>Latest saved result</dt>
-                    <dd>
-                      {engine.scheduleStatus}
-                      {engine.errorCode ? ` · ${engine.errorCode}` : ""}
-                    </dd>
-                    <small>{timestamp(engine.completedAt)} UTC</small>
                   </div>
                   <div>
                     <dt>Failure streak</dt>
