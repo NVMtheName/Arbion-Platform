@@ -64,6 +64,23 @@ export type SchwabMarketDataReadiness = {
     consecutiveFailures: number;
     completedAt: string;
     nextRunAt: string;
+    quoteHistoryStatus: "AVAILABLE" | "UNAVAILABLE";
+    quoteHistorySampleCount: number;
+    quoteHistoryCapped: boolean;
+    quoteHistory: Array<{
+      id: string;
+      state:
+        | "BROKER_REALTIME"
+        | "DELAYED"
+        | "REALTIME_UNCONFIRMED"
+        | "LEGACY_AMBIGUOUS"
+        | "SESSION_WAIT"
+        | "NOT_EVALUATED";
+      label: string;
+      status: string;
+      errorCode?: string;
+      completedAt: string;
+    }>;
   }>;
 };
 
@@ -117,6 +134,7 @@ const schwabAutomaticRetryCodes = new Set([
   "TIMEOUT",
   "MARKET_DATA_STALE",
 ]);
+const schwabQuoteHistoryLimit = 6;
 
 function milliseconds(value?: string | null) {
   if (!value) return;
@@ -150,6 +168,84 @@ function validRun(run: FinancialContinuityRun) {
         (["FAILED", "SKIPPED"].includes(run.status) &&
           Boolean(run.error_code))),
   );
+}
+
+function schwabQuoteHistory(run: FinancialContinuityRun) {
+  const errorCode = run.error_code ?? undefined;
+  if (run.status === "SUCCEEDED" && !errorCode) {
+    return {
+      state: "BROKER_REALTIME" as const,
+      label: "Broker real-time check passed",
+    };
+  }
+  if (run.status === "SKIPPED" && errorCode === "OUTSIDE_SESSION") {
+    return {
+      state: "SESSION_WAIT" as const,
+      label: "Market session wait; quote not checked",
+    };
+  }
+  if (errorCode === "MARKET_DATA_DELAYED") {
+    return {
+      state: "DELAYED" as const,
+      label: "Delayed quote rejected",
+    };
+  }
+  if (errorCode === "MARKET_DATA_REALTIME_UNCONFIRMED") {
+    return {
+      state: "REALTIME_UNCONFIRMED" as const,
+      label: "Real-time status missing",
+    };
+  }
+  if (errorCode === "MARKET_DATA_NOT_REALTIME") {
+    return {
+      state: "LEGACY_AMBIGUOUS" as const,
+      label: "Legacy quote-quality rejection",
+    };
+  }
+  return {
+    state: "NOT_EVALUATED" as const,
+    label: "Quote gate was not proven",
+  };
+}
+
+function projectSchwabQuoteHistory(runs: FinancialContinuityRun[]) {
+  const seen = new Set<string>();
+  let previousCompletedAt: number | undefined;
+  const exact = runs.every((run) => {
+    const completedAt = milliseconds(run.completed_at);
+    if (
+      !validRun(run) ||
+      !run.id ||
+      seen.has(run.id) ||
+      completedAt === undefined ||
+      (previousCompletedAt !== undefined && completedAt >= previousCompletedAt)
+    ) {
+      return false;
+    }
+    seen.add(run.id);
+    previousCompletedAt = completedAt;
+    return true;
+  });
+  if (!exact || runs.length === 0) {
+    return {
+      status: "UNAVAILABLE" as const,
+      sampleCount: runs.length,
+      capped: runs.length > schwabQuoteHistoryLimit,
+      rows: [],
+    };
+  }
+  return {
+    status: "AVAILABLE" as const,
+    sampleCount: runs.length,
+    capped: runs.length > schwabQuoteHistoryLimit,
+    rows: runs.slice(0, schwabQuoteHistoryLimit).map((run) => ({
+      id: run.id!,
+      ...schwabQuoteHistory(run),
+      status: run.status!,
+      errorCode: run.error_code ?? undefined,
+      completedAt: run.completed_at!,
+    })),
+  };
 }
 
 export function projectFinancialContinuityCenter({
@@ -496,6 +592,7 @@ export function projectSchwabMarketDataReadiness({
       );
       const latest = engine.recent_runs[0];
       const symbols = engine.market_symbols ?? [];
+      const quoteHistory = projectSchwabQuoteHistory(engine.recent_runs);
       const exact = Boolean(
         connection &&
           engine.mandate_id &&
@@ -538,6 +635,10 @@ export function projectSchwabMarketDataReadiness({
           consecutiveFailures: engine.consecutive_failures ?? 0,
           completedAt: engine.schedule_completed_at ?? "",
           nextRunAt: engine.schedule_next_run_at ?? "",
+          quoteHistoryStatus: quoteHistory.status,
+          quoteHistorySampleCount: quoteHistory.sampleCount,
+          quoteHistoryCapped: quoteHistory.capped,
+          quoteHistory: quoteHistory.rows,
         };
       }
 
@@ -608,6 +709,10 @@ export function projectSchwabMarketDataReadiness({
         consecutiveFailures: engine.consecutive_failures!,
         completedAt: engine.schedule_completed_at!,
         nextRunAt: engine.schedule_next_run_at!,
+        quoteHistoryStatus: quoteHistory.status,
+        quoteHistorySampleCount: quoteHistory.sampleCount,
+        quoteHistoryCapped: quoteHistory.capped,
+        quoteHistory: quoteHistory.rows,
       };
     });
   const unavailableCount = projected.filter(
@@ -798,6 +903,51 @@ export function SchwabMarketDataReadinessView({
                       </span>
                     </li>
                   </ol>
+                </details>
+                <details
+                  open={
+                    engineAttention ||
+                    engine.quoteHistoryStatus === "UNAVAILABLE"
+                  }
+                >
+                  <summary>
+                    <span>
+                      <strong>Recent automatic quote checks</strong>
+                      <small>
+                        {engine.quoteHistoryStatus === "AVAILABLE"
+                          ? `${engine.quoteHistorySampleCount} immutable scheduler results${engine.quoteHistoryCapped ? ` · newest ${schwabQuoteHistoryLimit} shown` : ""}`
+                          : "Complete ordered history could not be proven"}
+                      </small>
+                    </span>
+                    <span>
+                      {engine.quoteHistoryStatus === "AVAILABLE"
+                        ? "Saved history"
+                        : "Review evidence"}
+                    </span>
+                  </summary>
+                  {engine.quoteHistoryStatus === "AVAILABLE" ? (
+                    <ol className="schwab-quote-history">
+                      {engine.quoteHistory.map((run) => (
+                        <li
+                          className={`is-${run.state.toLowerCase().replaceAll("_", "-")}`}
+                          key={run.id}
+                        >
+                          <strong>{run.label}</strong>
+                          <span>
+                            {run.status}
+                            {run.errorCode ? ` · ${run.errorCode}` : ""}
+                            {` · ${timestamp(run.completedAt)} UTC`}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="schwab-quote-history-unavailable">
+                      A saved row is missing, duplicated, malformed, or out of
+                      order. Arbion does not infer quote quality from an
+                      incomplete chain; open the immutable scheduler evidence.
+                    </p>
+                  )}
                 </details>
                 <footer>
                   <Link

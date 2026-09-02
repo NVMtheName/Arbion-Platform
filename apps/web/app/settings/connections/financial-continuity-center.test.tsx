@@ -414,6 +414,108 @@ describe("FinancialContinuityCenter", () => {
     },
   );
 
+  it("preserves a bounded exact Schwab quote-quality history", () => {
+    const newest = run({
+      id: "run-delayed",
+      scheduled_for: "2026-09-01T15:35:00Z",
+      completed_at: "2026-09-01T15:35:12Z",
+      next_run_at: "2026-09-01T16:35:00Z",
+      status: "FAILED",
+      error_code: "MARKET_DATA_DELAYED",
+      consecutive_failures: 1,
+    });
+    const priorUnconfirmed = run({
+      id: "run-unconfirmed",
+      scheduled_for: "2026-09-01T14:35:00Z",
+      completed_at: "2026-09-01T14:35:11Z",
+      next_run_at: "2026-09-01T15:35:00Z",
+      status: "FAILED",
+      error_code: "MARKET_DATA_REALTIME_UNCONFIRMED",
+      consecutive_failures: 1,
+    });
+    const priorSuccess = run({
+      id: "run-realtime",
+      scheduled_for: "2026-09-01T13:35:00Z",
+      completed_at: "2026-09-01T13:35:10Z",
+      next_run_at: "2026-09-01T14:35:00Z",
+    });
+    const result = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({ id: "schwab-connection", provider: "schwab" }),
+      ],
+      engines: [
+        schwabReadinessEngine({
+          schedule_completed_at: newest.completed_at ?? undefined,
+          schedule_next_run_at: newest.next_run_at ?? undefined,
+          consecutive_failures: 1,
+          recent_runs: [newest, priorUnconfirmed, priorSuccess],
+        }),
+      ],
+    });
+
+    expect(result.engines[0]).toMatchObject({
+      quoteHistoryStatus: "AVAILABLE",
+      quoteHistorySampleCount: 3,
+      quoteHistoryCapped: false,
+      quoteHistory: [
+        { id: "run-delayed", state: "DELAYED" },
+        { id: "run-unconfirmed", state: "REALTIME_UNCONFIRMED" },
+        { id: "run-realtime", state: "BROKER_REALTIME" },
+      ],
+    });
+
+    render(
+      <SchwabMarketDataReadinessView
+        connections={[
+          connection({ id: "schwab-connection", provider: "schwab" }),
+        ]}
+        engines={[
+          schwabReadinessEngine({
+            schedule_completed_at: newest.completed_at ?? undefined,
+            schedule_next_run_at: newest.next_run_at ?? undefined,
+            consecutive_failures: 1,
+            recent_runs: [newest, priorUnconfirmed, priorSuccess],
+          }),
+        ]}
+      />,
+    );
+    expect(screen.getByText("Delayed quote rejected")).toBeVisible();
+    expect(screen.getByText("Real-time status missing")).toBeVisible();
+    expect(screen.getByText("Broker real-time check passed")).toBeVisible();
+    expect(screen.getByText(/3 immutable scheduler results/)).toBeVisible();
+  });
+
+  it("fails the Schwab quote-quality history closed on duplicate rows", () => {
+    const newest = run({
+      id: "run-duplicate",
+      scheduled_for: "2026-09-01T15:35:00Z",
+      completed_at: "2026-09-01T15:35:12Z",
+      next_run_at: "2026-09-01T16:35:00Z",
+      status: "FAILED",
+      error_code: "MARKET_DATA_DELAYED",
+      consecutive_failures: 1,
+    });
+    const result = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({ id: "schwab-connection", provider: "schwab" }),
+      ],
+      engines: [
+        schwabReadinessEngine({
+          schedule_completed_at: newest.completed_at ?? undefined,
+          schedule_next_run_at: newest.next_run_at ?? undefined,
+          consecutive_failures: 1,
+          recent_runs: [newest, newest],
+        }),
+      ],
+    });
+
+    expect(result.engines[0]).toMatchObject({
+      quoteHistoryStatus: "UNAVAILABLE",
+      quoteHistorySampleCount: 2,
+      quoteHistory: [],
+    });
+  });
+
   it.each([
     [
       "MARKET_DATA_DELAYED",
