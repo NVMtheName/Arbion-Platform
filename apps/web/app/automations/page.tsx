@@ -6305,11 +6305,13 @@ export default async function Automations() {
 
   return (
     <main className="connections-page automation-page strategy-fleet-page command-content-continuity">
-      <AppPageHeader />
+      <AppPageHeader contentHeadingId="automations-page-title" />
       <section className="strategy-fleet-hero">
         <div>
           <p className="eyebrow">YOUR AUTONOMY FLEET</p>
-          <h1>Every engine. One command surface.</h1>
+          <h1 id="automations-page-title">
+            Every engine. One command surface.
+          </h1>
           <p className="lede">
             See the account, model, coverage, state, and schedule behind every
             strategy—without opening each mandate first.

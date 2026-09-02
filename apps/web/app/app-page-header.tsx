@@ -8,12 +8,14 @@ type AppPageHeaderProps = {
   backHref?: string;
   backLabel?: string;
   actions?: ReactNode;
+  contentHeadingId?: string;
 };
 
 export function AppPageHeader({
   backHref = "/dashboard",
   backLabel = "Dashboard",
   actions,
+  contentHeadingId,
 }: AppPageHeaderProps) {
   return (
     <>
@@ -32,6 +34,8 @@ export function AppPageHeader({
         </div>
       </header>
       <span
+        aria-label={contentHeadingId ? undefined : "Main content start"}
+        aria-labelledby={contentHeadingId}
         className="app-main-content-target"
         id="app-main-content"
         tabIndex={-1}
