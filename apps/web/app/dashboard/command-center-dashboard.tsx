@@ -4,7 +4,9 @@ import { motion } from "motion/react";
 import Link from "next/link";
 
 import { AppPageHeader } from "../app-page-header";
+import type { FinancialInputChainProjection } from "../settings/connections/financial-continuity-center";
 import { LogoutButton } from "./logout-button";
+import { FinancialInputChainSummary } from "./financial-input-chain-summary";
 import {
   OwnerAttentionCenter,
   type OwnerAttentionOverview,
@@ -78,6 +80,8 @@ type DashboardProps = {
   aiEngines?: DashboardAIEngineSummary[];
   attention?: OwnerAttentionOverview;
   attentionAvailable?: boolean;
+  financialInputChains?: FinancialInputChainProjection;
+  financialInputChainsAvailable?: boolean;
 };
 
 const enter = {
@@ -274,6 +278,8 @@ export function CommandCenterDashboard({
   aiEngines = [],
   attention,
   attentionAvailable = true,
+  financialInputChains,
+  financialInputChainsAvailable = true,
 }: DashboardProps) {
   const activeAccounts = accounts.filter(
     (account) => account.status === "active",
@@ -343,6 +349,11 @@ export function CommandCenterDashboard({
       <OwnerAttentionCenter
         attention={attention}
         available={attentionAvailable}
+      />
+
+      <FinancialInputChainSummary
+        projection={financialInputChains}
+        available={financialInputChainsAvailable}
       />
 
       {!setupComplete && (

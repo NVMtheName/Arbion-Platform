@@ -1911,6 +1911,7 @@ export function FinancialContinuityCenter({
       {inputChains.engineCount > 0 ? (
         <section
           className={`financial-input-chain is-${inputChains.status.toLowerCase()}`}
+          id="financial-input-chain"
           aria-label="Financial input chain snapshot"
         >
           <header>
