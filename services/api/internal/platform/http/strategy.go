@@ -358,6 +358,12 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 409, "PAPER_STATE_UNAVAILABLE", "The PAPER portfolio state required for evaluation is unavailable.")
 	case errors.Is(e, strategy.ErrEvaluationMarketDataStale):
 		writeError(w, 422, "MARKET_DATA_STALE", "Schwab market data is missing a current provider timestamp.")
+	case errors.Is(e, strategy.ErrEvaluationMarketDataDelayed):
+		writeError(w, 422, "MARKET_DATA_DELAYED", "Schwab explicitly marked the current market data as delayed. No AI or broker action was requested.")
+	case errors.Is(e, strategy.ErrEvaluationMarketDataUnconfirmed):
+		writeError(w, 422, "MARKET_DATA_REALTIME_UNCONFIRMED", "Schwab did not report whether the current market data is real-time. No AI or broker action was requested.")
+	case errors.Is(e, strategy.ErrEvaluationMarketDataNotRealtime):
+		writeError(w, 422, "MARKET_DATA_NOT_REALTIME", "Schwab market data was not explicitly real-time. No AI or broker action was requested.")
 	case errors.Is(e, strategy.ErrEvaluationNoEligibleContracts):
 		writeError(w, 422, "NO_ELIGIBLE_OPTION_CONTRACTS", "No option contract matched the saved symbol, expiration, delta, and premium filters.")
 	case errors.Is(e, aiconnection.ErrRateLimit):

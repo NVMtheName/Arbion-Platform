@@ -414,6 +414,48 @@ describe("FinancialContinuityCenter", () => {
     },
   );
 
+  it.each([
+    [
+      "MARKET_DATA_DELAYED",
+      "Connected; provider quote is delayed",
+      /explicitly marked.*delayed.*reconnecting alone does not change/i,
+    ],
+    [
+      "MARKET_DATA_REALTIME_UNCONFIRMED",
+      "Connected; quote quality unconfirmed",
+      /omitted a real-time status.*without guessing/i,
+    ],
+  ] as const)(
+    "explains the exact Schwab quote-quality state %s",
+    (code, label, guidance) => {
+      const latest = run({
+        id: `run-${code}`,
+        status: "FAILED",
+        error_code: code,
+        consecutive_failures: 1,
+      });
+      const result = projectSchwabMarketDataReadiness({
+        connections: [
+          connection({ id: "schwab-connection", provider: "schwab" }),
+        ],
+        engines: [
+          schwabReadinessEngine({
+            schedule_completed_at: latest.completed_at ?? undefined,
+            schedule_next_run_at: latest.next_run_at ?? undefined,
+            consecutive_failures: 1,
+            recent_runs: [latest],
+          }),
+        ],
+      });
+      expect(result.engines[0]).toMatchObject({
+        state: "ENTITLEMENT_REVIEW",
+        label,
+        guidance: expect.stringMatching(guidance),
+        errorCode: code,
+      });
+    },
+  );
+
   it("keeps a supported market-session wait on course", () => {
     const latest = run({
       id: "run-session-wait",

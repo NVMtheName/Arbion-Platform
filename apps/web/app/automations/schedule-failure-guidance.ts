@@ -56,6 +56,16 @@ export function scheduleFailureGuidance(
         "AUTOMATIC_RETRY",
         `${provider} market evidence was not current. Arbion will try again after the data refreshes.`,
       );
+    case "MARKET_DATA_DELAYED":
+      return guidance(
+        "OWNER_REVIEW",
+        `${provider} explicitly marked the saved quote as delayed. Arbion stopped before the AI model and will not use it. Review real-time market-data access; reconnecting the account alone does not change quote entitlement.`,
+      );
+    case "MARKET_DATA_REALTIME_UNCONFIRMED":
+      return guidance(
+        "OWNER_REVIEW",
+        `${provider} did not include a real-time status for the saved quote. Arbion stopped before the AI model rather than guessing. Review the provider app's market-data product and entitlement before the next cycle.`,
+      );
     case "MARKET_DATA_NOT_REALTIME":
       return guidance(
         "OWNER_REVIEW",

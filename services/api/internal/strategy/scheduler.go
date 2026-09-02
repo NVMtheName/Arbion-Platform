@@ -231,6 +231,10 @@ func classifyScheduleError(err error) string {
 		return "MARKET_DATA_INVALID"
 	case errors.Is(err, ErrEvaluationMarketDataStale):
 		return "MARKET_DATA_STALE"
+	case errors.Is(err, ErrEvaluationMarketDataDelayed):
+		return "MARKET_DATA_DELAYED"
+	case errors.Is(err, ErrEvaluationMarketDataUnconfirmed):
+		return "MARKET_DATA_REALTIME_UNCONFIRMED"
 	case errors.Is(err, ErrEvaluationMarketDataNotRealtime):
 		return "MARKET_DATA_NOT_REALTIME"
 	case errors.Is(err, ErrEvaluationNoEligibleContracts):

@@ -565,6 +565,14 @@ export function projectSchwabMarketDataReadiness({
         label = "Waiting for market session";
         guidance =
           "The connection is active. Arbion is waiting for the next supported U.S. equities session before checking Schwab quote quality again.";
+      } else if (code === "MARKET_DATA_DELAYED") {
+        state = "ENTITLEMENT_REVIEW";
+        label = "Connected; provider quote is delayed";
+        guidance = `Schwab authorization is active, but Schwab explicitly marked the newest saved ${symbols.join(" / ")} quote as delayed. Review real-time market-data access; reconnecting alone does not change quote entitlement. Arbion will check again automatically at the next guarded cycle.`;
+      } else if (code === "MARKET_DATA_REALTIME_UNCONFIRMED") {
+        state = "ENTITLEMENT_REVIEW";
+        label = "Connected; quote quality unconfirmed";
+        guidance = `Schwab authorization is active, but the newest saved ${symbols.join(" / ")} quote omitted a real-time status. Review the Schwab app's market-data product and entitlement. Arbion will check again automatically at the next guarded cycle without guessing.`;
       } else if (code === "MARKET_DATA_NOT_REALTIME") {
         state = "ENTITLEMENT_REVIEW";
         label = "Connected; real-time quote not confirmed";

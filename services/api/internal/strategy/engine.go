@@ -23,6 +23,8 @@ var (
 	ErrEvaluationMarketDataInvalid     = fmt.Errorf("%w: market data is invalid", ErrInvalid)
 	ErrEvaluationMarketDataStale       = fmt.Errorf("%w: market data is stale", ErrInvalid)
 	ErrEvaluationMarketDataNotRealtime = fmt.Errorf("%w: market data is not explicitly real-time", ErrInvalid)
+	ErrEvaluationMarketDataDelayed     = fmt.Errorf("%w: provider explicitly marked market data as delayed", ErrEvaluationMarketDataNotRealtime)
+	ErrEvaluationMarketDataUnconfirmed = fmt.Errorf("%w: provider omitted real-time market data status", ErrEvaluationMarketDataNotRealtime)
 	ErrEvaluationNoEligibleContracts   = fmt.Errorf("%w: no eligible option contracts", ErrInvalid)
 )
 

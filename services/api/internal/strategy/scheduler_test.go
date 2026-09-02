@@ -292,21 +292,23 @@ func TestSchedulerTreatsCommittedDuplicateAsRecoveredSuccess(t *testing.T) {
 
 func TestScheduleErrorClassificationPreservesSafeEvaluationDiagnostics(t *testing.T) {
 	tests := map[string]error{
-		"STRATEGY_NOT_ACTIVE":            ErrEvaluationInactive,
-		"STRATEGY_CONFIGURATION_CHANGED": ErrEvaluationConfigurationChanged,
-		"STRATEGY_PARAMETERS_INVALID":    ErrEvaluationParametersInvalid,
-		"PAPER_STATE_UNAVAILABLE":        ErrEvaluationPaperStateUnavailable,
-		"MARKET_DATA_INVALID":            ErrEvaluationMarketDataInvalid,
-		"MARKET_DATA_STALE":              ErrEvaluationMarketDataStale,
-		"MARKET_DATA_NOT_REALTIME":       ErrEvaluationMarketDataNotRealtime,
-		"NO_ELIGIBLE_OPTION_CONTRACTS":   ErrEvaluationNoEligibleContracts,
-		"AI_DECISION_BUDGET_EXHAUSTED":   aiconnection.ErrRateLimit,
-		"AI_PROVIDER_RATE_LIMITED":       &neural.ProviderError{Code: neural.RateLimited},
-		"AI_REQUEST_INVALID":             &neural.ProviderError{Code: neural.InvalidRequest},
-		"AI_RESPONSE_INCOMPLETE":         &neural.ProviderError{Code: neural.ResponseIncomplete},
-		"AI_STRUCTURED_OUTPUT_MISSING":   &neural.ProviderError{Code: neural.StructuredOutputMissing},
-		"AI_STRUCTURED_OUTPUT_INVALID":   &neural.ProviderError{Code: neural.StructuredOutputInvalid},
-		"AI_DECISION_CONTRACT_INVALID":   &neural.ProviderError{Code: neural.DecisionContractInvalid},
+		"STRATEGY_NOT_ACTIVE":              ErrEvaluationInactive,
+		"STRATEGY_CONFIGURATION_CHANGED":   ErrEvaluationConfigurationChanged,
+		"STRATEGY_PARAMETERS_INVALID":      ErrEvaluationParametersInvalid,
+		"PAPER_STATE_UNAVAILABLE":          ErrEvaluationPaperStateUnavailable,
+		"MARKET_DATA_INVALID":              ErrEvaluationMarketDataInvalid,
+		"MARKET_DATA_STALE":                ErrEvaluationMarketDataStale,
+		"MARKET_DATA_DELAYED":              ErrEvaluationMarketDataDelayed,
+		"MARKET_DATA_REALTIME_UNCONFIRMED": ErrEvaluationMarketDataUnconfirmed,
+		"MARKET_DATA_NOT_REALTIME":         ErrEvaluationMarketDataNotRealtime,
+		"NO_ELIGIBLE_OPTION_CONTRACTS":     ErrEvaluationNoEligibleContracts,
+		"AI_DECISION_BUDGET_EXHAUSTED":     aiconnection.ErrRateLimit,
+		"AI_PROVIDER_RATE_LIMITED":         &neural.ProviderError{Code: neural.RateLimited},
+		"AI_REQUEST_INVALID":               &neural.ProviderError{Code: neural.InvalidRequest},
+		"AI_RESPONSE_INCOMPLETE":           &neural.ProviderError{Code: neural.ResponseIncomplete},
+		"AI_STRUCTURED_OUTPUT_MISSING":     &neural.ProviderError{Code: neural.StructuredOutputMissing},
+		"AI_STRUCTURED_OUTPUT_INVALID":     &neural.ProviderError{Code: neural.StructuredOutputInvalid},
+		"AI_DECISION_CONTRACT_INVALID":     &neural.ProviderError{Code: neural.DecisionContractInvalid},
 	}
 	for want, err := range tests {
 		if got := classifyScheduleError(err); got != want {
