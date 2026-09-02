@@ -372,12 +372,13 @@ export function PortfolioReconciliationPanel({
           {resolution && (
             <section
               className={`reconciliation-resolution is-${resolution.status.toLowerCase()}`}
-              aria-labelledby="reconciliation-resolution-title"
+              id="reconciliation-resolution-title"
+              aria-labelledby="reconciliation-resolution-heading"
             >
               <header>
                 <div>
                   <p className="eyebrow">{resolution.eyebrow}</p>
-                  <h3 id="reconciliation-resolution-title">
+                  <h3 id="reconciliation-resolution-heading">
                     Reconciliation resolution
                   </h3>
                 </div>
