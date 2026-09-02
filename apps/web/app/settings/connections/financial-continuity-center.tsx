@@ -82,6 +82,19 @@ export type SchwabMarketDataReadiness = {
       blockedAt: string;
       recoveredAt: string;
     };
+    quoteIncidentStatus: "AVAILABLE" | "UNAVAILABLE";
+    quoteSafeWaitCount: number;
+    quoteIncidents: Array<{
+      id: string;
+      state: "OPEN" | "RECOVERED";
+      recurringAfterRecovery: boolean;
+      startedAt: string;
+      latestFailureAt: string;
+      recoveredAt?: string;
+      failureCount: number;
+      safeWaitCount: number;
+      errorCodes: string[];
+    }>;
     quoteHistory: Array<{
       id: string;
       state:
@@ -286,6 +299,86 @@ function projectSchwabQuoteRecovery(
       recoveredAt: history.rows[0].completedAt,
     };
   }
+}
+
+function projectSchwabQuoteIncidents(
+  history: ReturnType<typeof projectSchwabQuoteHistory>,
+) {
+  if (
+    history.status !== "AVAILABLE" ||
+    history.rows.some((row) => row.state === "NOT_EVALUATED")
+  ) {
+    return {
+      status: "UNAVAILABLE" as const,
+      safeWaitCount: 0,
+      incidents: [],
+    };
+  }
+
+  type Incident = {
+    id: string;
+    state: "OPEN" | "RECOVERED";
+    recurringAfterRecovery: boolean;
+    startedAt: string;
+    latestFailureAt: string;
+    recoveredAt?: string;
+    failureCount: number;
+    safeWaitCount: number;
+    errorCodes: string[];
+  };
+  const incidents: Incident[] = [];
+  let current: Incident | undefined;
+  let safeWaitCount = 0;
+  let recoverySeen = false;
+
+  for (const row of history.rows.toReversed()) {
+    if (row.state === "SESSION_WAIT") {
+      safeWaitCount += 1;
+      if (current) current.safeWaitCount += 1;
+      continue;
+    }
+    if (row.state === "BROKER_REALTIME") {
+      if (current) {
+        current.state = "RECOVERED";
+        current.recoveredAt = row.completedAt;
+        incidents.push(current);
+        current = undefined;
+        recoverySeen = true;
+      }
+      continue;
+    }
+    if (!row.errorCode) {
+      return {
+        status: "UNAVAILABLE" as const,
+        safeWaitCount: 0,
+        incidents: [],
+      };
+    }
+    if (!current) {
+      current = {
+        id: row.id,
+        state: "OPEN",
+        recurringAfterRecovery: recoverySeen,
+        startedAt: row.completedAt,
+        latestFailureAt: row.completedAt,
+        failureCount: 0,
+        safeWaitCount: 0,
+        errorCodes: [],
+      };
+    }
+    current.latestFailureAt = row.completedAt;
+    current.failureCount += 1;
+    if (!current.errorCodes.includes(row.errorCode)) {
+      current.errorCodes.push(row.errorCode);
+    }
+  }
+  if (current) incidents.push(current);
+
+  return {
+    status: "AVAILABLE" as const,
+    safeWaitCount,
+    incidents: incidents.toReversed(),
+  };
 }
 
 function schwabReadinessProof(
@@ -682,6 +775,7 @@ export function projectSchwabMarketDataReadiness({
         quoteHistory,
         engine.consecutive_failures,
       );
+      const quoteIncidents = projectSchwabQuoteIncidents(quoteHistory);
       const exact = Boolean(
         connection &&
           engine.mandate_id &&
@@ -731,6 +825,9 @@ export function projectSchwabMarketDataReadiness({
           quoteHistorySampleCount: quoteHistory.sampleCount,
           quoteHistoryCapped: quoteHistory.capped,
           quoteRecovery: undefined,
+          quoteIncidentStatus: quoteIncidents.status,
+          quoteSafeWaitCount: quoteIncidents.safeWaitCount,
+          quoteIncidents: quoteIncidents.incidents,
           quoteHistory: quoteHistory.rows,
         };
       }
@@ -812,6 +909,9 @@ export function projectSchwabMarketDataReadiness({
         quoteHistorySampleCount: quoteHistory.sampleCount,
         quoteHistoryCapped: quoteHistory.capped,
         quoteRecovery,
+        quoteIncidentStatus: quoteIncidents.status,
+        quoteSafeWaitCount: quoteIncidents.safeWaitCount,
+        quoteIncidents: quoteIncidents.incidents,
         quoteHistory: quoteHistory.rows,
       };
     });
@@ -1112,21 +1212,99 @@ export function SchwabMarketDataReadinessView({
                     </span>
                   </summary>
                   {engine.quoteHistoryStatus === "AVAILABLE" ? (
-                    <ol className="schwab-quote-history">
-                      {engine.quoteHistory.map((run) => (
-                        <li
-                          className={`is-${run.state.toLowerCase().replaceAll("_", "-")}`}
-                          key={run.id}
-                        >
-                          <strong>{run.label}</strong>
+                    <>
+                      <ol className="schwab-quote-history">
+                        {engine.quoteHistory.map((run) => (
+                          <li
+                            className={`is-${run.state.toLowerCase().replaceAll("_", "-")}`}
+                            key={run.id}
+                          >
+                            <strong>{run.label}</strong>
+                            <span>
+                              {run.status}
+                              {run.errorCode ? ` · ${run.errorCode}` : ""}
+                              {` · ${timestamp(run.completedAt)} UTC`}
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
+                      <section
+                        className="schwab-quote-incidents"
+                        aria-label={`Schwab market-data incident timeline for ${engine.accountName}`}
+                      >
+                        <header>
+                          <div>
+                            <strong>Market-data incident timeline</strong>
+                            <small>
+                              Exact events in the newest saved scheduler window
+                            </small>
+                          </div>
                           <span>
-                            {run.status}
-                            {run.errorCode ? ` · ${run.errorCode}` : ""}
-                            {` · ${timestamp(run.completedAt)} UTC`}
+                            {engine.quoteIncidentStatus === "AVAILABLE"
+                              ? `${engine.quoteIncidents.length} incident${engine.quoteIncidents.length === 1 ? "" : "s"}`
+                              : "UNAVAILABLE"}
                           </span>
-                        </li>
-                      ))}
-                    </ol>
+                        </header>
+                        {engine.quoteIncidentStatus === "AVAILABLE" ? (
+                          engine.quoteIncidents.length > 0 ? (
+                            <ol>
+                              {engine.quoteIncidents.map((incident) => (
+                                <li
+                                  className={`is-${incident.state.toLowerCase()}`}
+                                  key={incident.id}
+                                >
+                                  <div>
+                                    <strong>
+                                      {incident.state === "OPEN"
+                                        ? "Open quote-quality incident"
+                                        : "Recovered automatically"}
+                                    </strong>
+                                    {incident.recurringAfterRecovery ? (
+                                      <small>Recurring after recovery</small>
+                                    ) : null}
+                                  </div>
+                                  <span>
+                                    {incident.failureCount} failed check
+                                    {incident.failureCount === 1 ? "" : "s"}
+                                    {` · ${incident.errorCodes.join(" · ")}`}
+                                    {` · visible since ${timestamp(incident.startedAt)} UTC`}
+                                    {` · latest ${timestamp(incident.latestFailureAt)} UTC`}
+                                    {incident.recoveredAt
+                                      ? ` · recovered ${timestamp(incident.recoveredAt)} UTC`
+                                      : " · awaiting the next automatic check"}
+                                  </span>
+                                </li>
+                              ))}
+                            </ol>
+                          ) : (
+                            <p>
+                              No quote-quality incident appears in this saved
+                              window.
+                            </p>
+                          )
+                        ) : (
+                          <p>
+                            The incident chain is unavailable because a saved
+                            result did not evaluate the Schwab quote gate. No
+                            entitlement state or recovery is inferred.
+                          </p>
+                        )}
+                        <footer>
+                          <span>
+                            {engine.quoteSafeWaitCount} exact OUTSIDE_SESSION
+                            {engine.quoteSafeWaitCount === 1
+                              ? " wait"
+                              : " waits"}{" "}
+                            kept separate
+                          </span>
+                          <span>
+                            {engine.quoteHistoryCapped
+                              ? `Bounded view · newest ${schwabQuoteHistoryLimit} checks`
+                              : "Complete loaded history"}
+                          </span>
+                        </footer>
+                      </section>
+                    </>
                   ) : (
                     <p className="schwab-quote-history-unavailable">
                       A saved row is missing, duplicated, malformed, or out of

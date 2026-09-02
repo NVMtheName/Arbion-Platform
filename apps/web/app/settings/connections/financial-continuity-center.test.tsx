@@ -546,6 +546,19 @@ describe("FinancialContinuityCenter", () => {
       quoteHistoryStatus: "AVAILABLE",
       quoteHistorySampleCount: 3,
       quoteHistoryCapped: false,
+      quoteIncidentStatus: "AVAILABLE",
+      quoteSafeWaitCount: 0,
+      quoteIncidents: [
+        {
+          state: "OPEN",
+          recurringAfterRecovery: false,
+          failureCount: 2,
+          errorCodes: [
+            "MARKET_DATA_REALTIME_UNCONFIRMED",
+            "MARKET_DATA_DELAYED",
+          ],
+        },
+      ],
       quoteHistory: [
         { id: "run-delayed", state: "DELAYED" },
         { id: "run-unconfirmed", state: "REALTIME_UNCONFIRMED" },
@@ -572,6 +585,7 @@ describe("FinancialContinuityCenter", () => {
     expect(screen.getByText("Real-time status missing")).toBeVisible();
     expect(screen.getByText("Broker real-time check passed")).toBeVisible();
     expect(screen.getByText(/3 immutable scheduler results/)).toBeVisible();
+    expect(screen.getByText("Open quote-quality incident")).toBeVisible();
   });
 
   it("proves automatic Schwab quote recovery from bounded saved history", () => {
@@ -618,6 +632,19 @@ describe("FinancialContinuityCenter", () => {
 
     expect(result.engines[0]).toMatchObject({
       state: "READY",
+      quoteIncidentStatus: "AVAILABLE",
+      quoteSafeWaitCount: 1,
+      quoteIncidents: [
+        {
+          state: "RECOVERED",
+          recurringAfterRecovery: false,
+          failureCount: 1,
+          safeWaitCount: 1,
+          errorCodes: ["MARKET_DATA_DELAYED"],
+          startedAt: delayed.completed_at,
+          recoveredAt: recovered.completed_at,
+        },
+      ],
       quoteRecovery: {
         errorCode: "MARKET_DATA_DELAYED",
         blockedAt: delayed.completed_at,
@@ -638,6 +665,10 @@ describe("FinancialContinuityCenter", () => {
       screen.getByText(/MARKET_DATA_DELAYED.*BROKER_REALTIME/),
     ).toBeVisible();
     expect(screen.getByText(/Failure streak reset to 0/)).toBeVisible();
+    expect(screen.getByText("Recovered automatically")).toBeInTheDocument();
+    expect(
+      screen.getByText(/1 exact OUTSIDE_SESSION wait kept separate/),
+    ).toBeInTheDocument();
   });
 
   it("does not infer recovery when saved quote history is not contiguous", () => {
@@ -684,7 +715,81 @@ describe("FinancialContinuityCenter", () => {
       ],
     });
 
-    expect(result.engines[0].quoteRecovery).toBeUndefined();
+    expect(result.engines[0]).toMatchObject({
+      quoteRecovery: undefined,
+      quoteIncidentStatus: "UNAVAILABLE",
+      quoteSafeWaitCount: 0,
+      quoteIncidents: [],
+    });
+  });
+
+  it("distinguishes a recurring quote incident after exact saved recovery", () => {
+    const recurring = run({
+      id: "run-recurring-unconfirmed",
+      scheduled_for: "2026-09-02T15:35:00Z",
+      completed_at: "2026-09-02T15:35:08Z",
+      next_run_at: "2026-09-02T16:35:00Z",
+      status: "FAILED",
+      error_code: "MARKET_DATA_REALTIME_UNCONFIRMED",
+      consecutive_failures: 1,
+    });
+    const recovered = run({
+      id: "run-prior-recovery",
+      scheduled_for: "2026-09-02T14:35:00Z",
+      completed_at: "2026-09-02T14:35:08Z",
+      next_run_at: "2026-09-02T15:35:00Z",
+      status: "SUCCEEDED",
+      error_code: null,
+      consecutive_failures: 0,
+    });
+    const firstFailure = run({
+      id: "run-first-delayed",
+      scheduled_for: "2026-09-02T13:35:00Z",
+      completed_at: "2026-09-02T13:35:08Z",
+      next_run_at: "2026-09-02T14:35:00Z",
+      status: "FAILED",
+      error_code: "MARKET_DATA_DELAYED",
+      consecutive_failures: 1,
+    });
+    const engine = schwabReadinessEngine({
+      schedule_completed_at: recurring.completed_at ?? undefined,
+      schedule_next_run_at: recurring.next_run_at ?? undefined,
+      consecutive_failures: 1,
+      recent_runs: [recurring, recovered, firstFailure],
+    });
+    const result = projectSchwabMarketDataReadiness({
+      connections: [
+        connection({ id: "schwab-connection", provider: "schwab" }),
+      ],
+      engines: [engine],
+    });
+
+    expect(result.engines[0]).toMatchObject({
+      quoteIncidentStatus: "AVAILABLE",
+      quoteIncidents: [
+        {
+          state: "OPEN",
+          recurringAfterRecovery: true,
+          errorCodes: ["MARKET_DATA_REALTIME_UNCONFIRMED"],
+        },
+        {
+          state: "RECOVERED",
+          recurringAfterRecovery: false,
+          errorCodes: ["MARKET_DATA_DELAYED"],
+          recoveredAt: recovered.completed_at,
+        },
+      ],
+    });
+
+    render(
+      <SchwabMarketDataReadinessView
+        connections={[
+          connection({ id: "schwab-connection", provider: "schwab" }),
+        ]}
+        engines={[engine]}
+      />,
+    );
+    expect(screen.getByText("Recurring after recovery")).toBeVisible();
   });
 
   it("fails the Schwab quote-quality history closed on duplicate rows", () => {
