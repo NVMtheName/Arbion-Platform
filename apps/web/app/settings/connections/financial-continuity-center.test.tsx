@@ -388,6 +388,46 @@ describe("FinancialContinuityCenter", () => {
         .getByText("Why connected can still stop safely")
         .closest("details"),
     ).toHaveAttribute("open");
+    expect(screen.getByText("What to verify in Schwab")).toBeVisible();
+    expect(
+      screen.getByText(/Trader API – Individual production market data/),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Never send a client secret or refresh token/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: /Open Schwab developer apps/ }),
+    ).toHaveAttribute("href", "https://developer.schwab.com/dashboard/apps");
+  });
+
+  it("shows the Schwab owner checklist only for quote-entitlement review", () => {
+    const successfulRun = run({
+      id: "run-broker-realtime",
+      status: "SUCCEEDED",
+      error_code: null,
+      consecutive_failures: 0,
+    });
+
+    render(
+      <SchwabMarketDataReadinessView
+        connections={[
+          connection({ id: "schwab-connection", provider: "schwab" }),
+        ]}
+        engines={[
+          schwabReadinessEngine({
+            schedule_status: "SUCCEEDED",
+            schedule_completed_at: successfulRun.completed_at ?? undefined,
+            schedule_next_run_at: successfulRun.next_run_at ?? undefined,
+            consecutive_failures: 0,
+            recent_runs: [successfulRun],
+          }),
+        ]}
+      />,
+    );
+
+    expect(
+      screen.queryByText("What to verify in Schwab"),
+    ).not.toBeInTheDocument();
   });
 
   it.each([

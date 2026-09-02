@@ -885,6 +885,7 @@ export function SchwabMarketDataReadinessView({
             const engineAttention = !["READY", "SESSION_WAIT"].includes(
               engine.state,
             );
+            const entitlementAttention = engine.state === "ENTITLEMENT_REVIEW";
             return (
               <li
                 className={`is-${engine.state.toLowerCase().replaceAll("_", "-")}`}
@@ -977,6 +978,62 @@ export function SchwabMarketDataReadinessView({
                     </li>
                   </ol>
                 </details>
+                {entitlementAttention ? (
+                  <aside
+                    className="schwab-entitlement-review"
+                    aria-label={`What to verify in Schwab for ${engine.accountName}`}
+                  >
+                    <header>
+                      <div>
+                        <strong>What to verify in Schwab</strong>
+                        <small>
+                          Account access—not another Arbion reconnect
+                        </small>
+                      </div>
+                      <span>OWNER CHECKLIST</span>
+                    </header>
+                    <ol>
+                      <li>
+                        <strong>Developer app</strong>
+                        <span>
+                          Confirm your Schwab app is approved for Trader API –
+                          Individual production market data.
+                        </span>
+                      </li>
+                      <li>
+                        <strong>Linked brokerage account</strong>
+                        <span>
+                          Ask Schwab to confirm this account is eligible for
+                          real-time U.S. equity quotes and that any required
+                          market-data agreements are current.
+                        </span>
+                      </li>
+                      <li>
+                        <strong>Safe support evidence</strong>
+                        <span>
+                          If both appear active, give Schwab the symbol
+                          {` ${engine.symbols.join(" / ")}`}, the saved code
+                          {engine.errorCode ? ` ${engine.errorCode}` : ""}, and
+                          the check time {timestamp(engine.completedAt)} UTC.
+                          Never send a client secret or refresh token.
+                        </span>
+                      </li>
+                    </ol>
+                    <footer>
+                      <a
+                        href="https://developer.schwab.com/dashboard/apps"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open Schwab developer apps ↗
+                      </a>
+                      <span>
+                        Return here afterward. Arbion will test the saved quote
+                        again automatically—no manual cycle is needed.
+                      </span>
+                    </footer>
+                  </aside>
+                ) : null}
                 <details
                   open={
                     engineAttention ||
