@@ -60,9 +60,19 @@ export type ConnectionSyncEvidenceProjection = {
     providerEventTimeStatus: "UNAVAILABLE";
     syncFailureHistoryStatus: "AVAILABLE" | "COLLECTING" | "UNAVAILABLE";
     syncAttemptCount: number;
+    syncSuccessCount: number;
     syncFailureCount: number;
     recoveredFailureCount: number;
     currentFailureCount: number;
+    minimumAttemptDurationMilliseconds?: number;
+    medianAttemptDurationMilliseconds?: number;
+    maximumAttemptDurationMilliseconds?: number;
+    recoveredAttemptCount: number;
+    medianRecoveryMilliseconds?: number;
+    maximumRecoveryMilliseconds?: number;
+    currentFailureAgeMilliseconds?: number;
+    firstAttemptAt?: string;
+    latestAttemptAt?: string;
     latestAttemptOutcome?: "SAVED" | "FAILED";
     latestFailureAt?: string;
     latestFailureStage?: string;
@@ -259,6 +269,15 @@ function exactBindings(
   );
 }
 
+function exactMedian(values: number[]) {
+  if (values.length === 0) return;
+  const sorted = [...values].sort((left, right) => left - right);
+  const midpoint = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[midpoint]
+    : sorted[midpoint - 1] + (sorted[midpoint] - sorted[midpoint - 1]) / 2;
+}
+
 export function projectConnectionSyncEvidence({
   inputs,
   observedAt,
@@ -350,6 +369,9 @@ export function projectConnectionSyncEvidence({
       const failures = attemptHistory.attempts.filter(
         (attempt) => attempt.outcome === "FAILED",
       );
+      const successes = attemptHistory.attempts.filter(
+        (attempt) => attempt.outcome === "SAVED",
+      );
       const recoveredFailures = failures.filter((attempt) =>
         successfulAttemptTimes.some(
           (completedAt) => completedAt > Date.parse(attempt.completedAt),
@@ -357,6 +379,24 @@ export function projectConnectionSyncEvidence({
       );
       const currentFailures = failures.length - recoveredFailures.length;
       const latestFailure = failures[0];
+      const attemptDurations = attemptHistory.attempts.map(
+        (attempt) => attempt.durationMilliseconds,
+      );
+      const recoveryDurations = failures.flatMap((attempt) => {
+        const failureCompletedAt = Date.parse(attempt.completedAt);
+        const firstLaterSuccess = successfulAttemptTimes
+          .filter((completedAt) => completedAt > failureCompletedAt)
+          .sort((left, right) => left - right)[0];
+        return firstLaterSuccess === undefined
+          ? []
+          : [firstLaterSuccess - failureCompletedAt];
+      });
+      const newestCurrentFailure = failures.find(
+        (attempt) =>
+          !successfulAttemptTimes.some(
+            (completedAt) => completedAt > Date.parse(attempt.completedAt),
+          ),
+      );
 
       let state: EvidenceState = "CURRENT";
       let label = "Saved sync and holdings evidence is current";
@@ -433,9 +473,31 @@ export function projectConnectionSyncEvidence({
               ? ("COLLECTING" as const)
               : ("AVAILABLE" as const),
         syncAttemptCount: attemptHistory.attempts.length,
+        syncSuccessCount: successes.length,
         syncFailureCount: failures.length,
         recoveredFailureCount: recoveredFailures.length,
         currentFailureCount: currentFailures,
+        minimumAttemptDurationMilliseconds:
+          attemptDurations.length > 0
+            ? Math.min(...attemptDurations)
+            : undefined,
+        medianAttemptDurationMilliseconds: exactMedian(attemptDurations),
+        maximumAttemptDurationMilliseconds:
+          attemptDurations.length > 0
+            ? Math.max(...attemptDurations)
+            : undefined,
+        recoveredAttemptCount: recoveryDurations.length,
+        medianRecoveryMilliseconds: exactMedian(recoveryDurations),
+        maximumRecoveryMilliseconds:
+          recoveryDurations.length > 0
+            ? Math.max(...recoveryDurations)
+            : undefined,
+        currentFailureAgeMilliseconds: newestCurrentFailure
+          ? viewedAt.valueOf() - Date.parse(newestCurrentFailure.completedAt)
+          : undefined,
+        firstAttemptAt:
+          attemptHistory.attempts.at(-1)?.completedAt ?? undefined,
+        latestAttemptAt: latestAttempt?.completedAt,
         latestAttemptOutcome: latestAttempt?.outcome,
         latestFailureAt: latestFailure?.completedAt,
         latestFailureStage: latestFailure?.failureStage,
@@ -502,6 +564,11 @@ function readableTime(value?: string) {
     timeZone: "UTC",
     timeZoneName: "short",
   }).format(new Date(value));
+}
+
+function readableMilliseconds(value?: number) {
+  if (value === undefined) return "UNAVAILABLE";
+  return `${value.toLocaleString("en-US", { maximumFractionDigits: 1 })} ms`;
 }
 
 export function ConnectionSyncEvidenceCenter({
@@ -609,6 +676,19 @@ export function ConnectionSyncEvidenceCenter({
                     {account.bindings.length} active non-live bindings
                   </small>
                 </div>
+                <div className="connection-sync-reliability-summary">
+                  <dt>Sync attempt reliability</dt>
+                  <dd>
+                    {account.syncAttemptCount === 0
+                      ? "COLLECTING FORWARD"
+                      : `${account.syncSuccessCount} of ${account.syncAttemptCount} saved`}
+                  </dd>
+                  <small>
+                    {account.syncAttemptCount === 0
+                      ? "No post-release attempt is saved yet"
+                      : `${account.currentFailureCount} current · ${account.recoveredFailureCount} recovered failures`}
+                  </small>
+                </div>
               </dl>
               <details open={attention}>
                 <summary>Exact saved evidence and limitations</summary>
@@ -625,6 +705,44 @@ export function ConnectionSyncEvidenceCenter({
                     {account.syncFailureCount} failed,{" "}
                     {account.recoveredFailureCount} followed by a later saved
                     success, {account.currentFailureCount} current.
+                  </p>
+                  <p>
+                    Bounded completion timing: minimum{" "}
+                    {readableMilliseconds(
+                      account.minimumAttemptDurationMilliseconds,
+                    )}
+                    , median{" "}
+                    {readableMilliseconds(
+                      account.medianAttemptDurationMilliseconds,
+                    )}
+                    , maximum{" "}
+                    {readableMilliseconds(
+                      account.maximumAttemptDurationMilliseconds,
+                    )}
+                    . Sample window: {readableTime(account.firstAttemptAt)} to{" "}
+                    {readableTime(account.latestAttemptAt)}.
+                  </p>
+                  <p>
+                    Automatic recovery timing: {account.recoveredAttemptCount}{" "}
+                    exact pairs, median{" "}
+                    {account.recoveredAttemptCount === 0
+                      ? "NOT APPLICABLE"
+                      : readableMilliseconds(
+                          account.medianRecoveryMilliseconds,
+                        )}
+                    , maximum{" "}
+                    {account.recoveredAttemptCount === 0
+                      ? "NOT APPLICABLE"
+                      : readableMilliseconds(
+                          account.maximumRecoveryMilliseconds,
+                        )}
+                    . Current fail-closed age:{" "}
+                    {account.currentFailureCount === 0
+                      ? "NONE CURRENT"
+                      : readableMilliseconds(
+                          account.currentFailureAgeMilliseconds,
+                        )}
+                    . Timing proves sequence only, not initiator or cause.
                   </p>
                   {account.latestFailureAt ? (
                     <p>
