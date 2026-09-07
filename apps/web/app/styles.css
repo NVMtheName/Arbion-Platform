@@ -7818,6 +7818,208 @@ button:disabled {
   font-weight: 800;
   letter-spacing: 0.16em;
 }
+.financial-connection-workspace {
+  margin-bottom: 28px;
+  overflow: hidden;
+  border: 1px solid rgba(94, 224, 160, 0.3);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(94, 224, 160, 0.12), transparent 34%),
+    radial-gradient(circle at 94% 0%, rgba(25, 201, 214, 0.1), transparent 36%),
+    rgba(4, 17, 15, 0.88);
+}
+.financial-connection-workspace.is-attention {
+  border-color: rgba(245, 190, 92, 0.42);
+}
+.financial-connection-workspace.is-unavailable {
+  border-color: rgba(241, 129, 129, 0.42);
+}
+.financial-connection-workspace > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 26px;
+  padding: 28px;
+  border-bottom: 1px solid rgba(94, 224, 160, 0.13);
+}
+.financial-connection-workspace > header h2 {
+  max-width: 760px;
+  margin: 7px 0 0;
+  font-size: clamp(1.45rem, 2.7vw, 2.2rem);
+  letter-spacing: -0.03em;
+}
+.financial-connection-workspace > header p:last-child {
+  max-width: 760px;
+  margin: 10px 0 0;
+  color: var(--brand-muted);
+  line-height: 1.55;
+}
+.financial-connection-workspace > header > span,
+.financial-connection-workspace > ol > li > header > span,
+.financial-connection-diagnostics > summary > span {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid rgba(94, 224, 160, 0.28);
+  border-radius: 999px;
+  color: #87e8b3;
+  background: rgba(94, 224, 160, 0.07);
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.financial-connection-workspace.is-attention > header > span,
+.financial-connection-workspace.is-unavailable > header > span,
+.financial-connection-workspace > ol > li:not(.is-on-course) > header > span,
+.financial-connection-workspace.is-attention
+  > .financial-connection-diagnostics
+  > summary
+  > span,
+.financial-connection-workspace.is-unavailable
+  > .financial-connection-diagnostics
+  > summary
+  > span {
+  border-color: rgba(245, 190, 92, 0.34);
+  color: #f3d79a;
+  background: rgba(124, 101, 64, 0.16);
+}
+.financial-connection-workspace > ol {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 18px;
+  list-style: none;
+}
+.financial-connection-workspace > ol > li {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid rgba(94, 224, 160, 0.17);
+  border-radius: 16px;
+  background: rgba(3, 14, 12, 0.72);
+}
+.financial-connection-workspace > ol > li:not(.is-on-course) {
+  border-color: rgba(245, 190, 92, 0.32);
+}
+.financial-connection-workspace > ol > li > header,
+.financial-connection-workspace > ol > li > header > div,
+.financial-connection-workspace > ol > li > footer,
+.financial-connection-diagnostics > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.financial-connection-workspace > ol > li > header > div {
+  justify-content: flex-start;
+  min-width: 0;
+}
+.financial-connection-workspace > ol > li > header strong,
+.financial-connection-workspace > ol > li > header small {
+  display: block;
+}
+.financial-connection-workspace > ol > li > header strong {
+  color: #e5f2eb;
+  font-size: 0.92rem;
+}
+.financial-connection-workspace > ol > li > header small {
+  margin-top: 3px;
+  color: #789087;
+  font-size: 0.69rem;
+}
+.financial-connection-workspace > ol > li > h3 {
+  margin: 18px 0 7px;
+  color: #dce8e2;
+  font-size: 0.9rem;
+}
+.financial-connection-workspace > ol > li > p {
+  min-height: 3.2em;
+  margin: 0;
+  color: #8fa39a;
+  font-size: 0.74rem;
+  line-height: 1.55;
+}
+.financial-connection-workspace dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 18px 0;
+  border: 1px solid rgba(94, 224, 160, 0.12);
+  border-radius: 12px;
+  background: rgba(94, 224, 160, 0.12);
+}
+.financial-connection-workspace dl > div {
+  min-width: 0;
+  padding: 12px;
+  background: #071713;
+}
+.financial-connection-workspace dt {
+  color: #718a80;
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.financial-connection-workspace dd {
+  margin: 5px 0 0;
+  color: #d7e7df;
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+.financial-connection-workspace dl small {
+  display: block;
+  margin-top: 4px;
+  color: #71877d;
+  font-size: 0.63rem;
+  line-height: 1.4;
+}
+.financial-connection-workspace > ol > li > footer {
+  align-items: flex-start;
+  padding-top: 13px;
+  border-top: 1px solid rgba(94, 224, 160, 0.1);
+}
+.financial-connection-workspace a {
+  color: #8de3b2;
+  font-size: 0.67rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.financial-connection-workspace > ol > li > footer > span {
+  color: #71877d;
+  font-size: 0.65rem;
+}
+.financial-connection-diagnostics {
+  margin: 0 18px 18px;
+  overflow: hidden;
+  border: 1px solid rgba(94, 224, 160, 0.14);
+  border-radius: 14px;
+  background: rgba(3, 14, 12, 0.58);
+}
+.financial-connection-diagnostics > summary {
+  padding: 14px 16px;
+  color: #9bb0a5;
+  cursor: pointer;
+  font-size: 0.71rem;
+  font-weight: 760;
+}
+.financial-connection-diagnostics[open] > summary {
+  border-bottom: 1px solid rgba(94, 224, 160, 0.12);
+}
+.financial-connection-diagnostics > div {
+  padding: 18px;
+}
+.financial-connection-diagnostics .connection-sync-evidence-center,
+.financial-connection-diagnostics .financial-continuity-center {
+  margin-bottom: 18px;
+}
+.financial-connection-workspace > footer {
+  padding: 14px 20px;
+  border-top: 1px solid rgba(94, 224, 160, 0.13);
+  color: #71877d;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
 .connection-sync-evidence-center {
   margin-bottom: 28px;
   overflow: hidden;
@@ -17875,6 +18077,17 @@ h1 {
   }
   .financial-continuity-center > header {
     flex-direction: column;
+  }
+  .financial-connection-workspace > header,
+  .financial-connection-workspace > ol > li > header,
+  .financial-connection-workspace > ol > li > footer,
+  .financial-connection-diagnostics > summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .financial-connection-workspace > ol,
+  .financial-connection-workspace dl {
+    grid-template-columns: 1fr;
   }
   .connection-sync-evidence-center > header,
   .connection-sync-evidence-center > ol > li > header,
