@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AccountSyncHistoryResult } from "../../accounts/[id]/account-sync-history";
@@ -179,9 +179,16 @@ describe("ConnectionSyncEvidenceCenter", () => {
       providerEventTimeStatus: "UNAVAILABLE",
       syncFailureHistoryStatus: "AVAILABLE",
       syncAttemptCount: 1,
+      syncSuccessCount: 1,
       syncFailureCount: 0,
       recoveredFailureCount: 0,
       currentFailureCount: 0,
+      minimumAttemptDurationMilliseconds: 2000,
+      medianAttemptDurationMilliseconds: 2000,
+      maximumAttemptDurationMilliseconds: 2000,
+      recoveredAttemptCount: 0,
+      firstAttemptAt: "2026-09-07T05:50:02.000Z",
+      latestAttemptAt: "2026-09-07T05:50:02.000Z",
     });
   });
 
@@ -237,6 +244,9 @@ describe("ConnectionSyncEvidenceCenter", () => {
       syncFailureCount: 1,
       recoveredFailureCount: 1,
       currentFailureCount: 0,
+      recoveredAttemptCount: 1,
+      medianRecoveryMilliseconds: 3600000,
+      maximumRecoveryMilliseconds: 3600000,
       latestFailureStage: "ACCOUNT_DISCOVERY",
       latestFailureCode: "RATE_LIMITED",
     });
@@ -263,6 +273,7 @@ describe("ConnectionSyncEvidenceCenter", () => {
     expect(currentResult.accounts[0]).toMatchObject({
       state: "REVIEW",
       currentFailureCount: 1,
+      currentFailureAgeMilliseconds: 298000,
       latestAttemptOutcome: "FAILED",
     });
   });
@@ -373,6 +384,12 @@ describe("ConnectionSyncEvidenceCenter", () => {
       screen.getByText("2 positions include unavailable-to-trade quantity"),
     ).toBeVisible();
     expect(screen.getByText("1 AI · 1 rules")).toBeVisible();
+    expect(screen.getByText("1 of 1 saved")).toBeVisible();
+    fireEvent.click(screen.getByText("Exact saved evidence and limitations"));
+    expect(
+      screen.getByText(/Bounded completion timing: minimum 2,000 ms/),
+    ).toBeVisible();
+    expect(screen.getByText(/Timing proves sequence only/)).toBeVisible();
     expect(screen.getAllByText(/Open immutable runtime evidence/)).toHaveLength(
       2,
     );

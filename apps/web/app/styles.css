@@ -7954,6 +7954,9 @@ button:disabled {
   padding: 12px;
   background: #07191a;
 }
+.connection-sync-evidence-center dl > .connection-sync-reliability-summary {
+  grid-column: 1 / -1;
+}
 .connection-sync-evidence-center dt {
   color: #718a8c;
   font-size: 0.61rem;
