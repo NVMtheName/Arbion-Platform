@@ -2,6 +2,7 @@ package liveexecution
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -97,12 +98,43 @@ func TestStoredRegistryRecordFailsClosedOnFingerprintMismatch(t *testing.T) {
 	}
 	prepared.ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	prepared.CreatedAt = now
+	prepared.ChainSequence = 1
+	prepared.PreviousChainDigest = GenesisChainDigest
+	prepared.ChainDigest = computeChainDigest(prepared.UserID, prepared.StrategyInstanceID, prepared.ChainSequence, prepared.PreviousChainDigest, prepared.ContentDigest)
 	if err = validateStoredRegistryRecord(prepared, now); err != nil {
 		t.Fatalf("valid stored fingerprint rejected: %v", err)
 	}
 	prepared.ContentDigest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	if err = validateStoredRegistryRecord(prepared, now); !errors.Is(err, ErrRegistryIntegrity) {
 		t.Fatalf("fingerprint mismatch did not fail closed: %v", err)
+	}
+}
+
+func TestChainDigestIsDomainSeparatedAndBindsEveryLink(t *testing.T) {
+	first := computeChainDigest(testOwnerID, testInstanceID, 1, GenesisChainDigest, testDigest)
+	if len(first) != 64 || first == GenesisChainDigest || first == testDigest {
+		t.Fatalf("invalid genesis link: %q", first)
+	}
+	tests := []struct {
+		name     string
+		owner    string
+		instance string
+		sequence int64
+		previous string
+		content  string
+	}{
+		{"owner", testAccountID, testInstanceID, 1, GenesisChainDigest, testDigest},
+		{"instance", testOwnerID, testAccountID, 1, GenesisChainDigest, testDigest},
+		{"sequence", testOwnerID, testInstanceID, 2, GenesisChainDigest, testDigest},
+		{"previous", testOwnerID, testInstanceID, 1, strings.Repeat("b", 64), testDigest},
+		{"content", testOwnerID, testInstanceID, 1, GenesisChainDigest, strings.Repeat("b", 64)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := computeChainDigest(test.owner, test.instance, test.sequence, test.previous, test.content); got == first {
+				t.Fatalf("chain digest did not bind %s", test.name)
+			}
+		})
 	}
 }
 

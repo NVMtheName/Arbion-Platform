@@ -19,6 +19,9 @@ const (
 	MaxRegistryReasons  = 32
 	MaxRegistryEvidence = 32
 	MaxRegistryList     = 50
+	ChainVersion        = "live-safety-evidence-chain-v1"
+	GenesisChainDigest  = "0000000000000000000000000000000000000000000000000000000000000000"
+	chainLockDomain     = ":live-safety-case-evidence-chain"
 )
 
 var (
@@ -86,11 +89,31 @@ type RegistryRecord struct {
 	Evidence             EvidenceManifest
 	EvidenceDigest       string
 	ContentDigest        string
+	ChainSequence        int64
+	PreviousChainDigest  string
+	ChainDigest          string
 	ObservedAt           time.Time
 	CreatedAt            time.Time
 }
 
+type ChainVerificationStatus string
+
+const (
+	ChainEmpty             ChainVerificationStatus = "EMPTY"
+	ChainVerifiedToGenesis ChainVerificationStatus = "VERIFIED_TO_GENESIS"
+	ChainVerifiedBounded   ChainVerificationStatus = "VERIFIED_BOUNDED_SEGMENT"
+)
+
+type RegistryWindow struct {
+	Records                []RegistryRecord
+	VerificationStatus     ChainVerificationStatus
+	EarlierEvidenceOmitted bool
+	NewestSequence         int64
+	OldestSequence         int64
+}
+
 type RegistryDB interface {
+	Begin(context.Context) (pgx.Tx, error)
 	QueryRow(context.Context, string, ...any) pgx.Row
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 }
@@ -107,69 +130,131 @@ func (store *RegistryStore) Record(ctx context.Context, userID string, input Reg
 	if err != nil {
 		return RegistryRecord{}, err
 	}
-	row := store.db.QueryRow(ctx, `
+	tx, err := store.db.Begin(ctx)
+	if err != nil {
+		return RegistryRecord{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, userID+chainLockDomain); err != nil {
+		return RegistryRecord{}, err
+	}
+
+	existing, existingErr := scanRegistryRecord(tx.QueryRow(ctx, `SELECT `+registryColumns+`
+FROM live_safety_case_evidence WHERE user_id=$1 AND assessment_key=$2`, userID, prepared.AssessmentKey))
+	if existingErr == nil {
+		if existing.ContentDigest != prepared.ContentDigest || existing.EvidenceDigest != prepared.EvidenceDigest ||
+			existing.StrategyInstanceID != prepared.StrategyInstanceID {
+			return RegistryRecord{}, ErrRegistryConflict
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return RegistryRecord{}, err
+		}
+		return existing, nil
+	}
+	if !errors.Is(existingErr, pgx.ErrNoRows) {
+		return RegistryRecord{}, existingErr
+	}
+
+	prepared.ChainSequence = 1
+	prepared.PreviousChainDigest = GenesisChainDigest
+	err = tx.QueryRow(ctx, `SELECT chain_sequence,chain_sha256
+FROM live_safety_case_evidence
+WHERE user_id=$1 AND strategy_instance_id=$2
+ORDER BY chain_sequence DESC LIMIT 1`, userID, prepared.StrategyInstanceID).Scan(
+		&prepared.ChainSequence, &prepared.PreviousChainDigest,
+	)
+	if err == nil {
+		prepared.ChainSequence++
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return RegistryRecord{}, err
+	}
+	prepared.ChainDigest = computeChainDigest(
+		userID, prepared.StrategyInstanceID, prepared.ChainSequence,
+		prepared.PreviousChainDigest, prepared.ContentDigest,
+	)
+
+	row := tx.QueryRow(ctx, `
 INSERT INTO live_safety_case_evidence(
   user_id,assessment_key,financial_account_id,provider_connection_id,provider_name,
   strategy_instance_id,mandate_id,mandate_version,capital_bucket_id,capital_reservation_id,
   action_digest_sha256,contract_version,assessment_state,structural_blocker,reason_codes,
-  evidence_manifest,evidence_sha256,content_sha256,observed_at
-) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,$14,$15,$16,$17,$18)
-ON CONFLICT (user_id,assessment_key) DO NOTHING
+  evidence_manifest,evidence_sha256,content_sha256,chain_sequence,previous_chain_sha256,
+  chain_sha256,observed_at
+) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,true,$14,$15,$16,$17,$18,$19,$20,$21)
 RETURNING `+registryColumns,
 		userID, prepared.AssessmentKey, prepared.FinancialAccountID, prepared.ProviderConnectionID,
 		prepared.ProviderName, prepared.StrategyInstanceID, prepared.MandateID, prepared.MandateVersion,
 		prepared.CapitalBucketID, prepared.CapitalReservationID, prepared.ActionDigest,
 		ContractVersion, prepared.Assessment.Availability, reasonsJSON, manifestJSON,
-		prepared.EvidenceDigest, prepared.ContentDigest, prepared.ObservedAt)
+		prepared.EvidenceDigest, prepared.ContentDigest, prepared.ChainSequence,
+		prepared.PreviousChainDigest, prepared.ChainDigest, prepared.ObservedAt)
 	record, err := scanRegistryRecord(row)
-	if err == nil {
-		return record, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return RegistryRecord{}, err
-	}
-
-	record, err = scanRegistryRecord(store.db.QueryRow(ctx, `SELECT `+registryColumns+`
-FROM live_safety_case_evidence WHERE user_id=$1 AND assessment_key=$2`, userID, prepared.AssessmentKey))
 	if err != nil {
 		return RegistryRecord{}, err
 	}
-	if record.ContentDigest != prepared.ContentDigest || record.EvidenceDigest != prepared.EvidenceDigest {
-		return RegistryRecord{}, ErrRegistryConflict
+	if err = tx.Commit(ctx); err != nil {
+		return RegistryRecord{}, err
 	}
 	return record, nil
 }
 
-// List returns only the caller's newest immutable safety assessments.
-func (store *RegistryStore) List(ctx context.Context, userID string, limit int) ([]RegistryRecord, error) {
-	if !uuidPattern.MatchString(userID) || limit < 1 || limit > MaxRegistryList {
-		return nil, ErrRegistryInvalid
+// List returns one strategy's newest immutable assessments and verifies the
+// complete bounded segment. It explicitly distinguishes a window that reaches
+// genesis from one whose older evidence lies outside the requested bound.
+func (store *RegistryStore) List(ctx context.Context, userID, strategyInstanceID string, limit int) (RegistryWindow, error) {
+	if !uuidPattern.MatchString(userID) || !uuidPattern.MatchString(strategyInstanceID) || limit < 1 || limit > MaxRegistryList {
+		return RegistryWindow{}, ErrRegistryInvalid
 	}
 	rows, err := store.db.Query(ctx, `SELECT `+registryColumns+`
 FROM live_safety_case_evidence
-WHERE user_id=$1
-ORDER BY created_at DESC,id DESC
-LIMIT $2`, userID, limit)
+WHERE user_id=$1 AND strategy_instance_id=$2
+ORDER BY chain_sequence DESC
+LIMIT $3`, userID, strategyInstanceID, limit)
 	if err != nil {
-		return nil, err
+		return RegistryWindow{}, err
 	}
 	defer rows.Close()
 	records := []RegistryRecord{}
 	for rows.Next() {
 		record, scanErr := scanRegistryRecord(rows)
 		if scanErr != nil {
-			return nil, scanErr
+			return RegistryWindow{}, scanErr
 		}
 		records = append(records, record)
 	}
-	return records, rows.Err()
+	if err = rows.Err(); err != nil {
+		return RegistryWindow{}, err
+	}
+	if len(records) == 0 {
+		return RegistryWindow{Records: records, VerificationStatus: ChainEmpty}, nil
+	}
+	for index := 1; index < len(records); index++ {
+		newer, older := records[index-1], records[index]
+		if newer.ChainSequence != older.ChainSequence+1 || newer.PreviousChainDigest != older.ChainDigest {
+			return RegistryWindow{}, ErrRegistryIntegrity
+		}
+	}
+	oldest := records[len(records)-1]
+	window := RegistryWindow{
+		Records: records, NewestSequence: records[0].ChainSequence, OldestSequence: oldest.ChainSequence,
+		EarlierEvidenceOmitted: oldest.ChainSequence > 1,
+		VerificationStatus:     ChainVerifiedBounded,
+	}
+	if oldest.ChainSequence == 1 {
+		if oldest.PreviousChainDigest != GenesisChainDigest {
+			return RegistryWindow{}, ErrRegistryIntegrity
+		}
+		window.VerificationStatus = ChainVerifiedToGenesis
+	}
+	return window, nil
 }
 
 const registryColumns = `
 id::text,user_id::text,assessment_key,financial_account_id::text,provider_connection_id::text,
 provider_name,strategy_instance_id::text,mandate_id::text,mandate_version,capital_bucket_id::text,
 capital_reservation_id::text,action_digest_sha256,contract_version,assessment_state,
-structural_blocker,reason_codes,evidence_manifest,evidence_sha256,content_sha256,observed_at,created_at`
+structural_blocker,reason_codes,evidence_manifest,evidence_sha256,content_sha256,
+chain_sequence,previous_chain_sha256,chain_sha256,observed_at,created_at`
 
 type rowScanner interface{ Scan(...any) error }
 
@@ -184,6 +269,7 @@ func scanRegistryRecord(row rowScanner) (RegistryRecord, error) {
 		&record.MandateID, &record.MandateVersion, &record.CapitalBucketID,
 		&record.CapitalReservationID, &record.ActionDigest, &record.ContractVersion, &state,
 		&structural, &reasonsJSON, &manifestJSON, &record.EvidenceDigest, &record.ContentDigest,
+		&record.ChainSequence, &record.PreviousChainDigest, &record.ChainDigest,
 		&record.ObservedAt, &record.CreatedAt,
 	)
 	if err != nil {
@@ -205,7 +291,9 @@ func scanRegistryRecord(row rowScanner) (RegistryRecord, error) {
 
 func validateStoredRegistryRecord(record RegistryRecord, now time.Time) error {
 	if !uuidPattern.MatchString(record.ID) || record.ContractVersion != ContractVersion ||
-		record.CreatedAt.Before(record.ObservedAt) || record.CreatedAt.After(now) {
+		record.CreatedAt.Before(record.ObservedAt) || record.CreatedAt.After(now) ||
+		record.ChainSequence < 1 || !digestPattern.MatchString(record.PreviousChainDigest) ||
+		!digestPattern.MatchString(record.ChainDigest) {
 		return ErrRegistryIntegrity
 	}
 	prepared, _, _, err := prepareRegistryRecord(record.UserID, RegistryInput{
@@ -223,7 +311,11 @@ func validateStoredRegistryRecord(record RegistryRecord, now time.Time) error {
 		Evidence:             record.Evidence,
 		ObservedAt:           record.ObservedAt,
 	}, now)
-	if err != nil || prepared.EvidenceDigest != record.EvidenceDigest || prepared.ContentDigest != record.ContentDigest {
+	if err != nil || prepared.EvidenceDigest != record.EvidenceDigest || prepared.ContentDigest != record.ContentDigest ||
+		computeChainDigest(record.UserID, record.StrategyInstanceID, record.ChainSequence,
+			record.PreviousChainDigest, record.ContentDigest) != record.ChainDigest ||
+		(record.ChainSequence == 1 && record.PreviousChainDigest != GenesisChainDigest) ||
+		(record.ChainSequence > 1 && record.PreviousChainDigest == GenesisChainDigest) {
 		return ErrRegistryIntegrity
 	}
 	return nil
@@ -335,6 +427,21 @@ func prepareRegistryRecord(userID string, input RegistryInput, now time.Time) (R
 func sha256Hex(value []byte) string {
 	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
+}
+
+func computeChainDigest(userID, strategyInstanceID string, sequence int64, previousDigest, contentDigest string) string {
+	canonical, _ := json.Marshal(struct {
+		Version            string `json:"version"`
+		UserID             string `json:"user_id"`
+		StrategyInstanceID string `json:"strategy_instance_id"`
+		Sequence           int64  `json:"sequence"`
+		PreviousDigest     string `json:"previous_chain_sha256"`
+		ContentDigest      string `json:"content_sha256"`
+	}{
+		Version: ChainVersion, UserID: userID, StrategyInstanceID: strategyInstanceID,
+		Sequence: sequence, PreviousDigest: previousDigest, ContentDigest: contentDigest,
+	})
+	return sha256Hex(canonical)
 }
 
 func isEvidenceSource(source EvidenceSource) bool {

@@ -144,6 +144,37 @@ func TestLiveSafetyCaseEvidenceMigrationIsImmutableNonExecutableAndOwnerScoped(t
 	}
 }
 
+func TestLiveSafetyCaseEvidenceChainMigrationIsForwardOnlySerializedAndTamperEvident(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00043_live_safety_case_evidence_chain.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"cannot invent chain history for existing live safety case evidence",
+		"chain_sequence bigint NOT NULL",
+		"previous_chain_sha256 char(64) NOT NULL",
+		"chain_sha256 char(64) NOT NULL",
+		"UNIQUE (user_id,strategy_instance_id,chain_sequence)",
+		"pg_advisory_xact_lock",
+		"live-safety-case-evidence-chain",
+		"NEW.chain_sequence<>1",
+		"NEW.chain_sequence<>latest_sequence+1",
+		"cannot remove immutable live safety evidence chain",
+	} {
+		if !strings.Contains(strings.ReplaceAll(string(body), " ", ""), strings.ReplaceAll(required, " ", "")) {
+			t.Errorf("live safety evidence chain migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{
+		"provider_order_id", "client_order_id", "submit_order", "create_order",
+		"encrypted_credential", "credential_payload", "execution_command", "request_payload",
+	} {
+		if strings.Contains(strings.ToLower(string(body)), prohibited) {
+			t.Errorf("live safety evidence chain migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestNonLiveStrategyMigrationSeparatesSimulationAndHistory(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00008_nonlive_strategy.sql")
 	if err != nil {
