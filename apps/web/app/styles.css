@@ -4140,6 +4140,230 @@ button:disabled {
 .paper-live-readiness-dossier > footer {
   margin-top: 14px;
 }
+.live-capability-register {
+  margin-top: 15px;
+  padding: 16px;
+  border: 1px solid rgba(216, 169, 82, 0.28);
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      circle at 96% 0%,
+      rgba(216, 169, 82, 0.09),
+      transparent 24rem
+    ),
+    rgba(14, 13, 18, 0.72);
+}
+.live-capability-register > header,
+.live-capability-register details li > header,
+.live-capability-register details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.live-capability-register > header {
+  align-items: flex-start;
+}
+.live-capability-register > header > div {
+  max-width: 810px;
+}
+.live-capability-register h3 {
+  margin: 5px 0 6px;
+  color: #f0dfbf;
+  font-size: clamp(1rem, 1.8vw, 1.3rem);
+}
+.live-capability-register > header p:last-child {
+  margin: 0;
+  color: #a59a88;
+  font-size: 0.64rem;
+  line-height: 1.55;
+}
+.live-capability-register > header > span {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 1px solid rgba(216, 169, 82, 0.45);
+  border-radius: 999px;
+  color: #e1bd79;
+  font-size: 0.55rem;
+  font-weight: 780;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.live-capability-register > dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  margin: 13px 0 0;
+}
+.live-capability-register > dl > div {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid rgba(216, 169, 82, 0.12);
+  border-radius: 9px;
+  background: rgba(9, 9, 13, 0.66);
+}
+.live-capability-register > dl dt,
+.live-capability-register > dl dd {
+  margin: 0;
+}
+.live-capability-register > dl dt {
+  color: #827968;
+  font-size: 0.49rem;
+  font-weight: 730;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.live-capability-register > dl dd {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: #dfcfb4;
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+.paper-live-readiness-dossier .live-capability-register details {
+  margin-top: 12px;
+  border-top-color: rgba(216, 169, 82, 0.15);
+}
+.paper-live-readiness-dossier .live-capability-register details > summary {
+  color: #ddcfb6;
+}
+.paper-live-readiness-dossier
+  .live-capability-register
+  details
+  > summary::after {
+  color: #e1bd79;
+}
+.paper-live-readiness-dossier
+  .live-capability-register
+  details
+  > summary:focus-visible {
+  outline-color: #e1bd79;
+}
+.paper-live-readiness-dossier .live-capability-register details ol {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.paper-live-readiness-dossier .live-capability-register details li {
+  border-color: rgba(216, 169, 82, 0.2);
+  background: rgba(18, 15, 11, 0.62);
+}
+.live-capability-register details li > header > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.live-capability-register details li > header small {
+  color: #837969;
+  font-size: 0.48rem;
+  font-weight: 720;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.live-capability-register details li > header strong {
+  color: #e4dac8;
+}
+.paper-live-readiness-dossier
+  .live-capability-register
+  details
+  li
+  > header
+  > span {
+  border-color: rgba(216, 169, 82, 0.36);
+  color: #e1bd79;
+}
+.paper-live-readiness-dossier
+  .live-capability-register
+  details
+  li.is-proven-non-live {
+  border-color: rgba(124, 235, 177, 0.24);
+  background: rgba(3, 17, 18, 0.6);
+}
+.paper-live-readiness-dossier
+  .live-capability-register
+  details
+  li.is-proven-non-live
+  > header
+  > span {
+  border-color: rgba(124, 235, 177, 0.28);
+  color: #7cebb1;
+}
+.live-capability-register details li > dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 9px 0 0;
+}
+.live-capability-register details li > dl > div {
+  min-width: 0;
+  padding: 7px;
+  border-radius: 7px;
+  background: rgba(4, 6, 9, 0.46);
+}
+.live-capability-register details li > dl dt,
+.live-capability-register details li > dl dd {
+  margin: 0;
+}
+.live-capability-register details li > dl dt {
+  color: #746c60;
+  font-size: 0.47rem;
+  font-weight: 720;
+  text-transform: uppercase;
+}
+.live-capability-register details li > dl dd {
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  color: #b7ad9c;
+  font-size: 0.54rem;
+  line-height: 1.45;
+}
+.live-capability-packet > div {
+  display: grid;
+  gap: 9px;
+  padding-bottom: 3px;
+}
+.live-capability-packet p {
+  margin: 0;
+  color: #a59a88;
+  font-size: 0.6rem;
+  line-height: 1.5;
+}
+.live-capability-packet code {
+  overflow-wrap: anywhere;
+  color: #d9c59f;
+  font-size: 0.54rem;
+}
+.live-capability-packet a {
+  width: fit-content;
+  padding: 8px 10px;
+  border: 1px solid rgba(216, 169, 82, 0.34);
+  border-radius: 8px;
+  color: #e1bd79;
+  font-size: 0.57rem;
+  font-weight: 740;
+  text-decoration: none;
+}
+.live-capability-packet a:focus-visible {
+  outline: 2px solid #e1bd79;
+  outline-offset: 2px;
+}
+.live-capability-packet pre {
+  max-height: 280px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid rgba(216, 169, 82, 0.12);
+  border-radius: 8px;
+  background: rgba(2, 4, 7, 0.8);
+  color: #8f9a9d;
+  font-size: 0.48rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+.live-capability-register > footer {
+  margin-top: 11px;
+  color: #786f60;
+  font-size: 0.53rem;
+  line-height: 1.5;
+}
 .strategy-fleet-advanced-evidence {
   margin-top: 20px;
   padding: 26px;
@@ -7739,6 +7963,22 @@ button:disabled {
   .paper-live-readiness-dossier details ol {
     grid-template-columns: 1fr;
   }
+  .live-capability-register > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .live-capability-register > dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .paper-live-readiness-dossier .live-capability-register details ol,
+  .live-capability-register details li > dl {
+    grid-template-columns: 1fr;
+  }
+  .live-capability-packet a {
+    display: inline-flex;
+    min-block-size: 44px;
+    align-items: center;
+  }
   .strategy-fleet-provenance-digest-list {
     grid-template-columns: 1fr;
   }
@@ -7961,7 +8201,8 @@ button:disabled {
   .strategy-fleet-command-deck > ol > li > header,
   .strategy-fleet-command-advanced summary,
   .paper-live-readiness-dossier details > summary,
-  .paper-live-readiness-dossier details li > header {
+  .paper-live-readiness-dossier details li > header,
+  .live-capability-register details li > header {
     align-items: flex-start;
     flex-direction: column;
   }
