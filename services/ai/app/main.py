@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from collections.abc import AsyncIterator
@@ -6,7 +7,9 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Literal, Self
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
 from .neural.models import NeuralProviderError
@@ -29,6 +32,46 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Arbion AI", version="0.1.0", lifespan=lifespan)
 registry = default_registry()
+logger = logging.getLogger("uvicorn.error")
+
+
+def request_validation_diagnostics(
+    exc: RequestValidationError,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    fields: set[str] = set()
+    error_types: set[str] = set()
+    for error in exc.errors():
+        location: list[str] = []
+        for part in error.get("loc", ()):
+            if part == "body":
+                continue
+            if isinstance(part, int):
+                location.append("[]")
+            elif isinstance(part, str) and re.fullmatch(r"[a-z_]{1,64}", part):
+                location.append(part)
+            else:
+                location.append("field")
+        fields.add(".".join(location) or "request")
+        error_type = error.get("type")
+        if isinstance(error_type, str) and re.fullmatch(r"[a-z_]{1,64}", error_type):
+            error_types.add(error_type)
+        else:
+            error_types.add("validation_error")
+    return tuple(sorted(fields)), tuple(sorted(error_types))
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    fields, error_types = request_validation_diagnostics(exc)
+    logger.warning(
+        "request validation rejected path=%s fields=%s error_types=%s",
+        request.url.path,
+        ",".join(fields),
+        ",".join(error_types),
+    )
+    return JSONResponse(status_code=422, content={"detail": {"code": "INVALID_REQUEST"}})
 
 
 class ProviderRequest(BaseModel):
