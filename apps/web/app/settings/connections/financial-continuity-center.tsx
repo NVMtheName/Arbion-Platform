@@ -18,6 +18,7 @@ export type FinancialContinuityEngine = {
   instance_id?: string;
   connection_id?: string;
   account_id?: string;
+  capital_bucket_id?: string;
   account_name?: string;
   provider?: string;
   execution_mode?: string;

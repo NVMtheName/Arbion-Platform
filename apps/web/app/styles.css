@@ -8251,6 +8251,243 @@ button:disabled {
   font-size: 0.64rem;
   line-height: 1.5;
 }
+.financial-authorization-recovery-plan {
+  margin: 18px 18px 0;
+  overflow: hidden;
+  border: 1px solid rgba(111, 170, 255, 0.28);
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at 92% 0%,
+      rgba(111, 170, 255, 0.14),
+      transparent 34%
+    ),
+    rgba(5, 16, 22, 0.84);
+}
+.financial-authorization-recovery-plan.is-attention {
+  border-color: rgba(245, 190, 92, 0.44);
+}
+.financial-authorization-recovery-plan.is-unavailable {
+  border-color: rgba(241, 129, 129, 0.44);
+}
+.financial-authorization-recovery-plan > header,
+.financial-authorization-recovery-plan > ol > li > header,
+.financial-authorization-recovery-plan > ol > li > footer,
+.financial-authorization-recovery-plan details > summary,
+.financial-authorization-recovery-plan details li > div,
+.financial-authorization-recovery-plan details li > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.financial-authorization-recovery-plan > header {
+  align-items: flex-start;
+  padding: 20px;
+  border-bottom: 1px solid rgba(111, 170, 255, 0.14);
+}
+.financial-authorization-recovery-plan > header h2 {
+  margin: 6px 0 0;
+  color: #e4f1ed;
+  font-size: 1.18rem;
+}
+.financial-authorization-recovery-plan > header p:last-child,
+.financial-authorization-recovery-plan > ol > li > p,
+.financial-authorization-recovery-plan details > p,
+.financial-authorization-recovery-sequence p {
+  margin: 8px 0 0;
+  color: #849b93;
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+.financial-authorization-recovery-plan > header > span,
+.financial-authorization-recovery-plan > ol > li > header > span,
+.financial-authorization-recovery-plan details > summary > span,
+.financial-authorization-recovery-plan details li header > span {
+  flex: 0 0 auto;
+  color: #8db9ff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.financial-authorization-recovery-plan > ol,
+.financial-authorization-recovery-plan details > ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.financial-authorization-recovery-plan > ol {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+}
+.financial-authorization-recovery-plan > ol > li {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(111, 170, 255, 0.17);
+  border-radius: 14px;
+  background: rgba(3, 13, 18, 0.76);
+}
+.financial-authorization-recovery-plan > ol > li:not(.is-current) {
+  border-color: rgba(245, 190, 92, 0.32);
+}
+.financial-authorization-recovery-plan > ol > li.is-unavailable {
+  border-color: rgba(241, 129, 129, 0.34);
+}
+.financial-authorization-recovery-plan > ol > li > header strong,
+.financial-authorization-recovery-plan > ol > li > header small,
+.financial-authorization-recovery-plan details strong,
+.financial-authorization-recovery-plan details small {
+  display: block;
+}
+.financial-authorization-recovery-plan > ol > li > header strong {
+  color: #deebe6;
+  font-size: 0.8rem;
+}
+.financial-authorization-recovery-plan > ol > li > header small {
+  margin-top: 3px;
+  color: #6f8780;
+  font-size: 0.62rem;
+}
+.financial-authorization-recovery-plan > ol > li > h3 {
+  margin: 14px 0 0;
+  color: #d5e6df;
+  font-size: 0.84rem;
+}
+.financial-authorization-recovery-sequence {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.financial-authorization-recovery-sequence article {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(111, 170, 255, 0.13);
+  border-radius: 11px;
+  background: rgba(111, 170, 255, 0.05);
+}
+.financial-authorization-recovery-sequence article > span {
+  display: grid;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(141, 185, 255, 0.28);
+  border-radius: 50%;
+  color: #9bc2ff;
+  font-size: 0.6rem;
+  font-weight: 850;
+  place-items: center;
+}
+.financial-authorization-recovery-sequence strong {
+  color: #cfe0f6;
+  font-size: 0.66rem;
+}
+.financial-authorization-recovery-sequence p {
+  margin-top: 5px;
+  font-size: 0.62rem;
+}
+.financial-authorization-recovery-plan dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 12px 0 0;
+  border: 1px solid rgba(111, 170, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(111, 170, 255, 0.08);
+}
+.financial-authorization-recovery-plan dl > div {
+  min-width: 0;
+  padding: 10px;
+  background: #071319;
+}
+.financial-authorization-recovery-plan dt {
+  color: #6f8780;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.financial-authorization-recovery-plan dd {
+  margin: 4px 0 0;
+  color: #d5e6df;
+  font-size: 0.66rem;
+  overflow-wrap: anywhere;
+}
+.financial-authorization-recovery-plan dl small,
+.financial-authorization-recovery-plan details small {
+  margin-top: 3px;
+  color: #6f8780;
+  font-size: 0.58rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.financial-authorization-recovery-plan details {
+  overflow: hidden;
+  margin-top: 12px;
+  border: 1px solid rgba(111, 170, 255, 0.12);
+  border-radius: 10px;
+}
+.financial-authorization-recovery-plan details > summary {
+  padding: 10px;
+  color: #90a9a0;
+  cursor: pointer;
+  font-size: 0.65rem;
+  font-weight: 760;
+}
+.financial-authorization-recovery-plan details[open] > summary {
+  border-bottom: 1px solid rgba(111, 170, 255, 0.1);
+}
+.financial-authorization-recovery-plan details > p {
+  padding: 0 10px 10px;
+}
+.financial-authorization-recovery-plan details li {
+  padding: 10px;
+  border-top: 1px solid rgba(111, 170, 255, 0.08);
+}
+.financial-authorization-recovery-plan details li:first-child {
+  border-top: 0;
+}
+.financial-authorization-recovery-plan details li strong,
+.financial-authorization-recovery-plan details li span,
+.financial-authorization-recovery-plan details li p {
+  color: #809990;
+  font-size: 0.59rem;
+}
+.financial-authorization-recovery-plan details li strong {
+  color: #c4dacf;
+}
+.financial-authorization-recovery-plan details li p {
+  margin: 7px 0;
+  line-height: 1.45;
+}
+.financial-authorization-recovery-plan details li a,
+.financial-authorization-recovery-plan > ol > li > footer a {
+  display: inline-block;
+  margin-top: 7px;
+  color: #8db9ff;
+  font-size: 0.62rem;
+  font-weight: 730;
+  text-decoration: none;
+}
+.financial-authorization-recovery-plan > ol > li > footer {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.financial-authorization-recovery-plan > footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(111, 170, 255, 0.12);
+  color: #71877d;
+  font-size: 0.64rem;
+  line-height: 1.5;
+}
 .financial-authorization-timeline {
   overflow: hidden;
   border: 1px solid rgba(111, 170, 255, 0.25);
@@ -18756,6 +18993,22 @@ h1 {
   .financial-authorization-countdown > span {
     max-width: none;
     text-align: left;
+  }
+  .financial-authorization-recovery-plan {
+    margin: 14px 12px 0;
+  }
+  .financial-authorization-recovery-plan > header,
+  .financial-authorization-recovery-plan > ol > li > header,
+  .financial-authorization-recovery-plan > ol > li > footer,
+  .financial-authorization-recovery-plan details > summary,
+  .financial-authorization-recovery-plan details li > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .financial-authorization-recovery-plan > ol,
+  .financial-authorization-recovery-sequence,
+  .financial-authorization-recovery-plan dl {
+    grid-template-columns: 1fr;
   }
   .financial-authorization-timeline > header,
   .financial-authorization-timeline > ol > li > header,

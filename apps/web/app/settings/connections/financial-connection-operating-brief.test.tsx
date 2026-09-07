@@ -5,6 +5,7 @@ import type { ConnectionSyncEvidenceInput } from "./connection-sync-evidence-cen
 import {
   FinancialConnectionOperatingWorkspace,
   projectFinancialAuthorizationContinuitySLO,
+  projectFinancialAuthorizationRecoveryPlan,
   projectFinancialAuthorizationRuntimeIncidents,
   projectFinancialAuthorizationTimeline,
   projectFinancialConnectionOperatingBrief,
@@ -63,6 +64,7 @@ const engine: FinancialContinuityEngine = {
   instance_id: ids.instance,
   connection_id: ids.connection,
   account_id: ids.account,
+  capital_bucket_id: ids.bucket,
   account_name: account.display_name,
   provider: "coinbase",
   execution_mode: "PAPER",
@@ -495,6 +497,164 @@ describe("FinancialConnectionOperatingWorkspace", () => {
       attemptCount: 0,
       engines: [],
     });
+  });
+
+  it("projects an exact authorization blast radius and guarded recovery sequence", () => {
+    const result = projectFinancialAuthorizationRecoveryPlan({
+      connections: [connection],
+      accounts: [account],
+      receipts: authorizationReceipts,
+      engines: [engine],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "VERIFIED",
+      currentCount: 1,
+      attentionCount: 0,
+      unavailableCount: 0,
+      accountCount: 1,
+      engineCount: 1,
+      capitalClaimCount: 1,
+    });
+    expect(result.connections[0]).toMatchObject({
+      state: "CURRENT",
+      incidentState: "CLEAR",
+      accounts: [
+        {
+          id: ids.account,
+          displayName: account.display_name,
+          status: "active",
+        },
+      ],
+      engines: [
+        {
+          instanceID: ids.instance,
+          mandateID: ids.mandate,
+          capitalBucketID: ids.bucket,
+          accountID: ids.account,
+          executionMode: "PAPER",
+          runtimeState: "PROTECTED",
+          latestStatus: "SUCCEEDED",
+          nextRunAt: "2026-09-07T08:45:00Z",
+        },
+      ],
+    });
+    expect(result.connections[0].beforeExpiry).toContain("capital claims");
+    expect(result.connections[0].atExpiry).toContain("fail closed");
+    expect(result.connections[0].afterReconnect).toContain(
+      "later valid COMPLETED receipt",
+    );
+  });
+
+  it("distinguishes the renewal window and an exact outside-session safe wait", () => {
+    const expiresAt = "2026-09-07T20:00:00Z";
+    const result = projectFinancialAuthorizationRecoveryPlan({
+      connections: [{ ...connection, authorization_expires_at: expiresAt }],
+      accounts: [account],
+      receipts: [
+        {
+          ...authorizationReceipts[0],
+          authorization_expires_at: expiresAt,
+        },
+      ],
+      engines: [
+        {
+          ...engine,
+          recent_runs: [
+            {
+              ...engine.recent_runs[0],
+              status: "SKIPPED",
+              error_code: "OUTSIDE_SESSION",
+            },
+          ],
+        },
+      ],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result.status).toBe("ATTENTION");
+    expect(result.connections[0]).toMatchObject({
+      state: "RENEWAL_WINDOW",
+      deadline: expiresAt,
+      engines: [{ runtimeState: "SAFE_WAIT" }],
+    });
+  });
+
+  it("keeps a guarded failed cycle distinct from current provider authorization", () => {
+    const result = projectFinancialAuthorizationRecoveryPlan({
+      connections: [connection],
+      accounts: [account],
+      receipts: authorizationReceipts,
+      engines: [
+        {
+          ...engine,
+          recent_runs: [
+            {
+              ...engine.recent_runs[0],
+              status: "FAILED",
+              error_code: "AI_PROVIDER_UNAVAILABLE",
+              consecutive_failures: 1,
+            },
+          ],
+        },
+      ],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result.status).toBe("ATTENTION");
+    expect(result.connections[0]).toMatchObject({
+      state: "CURRENT",
+      label: "Authorization is current; a guarded runtime failed closed",
+      engines: [
+        {
+          runtimeState: "FAILED_CLOSED",
+          latestErrorCode: "AI_PROVIDER_UNAVAILABLE",
+        },
+      ],
+    });
+  });
+
+  it("fails the blast radius closed when capital or account identity is incomplete", () => {
+    const withoutCapital = projectFinancialAuthorizationRecoveryPlan({
+      connections: [connection],
+      accounts: [account],
+      receipts: authorizationReceipts,
+      engines: [{ ...engine, capital_bucket_id: undefined }],
+      observedAt,
+      evidenceAvailable: true,
+    });
+    const crossAccount = projectFinancialAuthorizationRecoveryPlan({
+      connections: [connection],
+      accounts: [account],
+      receipts: authorizationReceipts,
+      engines: [
+        {
+          ...engine,
+          account_id: "20000000-0000-4000-8000-000000000002",
+        },
+      ],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    for (const result of [withoutCapital, crossAccount]) {
+      expect(result).toMatchObject({
+        status: "UNAVAILABLE",
+        unavailableCount: 1,
+        accountCount: 0,
+        engineCount: 0,
+        capitalClaimCount: 0,
+      });
+      expect(result.connections[0]).toMatchObject({
+        state: "UNAVAILABLE",
+        accounts: [],
+        engines: [],
+      });
+    }
   });
 
   it("keeps unbound provider receipts from changing another account", () => {
@@ -996,6 +1156,20 @@ describe("FinancialConnectionOperatingWorkspace", () => {
     expect(
       screen.getByText("AUTHORIZATION CONTINUITY + OWNER COUNTDOWN"),
     ).toBeVisible();
+    expect(
+      screen.getByText("EXPIRY BLAST RADIUS + SAFE RECOVERY"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "Every connection has an exact protected recovery plan.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByText("Before expiry")).toBeVisible();
+    expect(screen.getByText("At expiry")).toBeVisible();
+    expect(screen.getByText("After reconnect")).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Open existing provider control →" }),
+    ).toHaveAttribute("href", "#financial-provider-coinbase");
     expect(
       screen.getByText(
         "Every saved authorization is outside its renewal window.",
