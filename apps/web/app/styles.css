@@ -8214,6 +8214,230 @@ button:disabled {
   font-size: 0.64rem;
   line-height: 1.5;
 }
+.financial-authorization-incidents {
+  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(111, 170, 255, 0.25);
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at 96% 0%,
+      rgba(111, 170, 255, 0.12),
+      transparent 32%
+    ),
+    rgba(5, 18, 22, 0.78);
+}
+.financial-authorization-incidents.is-attention {
+  border-color: rgba(245, 190, 92, 0.4);
+}
+.financial-authorization-incidents.is-unavailable {
+  border-color: rgba(241, 129, 129, 0.42);
+}
+.financial-authorization-incidents > header,
+.financial-authorization-incidents > ol > li > header,
+.financial-authorization-incidents > ol > li > footer,
+.financial-authorization-incidents > ol > li > ol > li > header,
+.financial-authorization-incidents details > summary,
+.financial-authorization-incidents details li,
+.financial-authorization-incidents details li > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.financial-authorization-incidents > header {
+  align-items: flex-start;
+  padding: 20px;
+  border-bottom: 1px solid rgba(111, 170, 255, 0.13);
+}
+.financial-authorization-incidents > header h2 {
+  margin: 6px 0 0;
+  color: #e4edf1;
+  font-size: 1.15rem;
+}
+.financial-authorization-incidents > header p:last-child,
+.financial-authorization-incidents > ol > li > p,
+.financial-authorization-incidents details > p {
+  margin: 8px 0 0;
+  color: #849aa1;
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+.financial-authorization-incidents > header > span,
+.financial-authorization-incidents > ol > li > header > span,
+.financial-authorization-incidents > ol > li > ol > li > header > span,
+.financial-authorization-incidents details > summary > span {
+  flex: 0 0 auto;
+  color: #9ec5fa;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.financial-authorization-incidents > aside {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 14px 0;
+  padding: 12px;
+  border: 1px solid rgba(245, 190, 92, 0.2);
+  border-radius: 10px;
+  background: rgba(245, 190, 92, 0.06);
+  color: #849aa1;
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+.financial-authorization-incidents > aside strong {
+  flex: 0 0 auto;
+  color: #e7c679;
+}
+.financial-authorization-incidents > ol,
+.financial-authorization-incidents > ol > li > ol,
+.financial-authorization-incidents details > ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.financial-authorization-incidents > ol {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+}
+.financial-authorization-incidents > ol > li {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(111, 170, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(3, 14, 17, 0.72);
+}
+.financial-authorization-incidents > ol > li:not(.is-clear):not(.is-recovered) {
+  border-color: rgba(245, 190, 92, 0.3);
+}
+.financial-authorization-incidents > ol > li > header strong,
+.financial-authorization-incidents > ol > li > header small,
+.financial-authorization-incidents > ol > li > ol > li > header strong,
+.financial-authorization-incidents > ol > li > ol > li > header small {
+  display: block;
+}
+.financial-authorization-incidents > ol > li > header strong,
+.financial-authorization-incidents > ol > li > ol > li > header strong {
+  color: #deebf0;
+  font-size: 0.78rem;
+}
+.financial-authorization-incidents > ol > li > header small,
+.financial-authorization-incidents > ol > li > ol > li > header small,
+.financial-authorization-incidents > ol > li > footer span {
+  margin-top: 3px;
+  color: #6f858c;
+  font-size: 0.61rem;
+}
+.financial-authorization-incidents > ol > li > ol {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.financial-authorization-incidents > ol > li > ol > li {
+  padding: 12px;
+  border: 1px solid rgba(111, 170, 255, 0.12);
+  border-radius: 11px;
+  background: rgba(7, 22, 26, 0.8);
+}
+.financial-authorization-incidents > ol > li > ol > li.is-open {
+  border-color: rgba(245, 190, 92, 0.3);
+}
+.financial-authorization-incidents dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 12px 0;
+  border: 1px solid rgba(111, 170, 255, 0.1);
+  border-radius: 9px;
+  background: rgba(111, 170, 255, 0.1);
+}
+.financial-authorization-incidents dl > div {
+  min-width: 0;
+  padding: 9px;
+  background: #07161a;
+}
+.financial-authorization-incidents dt {
+  color: #6f858c;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.financial-authorization-incidents dd {
+  margin: 4px 0 0;
+  color: #d5e4ea;
+  font-size: 0.67rem;
+  overflow-wrap: anywhere;
+}
+.financial-authorization-incidents dl small {
+  display: block;
+  margin-top: 3px;
+  color: #6f858c;
+  font-size: 0.58rem;
+  line-height: 1.4;
+}
+.financial-authorization-incidents details {
+  overflow: hidden;
+  border: 1px solid rgba(111, 170, 255, 0.1);
+  border-radius: 9px;
+}
+.financial-authorization-incidents details > summary {
+  padding: 9px;
+  color: #8ea7af;
+  cursor: pointer;
+  font-size: 0.63rem;
+  font-weight: 760;
+}
+.financial-authorization-incidents details[open] > summary {
+  border-bottom: 1px solid rgba(111, 170, 255, 0.1);
+}
+.financial-authorization-incidents details > p {
+  padding: 0 9px 9px;
+}
+.financial-authorization-incidents details li {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 9px;
+  border-bottom: 1px solid rgba(111, 170, 255, 0.08);
+}
+.financial-authorization-incidents details li:last-child {
+  border-bottom: 0;
+}
+.financial-authorization-incidents details li > div {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+}
+.financial-authorization-incidents details span,
+.financial-authorization-incidents details small {
+  color: #80979f;
+  font-size: 0.59rem;
+}
+.financial-authorization-incidents details a,
+.financial-authorization-incidents > ol > li > footer a {
+  color: #8fc0fa;
+  font-size: 0.62rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.financial-authorization-incidents > ol > li > footer {
+  margin-top: 13px;
+  padding-top: 11px;
+  border-top: 1px solid rgba(111, 170, 255, 0.1);
+}
+.financial-authorization-incidents > footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(111, 170, 255, 0.12);
+  color: #6f858c;
+  font-size: 0.64rem;
+  line-height: 1.5;
+}
 .connection-sync-evidence-center {
   margin-bottom: 28px;
   overflow: hidden;
@@ -18298,6 +18522,20 @@ h1 {
   .financial-authorization-timeline details li > div:last-child {
     align-items: flex-start;
     text-align: left;
+  }
+  .financial-authorization-incidents > header,
+  .financial-authorization-incidents > aside,
+  .financial-authorization-incidents > ol > li > header,
+  .financial-authorization-incidents > ol > li > footer,
+  .financial-authorization-incidents > ol > li > ol > li > header,
+  .financial-authorization-incidents details > summary,
+  .financial-authorization-incidents details li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .financial-authorization-incidents > ol,
+  .financial-authorization-incidents dl {
+    grid-template-columns: 1fr;
   }
   .connection-sync-evidence-center > header,
   .connection-sync-evidence-center > ol > li > header,

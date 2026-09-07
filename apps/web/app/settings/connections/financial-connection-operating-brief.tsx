@@ -67,6 +67,61 @@ export type FinancialAuthorizationTimelineProjection = {
   }>;
 };
 
+type AuthorizationIncidentState = "OPEN" | "RECOVERED" | "UNAVAILABLE";
+type AuthorizationIncidentKind =
+  | "FAILED_ATTEMPT"
+  | "LONG_PENDING"
+  | "EXPIRED_AUTHORIZATION";
+
+export type FinancialAuthorizationRuntimeIncidentProjection = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  incidentCount: number;
+  openCount: number;
+  recoveredCount: number;
+  unavailableCount: number;
+  unboundProviderEventCount: number;
+  connections: Array<{
+    id: string;
+    provider: string;
+    displayName: string;
+    state: "CLEAR" | AuthorizationIncidentState;
+    incidentCount: number;
+    incidents: Array<{
+      id: string;
+      kind: AuthorizationIncidentKind;
+      state: AuthorizationIncidentState;
+      startedAt: string;
+      latestAt: string;
+      recoveredAt?: string;
+      durationMilliseconds?: number;
+      currentAgeMilliseconds?: number;
+      authorizationDeadline?: string;
+      attemptIDs: string[];
+      eventIDs: string[];
+      runtimeStatus:
+        | "PROTECTED"
+        | "SAFE_WAIT"
+        | "NEEDS_REVIEW"
+        | "NO_POST_INCIDENT_SAMPLE"
+        | "NO_BOUND_ENGINE"
+        | "UNAVAILABLE";
+      engines: Array<{
+        instanceID: string;
+        mandateID: string;
+        accountName: string;
+        executionMode: "PAPER" | "SHADOW";
+        succeededCount: number;
+        failedCount: number;
+        safeWaitCount: number;
+        blockedCount: number;
+        latestStatus: string;
+        latestErrorCode?: string;
+        latestCompletedAt?: string;
+      }>;
+    }>;
+  }>;
+};
+
 export type FinancialConnectionOperatingBriefProjection = {
   status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
   onCourseCount: number;
@@ -157,6 +212,8 @@ const uuidPattern =
 const attemptIDPattern = /^[a-f0-9]{64}$/;
 const providerPattern = /^[a-z][a-z0-9_]{0,31}$/;
 const renewalWindowMilliseconds = 24 * 60 * 60 * 1000;
+const longPendingAuthorizationMilliseconds = 15 * 60 * 1000;
+const authorizationIncidentLimit = 6;
 
 type AuthorizationAttempt = {
   key: string;
@@ -474,6 +531,449 @@ export function projectFinancialAuthorizationTimeline({
     ).length,
     attentionCount,
     unavailableCount,
+    connections: projected,
+  };
+}
+
+function validIncidentRuntimeEvidence({
+  connections,
+  engines,
+  observedAt,
+}: {
+  connections: FinancialConnection[];
+  engines: FinancialContinuityEngine[];
+  observedAt: string;
+}) {
+  const observed = Date.parse(observedAt);
+  const connectionProviders = new Map(
+    connections.map((connection) => [connection.id, connection.provider]),
+  );
+  const instanceIDs = new Set<string>();
+  return engines.every((engine) => {
+    const connectionID = engine.connection_id;
+    const instanceID = engine.instance_id;
+    const mandateID = engine.mandate_id;
+    const provider = engine.provider;
+    if (
+      !connectionID ||
+      !instanceID ||
+      !mandateID ||
+      !uuidPattern.test(connectionID) ||
+      !uuidPattern.test(instanceID) ||
+      !uuidPattern.test(mandateID) ||
+      instanceIDs.has(instanceID) ||
+      !provider ||
+      connectionProviders.get(connectionID) !== provider ||
+      !["PAPER", "SHADOW"].includes(engine.execution_mode ?? "") ||
+      engine.instance_status !== "ACTIVE" ||
+      engine.current_state !== "AI_MONITORING" ||
+      !engine.schedule_available ||
+      !engine.schedule_history_available ||
+      engine.recent_runs.length > 12
+    )
+      return false;
+    instanceIDs.add(instanceID);
+    const runIDs = new Set<string>();
+    let priorCompletedAt = Number.POSITIVE_INFINITY;
+    return engine.recent_runs.every((run) => {
+      const scheduledAt = Date.parse(run.scheduled_for ?? "");
+      const completedAt = Date.parse(run.completed_at ?? "");
+      const nextRunAt = Date.parse(run.next_run_at ?? "");
+      const exact = Boolean(
+        run.id &&
+          uuidPattern.test(run.id) &&
+          !runIDs.has(run.id) &&
+          Number.isFinite(scheduledAt) &&
+          Number.isFinite(completedAt) &&
+          Number.isFinite(nextRunAt) &&
+          scheduledAt <= completedAt &&
+          completedAt <= observed &&
+          completedAt < priorCompletedAt &&
+          nextRunAt > scheduledAt &&
+          run.status &&
+          ["SUCCEEDED", "FAILED", "SKIPPED"].includes(run.status) &&
+          typeof run.duplicate_recovered === "boolean" &&
+          Number.isInteger(run.consecutive_failures) &&
+          (run.consecutive_failures ?? -1) >= 0 &&
+          ((run.status === "SUCCEEDED" && !run.error_code) ||
+            (["FAILED", "SKIPPED"].includes(run.status) &&
+              Boolean(run.error_code))),
+      );
+      if (run.id) runIDs.add(run.id);
+      priorCompletedAt = completedAt;
+      return exact;
+    });
+  });
+}
+
+export function projectFinancialAuthorizationRuntimeIncidents({
+  connections,
+  receipts,
+  engines,
+  observedAt,
+  evidenceAvailable,
+}: {
+  connections: FinancialConnection[];
+  receipts: FinancialAuthorizationReceipt[];
+  engines: FinancialContinuityEngine[];
+  observedAt: string;
+  evidenceAvailable: boolean;
+}): FinancialAuthorizationRuntimeIncidentProjection {
+  const observed = Date.parse(observedAt);
+  const authorizationEvidenceExact = validAuthorizationEvidence({
+    connections,
+    receipts,
+    observedAt,
+    evidenceAvailable,
+  });
+  const runtimeEvidenceExact = validIncidentRuntimeEvidence({
+    connections,
+    engines,
+    observedAt,
+  });
+  const exactEvidence = authorizationEvidenceExact && runtimeEvidenceExact;
+  const groups = exactEvidence
+    ? (authorizationAttemptGroups(receipts) ?? [])
+    : [];
+  const unboundProviderEventCount = exactEvidence
+    ? groups
+        .filter((attempt) => !attempt.connectionID)
+        .reduce((count, attempt) => count + attempt.eventIDs.length, 0)
+    : 0;
+
+  const projected = connections.map((connection) => {
+    if (!exactEvidence) {
+      return {
+        id: connection.id,
+        provider: connection.provider,
+        displayName: connection.display_name,
+        state: "UNAVAILABLE" as const,
+        incidentCount: 0,
+        incidents: [],
+      };
+    }
+    const boundGroups = groups
+      .filter(
+        (attempt) =>
+          attempt.connectionID === connection.id &&
+          attempt.provider === connection.provider,
+      )
+      .toSorted(
+        (left, right) =>
+          Date.parse(
+            left.terminal?.occurred_at ?? left.started?.occurred_at ?? "",
+          ) -
+          Date.parse(
+            right.terminal?.occurred_at ?? right.started?.occurred_at ?? "",
+          ),
+      );
+    const completionGroups = boundGroups.filter(
+      (attempt) => attempt.terminal?.status === "COMPLETED",
+    );
+    const completedGroups = completionGroups.filter(
+      (attempt) =>
+        attempt.started &&
+        attempt.terminal &&
+        !attempt.key.startsWith("legacy:"),
+    );
+    const connectionEngines = engines.filter(
+      (engine) => engine.connection_id === connection.id,
+    );
+
+    const makeIncident = ({
+      id,
+      kind,
+      startedAt,
+      latestAt,
+      authorizationDeadline,
+      attemptIDs,
+      eventIDs,
+      recoveryCandidates = completedGroups,
+    }: {
+      id: string;
+      kind: AuthorizationIncidentKind;
+      startedAt: string;
+      latestAt: string;
+      authorizationDeadline?: string;
+      attemptIDs: string[];
+      eventIDs: string[];
+      recoveryCandidates?: AuthorizationAttempt[];
+    }) => {
+      const started = Date.parse(startedAt);
+      const recoveryThreshold = Date.parse(latestAt);
+      const recovery = recoveryCandidates.find(
+        (attempt) =>
+          Date.parse(attempt.terminal?.occurred_at ?? "") > recoveryThreshold &&
+          !attemptIDs.includes(attempt.key),
+      );
+      const recoveredAt = recovery?.terminal?.occurred_at;
+      const windowEnd = observed;
+      const engineRows = connectionEngines.map((engine) => {
+        const runs = engine.recent_runs.filter((run) => {
+          const completedAt = Date.parse(run.completed_at ?? "");
+          return completedAt >= started && completedAt <= windowEnd;
+        });
+        const succeededCount = runs.filter(
+          (run) => run.status === "SUCCEEDED",
+        ).length;
+        const failedCount = runs.filter(
+          (run) => run.status === "FAILED",
+        ).length;
+        const safeWaitCount = runs.filter(
+          (run) =>
+            run.status === "SKIPPED" && run.error_code === "OUTSIDE_SESSION",
+        ).length;
+        const blockedCount = runs.filter(
+          (run) =>
+            run.status === "SKIPPED" && run.error_code !== "OUTSIDE_SESSION",
+        ).length;
+        const latest = runs[0];
+        return {
+          instanceID: engine.instance_id!,
+          mandateID: engine.mandate_id!,
+          accountName: engine.account_name ?? "Financial account",
+          executionMode: engine.execution_mode as "PAPER" | "SHADOW",
+          succeededCount,
+          failedCount,
+          safeWaitCount,
+          blockedCount,
+          latestStatus: latest?.status ?? "NO SAVED SAMPLE",
+          latestErrorCode: latest?.error_code ?? undefined,
+          latestCompletedAt: latest?.completed_at ?? undefined,
+        };
+      });
+      const sampledRows = engineRows.filter(
+        (engine) =>
+          engine.succeededCount +
+            engine.failedCount +
+            engine.safeWaitCount +
+            engine.blockedCount >
+          0,
+      );
+      let runtimeStatus:
+        | "PROTECTED"
+        | "SAFE_WAIT"
+        | "NEEDS_REVIEW"
+        | "NO_POST_INCIDENT_SAMPLE"
+        | "NO_BOUND_ENGINE"
+        | "UNAVAILABLE" = "PROTECTED";
+      if (connectionEngines.length === 0) runtimeStatus = "NO_BOUND_ENGINE";
+      else if (sampledRows.length !== connectionEngines.length)
+        runtimeStatus = "NO_POST_INCIDENT_SAMPLE";
+      else if (
+        sampledRows.some(
+          (engine) =>
+            engine.latestStatus === "FAILED" ||
+            engine.failedCount > 0 ||
+            engine.blockedCount > 0,
+        )
+      )
+        runtimeStatus = "NEEDS_REVIEW";
+      else if (
+        sampledRows.length > 0 &&
+        sampledRows.every((engine) => engine.latestStatus === "SKIPPED")
+      )
+        runtimeStatus = "SAFE_WAIT";
+      return {
+        id,
+        kind,
+        state: recoveredAt ? ("RECOVERED" as const) : ("OPEN" as const),
+        startedAt,
+        latestAt,
+        recoveredAt,
+        durationMilliseconds: recoveredAt
+          ? Date.parse(recoveredAt) - started
+          : undefined,
+        currentAgeMilliseconds: recoveredAt ? undefined : observed - started,
+        authorizationDeadline,
+        attemptIDs:
+          recovery && !recovery.key.startsWith("legacy:")
+            ? [...attemptIDs, recovery.key]
+            : [...attemptIDs],
+        eventIDs: recovery
+          ? [...eventIDs, ...recovery.eventIDs]
+          : [...eventIDs],
+        runtimeStatus,
+        engines: engineRows,
+      };
+    };
+
+    const incidents: FinancialAuthorizationRuntimeIncidentProjection["connections"][number]["incidents"] =
+      [];
+    const failedBuckets = new Map<string, AuthorizationAttempt[]>();
+    for (const attempt of boundGroups.filter(
+      (candidate) => candidate.terminal?.status === "FAILED",
+    )) {
+      const terminalAt = attempt.terminal?.occurred_at;
+      if (!terminalAt) continue;
+      if (attempt.key.startsWith("legacy:")) {
+        const incident = makeIncident({
+          id: `failed:${attempt.key}`,
+          kind: "FAILED_ATTEMPT",
+          startedAt: attempt.started?.occurred_at ?? terminalAt,
+          latestAt: terminalAt,
+          attemptIDs: [],
+          eventIDs: attempt.eventIDs,
+        });
+        incidents.push({
+          ...incident,
+          state: "UNAVAILABLE",
+          recoveredAt: undefined,
+          durationMilliseconds: undefined,
+          currentAgeMilliseconds: undefined,
+          runtimeStatus: "UNAVAILABLE",
+        });
+        continue;
+      }
+      const recoveryKey =
+        completedGroups.find(
+          (candidate) =>
+            Date.parse(candidate.terminal?.occurred_at ?? "") >
+            Date.parse(terminalAt),
+        )?.key ?? "OPEN";
+      failedBuckets.set(recoveryKey, [
+        ...(failedBuckets.get(recoveryKey) ?? []),
+        attempt,
+      ]);
+    }
+    for (const [recoveryKey, failedAttempts] of failedBuckets) {
+      const first = failedAttempts[0];
+      const latest = failedAttempts.at(-1);
+      const startedAt =
+        first.started?.occurred_at ?? first.terminal?.occurred_at;
+      const latestAt = latest?.terminal?.occurred_at;
+      if (!startedAt || !latestAt) continue;
+      incidents.push(
+        makeIncident({
+          id: `failed:${first.key}:${recoveryKey}`,
+          kind: "FAILED_ATTEMPT",
+          startedAt,
+          latestAt,
+          attemptIDs: failedAttempts.map((attempt) => attempt.key),
+          eventIDs: failedAttempts.flatMap((attempt) => attempt.eventIDs),
+        }),
+      );
+    }
+    const pendingBuckets = new Map<string, AuthorizationAttempt[]>();
+    for (const attempt of boundGroups.filter(
+      (candidate) =>
+        candidate.started &&
+        !candidate.terminal &&
+        observed - Date.parse(candidate.started.occurred_at) >=
+          longPendingAuthorizationMilliseconds,
+    )) {
+      const startedAt = attempt.started!.occurred_at;
+      const recoveryKey =
+        completedGroups.find(
+          (candidate) =>
+            Date.parse(candidate.terminal?.occurred_at ?? "") >
+            Date.parse(startedAt),
+        )?.key ?? "OPEN";
+      pendingBuckets.set(recoveryKey, [
+        ...(pendingBuckets.get(recoveryKey) ?? []),
+        attempt,
+      ]);
+    }
+    for (const [recoveryKey, pendingAttempts] of pendingBuckets) {
+      const first = pendingAttempts[0];
+      const latest = pendingAttempts.at(-1);
+      const startedAt = first.started?.occurred_at;
+      const latestAt = latest?.started?.occurred_at;
+      if (!startedAt || !latestAt) continue;
+      incidents.push(
+        makeIncident({
+          id: `pending:${first.key}:${recoveryKey}`,
+          kind: "LONG_PENDING",
+          startedAt,
+          latestAt,
+          attemptIDs: pendingAttempts.map((attempt) => attempt.key),
+          eventIDs: pendingAttempts.flatMap((attempt) => attempt.eventIDs),
+        }),
+      );
+    }
+    const completionReceipts = receipts
+      .filter(
+        (receipt) =>
+          receipt.connection_id === connection.id &&
+          receipt.provider === connection.provider &&
+          receipt.status === "COMPLETED" &&
+          receipt.authorization_expires_at &&
+          Date.parse(receipt.authorization_expires_at) <= observed,
+      )
+      .toSorted(
+        (left, right) =>
+          Date.parse(left.authorization_expires_at ?? "") -
+          Date.parse(right.authorization_expires_at ?? ""),
+      );
+    for (const receipt of completionReceipts) {
+      const attempt = boundGroups.find((candidate) =>
+        candidate.eventIDs.includes(receipt.id),
+      );
+      incidents.push(
+        makeIncident({
+          id: `expired:${receipt.id}`,
+          kind: "EXPIRED_AUTHORIZATION",
+          startedAt: receipt.authorization_expires_at!,
+          latestAt: receipt.authorization_expires_at!,
+          authorizationDeadline: receipt.authorization_expires_at,
+          attemptIDs:
+            attempt && !attempt.key.startsWith("legacy:") ? [attempt.key] : [],
+          eventIDs: [receipt.id],
+          recoveryCandidates: completionGroups,
+        }),
+      );
+    }
+    const uniqueIncidents = incidents
+      .filter(
+        (incident, index, values) =>
+          values.findIndex((candidate) => candidate.id === incident.id) ===
+          index,
+      )
+      .toSorted(
+        (left, right) =>
+          Date.parse(right.startedAt) - Date.parse(left.startedAt),
+      )
+      .slice(0, authorizationIncidentLimit);
+    const open = uniqueIncidents.some((incident) => incident.state === "OPEN");
+    const unavailable = uniqueIncidents.some(
+      (incident) => incident.state === "UNAVAILABLE",
+    );
+    return {
+      id: connection.id,
+      provider: connection.provider,
+      displayName: connection.display_name,
+      state: unavailable
+        ? ("UNAVAILABLE" as const)
+        : open
+          ? ("OPEN" as const)
+          : uniqueIncidents.length > 0
+            ? ("RECOVERED" as const)
+            : ("CLEAR" as const),
+      incidentCount: uniqueIncidents.length,
+      incidents: uniqueIncidents,
+    };
+  });
+  const incidents = projected.flatMap((connection) => connection.incidents);
+  const unavailableCount = projected.filter(
+    (connection) => connection.state === "UNAVAILABLE",
+  ).length;
+  const openCount = incidents.filter(
+    (incident) => incident.state === "OPEN",
+  ).length;
+  return {
+    status:
+      unavailableCount > 0
+        ? "UNAVAILABLE"
+        : openCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    incidentCount: incidents.length,
+    openCount,
+    recoveredCount: incidents.filter(
+      (incident) => incident.state === "RECOVERED",
+    ).length,
+    unavailableCount,
+    unboundProviderEventCount,
     connections: projected,
   };
 }
@@ -820,6 +1320,242 @@ export function FinancialAuthorizationTimeline({
   );
 }
 
+function incidentKindLabel(kind: AuthorizationIncidentKind) {
+  if (kind === "FAILED_ATTEMPT") return "Authorization attempt failed";
+  if (kind === "LONG_PENDING") return "Authorization callback stayed pending";
+  return "Saved authorization expired";
+}
+
+function runtimeStatusLabel(
+  status: FinancialAuthorizationRuntimeIncidentProjection["connections"][number]["incidents"][number]["runtimeStatus"],
+) {
+  if (status === "PROTECTED") return "Saved non-live cycles continued safely";
+  if (status === "SAFE_WAIT") return "Saved non-live cycles waited safely";
+  if (status === "NEEDS_REVIEW") return "A saved cycle failed closed";
+  if (status === "NO_POST_INCIDENT_SAMPLE")
+    return "A later scheduler sample is not saved yet";
+  if (status === "NO_BOUND_ENGINE")
+    return "No active Paper or Shadow engine is bound";
+  return "Runtime impact evidence unavailable";
+}
+
+export function FinancialAuthorizationRuntimeIncidents({
+  connections,
+  receipts,
+  engines,
+  observedAt,
+  evidenceAvailable,
+}: {
+  connections: FinancialConnection[];
+  receipts: FinancialAuthorizationReceipt[];
+  engines: FinancialContinuityEngine[];
+  observedAt: string;
+  evidenceAvailable: boolean;
+}) {
+  const projection = projectFinancialAuthorizationRuntimeIncidents({
+    connections,
+    receipts,
+    engines,
+    observedAt,
+    evidenceAvailable,
+  });
+  return (
+    <section
+      className={`financial-authorization-incidents is-${projection.status.toLowerCase()}`}
+      aria-labelledby="financial-authorization-incidents-title"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">RENEWAL INCIDENTS + PROTECTED RUNTIME</p>
+          <h2 id="financial-authorization-incidents-title">
+            {projection.status === "VERIFIED"
+              ? projection.incidentCount > 0
+                ? "Every saved authorization incident recovered."
+                : "No connection-bound authorization incident is active."
+              : projection.status === "ATTENTION"
+                ? "A saved authorization incident is still open."
+                : "Authorization incident evidence is unavailable."}
+          </h2>
+          <p>
+            Exact saved authorization events are compared with bounded Paper and
+            Shadow scheduler history—without inferring broker impact.
+          </p>
+        </div>
+        <span>
+          {projection.openCount} open · {projection.recoveredCount} recovered ·{" "}
+          {projection.unavailableCount} unavailable
+        </span>
+      </header>
+      {projection.unboundProviderEventCount > 0 ? (
+        <aside>
+          <strong>
+            {projection.unboundProviderEventCount} provider-level event
+            {projection.unboundProviderEventCount === 1 ? "" : "s"} isolated
+          </strong>
+          <span>
+            These saved events do not identify a financial connection, so they
+            are not attributed to any account or engine.
+          </span>
+        </aside>
+      ) : null}
+      <ol>
+        {projection.connections.map((connection) => (
+          <li
+            className={`is-${connection.state.toLowerCase()}`}
+            key={connection.id}
+          >
+            <header>
+              <div>
+                <strong>{connection.displayName}</strong>
+                <small>{providerName(connection.provider)}</small>
+              </div>
+              <span>{connection.state}</span>
+            </header>
+            {connection.incidents.length === 0 ? (
+              <p>
+                {connection.state === "UNAVAILABLE"
+                  ? "Saved authorization or scheduler evidence is incomplete or inconsistent. Arbion will not infer an incident, recovery, or runtime effect."
+                  : "No failed, expired, or 15-minute pending connection-bound authorization attempt appears in the current saved evidence window."}
+              </p>
+            ) : (
+              <ol>
+                {connection.incidents.map((incident) => {
+                  const attention =
+                    incident.state !== "RECOVERED" ||
+                    [
+                      "NEEDS_REVIEW",
+                      "NO_POST_INCIDENT_SAMPLE",
+                      "UNAVAILABLE",
+                    ].includes(incident.runtimeStatus);
+                  return (
+                    <li
+                      className={`is-${incident.state.toLowerCase()}`}
+                      key={incident.id}
+                    >
+                      <header>
+                        <div>
+                          <strong>{incidentKindLabel(incident.kind)}</strong>
+                          <small>
+                            Started {readableTime(incident.startedAt)}
+                          </small>
+                        </div>
+                        <span>{incident.state}</span>
+                      </header>
+                      <dl>
+                        <div>
+                          <dt>Incident timing</dt>
+                          <dd>
+                            {readableDuration(
+                              incident.durationMilliseconds ??
+                                incident.currentAgeMilliseconds,
+                            )}
+                          </dd>
+                          <small>
+                            {incident.recoveredAt
+                              ? `Recovered ${readableTime(incident.recoveredAt)}`
+                              : "Current saved age"}
+                          </small>
+                        </div>
+                        <div>
+                          <dt>Renewal deadline</dt>
+                          <dd>
+                            {readableTime(incident.authorizationDeadline)}
+                          </dd>
+                          <small>
+                            {incident.authorizationDeadline
+                              ? "Exact saved expiry"
+                              : "Not part of this incident"}
+                          </small>
+                        </div>
+                        <div>
+                          <dt>Attempt identity</dt>
+                          <dd>{incident.attemptIDs.length} exact IDs</dd>
+                          <small>
+                            {incident.eventIDs.length} immutable events
+                          </small>
+                        </div>
+                        <div>
+                          <dt>Protected runtime evidence</dt>
+                          <dd>{incident.runtimeStatus.replaceAll("_", " ")}</dd>
+                          <small>
+                            {runtimeStatusLabel(incident.runtimeStatus)}
+                          </small>
+                        </div>
+                      </dl>
+                      <details open={attention}>
+                        <summary>
+                          Paper and Shadow evidence
+                          <span>{incident.engines.length} engines</span>
+                        </summary>
+                        {incident.engines.length === 0 ? (
+                          <p>
+                            No active Paper or Shadow engine is bound to this
+                            financial connection.
+                          </p>
+                        ) : (
+                          <ol>
+                            {incident.engines.map((engine) => (
+                              <li key={engine.instanceID}>
+                                <div>
+                                  <strong>
+                                    {engine.executionMode} ·{" "}
+                                    {engine.accountName}
+                                  </strong>
+                                  <span>
+                                    Latest {engine.latestStatus}
+                                    {engine.latestErrorCode
+                                      ? ` · ${engine.latestErrorCode}`
+                                      : ""}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span>
+                                    {engine.succeededCount} succeeded ·{" "}
+                                    {engine.failedCount} failed closed ·{" "}
+                                    {engine.safeWaitCount} safe waits ·{" "}
+                                    {engine.blockedCount} other safe blocks
+                                  </span>
+                                  <small>
+                                    Latest completion{" "}
+                                    {readableTime(engine.latestCompletedAt)}
+                                  </small>
+                                </div>
+                                <Link
+                                  href={`/automations/${encodeURIComponent(engine.mandateID)}#runtime-evidence`}
+                                >
+                                  Open engine evidence →
+                                </Link>
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </details>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+            <footer>
+              <Link href="/settings/security#security-activity">
+                Open immutable authorization evidence →
+              </Link>
+              <span>
+                {connection.incidentCount} bounded incident
+                {connection.incidentCount === 1 ? "" : "s"}
+              </span>
+            </footer>
+          </li>
+        ))}
+      </ol>
+      <footer>
+        Saved evidence only · connection-bound attribution · Paper and Shadow
+        remain non-live · no provider contact · no reconnect · no sync · no
+        broker action
+      </footer>
+    </section>
+  );
+}
+
 export function FinancialConnectionOperatingWorkspace({
   connections,
   accounts,
@@ -988,6 +1724,15 @@ export function FinancialConnectionOperatingWorkspace({
             receipts={authorizationReceipts}
             observedAt={observedAt}
             evidenceAvailable={authorizationEvidenceAvailable}
+          />
+          <FinancialAuthorizationRuntimeIncidents
+            connections={connections}
+            receipts={authorizationReceipts}
+            engines={engines}
+            observedAt={observedAt}
+            evidenceAvailable={
+              authorizationEvidenceAvailable && contextAvailable
+            }
           />
           <ConnectionSyncEvidenceCenter
             inputs={syncInputs}
