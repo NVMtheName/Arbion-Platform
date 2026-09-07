@@ -163,12 +163,13 @@ type IdempotencyProof struct {
 }
 
 type LifecycleContract struct {
-	Version                        string `json:"version"`
-	RequireProviderAcknowledgment  bool   `json:"require_provider_acknowledgment"`
-	RequirePartialFillEvidence     bool   `json:"require_partial_fill_evidence"`
-	RequireCancelReplaceEvidence   bool   `json:"require_cancel_replace_evidence"`
-	RequirePostTradeReconciliation bool   `json:"require_post_trade_reconciliation"`
-	RequireImmutableEventIDs       bool   `json:"require_immutable_event_ids"`
+	Evidence                       ImmutableEvidenceRef `json:"evidence"`
+	Version                        string               `json:"version"`
+	RequireProviderAcknowledgment  bool                 `json:"require_provider_acknowledgment"`
+	RequirePartialFillEvidence     bool                 `json:"require_partial_fill_evidence"`
+	RequireCancelReplaceEvidence   bool                 `json:"require_cancel_replace_evidence"`
+	RequirePostTradeReconciliation bool                 `json:"require_post_trade_reconciliation"`
+	RequireImmutableEventIDs       bool                 `json:"require_immutable_event_ids"`
 }
 
 type SafetyCase struct {
@@ -238,6 +239,7 @@ func validateSafetyCase(safetyCase SafetyCase, now time.Time) []ReasonCode {
 		safetyCase.PreTradeReconciliation.Evidence,
 		safetyCase.KillSwitch.Evidence,
 		safetyCase.Idempotency.Evidence,
+		safetyCase.Lifecycle.Evidence,
 	}
 	seenEvidence := map[string]struct{}{}
 	for _, ref := range refs {
@@ -335,7 +337,8 @@ func validateSafetyCase(safetyCase SafetyCase, now time.Time) []ReasonCode {
 	validateAge(idempotency.ReservedAt, MaxActionAge, now, add)
 
 	lifecycle := safetyCase.Lifecycle
-	if lifecycle.Version != ContractVersion || !lifecycle.RequireProviderAcknowledgment || !lifecycle.RequirePartialFillEvidence || !lifecycle.RequireCancelReplaceEvidence || !lifecycle.RequirePostTradeReconciliation || !lifecycle.RequireImmutableEventIDs {
+	if !validProofRecord(lifecycle.Evidence, "LIVE_LIFECYCLE_CONTRACT", safetyCase.Action.CreatedAt) ||
+		lifecycle.Version != ContractVersion || !lifecycle.RequireProviderAcknowledgment || !lifecycle.RequirePartialFillEvidence || !lifecycle.RequireCancelReplaceEvidence || !lifecycle.RequirePostTradeReconciliation || !lifecycle.RequireImmutableEventIDs {
 		add(ReasonLifecycleContractUnavailable)
 	}
 
@@ -445,6 +448,7 @@ func validateOutcome(safetyCase SafetyCase, outcome OutcomeEvidence, now time.Ti
 		safetyCase.PreTradeReconciliation.Evidence.ID: {},
 		safetyCase.KillSwitch.Evidence.ID:             {},
 		safetyCase.Idempotency.Evidence.ID:            {},
+		safetyCase.Lifecycle.Evidence.ID:              {},
 	}
 	var previous *LifecycleEvent
 	var previousFilled *big.Rat

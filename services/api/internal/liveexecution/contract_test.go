@@ -319,7 +319,8 @@ func validSafetyCase(now time.Time) SafetyCase {
 			ReplayDetected: false, ReservedAt: now.Add(-time.Minute),
 		},
 		Lifecycle: LifecycleContract{
-			Version: ContractVersion, RequireProviderAcknowledgment: true, RequirePartialFillEvidence: true,
+			Evidence: evidenceRef("90000000-0000-4000-8000-000000000007", "LIVE_LIFECYCLE_CONTRACT", recordedAt),
+			Version:  ContractVersion, RequireProviderAcknowledgment: true, RequirePartialFillEvidence: true,
 			RequireCancelReplaceEvidence: true, RequirePostTradeReconciliation: true, RequireImmutableEventIDs: true,
 		},
 	}
