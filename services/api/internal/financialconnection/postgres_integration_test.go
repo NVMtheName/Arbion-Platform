@@ -92,6 +92,34 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 	if _, err = store.ListAccountSyncCheckpoints(ctx, userID, accountB, 2, newestCheckpoint.ID); !errors.Is(err, ErrInvalidSyncCheckpointHistory) {
 		t.Fatalf("cross-account sync checkpoint cursor was accepted: %v", err)
 	}
+	failureObservedAt := time.Now().UTC()
+	if err = store.RecordConnectionSyncFailure(ctx, userID, ConnectionSyncFailure{
+		ProviderConnectionID: connectionA,
+		Provider:             "coinbase",
+		FailureStage:         "ACCOUNT_DISCOVERY",
+		ErrorCode:            "RATE_LIMITED",
+		ObservedAt:           failureObservedAt,
+		CompletedAt:          failureObservedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.SyncAccounts(ctx, userID, connectionA, []financial.FinancialAccount{{Provider: "coinbase", ProviderAccountID: providerIDA, DisplayName: "Portfolio A recovered", AccountType: "digital_asset_portfolio", BaseCurrency: "USD", Capabilities: financial.Capabilities{}}}); err != nil {
+		t.Fatal(err)
+	}
+	attempts, err := store.ListConnectionSyncAttempts(ctx, userID, connectionA, 10)
+	if err != nil || len(attempts) != 4 || attempts[0].Outcome != "SAVED" || attempts[1].Outcome != "FAILED" || attempts[1].FailureStage == nil || *attempts[1].FailureStage != "ACCOUNT_DISCOVERY" || attempts[1].ErrorCode == nil || *attempts[1].ErrorCode != "RATE_LIMITED" || attempts[1].AccountCount != nil {
+		t.Fatalf("immutable failure and recovery history was incomplete: %#v err=%v", attempts, err)
+	}
+	if attempts[0].AccountCount == nil || *attempts[0].AccountCount != 1 || attempts[0].FailureStage != nil || attempts[0].ErrorCode != nil {
+		t.Fatalf("successful attempt contract was ambiguous: %#v", attempts[0])
+	}
+	otherAttempts, err := store.ListConnectionSyncAttempts(ctx, userID, connectionB, 10)
+	if err != nil || len(otherAttempts) != 0 {
+		t.Fatalf("connection attempt history crossed its owner boundary: %#v err=%v", otherAttempts, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE financial_connection_sync_failures SET error_code='TIMEOUT' WHERE id=$1`, attempts[1].ID); err == nil {
+		t.Fatal("immutable financial connection sync failure was updateable")
+	}
 	if _, err = pool.Exec(ctx, `UPDATE financial_account_sync_checkpoints SET outcome='SAVED' WHERE id=$1`, newestCheckpoint.ID); err == nil {
 		t.Fatal("immutable financial account sync checkpoint was updateable")
 	}

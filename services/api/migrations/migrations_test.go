@@ -86,6 +86,33 @@ func TestFinancialAccountSyncCheckpointMigrationIsForwardOnlyImmutableAndOwnerSc
 	}
 }
 
+func TestFinancialConnectionSyncFailureMigrationIsCredentialFreeImmutableAndOwnerScoped(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00041_financial_connection_sync_failures.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"financial_connection_sync_failures",
+		"PROVIDER_ACCOUNT_DISCOVERY",
+		"outcome = 'FAILED'",
+		"failure_stage",
+		"error_code",
+		"provider_category='financial'",
+		"enforce_financial_connection_sync_failure_source",
+		"reject_financial_connection_sync_failure_mutation",
+		"cannot remove immutable financial connection sync failure history",
+	} {
+		if !strings.Contains(strings.ReplaceAll(string(body), " ", ""), strings.ReplaceAll(required, " ", "")) {
+			t.Errorf("financial connection sync failure migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"api_private_key", "access_token", "refresh_token", "provider_payload", "raw_error", "broker_order"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("financial connection sync failure migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestNonLiveStrategyMigrationSeparatesSimulationAndHistory(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00008_nonlive_strategy.sql")
 	if err != nil {

@@ -136,6 +136,7 @@ func TestPortfolioReconciliationRoutesRequireAuthenticationAndApprovedOrigin(t *
 		httptest.NewRequest(http.MethodGet, "/api/accounts/account-1/reconciliations", nil),
 		httptest.NewRequest(http.MethodPost, "/api/accounts/account-1/reconciliations", nil),
 		httptest.NewRequest(http.MethodGet, "/api/accounts/account-1/sync-checkpoints", nil),
+		httptest.NewRequest(http.MethodGet, "/api/accounts/account-1/sync-attempts", nil),
 	} {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, request)
@@ -181,6 +182,8 @@ func TestPortfolioReconciliationReviewErrorsAreSafeAndActionable(t *testing.T) {
 		{financialconnection.ErrInvalidReconciliationHistory, http.StatusBadRequest, "INVALID_RECONCILIATION_HISTORY", "history request is invalid"},
 		{financialconnection.ErrSyncCheckpointHistoryUnavailable, http.StatusServiceUnavailable, "SYNC_CHECKPOINT_HISTORY_UNAVAILABLE", "temporarily unavailable"},
 		{financialconnection.ErrInvalidSyncCheckpointHistory, http.StatusBadRequest, "INVALID_SYNC_CHECKPOINT_HISTORY", "history request is invalid"},
+		{financialconnection.ErrSyncAttemptHistoryUnavailable, http.StatusServiceUnavailable, "SYNC_ATTEMPT_HISTORY_UNAVAILABLE", "temporarily unavailable"},
+		{financialconnection.ErrInvalidSyncAttemptHistory, http.StatusBadRequest, "INVALID_SYNC_ATTEMPT_HISTORY", "history request is invalid"},
 	} {
 		recorder := httptest.NewRecorder()
 		(&authHandler{}).financialError(recorder, testCase.err)
@@ -195,6 +198,24 @@ func TestPortfolioReconciliationReviewErrorsAreSafeAndActionable(t *testing.T) {
 		}
 		if recorder.Code != testCase.status || response.Error.Code != testCase.code || !strings.Contains(response.Error.Message, testCase.messagePart) {
 			t.Fatalf("unexpected review error: status=%d response=%+v", recorder.Code, response)
+		}
+	}
+}
+
+func TestSyncAttemptHistoryQueryRejectsAmbiguousOrInvalidLimits(t *testing.T) {
+	handler := &authHandler{financial: &financialconnection.Service{}}
+	for _, target := range []string{
+		"/api/accounts/account-1/sync-attempts?limit=one",
+		"/api/accounts/account-1/sync-attempts?limit=0",
+		"/api/accounts/account-1/sync-attempts?limit=51",
+		"/api/accounts/account-1/sync-attempts?limit=10&limit=20",
+		"/api/accounts/account-1/sync-attempts?cursor=unexpected",
+	} {
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		recorder := httptest.NewRecorder()
+		handler.accountSyncAttemptHistory(recorder, request)
+		if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "INVALID_SYNC_ATTEMPT_HISTORY") {
+			t.Fatalf("invalid sync attempt history query %q returned %d: %s", target, recorder.Code, recorder.Body.String())
 		}
 	}
 }
