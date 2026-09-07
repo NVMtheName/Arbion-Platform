@@ -582,7 +582,11 @@ export default async function ConnectionsPage() {
         />
         <div className="financial-provider-grid">
           {availableFinancialProviders.map((provider) => (
-            <article className="financial-provider-card" key={provider.id}>
+            <article
+              className="financial-provider-card"
+              id={`financial-provider-${provider.id}`}
+              key={provider.id}
+            >
               <header>
                 <div>
                   <span className={`provider-mark provider-${provider.id}`}>

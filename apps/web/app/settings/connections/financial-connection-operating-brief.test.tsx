@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ConnectionSyncEvidenceInput } from "./connection-sync-evidence-center";
 import {
   FinancialConnectionOperatingWorkspace,
+  projectFinancialAuthorizationContinuitySLO,
   projectFinancialAuthorizationRuntimeIncidents,
   projectFinancialAuthorizationTimeline,
   projectFinancialConnectionOperatingBrief,
@@ -325,6 +326,174 @@ describe("FinancialConnectionOperatingWorkspace", () => {
           durationMilliseconds: 60_000,
         },
       ],
+    });
+  });
+
+  it("projects an exact 24-hour owner countdown and bounded continuity SLO", () => {
+    const attemptID = "a".repeat(64);
+    const expiresAt = "2026-09-07T20:00:00Z";
+    const result = projectFinancialAuthorizationContinuitySLO({
+      connections: [{ ...connection, authorization_expires_at: expiresAt }],
+      receipts: [
+        {
+          ...authorizationReceipts[0],
+          attempt_id: attemptID,
+          authorization_expires_at: expiresAt,
+        },
+        {
+          id: "10000000-0000-4000-8000-000000000011",
+          attempt_id: attemptID,
+          provider: "coinbase",
+          status: "STARTED",
+          connection_id: ids.connection,
+          occurred_at: "2026-09-07T07:39:00Z",
+        },
+      ],
+      engines: [engine],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "ATTENTION",
+      currentCount: 0,
+      attentionCount: 1,
+      unavailableCount: 0,
+    });
+    expect(result.connections[0]).toMatchObject({
+      state: "RENEW_NOW",
+      remainingMilliseconds: 12 * 60 * 60 * 1000,
+      renewalWindowStartsAt: "2026-09-06T20:00:00.000Z",
+      attemptCount: 1,
+      completedCount: 1,
+      pendingCount: 0,
+      failedCount: 0,
+      expiredCount: 0,
+      pairedAttemptCount: 1,
+      latestTerminalLatencyMilliseconds: 60_000,
+      medianTerminalLatencyMilliseconds: 60_000,
+      maximumTerminalLatencyMilliseconds: 60_000,
+      openIncidentCount: 0,
+      recoveredIncidentCount: 0,
+      unavailableIncidentCount: 0,
+      unboundProviderEventCount: 0,
+      engines: [
+        {
+          instanceID: ids.instance,
+          mandateID: ids.mandate,
+          executionMode: "PAPER",
+          latestStatus: "SUCCEEDED",
+          latestCompletedAt: "2026-09-07T07:45:10Z",
+          nextRunAt: "2026-09-07T08:45:00Z",
+        },
+      ],
+    });
+  });
+
+  it("keeps unbound provider events separate from every connection countdown", () => {
+    const schwabConnection: FinancialConnection = {
+      ...connection,
+      id: "20000000-0000-4000-8000-000000000001",
+      provider: "schwab",
+      display_name: "Schwab Production",
+      last_synced_at: "2026-09-07T07:30:00Z",
+    };
+    const result = projectFinancialAuthorizationContinuitySLO({
+      connections: [connection, schwabConnection],
+      receipts: [
+        ...authorizationReceipts,
+        {
+          id: "20000000-0000-4000-8000-000000000010",
+          provider: "schwab",
+          status: "COMPLETED",
+          connection_id: schwabConnection.id,
+          current_last_verified_at:
+            schwabConnection.last_synced_at ?? undefined,
+          authorization_expiry_matches_current_connection: true,
+          occurred_at: "2026-09-07T07:30:00Z",
+        },
+        {
+          id: "20000000-0000-4000-8000-000000000011",
+          provider: "coinbase",
+          status: "FAILED",
+          occurred_at: "2026-09-07T07:50:00Z",
+        },
+      ],
+      engines: [engine],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result.status).toBe("VERIFIED");
+    expect(result.connections).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: ids.connection,
+          unboundProviderEventCount: 1,
+        }),
+        expect.objectContaining({
+          id: schwabConnection.id,
+          unboundProviderEventCount: 0,
+          engines: [],
+        }),
+      ]),
+    );
+  });
+
+  it("keeps one unavailable connection from changing another connection countdown", () => {
+    const otherConnection: FinancialConnection = {
+      ...connection,
+      id: "20000000-0000-4000-8000-000000000001",
+      display_name: "Coinbase Secondary",
+      last_synced_at: "2026-09-07T07:30:00Z",
+    };
+    const result = projectFinancialAuthorizationContinuitySLO({
+      connections: [connection, otherConnection],
+      receipts: authorizationReceipts,
+      engines: [engine],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result.status).toBe("UNAVAILABLE");
+    expect(result.connections).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: ids.connection, state: "CURRENT" }),
+        expect.objectContaining({
+          id: otherConnection.id,
+          state: "UNAVAILABLE",
+        }),
+      ]),
+    );
+  });
+
+  it("fails the owner countdown closed on malformed protected-runtime history", () => {
+    const result = projectFinancialAuthorizationContinuitySLO({
+      connections: [connection],
+      receipts: authorizationReceipts,
+      engines: [
+        {
+          ...engine,
+          recent_runs: [
+            {
+              ...engine.recent_runs[0],
+              completed_at: "2026-09-07T08:30:00Z",
+            },
+          ],
+        },
+      ],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "UNAVAILABLE",
+      unavailableCount: 1,
+    });
+    expect(result.connections[0]).toMatchObject({
+      state: "UNAVAILABLE",
+      attemptCount: 0,
+      engines: [],
     });
   });
 
@@ -824,6 +993,20 @@ describe("FinancialConnectionOperatingWorkspace", () => {
     expect(
       screen.getByText("AUTHORIZATION TIMELINE + RENEWAL SLA"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("AUTHORIZATION CONTINUITY + OWNER COUNTDOWN"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        "Every saved authorization is outside its renewal window.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Open connection control →" }),
+    ).toHaveAttribute("href", "#financial-provider-coinbase");
+    expect(
+      screen.getByText("Continuity SLO and protected engines"),
+    ).toBeVisible();
     expect(
       screen.getByText("Every saved financial authorization is current."),
     ).toBeInTheDocument();

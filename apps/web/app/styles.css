@@ -8020,6 +8020,237 @@ button:disabled {
   font-size: 0.68rem;
   line-height: 1.5;
 }
+.financial-authorization-continuity-slo {
+  margin: 18px 18px 0;
+  overflow: hidden;
+  border: 1px solid rgba(94, 224, 160, 0.28);
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at 92% 0%,
+      rgba(111, 170, 255, 0.13),
+      transparent 34%
+    ),
+    rgba(4, 18, 18, 0.82);
+}
+.financial-authorization-continuity-slo.is-attention {
+  border-color: rgba(245, 190, 92, 0.44);
+}
+.financial-authorization-continuity-slo.is-unavailable {
+  border-color: rgba(241, 129, 129, 0.44);
+}
+.financial-authorization-continuity-slo > header,
+.financial-authorization-continuity-slo > ol > li > header,
+.financial-authorization-continuity-slo details > summary,
+.financial-authorization-continuity-slo details li,
+.financial-authorization-continuity-slo details li > div,
+.financial-authorization-owner-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.financial-authorization-continuity-slo > header {
+  align-items: flex-start;
+  padding: 20px;
+  border-bottom: 1px solid rgba(94, 224, 160, 0.13);
+}
+.financial-authorization-continuity-slo > header h2 {
+  margin: 6px 0 0;
+  color: #e4f1ed;
+  font-size: 1.18rem;
+}
+.financial-authorization-continuity-slo > header p:last-child,
+.financial-authorization-continuity-slo > ol > li > p,
+.financial-authorization-continuity-slo details > p {
+  margin: 8px 0 0;
+  color: #849b93;
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+.financial-authorization-continuity-slo > header > span,
+.financial-authorization-continuity-slo > ol > li > header > span,
+.financial-authorization-continuity-slo details > summary > span {
+  flex: 0 0 auto;
+  color: #8de3b2;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.financial-authorization-continuity-slo > ol,
+.financial-authorization-continuity-slo details > ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.financial-authorization-continuity-slo > ol {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+}
+.financial-authorization-continuity-slo > ol > li {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(94, 224, 160, 0.17);
+  border-radius: 14px;
+  background: rgba(3, 14, 17, 0.74);
+}
+.financial-authorization-continuity-slo > ol > li:not(.is-current) {
+  border-color: rgba(245, 190, 92, 0.32);
+}
+.financial-authorization-continuity-slo > ol > li.is-unavailable {
+  border-color: rgba(241, 129, 129, 0.34);
+}
+.financial-authorization-continuity-slo > ol > li > header > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.financial-authorization-continuity-slo > ol > li > header strong,
+.financial-authorization-continuity-slo > ol > li > header small {
+  display: block;
+}
+.financial-authorization-continuity-slo > ol > li > header strong {
+  color: #deebe6;
+  font-size: 0.8rem;
+}
+.financial-authorization-continuity-slo > ol > li > header small {
+  margin-top: 3px;
+  color: #6f8780;
+  font-size: 0.62rem;
+}
+.financial-authorization-countdown {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 15px 0 0;
+  padding: 13px;
+  border: 1px solid rgba(111, 170, 255, 0.14);
+  border-radius: 11px;
+  background: rgba(111, 170, 255, 0.06);
+}
+.financial-authorization-countdown small,
+.financial-authorization-countdown strong {
+  display: block;
+}
+.financial-authorization-countdown small {
+  color: #72908a;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.financial-authorization-countdown strong {
+  margin-top: 4px;
+  color: #dff7ea;
+  font-size: 1.18rem;
+}
+.financial-authorization-countdown > span {
+  max-width: 52%;
+  color: #8aa39c;
+  font-size: 0.61rem;
+  line-height: 1.45;
+  text-align: right;
+}
+.financial-authorization-continuity-slo > ol > li > h3 {
+  margin: 14px 0 0;
+  color: #d5e6df;
+  font-size: 0.84rem;
+}
+.financial-authorization-owner-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin: 13px 0;
+  padding-bottom: 13px;
+  border-bottom: 1px solid rgba(94, 224, 160, 0.1);
+}
+.financial-authorization-owner-actions a,
+.financial-authorization-continuity-slo details a {
+  color: #8de3b2;
+  font-size: 0.64rem;
+  font-weight: 730;
+  text-decoration: none;
+}
+.financial-authorization-continuity-slo details {
+  overflow: hidden;
+  border: 1px solid rgba(94, 224, 160, 0.12);
+  border-radius: 10px;
+}
+.financial-authorization-continuity-slo details > summary {
+  padding: 10px;
+  color: #90a9a0;
+  cursor: pointer;
+  font-size: 0.65rem;
+  font-weight: 760;
+}
+.financial-authorization-continuity-slo details[open] > summary {
+  border-bottom: 1px solid rgba(94, 224, 160, 0.1);
+}
+.financial-authorization-continuity-slo details dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 0;
+  background: rgba(94, 224, 160, 0.08);
+}
+.financial-authorization-continuity-slo details dl > div {
+  min-width: 0;
+  padding: 10px;
+  background: #071614;
+}
+.financial-authorization-continuity-slo details dt {
+  color: #6f8780;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.financial-authorization-continuity-slo details dd {
+  margin: 4px 0 0;
+  color: #d5e6df;
+  font-size: 0.66rem;
+  overflow-wrap: anywhere;
+}
+.financial-authorization-continuity-slo details dl small {
+  display: block;
+  margin-top: 3px;
+  color: #6f8780;
+  font-size: 0.58rem;
+  line-height: 1.4;
+}
+.financial-authorization-continuity-slo details > p {
+  padding: 0 10px 10px;
+}
+.financial-authorization-continuity-slo details li {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 10px;
+  border-top: 1px solid rgba(94, 224, 160, 0.08);
+}
+.financial-authorization-continuity-slo details li > div {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+}
+.financial-authorization-continuity-slo details li strong,
+.financial-authorization-continuity-slo details li span,
+.financial-authorization-continuity-slo details li small {
+  color: #809990;
+  font-size: 0.59rem;
+}
+.financial-authorization-continuity-slo details li strong {
+  color: #c4dacf;
+}
+.financial-authorization-continuity-slo > footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(94, 224, 160, 0.12);
+  color: #71877d;
+  font-size: 0.64rem;
+  line-height: 1.5;
+}
 .financial-authorization-timeline {
   overflow: hidden;
   border: 1px solid rgba(111, 170, 255, 0.25);
@@ -18506,6 +18737,25 @@ h1 {
   .financial-connection-workspace > ol,
   .financial-connection-workspace dl {
     grid-template-columns: 1fr;
+  }
+  .financial-authorization-continuity-slo {
+    margin: 14px 12px 0;
+  }
+  .financial-authorization-continuity-slo > header,
+  .financial-authorization-continuity-slo > ol > li > header,
+  .financial-authorization-continuity-slo details > summary,
+  .financial-authorization-continuity-slo details li,
+  .financial-authorization-countdown {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .financial-authorization-continuity-slo > ol,
+  .financial-authorization-continuity-slo details dl {
+    grid-template-columns: 1fr;
+  }
+  .financial-authorization-countdown > span {
+    max-width: none;
+    text-align: left;
   }
   .financial-authorization-timeline > header,
   .financial-authorization-timeline > ol > li > header,

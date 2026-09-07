@@ -122,6 +122,56 @@ export type FinancialAuthorizationRuntimeIncidentProjection = {
   }>;
 };
 
+type AuthorizationContinuityState =
+  | "CURRENT"
+  | "RENEW_NOW"
+  | "PENDING"
+  | "FAILED"
+  | "EXPIRED"
+  | "UNAVAILABLE";
+
+export type FinancialAuthorizationContinuitySLOProjection = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  currentCount: number;
+  attentionCount: number;
+  unavailableCount: number;
+  connections: Array<{
+    id: string;
+    provider: string;
+    displayName: string;
+    state: AuthorizationContinuityState;
+    label: string;
+    guidance: string;
+    lastVerifiedAt?: string;
+    authorizationExpiresAt?: string;
+    renewalWindowStartsAt?: string;
+    remainingMilliseconds?: number;
+    attemptCount: number;
+    completedCount: number;
+    pendingCount: number;
+    failedCount: number;
+    expiredCount: number;
+    pairedAttemptCount: number;
+    latestTerminalLatencyMilliseconds?: number;
+    medianTerminalLatencyMilliseconds?: number;
+    maximumTerminalLatencyMilliseconds?: number;
+    openIncidentCount: number;
+    recoveredIncidentCount: number;
+    unavailableIncidentCount: number;
+    unboundProviderEventCount: number;
+    engines: Array<{
+      instanceID: string;
+      mandateID: string;
+      accountName: string;
+      executionMode: "PAPER" | "SHADOW";
+      latestStatus: string;
+      latestErrorCode?: string;
+      latestCompletedAt: string;
+      nextRunAt: string;
+    }>;
+  }>;
+};
+
 export type FinancialConnectionOperatingBriefProjection = {
   status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
   onCourseCount: number;
@@ -189,6 +239,12 @@ function readableDuration(value?: number) {
   if (value < 86_400_000)
     return `${(value / 3_600_000).toLocaleString("en-US", { maximumFractionDigits: 1 })} hours`;
   return `${(value / 86_400_000).toLocaleString("en-US", { maximumFractionDigits: 1 })} days`;
+}
+
+function exactDuration(value?: number) {
+  if (value === undefined || !Number.isFinite(value) || value < 0)
+    return "UNAVAILABLE";
+  return `${value.toLocaleString("en-US", { maximumFractionDigits: 3 })} ms · ${readableDuration(value)}`;
 }
 
 function earliestTime(values: Array<string | undefined>) {
@@ -978,6 +1034,241 @@ export function projectFinancialAuthorizationRuntimeIncidents({
   };
 }
 
+function exactMedian(values: number[]) {
+  if (values.length === 0) return;
+  const sorted = values.toSorted((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+}
+
+export function projectFinancialAuthorizationContinuitySLO({
+  connections,
+  receipts,
+  engines,
+  observedAt,
+  evidenceAvailable,
+}: {
+  connections: FinancialConnection[];
+  receipts: FinancialAuthorizationReceipt[];
+  engines: FinancialContinuityEngine[];
+  observedAt: string;
+  evidenceAvailable: boolean;
+}): FinancialAuthorizationContinuitySLOProjection {
+  const observed = Date.parse(observedAt);
+  const timeline = projectFinancialAuthorizationTimeline({
+    connections,
+    receipts,
+    observedAt,
+    evidenceAvailable,
+  });
+  const incidents = projectFinancialAuthorizationRuntimeIncidents({
+    connections,
+    receipts,
+    engines,
+    observedAt,
+    evidenceAvailable,
+  });
+  const structurallyExact =
+    validAuthorizationEvidence({
+      connections,
+      receipts,
+      observedAt,
+      evidenceAvailable,
+    }) && validIncidentRuntimeEvidence({ connections, engines, observedAt });
+  const groups = structurallyExact
+    ? authorizationAttemptGroups(receipts)
+    : undefined;
+  const projected = connections.map((connection) => {
+    const authorization = timeline.connections.find(
+      (candidate) => candidate.id === connection.id,
+    );
+    const incidentEvidence = incidents.connections.find(
+      (candidate) => candidate.id === connection.id,
+    );
+    const exact = Boolean(
+      authorization &&
+        authorization.state !== "UNAVAILABLE" &&
+        incidentEvidence &&
+        incidentEvidence.state !== "UNAVAILABLE" &&
+        groups,
+    );
+    const attempts = exact
+      ? (groups ?? []).filter(
+          (attempt) =>
+            attempt.connectionID === connection.id &&
+            attempt.provider === connection.provider,
+        )
+      : [];
+    const terminalLatencies = attempts
+      .filter(
+        (attempt) =>
+          attempt.started &&
+          attempt.terminal &&
+          !attempt.key.startsWith("legacy:"),
+      )
+      .map(
+        (attempt) =>
+          Date.parse(attempt.terminal!.occurred_at) -
+          Date.parse(attempt.started!.occurred_at),
+      );
+    const latestPaired = attempts
+      .filter(
+        (attempt) =>
+          attempt.started &&
+          attempt.terminal &&
+          !attempt.key.startsWith("legacy:"),
+      )
+      .toSorted(
+        (left, right) =>
+          Date.parse(right.terminal!.occurred_at) -
+          Date.parse(left.terminal!.occurred_at),
+      )[0];
+    const connectionReceipts = exact
+      ? receipts.filter(
+          (receipt) =>
+            receipt.connection_id === connection.id &&
+            receipt.provider === connection.provider,
+        )
+      : [];
+    const exactEngines = exact
+      ? engines
+          .filter((engine) => engine.connection_id === connection.id)
+          .map((engine) => {
+            const latest = engine.recent_runs[0];
+            return {
+              instanceID: engine.instance_id!,
+              mandateID: engine.mandate_id!,
+              accountName: engine.account_name ?? "Financial account",
+              executionMode: engine.execution_mode as "PAPER" | "SHADOW",
+              latestStatus: latest.status!,
+              latestErrorCode: latest.error_code ?? undefined,
+              latestCompletedAt: latest.completed_at!,
+              nextRunAt: latest.next_run_at!,
+            };
+          })
+      : [];
+    const authorizationExpiresAt = exact
+      ? authorization?.authorizationExpiresAt
+      : undefined;
+    const expires = authorizationExpiresAt
+      ? Date.parse(authorizationExpiresAt)
+      : undefined;
+    let state: AuthorizationContinuityState = "CURRENT";
+    let label = "Authorization is outside the renewal window";
+    let guidance =
+      "No owner action is required. Arbion will keep checking the saved authorization and guarded scheduler evidence.";
+    if (!exact || !Number.isFinite(observed)) {
+      state = "UNAVAILABLE";
+      label = "Authorization continuity evidence is unavailable";
+      guidance =
+        "Review the immutable receipts and connection state. Arbion will not infer a renewal, deadline, provider outcome, or engine impact.";
+    } else if (authorization?.state === "EXPIRED") {
+      state = "EXPIRED";
+      label = "Authorization has expired";
+      guidance =
+        "Open the existing reconnect control now. Linked accounts and non-live engines stay preserved and fail closed.";
+    } else if (authorization?.state === "PENDING") {
+      state = "PENDING";
+      label = "Authorization callback is pending";
+      guidance =
+        "Finish the existing provider callback. Arbion has not inferred a renewal and will not start another attempt automatically.";
+    } else if (authorization?.state === "FAILED") {
+      state = "FAILED";
+      label = "The latest authorization attempt failed closed";
+      guidance =
+        "Open the existing reconnect control when ready. The failed attempt remains immutable and no account setting changed.";
+    } else if (authorization?.state === "EXPIRING") {
+      state = "RENEW_NOW";
+      label = "Renew within the next 24 hours";
+      guidance =
+        "Open the existing reconnect control before the exact deadline. Arbion will not reconnect or contact the provider automatically.";
+    }
+    const incidentRows = incidentEvidence?.incidents ?? [];
+    return {
+      id: connection.id,
+      provider: connection.provider,
+      displayName: connection.display_name,
+      state,
+      label,
+      guidance,
+      lastVerifiedAt: exact ? authorization?.lastVerifiedAt : undefined,
+      authorizationExpiresAt,
+      renewalWindowStartsAt:
+        exact && expires !== undefined
+          ? new Date(expires - renewalWindowMilliseconds).toISOString()
+          : undefined,
+      remainingMilliseconds:
+        exact && expires !== undefined ? expires - observed : undefined,
+      attemptCount: attempts.length,
+      completedCount: attempts.filter(
+        (attempt) => attempt.terminal?.status === "COMPLETED",
+      ).length,
+      pendingCount: attempts.filter((attempt) => !attempt.terminal).length,
+      failedCount: attempts.filter(
+        (attempt) => attempt.terminal?.status === "FAILED",
+      ).length,
+      expiredCount: connectionReceipts.filter(
+        (receipt) =>
+          receipt.status === "COMPLETED" &&
+          receipt.authorization_expires_at &&
+          Date.parse(receipt.authorization_expires_at) <= observed,
+      ).length,
+      pairedAttemptCount: terminalLatencies.length,
+      latestTerminalLatencyMilliseconds:
+        latestPaired?.started && latestPaired.terminal
+          ? Date.parse(latestPaired.terminal.occurred_at) -
+            Date.parse(latestPaired.started.occurred_at)
+          : undefined,
+      medianTerminalLatencyMilliseconds: exactMedian(terminalLatencies),
+      maximumTerminalLatencyMilliseconds:
+        terminalLatencies.length > 0
+          ? Math.max(...terminalLatencies)
+          : undefined,
+      openIncidentCount: incidentRows.filter(
+        (incident) => incident.state === "OPEN",
+      ).length,
+      recoveredIncidentCount: incidentRows.filter(
+        (incident) => incident.state === "RECOVERED",
+      ).length,
+      unavailableIncidentCount: incidentRows.filter(
+        (incident) => incident.state === "UNAVAILABLE",
+      ).length,
+      unboundProviderEventCount: exact
+        ? (groups ?? [])
+            .filter(
+              (attempt) =>
+                !attempt.connectionID &&
+                attempt.provider === connection.provider,
+            )
+            .reduce((count, attempt) => count + attempt.eventIDs.length, 0)
+        : 0,
+      engines: exactEngines,
+    };
+  });
+  const unavailableCount = projected.filter(
+    (connection) => connection.state === "UNAVAILABLE",
+  ).length;
+  const attentionCount = projected.filter((connection) =>
+    ["RENEW_NOW", "PENDING", "FAILED", "EXPIRED"].includes(connection.state),
+  ).length;
+  return {
+    status:
+      unavailableCount > 0
+        ? "UNAVAILABLE"
+        : attentionCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    currentCount: projected.filter(
+      (connection) => connection.state === "CURRENT",
+    ).length,
+    attentionCount,
+    unavailableCount,
+    connections: projected,
+  };
+}
+
 export function projectFinancialConnectionOperatingBrief({
   connections,
   accounts,
@@ -1160,6 +1451,221 @@ export function projectFinancialConnectionOperatingBrief({
     unavailableCount,
     connections: projected,
   };
+}
+
+export function FinancialAuthorizationContinuitySLO({
+  connections,
+  receipts,
+  engines,
+  observedAt,
+  evidenceAvailable,
+}: {
+  connections: FinancialConnection[];
+  receipts: FinancialAuthorizationReceipt[];
+  engines: FinancialContinuityEngine[];
+  observedAt: string;
+  evidenceAvailable: boolean;
+}) {
+  const projection = projectFinancialAuthorizationContinuitySLO({
+    connections,
+    receipts,
+    engines,
+    observedAt,
+    evidenceAvailable,
+  });
+  return (
+    <section
+      className={`financial-authorization-continuity-slo is-${projection.status.toLowerCase()}`}
+      aria-labelledby="financial-authorization-continuity-slo-title"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">AUTHORIZATION CONTINUITY + OWNER COUNTDOWN</p>
+          <h2 id="financial-authorization-continuity-slo-title">
+            {projection.status === "VERIFIED"
+              ? "Every saved authorization is outside its renewal window."
+              : projection.status === "ATTENTION"
+                ? "A financial authorization needs owner attention."
+                : "Authorization continuity evidence is unavailable."}
+          </h2>
+          <p>
+            Exact saved authorization runway, receipt history, incidents, and
+            guarded scheduler outcomes—without contacting a provider.
+          </p>
+        </div>
+        <span>
+          {projection.currentCount} current · {projection.attentionCount}{" "}
+          attention · {projection.unavailableCount} unavailable
+        </span>
+      </header>
+      <ol>
+        {projection.connections.map((connection) => {
+          const attention = connection.state !== "CURRENT";
+          return (
+            <li
+              className={`is-${connection.state.toLowerCase().replaceAll("_", "-")}`}
+              key={connection.id}
+            >
+              <header>
+                <div>
+                  <span
+                    className={`provider-mark provider-${connection.provider}`}
+                    aria-hidden="true"
+                  >
+                    {providerName(connection.provider).slice(0, 1)}
+                  </span>
+                  <div>
+                    <strong>{connection.displayName}</strong>
+                    <small>{providerName(connection.provider)}</small>
+                  </div>
+                </div>
+                <span>{connection.state.replaceAll("_", " ")}</span>
+              </header>
+              <div className="financial-authorization-countdown">
+                <div>
+                  <small>OWNER COUNTDOWN</small>
+                  <strong>
+                    {connection.authorizationExpiresAt
+                      ? readableDuration(connection.remainingMilliseconds)
+                      : connection.state === "UNAVAILABLE"
+                        ? "UNAVAILABLE"
+                        : "NO FIXED EXPIRY"}
+                  </strong>
+                </div>
+                <span>
+                  {connection.authorizationExpiresAt
+                    ? `Exact deadline ${readableTime(connection.authorizationExpiresAt)}`
+                    : "No provider deadline is saved for this connection"}
+                </span>
+              </div>
+              <h3>{connection.label}</h3>
+              <p>{connection.guidance}</p>
+              <div className="financial-authorization-owner-actions">
+                <Link href={`#financial-provider-${connection.provider}`}>
+                  {attention && connection.state !== "UNAVAILABLE"
+                    ? "Open reconnect control →"
+                    : "Open connection control →"}
+                </Link>
+                <Link href="/settings/security#security-activity">
+                  Open security evidence →
+                </Link>
+              </div>
+              <details open={attention}>
+                <summary>
+                  Continuity SLO and protected engines
+                  <span>{connection.attemptCount} saved attempts</span>
+                </summary>
+                <dl>
+                  <div>
+                    <dt>Provider verification</dt>
+                    <dd>{readableTime(connection.lastVerifiedAt)}</dd>
+                    <small>
+                      Renewal window starts{" "}
+                      {readableTime(connection.renewalWindowStartsAt)}
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Exact runway</dt>
+                    <dd>
+                      {connection.authorizationExpiresAt
+                        ? exactDuration(connection.remainingMilliseconds)
+                        : connection.state === "UNAVAILABLE"
+                          ? "UNAVAILABLE"
+                          : "NO FIXED EXPIRY"}
+                    </dd>
+                    <small>24-hour owner renewal window</small>
+                  </div>
+                  <div>
+                    <dt>Receipt outcomes</dt>
+                    <dd>
+                      {connection.completedCount} completed ·{" "}
+                      {connection.pendingCount} pending ·{" "}
+                      {connection.failedCount} failed
+                    </dd>
+                    <small>{connection.expiredCount} saved expiries</small>
+                  </div>
+                  <div>
+                    <dt>Terminal latency</dt>
+                    <dd>
+                      Latest{" "}
+                      {exactDuration(
+                        connection.latestTerminalLatencyMilliseconds,
+                      )}
+                    </dd>
+                    <small>
+                      Median{" "}
+                      {exactDuration(
+                        connection.medianTerminalLatencyMilliseconds,
+                      )}{" "}
+                      · max{" "}
+                      {exactDuration(
+                        connection.maximumTerminalLatencyMilliseconds,
+                      )}
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Renewal incidents</dt>
+                    <dd>
+                      {connection.openIncidentCount} open ·{" "}
+                      {connection.recoveredIncidentCount} recovered
+                    </dd>
+                    <small>
+                      {connection.unavailableIncidentCount} unavailable
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Unbound provider events</dt>
+                    <dd>{connection.unboundProviderEventCount}</dd>
+                    <small>Never assigned to this account or its engines</small>
+                  </div>
+                </dl>
+                {connection.engines.length === 0 ? (
+                  <p>No active Paper or Shadow engine is bound.</p>
+                ) : (
+                  <ol>
+                    {connection.engines.map((engine) => (
+                      <li key={engine.instanceID}>
+                        <div>
+                          <strong>
+                            {engine.executionMode} · {engine.accountName}
+                          </strong>
+                          <span>
+                            Latest {engine.latestStatus}
+                            {engine.latestErrorCode
+                              ? ` · ${engine.latestErrorCode}`
+                              : ""}
+                          </span>
+                        </div>
+                        <div>
+                          <span>
+                            Completed {readableTime(engine.latestCompletedAt)}
+                          </span>
+                          <small>
+                            Next automatic cycle{" "}
+                            {readableTime(engine.nextRunAt)}
+                          </small>
+                        </div>
+                        <Link
+                          href={`/automations/${encodeURIComponent(engine.mandateID)}#runtime-evidence`}
+                        >
+                          Open engine evidence →
+                        </Link>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </details>
+            </li>
+          );
+        })}
+      </ol>
+      <footer>
+        Saved evidence only · exact connection isolation · owner-controlled
+        reconnect · Paper and Shadow remain non-live · no provider contact · no
+        sync · no broker action
+      </footer>
+    </section>
+  );
 }
 
 export function FinancialAuthorizationTimeline({
@@ -1616,6 +2122,13 @@ export function FinancialConnectionOperatingWorkspace({
           {brief.reviewCount} review · {brief.unavailableCount} unavailable
         </span>
       </header>
+      <FinancialAuthorizationContinuitySLO
+        connections={connections}
+        receipts={authorizationReceipts}
+        engines={engines}
+        observedAt={observedAt}
+        evidenceAvailable={authorizationEvidenceAvailable && contextAvailable}
+      />
       <ol>
         {brief.connections.map((connection) => (
           <li
