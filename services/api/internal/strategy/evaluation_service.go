@@ -124,6 +124,7 @@ func NewEvaluationService(store EvaluationStore, automations EvaluationAutomatio
 }
 
 var evaluationEventID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$`)
+var aiProviderDecimalPattern = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
 
 const (
 	marketDataMaxAge          = 15 * time.Minute
@@ -719,13 +720,21 @@ func (s *EvaluationService) aiAccountFacts(ctx context.Context, principal author
 	if !ok {
 		return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, ErrInvalid
 	}
+	available, ok = canonicalAIProviderDecimal(available, false, 32)
+	if !ok {
+		return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, ErrInvalid
+	}
 	cash, ok := moneyAmount(balances.Cash, "USD")
 	if !ok {
 		cash = available
+	} else if cash, ok = canonicalAIProviderDecimal(cash, false, 32); !ok {
+		return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, ErrInvalid
 	}
 	buyingPower, ok := moneyAmount(balances.BuyingPower, "USD")
 	if !ok {
 		buyingPower = available
+	} else if buyingPower, ok = canonicalAIProviderDecimal(buyingPower, false, 32); !ok {
+		return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, ErrInvalid
 	}
 	allowedSet := map[string]bool{}
 	for _, symbol := range allowed {
@@ -742,11 +751,19 @@ func (s *EvaluationService) aiAccountFacts(ctx context.Context, principal author
 		if position.Direction == "short" && !strings.HasPrefix(quantity, "-") {
 			quantity = "-" + quantity
 		}
+		quantity, ok = canonicalAIProviderDecimal(quantity, true, 32)
+		if !ok {
+			return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, ErrInvalid
+		}
 		availableQuantity := "0"
 		if position.AvailableQuantity != nil {
 			availableQuantity = string(*position.AvailableQuantity)
 		} else if !strings.HasPrefix(quantity, "-") {
 			availableQuantity = quantity
+		}
+		availableQuantity, ok = canonicalAIProviderDecimal(availableQuantity, false, 32)
+		if !ok {
+			return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, ErrInvalid
 		}
 		marketValue := "0"
 		if account.Provider == "coinbase" {
@@ -762,6 +779,10 @@ func (s *EvaluationService) aiAccountFacts(ctx context.Context, principal author
 			}
 		} else if position.MarketValue != nil && position.MarketValue.Currency == "USD" {
 			marketValue = string(position.MarketValue.Amount)
+		}
+		marketValue, ok = canonicalAIProviderDecimal(marketValue, false, 18)
+		if !ok {
+			return neural.ShadowDecisionRequest{}, risk.AccountRiskSnapshot{}, ErrInvalid
 		}
 		instrument := strings.ToUpper(position.InstrumentType)
 		if account.Provider == "schwab" {
@@ -1254,4 +1275,43 @@ func moneyAmount(value *financial.Money, currency string) (string, bool) {
 		return "", false
 	}
 	return string(value.Amount), true
+}
+
+// canonicalAIProviderDecimal converts exact provider decimal forms, including
+// exponent notation, to the plain finite representation accepted by the
+// non-live AI and risk contracts. It never rounds provider evidence.
+func canonicalAIProviderDecimal(value string, allowNegative bool, fractionalDigits int) (string, bool) {
+	if len(value) == 0 || len(value) > 128 || !aiProviderDecimalPattern.MatchString(value) || fractionalDigits < 0 || fractionalDigits > 32 {
+		return "", false
+	}
+	parsed, ok := new(big.Rat).SetString(value)
+	if !ok || (!allowNegative && parsed.Sign() < 0) {
+		return "", false
+	}
+	if !strings.ContainsAny(value, "eE") {
+		unsigned := strings.TrimPrefix(value, "-")
+		parts := strings.SplitN(unsigned, ".", 2)
+		if len(parts[0]) > 20 || (len(parts) == 2 && len(parts[1]) > fractionalDigits) {
+			return "", false
+		}
+		return value, true
+	}
+	canonical := parsed.FloatString(fractionalDigits)
+	roundTrip, ok := new(big.Rat).SetString(canonical)
+	if !ok || roundTrip.Cmp(parsed) != 0 {
+		return "", false
+	}
+	if strings.Contains(canonical, ".") {
+		canonical = strings.TrimRight(canonical, "0")
+		canonical = strings.TrimSuffix(canonical, ".")
+	}
+	if canonical == "-0" {
+		canonical = "0"
+	}
+	unsigned := strings.TrimPrefix(canonical, "-")
+	integer := strings.SplitN(unsigned, ".", 2)[0]
+	if len(integer) > 20 {
+		return "", false
+	}
+	return canonical, true
 }
