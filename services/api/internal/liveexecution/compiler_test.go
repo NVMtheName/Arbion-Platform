@@ -147,3 +147,221 @@ func TestSafetyCaseCompilerHasNoPersistenceOrNetworkSurface(t *testing.T) {
 		}
 	}
 }
+
+func TestCompileSafetyCaseEnvelopeIsDeterministicCompleteAndRegistryCompatible(t *testing.T) {
+	now := time.Date(2026, 9, 7, 20, 0, 0, 123, time.UTC)
+	safetyCase := validSafetyCase(now)
+	first, err := CompileSafetyCaseEnvelope(safetyCase, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := CompileSafetyCaseEnvelope(safetyCase, now)
+	if err != nil || !reflect.DeepEqual(first, second) {
+		t.Fatalf("envelope replay changed: first=%#v second=%#v err=%v", first, second, err)
+	}
+	if first.CompilerVersion != SafetyCaseCompilerVersion || first.ContractVersion != ContractVersion ||
+		!first.EvaluatedAt.Equal(now) || !digestPattern.MatchString(first.SafetyCaseDigest) ||
+		!digestPattern.MatchString(first.RegistryInputDigest) || !digestPattern.MatchString(first.EnvelopeDigest) {
+		t.Fatalf("envelope identity or digest changed: %#v", first)
+	}
+	if first.SafetyCaseDigest != "8f1a3d71826d558c6cfd3bf926681f323dbcfb7422373cb8e83cffc5d1608a98" ||
+		first.RegistryInputDigest != "6cf38cd406fdfbc44b091d22d7f022ce8a7172eb01a2570fd94c7a34847824bf" ||
+		first.EnvelopeDigest != "aca1c3388de2af996d2231c789b7a39ee407de55d7e4eb3c27131f75d431cc88" {
+		t.Fatalf("fixed canonical envelope changed: %#v", first)
+	}
+	if first.RegistryInput.Assessment.Availability != BlockedUnimplemented ||
+		!first.RegistryInput.Assessment.Structural {
+		t.Fatalf("envelope gained executable authority: %#v", first.RegistryInput.Assessment)
+	}
+	if err = VerifySafetyCaseCompilationEnvelope(safetyCase, first); err != nil {
+		t.Fatalf("exact envelope did not verify: %v", err)
+	}
+	prepared, _, _, err := prepareRegistryRecord(userID, first.RegistryInput, now)
+	if err != nil || prepared.ContentDigest == "" || prepared.EvidenceDigest == "" {
+		t.Fatalf("enveloped registry input is not compatible: %#v %v", prepared, err)
+	}
+	payload, err := json.Marshal(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, prohibited := range []string{
+		"provider_order_id", "client_order_id", "submit_order", "create_order",
+		"request_payload", "execution_command", "authorization_header",
+	} {
+		if strings.Contains(strings.ToLower(string(payload)), prohibited) {
+			t.Fatalf("envelope contains prohibited field %q: %s", prohibited, payload)
+		}
+	}
+}
+
+func TestSafetyCaseDigestBindsEveryTypedLeaf(t *testing.T) {
+	now := time.Date(2026, 9, 7, 20, 0, 0, 0, time.UTC)
+	original := validSafetyCase(now)
+	originalDigest, err := canonicalSafetyCaseDigest(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := safetyCaseLeafPaths(reflect.ValueOf(original), nil)
+	if len(paths) < 60 {
+		t.Fatalf("safety case leaf coverage unexpectedly small: %d", len(paths))
+	}
+	for _, path := range paths {
+		mutated := original
+		mutateSafetyCaseLeaf(reflect.ValueOf(&mutated).Elem(), path)
+		digest, digestErr := canonicalSafetyCaseDigest(mutated)
+		if digestErr != nil {
+			t.Fatalf("mutated leaf %v could not be digested: %v", path, digestErr)
+		}
+		if digest == originalDigest {
+			t.Fatalf("mutating typed safety-case leaf %v did not change digest", path)
+		}
+	}
+}
+
+func TestSafetyCaseEnvelopeNormalizesSemanticTimeAndRegistryOrdering(t *testing.T) {
+	now := time.Date(2026, 9, 7, 20, 0, 0, 123, time.UTC)
+	utcCase := validSafetyCase(now)
+	offsetCase := utcCase
+	offset := time.FixedZone("review-offset", -4*60*60)
+	setSafetyCaseTimeLocation(reflect.ValueOf(&offsetCase).Elem(), offset)
+	utcEnvelope, err := CompileSafetyCaseEnvelope(utcCase, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offsetEnvelope, err := CompileSafetyCaseEnvelope(offsetCase, now.In(offset))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if utcEnvelope.SafetyCaseDigest != offsetEnvelope.SafetyCaseDigest ||
+		utcEnvelope.RegistryInputDigest != offsetEnvelope.RegistryInputDigest ||
+		utcEnvelope.EnvelopeDigest != offsetEnvelope.EnvelopeDigest {
+		t.Fatalf("equivalent instants changed canonical digests: %#v %#v", utcEnvelope, offsetEnvelope)
+	}
+
+	unordered := utcEnvelope.RegistryInput
+	for left, right := 0, len(unordered.Evidence.Items)-1; left < right; left, right = left+1, right-1 {
+		unordered.Evidence.Items[left], unordered.Evidence.Items[right] = unordered.Evidence.Items[right], unordered.Evidence.Items[left]
+	}
+	canonicalDigest, err := canonicalRegistryInputDigest(utcEnvelope.RegistryInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unorderedDigest, err := canonicalRegistryInputDigest(unordered)
+	if err != nil || canonicalDigest != unorderedDigest {
+		t.Fatalf("semantic evidence ordering changed digest: %s %s %v", canonicalDigest, unorderedDigest, err)
+	}
+}
+
+func TestVerifySafetyCaseCompilationEnvelopeRejectsEveryEnvelopeTamper(t *testing.T) {
+	now := time.Date(2026, 9, 7, 20, 0, 0, 0, time.UTC)
+	safetyCase := validSafetyCase(now)
+	original, err := CompileSafetyCaseEnvelope(safetyCase, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*SafetyCaseCompilationEnvelope)
+	}{
+		{"compiler version", func(value *SafetyCaseCompilationEnvelope) { value.CompilerVersion = "live-safety-case-compiler-v2" }},
+		{"contract version", func(value *SafetyCaseCompilationEnvelope) { value.ContractVersion = "live-execution-safety-v2" }},
+		{"evaluation time", func(value *SafetyCaseCompilationEnvelope) { value.EvaluatedAt = value.EvaluatedAt.Add(time.Nanosecond) }},
+		{"noncanonical evaluation zone", func(value *SafetyCaseCompilationEnvelope) {
+			value.EvaluatedAt = value.EvaluatedAt.In(time.FixedZone("offset", -4*60*60))
+		}},
+		{"safety digest", func(value *SafetyCaseCompilationEnvelope) { value.SafetyCaseDigest = digestB }},
+		{"registry digest", func(value *SafetyCaseCompilationEnvelope) { value.RegistryInputDigest = digestB }},
+		{"envelope digest", func(value *SafetyCaseCompilationEnvelope) { value.EnvelopeDigest = digestB }},
+		{"registry identity", func(value *SafetyCaseCompilationEnvelope) { value.RegistryInput.FinancialAccountID = strategyID }},
+		{"registry assessment", func(value *SafetyCaseCompilationEnvelope) { value.RegistryInput.Assessment.Availability = Unavailable }},
+		{"registry reason", func(value *SafetyCaseCompilationEnvelope) {
+			value.RegistryInput.Assessment.ReasonCodes[0] = ReasonInvalidEvidence
+		}},
+		{"registry evidence", func(value *SafetyCaseCompilationEnvelope) { value.RegistryInput.Evidence.Items[0].Digest = digestA }},
+		{"registry order", func(value *SafetyCaseCompilationEnvelope) {
+			value.RegistryInput.Evidence.Items[0], value.RegistryInput.Evidence.Items[1] = value.RegistryInput.Evidence.Items[1], value.RegistryInput.Evidence.Items[0]
+		}},
+		{"registry observed time", func(value *SafetyCaseCompilationEnvelope) {
+			value.RegistryInput.ObservedAt = value.RegistryInput.ObservedAt.Add(time.Nanosecond)
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := original
+			mutated.RegistryInput.Assessment.ReasonCodes = append([]ReasonCode(nil), original.RegistryInput.Assessment.ReasonCodes...)
+			mutated.RegistryInput.Evidence.Items = append([]EvidenceItem(nil), original.RegistryInput.Evidence.Items...)
+			test.mutate(&mutated)
+			if !errors.Is(VerifySafetyCaseCompilationEnvelope(safetyCase, mutated), ErrSafetyCaseEnvelope) {
+				t.Fatalf("tampered envelope verified: %#v", mutated)
+			}
+		})
+	}
+}
+
+func TestCompileSafetyCaseEnvelopeRejectsIncompleteOrSecretLikeInput(t *testing.T) {
+	now := time.Date(2026, 9, 7, 20, 0, 0, 0, time.UTC)
+	for name, mutate := range map[string]func(*SafetyCase){
+		"missing lifecycle evidence": func(value *SafetyCase) { value.Lifecycle.Evidence = ImmutableEvidenceRef{} },
+		"missing action identity":    func(value *SafetyCase) { value.Action.ID = "" },
+		"future evidence":            func(value *SafetyCase) { value.Risk.Evidence.RecordedAt = now.Add(time.Second) },
+		"secret-like mfa value":      func(value *SafetyCase) { value.OwnerAuthorization.MFAMethod = "API_KEY_PROOF" },
+		"secret-like idempotency":    func(value *SafetyCase) { value.Idempotency.Key = "authorization_header_01" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			safetyCase := validSafetyCase(now)
+			mutate(&safetyCase)
+			envelope, compileErr := CompileSafetyCaseEnvelope(safetyCase, now)
+			if !errors.Is(compileErr, ErrSafetyCaseEnvelope) || !reflect.DeepEqual(envelope, SafetyCaseCompilationEnvelope{}) {
+				t.Fatalf("unsafe envelope input did not fail closed: %#v %v", envelope, compileErr)
+			}
+		})
+	}
+}
+
+func safetyCaseLeafPaths(value reflect.Value, prefix []int) [][]int {
+	if value.Type() == reflect.TypeOf(time.Time{}) {
+		return [][]int{append([]int(nil), prefix...)}
+	}
+	if value.Kind() != reflect.Struct {
+		return [][]int{append([]int(nil), prefix...)}
+	}
+	paths := [][]int{}
+	for index := 0; index < value.NumField(); index++ {
+		paths = append(paths, safetyCaseLeafPaths(value.Field(index), append(append([]int(nil), prefix...), index))...)
+	}
+	return paths
+}
+
+func mutateSafetyCaseLeaf(root reflect.Value, path []int) {
+	value := root
+	for _, index := range path {
+		value = value.Field(index)
+	}
+	if value.Type() == reflect.TypeOf(time.Time{}) {
+		value.Set(reflect.ValueOf(value.Interface().(time.Time).Add(time.Nanosecond)))
+		return
+	}
+	switch value.Kind() {
+	case reflect.String:
+		value.SetString(value.String() + "x")
+	case reflect.Bool:
+		value.SetBool(!value.Bool())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		value.SetInt(value.Int() + 1)
+	default:
+		panic("unhandled safety-case leaf kind: " + value.Kind().String())
+	}
+}
+
+func setSafetyCaseTimeLocation(value reflect.Value, location *time.Location) {
+	if value.Type() == reflect.TypeOf(time.Time{}) {
+		value.Set(reflect.ValueOf(value.Interface().(time.Time).In(location)))
+		return
+	}
+	if value.Kind() != reflect.Struct {
+		return
+	}
+	for index := 0; index < value.NumField(); index++ {
+		setSafetyCaseTimeLocation(value.Field(index), location)
+	}
+}
