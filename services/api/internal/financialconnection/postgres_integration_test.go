@@ -76,7 +76,7 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO audit_events(user_id,actor_type,actor_id,action,target_type,target_id,occurred_at,metadata) VALUES
 		($1,'user',$7,'financial.authorization_started','financial_connection',NULL,$4,jsonb_build_object('provider','coinbase')),
-		($1,'user',$7,'financial.authorization_completed','financial_connection',$2,$5,jsonb_build_object('provider','coinbase','connection_id',$2,'authorization_expires_at',$6::timestamptz)),
+		($1,'user',$7,'financial.authorization_completed','financial_connection',$2::text,$5,jsonb_build_object('provider','coinbase','connection_id',$2::text,'authorization_expires_at',$6::timestamptz)),
 		($3,'user',$8,'financial.authorization_failed','financial_connection',NULL,$5,jsonb_build_object('provider','coinbase'))`, userID, connectionA, foreignUser, authorizationStartedAt, authorizationCompletedAt, authorizationExpiresAt, userID, foreignUser); err != nil {
 		t.Fatal(err)
 	}
