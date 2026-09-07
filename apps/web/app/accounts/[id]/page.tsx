@@ -5,6 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { AppPageHeader } from "../../app-page-header";
 import { FinancialInputChainSummary } from "../../dashboard/financial-input-chain-summary";
 import { formatExactMoney } from "../../exact-money";
+import { loadConnectionSyncAttemptHistory } from "../../settings/connections/connection-sync-attempt-history";
 import { loadAccountFinancialInputChain } from "./account-financial-input-chain";
 import { AccountSyncHistoryPanel } from "./account-sync-history-panel";
 import { loadAccountSyncHistory } from "./account-sync-history";
@@ -91,19 +92,33 @@ export default async function AccountPage({
         }
       ).circuit_breaker ?? null)
     : undefined;
-  const accountInputChain = await loadAccountFinancialInputChain({
-    accountID: account.id,
-    base,
-    headers,
-    observedAt: new Date(),
-  });
-  const accountSyncHistory = await loadAccountSyncHistory({
-    account,
-    base,
-    headers,
-    viewedAt: new Date(),
-  });
-  if (accountInputChain.unauthorized || accountSyncHistory.unauthorized)
+  const viewedAt = new Date();
+  const [accountInputChain, accountSyncHistory, connectionSyncAttempts] =
+    await Promise.all([
+      loadAccountFinancialInputChain({
+        accountID: account.id,
+        base,
+        headers,
+        observedAt: viewedAt,
+      }),
+      loadAccountSyncHistory({
+        account,
+        base,
+        headers,
+        viewedAt,
+      }),
+      loadConnectionSyncAttemptHistory({
+        account,
+        base,
+        headers,
+        viewedAt,
+      }),
+    ]);
+  if (
+    accountInputChain.unauthorized ||
+    accountSyncHistory.unauthorized ||
+    connectionSyncAttempts.unauthorized
+  )
     redirect("/login");
 
   if (account.provider === "coinbase") {
@@ -125,6 +140,7 @@ export default async function AccountPage({
           <AccountSyncHistoryPanel
             account={account}
             initial={accountSyncHistory}
+            initialAttempts={connectionSyncAttempts}
           />
           <p className="eyebrow">COINBASE · READ-ONLY CONNECTION</p>
           <h1>{account.display_name}</h1>
@@ -351,6 +367,7 @@ export default async function AccountPage({
         <AccountSyncHistoryPanel
           account={account}
           initial={accountSyncHistory}
+          initialAttempts={connectionSyncAttempts}
         />
         <CryptoPortfolioCommandCenter
           accountID={account.id}
@@ -448,7 +465,11 @@ export default async function AccountPage({
         available={accountInputChain.available}
         scope="account"
       />
-      <AccountSyncHistoryPanel account={account} initial={accountSyncHistory} />
+      <AccountSyncHistoryPanel
+        account={account}
+        initial={accountSyncHistory}
+        initialAttempts={connectionSyncAttempts}
+      />
       <section className="dashboard-grid">
         <article>
           <h2>Account Value</h2>

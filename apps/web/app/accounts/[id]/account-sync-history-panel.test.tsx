@@ -12,6 +12,7 @@ import type {
   AccountSyncCheckpoint,
   SyncHistoryAccount,
 } from "./account-sync-history";
+import type { ConnectionSyncAttemptHistoryResult } from "../../settings/connections/connection-sync-attempt-history";
 
 const account: SyncHistoryAccount = {
   id: "c6f5c59c-aae3-4b29-812c-d3cf3b99e9ab",
@@ -42,6 +43,17 @@ function saved(
   };
 }
 
+function attempts(
+  overrides: Partial<ConnectionSyncAttemptHistoryResult> = {},
+): ConnectionSyncAttemptHistoryResult {
+  return {
+    state: "FORWARD_COLLECTION_PENDING",
+    unauthorized: false,
+    attempts: [],
+    ...overrides,
+  };
+}
+
 describe("AccountSyncHistoryPanel", () => {
   afterEach(() => {
     cleanup();
@@ -57,6 +69,7 @@ describe("AccountSyncHistoryPanel", () => {
           unauthorized: false,
           checkpoints: [],
         }}
+        initialAttempts={attempts()}
       />,
     );
 
@@ -123,11 +136,28 @@ describe("AccountSyncHistoryPanel", () => {
           checkpoints: [current],
           nextCursor: current.id,
         }}
+        initialAttempts={attempts({
+          state: "CURRENT",
+          attempts: [
+            {
+              id: current.operationID,
+              providerConnectionID: account.provider_connection_id,
+              provider: "coinbase",
+              sourceOperation: "PROVIDER_ACCOUNT_DISCOVERY",
+              outcome: "SAVED",
+              accountCount: 1,
+              observedAt: current.observedAt,
+              completedAt: current.completedAt,
+              createdAt: current.createdAt,
+              durationMilliseconds: current.durationMilliseconds,
+            },
+          ],
+        })}
       />,
     );
 
     expect(screen.getByText("Coinbase account inventory")).toBeInTheDocument();
-    expect(screen.getAllByText("900 ms")).toHaveLength(2);
+    expect(screen.getAllByText("900 ms")).toHaveLength(3);
     fireEvent.click(
       screen.getByRole("button", { name: "Load older saved history" }),
     );
@@ -150,10 +180,77 @@ describe("AccountSyncHistoryPanel", () => {
           unauthorized: false,
           checkpoints: [],
         }}
+        initialAttempts={attempts({ state: "UNAVAILABLE" })}
       />,
     );
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "will not infer missing or inconsistent history",
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((status) =>
+          status.textContent?.includes(
+            "will not infer missing or inconsistent history",
+          ),
+        ),
+    ).toBe(true);
+  });
+
+  it("opens a credential-free current failure and preserves the older success", () => {
+    const current = saved(
+      "33333333-3333-4333-8333-333333333333",
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "2026-09-02T22:30:00Z",
     );
+    render(
+      <AccountSyncHistoryPanel
+        account={account}
+        initial={{
+          state: "CURRENT",
+          unauthorized: false,
+          checkpoints: [current],
+        }}
+        initialAttempts={attempts({
+          state: "CURRENT",
+          attempts: [
+            {
+              id: "44444444-4444-4444-8444-444444444444",
+              providerConnectionID: account.provider_connection_id,
+              provider: "coinbase",
+              sourceOperation: "PROVIDER_ACCOUNT_DISCOVERY",
+              outcome: "FAILED",
+              failureStage: "ACCOUNT_DISCOVERY",
+              errorCode: "RATE_LIMITED",
+              observedAt: "2026-09-02T23:30:00Z",
+              completedAt: "2026-09-02T23:30:03Z",
+              createdAt: "2026-09-02T23:30:03Z",
+              durationMilliseconds: 3000,
+            },
+            {
+              id: current.operationID,
+              providerConnectionID: account.provider_connection_id,
+              provider: "coinbase",
+              sourceOperation: "PROVIDER_ACCOUNT_DISCOVERY",
+              outcome: "SAVED",
+              accountCount: 1,
+              observedAt: current.observedAt,
+              completedAt: current.completedAt,
+              createdAt: current.createdAt,
+              durationMilliseconds: current.durationMilliseconds,
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", {
+        name: "The latest account sync failed closed.",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText("ACCOUNT_DISCOVERY")).toBeVisible();
+    expect(screen.getByText("RATE_LIMITED")).toBeVisible();
+    expect(
+      screen.getByText(/does not identify who initiated it/),
+    ).toBeVisible();
+    expect(screen.getByText("Coinbase account inventory")).toBeVisible();
   });
 });

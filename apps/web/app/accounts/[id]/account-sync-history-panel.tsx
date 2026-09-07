@@ -8,6 +8,10 @@ import {
   type SyncHistoryAccount,
   projectAccountSyncHistory,
 } from "./account-sync-history";
+import type {
+  ConnectionSyncAttempt,
+  ConnectionSyncAttemptHistoryResult,
+} from "../../settings/connections/connection-sync-attempt-history";
 
 function providerLabel(provider: string) {
   if (provider === "coinbase") return "Coinbase";
@@ -50,9 +54,11 @@ function isStrictlyOlder(
 export function AccountSyncHistoryPanel({
   account,
   initial,
+  initialAttempts,
 }: {
   account: SyncHistoryAccount;
   initial: AccountSyncHistoryResult;
+  initialAttempts: ConnectionSyncAttemptHistoryResult;
 }) {
   const [checkpoints, setCheckpoints] = useState(initial.checkpoints);
   const [nextCursor, setNextCursor] = useState(initial.nextCursor);
@@ -101,6 +107,29 @@ export function AccountSyncHistoryPanel({
   }
 
   const newest = checkpoints[0];
+  const newestAttempt = initialAttempts.attempts[0];
+  const currentFailureCount = initialAttempts.attempts.filter(
+    (attempt) =>
+      attempt.outcome === "FAILED" &&
+      !initialAttempts.attempts.some(
+        (candidate) =>
+          candidate.outcome === "SAVED" &&
+          new Date(candidate.completedAt).valueOf() >
+            new Date(attempt.completedAt).valueOf(),
+      ),
+  ).length;
+  const recoveredFailureCount = initialAttempts.attempts.filter(
+    (attempt) =>
+      attempt.outcome === "FAILED" &&
+      initialAttempts.attempts.some(
+        (candidate) =>
+          candidate.outcome === "SAVED" &&
+          new Date(candidate.completedAt).valueOf() >
+            new Date(attempt.completedAt).valueOf(),
+      ),
+  ).length;
+  const attemptAttention =
+    initialAttempts.state === "UNAVAILABLE" || currentFailureCount > 0;
   return (
     <section
       className={
@@ -112,18 +141,28 @@ export function AccountSyncHistoryPanel({
         <div>
           <p className="command-kicker">SAVED SYNC HISTORY</p>
           <h2 id="account-sync-history-title">
-            {state === "CURRENT"
-              ? "Arbion saved this account’s latest sync."
-              : state === "FORWARD_COLLECTION_PENDING"
-                ? "Forward collection has not started yet."
-                : "Saved sync evidence needs review."}
+            {attemptAttention
+              ? currentFailureCount > 0
+                ? "The latest account sync failed closed."
+                : "Saved sync attempt evidence needs review."
+              : state === "CURRENT"
+                ? "Arbion saved this account’s latest sync."
+                : state === "FORWARD_COLLECTION_PENDING"
+                  ? "Forward collection has not started yet."
+                  : "Saved sync evidence needs review."}
           </h2>
           <p>
             Immutable account-discovery receipts collected only when an existing
             sync completes. This view does not contact the provider.
           </p>
         </div>
-        <span>{state === "CURRENT" ? "SAVED" : "READ-ONLY"}</span>
+        <span>
+          {attemptAttention
+            ? "REVIEW"
+            : state === "CURRENT"
+              ? "SAVED"
+              : "READ-ONLY"}
+        </span>
       </header>
 
       {state === "UNAVAILABLE" ? (
@@ -234,10 +273,110 @@ export function AccountSyncHistoryPanel({
         </>
       )}
 
+      <details
+        className="account-sync-history-evidence"
+        open={attemptAttention}
+      >
+        <summary>
+          Sync attempts and recovery evidence
+          <span>{initialAttempts.attempts.length} loaded</span>
+        </summary>
+        {initialAttempts.state === "UNAVAILABLE" ? (
+          <div className="account-sync-history-message is-review" role="status">
+            <strong>Attempt history is unavailable.</strong>
+            <p>
+              Arbion will not infer a failure, recovery, or provider cause from
+              missing evidence. Existing account and runtime state is unchanged.
+            </p>
+          </div>
+        ) : initialAttempts.state === "FORWARD_COLLECTION_PENDING" ||
+          !newestAttempt ? (
+          <div className="account-sync-history-message">
+            <strong>Forward attempt collection has not started yet.</strong>
+            <p>
+              A future normal sync can add an immutable outcome. This view does
+              not contact {providerLabel(account.provider)}.
+            </p>
+          </div>
+        ) : (
+          <>
+            <p>
+              {initialAttempts.attempts.length} immutable attempts ·{" "}
+              {recoveredFailureCount} failures followed by a later saved success
+              · {currentFailureCount} current failures. A later success proves
+              recovery of this sync path, but does not identify who initiated it
+              or why the earlier attempt failed.
+            </p>
+            <ol>
+              {initialAttempts.attempts.map((attempt, index) => (
+                <SyncAttemptEvidence
+                  attempt={attempt}
+                  index={index}
+                  key={attempt.id}
+                />
+              ))}
+            </ol>
+          </>
+        )}
+      </details>
+
       <footer>
         Saved identity and timing only · No holdings · No provider refresh · No
         broker or live-trading path
       </footer>
     </section>
+  );
+}
+
+function SyncAttemptEvidence({
+  attempt,
+  index,
+}: {
+  attempt: ConnectionSyncAttempt;
+  index: number;
+}) {
+  return (
+    <li>
+      <header>
+        <strong>
+          {index === 0 ? "Latest sync attempt" : "Earlier sync attempt"}
+        </strong>
+        <span>{readableTime(attempt.completedAt)}</span>
+      </header>
+      <dl>
+        <div>
+          <dt>Outcome</dt>
+          <dd>{attempt.outcome}</dd>
+        </div>
+        <div>
+          <dt>Duration</dt>
+          <dd>{readableDuration(attempt.durationMilliseconds)}</dd>
+        </div>
+        <div>
+          <dt>Provider</dt>
+          <dd>{providerLabel(attempt.provider)}</dd>
+        </div>
+        <div>
+          <dt>Account count</dt>
+          <dd>{attempt.accountCount ?? "NOT SAVED ON FAILURE"}</dd>
+        </div>
+        <div>
+          <dt>Failure stage</dt>
+          <dd>{attempt.failureStage ?? "NOT APPLICABLE"}</dd>
+        </div>
+        <div>
+          <dt>Safe error code</dt>
+          <dd>{attempt.errorCode ?? "NOT APPLICABLE"}</dd>
+        </div>
+        <div>
+          <dt>Connection ID</dt>
+          <dd>{attempt.providerConnectionID}</dd>
+        </div>
+        <div>
+          <dt>Attempt ID</dt>
+          <dd>{attempt.id}</dd>
+        </div>
+      </dl>
+    </li>
   );
 }
