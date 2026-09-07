@@ -60,9 +60,15 @@ func (handler *authHandler) latestPortfolioReconciliation(writer stdhttp.Respons
 		handler.financialError(writer, err)
 		return
 	}
-	writeJSON(writer, stdhttp.StatusOK, map[string]any{
-		"reconciliation": report, "live_execution_available": false, "autonomy_enforcement_active": report.AutonomyEnforcementActive,
-	})
+	writeJSON(writer, stdhttp.StatusOK, latestPortfolioReconciliationResponse(report))
+}
+
+func latestPortfolioReconciliationResponse(report financialconnection.PortfolioReconciliation) map[string]any {
+	return map[string]any{
+		"reconciliation": report, "evidence_semantics": "SAVED_PORTFOLIO_RECONCILIATION",
+		"provider_read_performed": false, "broker_action_available": false,
+		"live_execution_available": false, "autonomy_enforcement_active": report.AutonomyEnforcementActive,
+	}
 }
 
 func (handler *authHandler) runPortfolioReconciliation(writer stdhttp.ResponseWriter, request *stdhttp.Request) {
