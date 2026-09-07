@@ -516,6 +516,61 @@ func TestCoinbaseAIShadowAbstentionWritesJournalWithoutExecution(t *testing.T) {
 	assertAIInputEvidence(t, store.abstainRationale, "coinbase", "100", 1, 1, 0)
 }
 
+func TestCoinbaseAIShadowCanonicalizesExactProviderExponentFacts(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "Insufficient evidence", Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, _, finances, ai, principal := aiEvaluationFixture("coinbase", decision)
+	cash := financial.Money{Amount: "1.25E+2", Currency: "USD"}
+	available := financial.Money{Amount: "1.20e2", Currency: "USD"}
+	buyingPower := financial.Money{Amount: "2.505E+2", Currency: "USD"}
+	finances.balances = financial.Balances{Cash: &cash, AvailableCash: &available, BuyingPower: &buyingPower}
+	quantity, positionAvailable := financial.Decimal("1.0087894E+0"), financial.Decimal("1.0087894e+0")
+	finances.positions = []financial.Position{{Symbol: "BTC", InstrumentType: "crypto", Direction: "long", Quantity: quantity, AvailableQuantity: &positionAvailable}}
+
+	outcome, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:provider-exponent")
+	if err != nil || outcome.AIDecision != "ABSTAIN" || ai.calls != 1 {
+		t.Fatalf("exact provider exponent facts did not reach the non-live model safely: outcome=%#v calls=%d err=%v", outcome, ai.calls, err)
+	}
+	if ai.request.AvailableCashUSD != "120" || ai.request.BuyingPowerUSD != "250.5" || len(ai.request.Positions) != 1 || ai.request.Positions[0].Quantity != "1.0087894" || ai.request.Positions[0].AvailableQuantity != "1.0087894" || ai.request.Positions[0].MarketValueUSD != "100.8789400000" {
+		t.Fatalf("provider exponent facts were not canonicalized exactly: %#v", ai.request)
+	}
+}
+
+func TestCoinbaseAIShadowRejectsProviderDecimalThatRequiresRounding(t *testing.T) {
+	decision := neural.ShadowDecision{Decision: "ABSTAIN", Symbol: "NONE", Side: "NONE", ProposedNotional: "0", Confidence: "LOW", Thesis: "Insufficient evidence", Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
+	service, store, finances, ai, principal := aiEvaluationFixture("coinbase", decision)
+	quantity := financial.Decimal("1e-33")
+	finances.positions = []financial.Position{{Symbol: "BTC", InstrumentType: "crypto", Direction: "long", Quantity: quantity}}
+
+	_, err := service.Evaluate(context.Background(), principal, "ai-instance", "manual-ai:provider-rounding")
+	if !errors.Is(err, ErrInvalid) || ai.calls != 0 || store.abstains != 0 || store.commits != 0 {
+		t.Fatalf("inexact provider decimal did not fail closed before the model: calls=%d abstains=%d commits=%d err=%v", ai.calls, store.abstains, store.commits, err)
+	}
+}
+
+func TestCanonicalAIProviderDecimalPreservesExactFiniteValues(t *testing.T) {
+	cases := map[string]string{
+		"1.0087894E+0":  "1.0087894",
+		"4.33374190e+2": "433.37419",
+		"0E-8":          "0",
+		"-2.5e-3":       "-0.0025",
+		"1e-32":         "0." + strings.Repeat("0", 31) + "1",
+	}
+	for input, expected := range cases {
+		actual, ok := canonicalAIProviderDecimal(input, true, 32)
+		if !ok || actual != expected {
+			t.Fatalf("exact provider decimal %q canonicalized to %q, ok=%t; want %q", input, actual, ok, expected)
+		}
+	}
+	for _, input := range []string{"1e-33", "1e20", "1/2", "00.1", "NaN"} {
+		if actual, ok := canonicalAIProviderDecimal(input, true, 32); ok {
+			t.Fatalf("unsupported provider decimal %q unexpectedly canonicalized to %q", input, actual)
+		}
+	}
+	if actual, ok := canonicalAIProviderDecimal("-1", false, 32); ok {
+		t.Fatalf("negative nonnegative provider field unexpectedly canonicalized to %q", actual)
+	}
+}
+
 func TestCoinbaseAIPaperProposalUsesOnlyIsolatedPortfolioAndSimulatesAtomically(t *testing.T) {
 	decision := neural.ShadowDecision{Decision: "PROPOSE", Symbol: "BTC", Side: "BUY", ProposedNotional: "100", Confidence: "MEDIUM", Thesis: "Bounded paper candidate", RiskFlags: []string{}, Limitations: []string{"Simulation only"}, Metadata: neural.InsightMetadata{Provider: "openai", Model: "gpt-5.6-sol", Profile: "deep"}}
 	service, store, finances, ai, principal := aiEvaluationFixture("coinbase", decision)
