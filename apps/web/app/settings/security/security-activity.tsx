@@ -378,6 +378,7 @@ export function SecurityActivity({
 
   return (
     <section
+      id="security-activity"
       className="security-activity"
       aria-label="Account security activity"
     >

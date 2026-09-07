@@ -407,6 +407,8 @@ func (h *authHandler) financialAuthorizationReceipts(w stdhttp.ResponseWriter, r
 		"receipts":                   receipts,
 		"evidence_semantics":         "CREDENTIAL_FREE_FINANCIAL_AUTHORIZATION_RECEIPTS",
 		"timestamp_precision":        "MILLISECOND_CANONICAL",
+		"attempt_pairing_semantics":  "EXACT_ATTEMPT_ID_CONNECTION_BOUND",
+		"receipt_limit":              20,
 		"provider_contact_performed": false,
 		"reconnect_performed":        false,
 		"credentials_exposed":        false,

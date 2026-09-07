@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ConnectionSyncEvidenceInput } from "./connection-sync-evidence-center";
 import {
   FinancialConnectionOperatingWorkspace,
+  projectFinancialAuthorizationTimeline,
   projectFinancialConnectionOperatingBrief,
 } from "./financial-connection-operating-brief";
 import type { FinancialContinuityEngine } from "./financial-continuity-center";
@@ -255,8 +256,10 @@ describe("FinancialConnectionOperatingWorkspace", () => {
       authorizationReceipts: [
         {
           id: "10000000-0000-4000-8000-000000000011",
+          attempt_id: "b".repeat(64),
           provider: "coinbase",
           status: "STARTED",
+          connection_id: ids.connection,
           occurred_at: "2026-09-07T07:59:00Z",
         },
         ...authorizationReceipts,
@@ -269,6 +272,128 @@ describe("FinancialConnectionOperatingWorkspace", () => {
       state: "REVIEW",
       authorizationReceiptStatus: "PENDING",
       label: "The latest authorization callback is still pending",
+    });
+  });
+
+  it("pairs exact connection-bound attempt receipts and calculates renewal timing", () => {
+    const attemptID = "a".repeat(64);
+    const expiresAt = "2026-09-07T20:00:00Z";
+    const result = projectFinancialAuthorizationTimeline({
+      connections: [
+        {
+          ...connection,
+          authorization_expires_at: expiresAt,
+        },
+      ],
+      receipts: [
+        {
+          ...authorizationReceipts[0],
+          attempt_id: attemptID,
+          authorization_expires_at: expiresAt,
+        },
+        {
+          id: "10000000-0000-4000-8000-000000000011",
+          attempt_id: attemptID,
+          provider: "coinbase",
+          status: "STARTED",
+          connection_id: ids.connection,
+          occurred_at: "2026-09-07T07:39:00Z",
+        },
+      ],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "ATTENTION",
+      currentCount: 0,
+      attentionCount: 1,
+      unavailableCount: 0,
+    });
+    expect(result.connections[0]).toMatchObject({
+      state: "EXPIRING",
+      attemptCount: 1,
+      pairedAttemptCount: 1,
+      latestAttemptDurationMilliseconds: 60_000,
+      remainingMilliseconds: 12 * 60 * 60 * 1000,
+      attempts: [
+        {
+          status: "COMPLETED",
+          startedAt: "2026-09-07T07:39:00Z",
+          terminalAt: "2026-09-07T07:40:00Z",
+          durationMilliseconds: 60_000,
+        },
+      ],
+    });
+  });
+
+  it("keeps unbound provider receipts from changing another account", () => {
+    const otherConnection = {
+      ...connection,
+      id: "20000000-0000-4000-8000-000000000001",
+      display_name: "Coinbase Secondary",
+      last_synced_at: "2026-09-07T07:45:00Z",
+    };
+    const result = projectFinancialAuthorizationTimeline({
+      connections: [connection, otherConnection],
+      receipts: [
+        {
+          id: "20000000-0000-4000-8000-000000000010",
+          provider: "coinbase",
+          status: "FAILED",
+          occurred_at: "2026-09-07T07:59:00Z",
+        },
+        authorizationReceipts[0],
+        {
+          id: "20000000-0000-4000-8000-000000000011",
+          provider: "coinbase",
+          status: "COMPLETED",
+          connection_id: otherConnection.id,
+          current_last_verified_at: otherConnection.last_synced_at ?? undefined,
+          authorization_expiry_matches_current_connection: true,
+          occurred_at: "2026-09-07T07:45:00Z",
+        },
+      ],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result.status).toBe("VERIFIED");
+    expect(result.connections.map((item) => item.state)).toEqual([
+      "CURRENT",
+      "CURRENT",
+    ]);
+  });
+
+  it("fails closed on an ambiguous attempt chain", () => {
+    const attemptID = "c".repeat(64);
+    const result = projectFinancialAuthorizationTimeline({
+      connections: [connection],
+      receipts: [
+        {
+          ...authorizationReceipts[0],
+          attempt_id: attemptID,
+        },
+        {
+          id: "10000000-0000-4000-8000-000000000011",
+          attempt_id: attemptID,
+          provider: "coinbase",
+          status: "FAILED",
+          connection_id: ids.connection,
+          occurred_at: "2026-09-07T07:50:00Z",
+        },
+      ],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "UNAVAILABLE",
+      unavailableCount: 1,
+    });
+    expect(result.connections[0]).toMatchObject({
+      state: "UNAVAILABLE",
+      attempts: [],
     });
   });
 
@@ -324,7 +449,7 @@ describe("FinancialConnectionOperatingWorkspace", () => {
     expect(result.status).toBe("VERIFIED");
     expect(result.connections[0]).toMatchObject({
       state: "ON_COURSE",
-      authorizationReceiptStatus: "COMPLETED",
+      authorizationReceiptStatus: "CURRENT",
       authorizationReceiptAt: "2026-09-07T07:40:00Z",
     });
   });
@@ -373,7 +498,16 @@ describe("FinancialConnectionOperatingWorkspace", () => {
     expect(screen.getAllByText("1 of 1 saved")[0]).toBeVisible();
     expect(screen.getByText("1 Paper · 0 Shadow")).toBeVisible();
     expect(screen.getByText("Authorization receipt")).toBeVisible();
-    expect(screen.getByText("COMPLETED")).toBeVisible();
+    expect(screen.getAllByText("CURRENT")[0]).toBeVisible();
+    expect(
+      screen.getByText("AUTHORIZATION TIMELINE + RENEWAL SLA"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Every saved financial authorization is current."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Open immutable activity →" }),
+    ).toHaveAttribute("href", "/settings/security#security-activity");
     expect(
       screen.getByText(
         "Detailed continuity, sync, and market-readiness evidence",

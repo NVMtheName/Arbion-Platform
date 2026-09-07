@@ -64,11 +64,11 @@ func (s *PostgresStore) ListConnections(ctx context.Context, user string) ([]Con
 }
 
 func (s *PostgresStore) ListAuthorizationReceipts(ctx context.Context, user string, limit int) ([]AuthorizationReceipt, error) {
-	rows, err := s.db.Query(ctx, `SELECT event.id::text,event.action,event.metadata->>'provider',
+	rows, err := s.db.Query(ctx, `SELECT event.id::text,COALESCE(event.metadata->>'attempt_id',''),event.action,event.metadata->>'provider',
 		NULLIF(event.metadata->>'connection_id',''),
 		CASE WHEN COALESCE(event.metadata->>'authorization_expires_at','') <> ''
 			THEN (event.metadata->>'authorization_expires_at')::timestamptz END,
-		connection.last_verified_at,
+		CASE WHEN event.action='financial.authorization_completed' THEN connection.last_verified_at END,
 		CASE WHEN event.action='financial.authorization_completed' AND connection.id IS NOT NULL THEN
 			(CASE WHEN COALESCE(event.metadata->>'authorization_expires_at','') = ''
 				THEN connection.authorization_expires_at IS NULL
@@ -96,6 +96,7 @@ func (s *PostgresStore) ListAuthorizationReceipts(ctx context.Context, user stri
 		var connectionID *string
 		if err = rows.Scan(
 			&receipt.ID,
+			&receipt.AttemptID,
 			&action,
 			&receipt.Provider,
 			&connectionID,
