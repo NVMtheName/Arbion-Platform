@@ -4,14 +4,10 @@ import { redirect } from "next/navigation";
 import { AppPageHeader } from "../../app-page-header";
 import { loadAccountSyncHistory } from "../../accounts/[id]/account-sync-history";
 import { loadConnectionSyncAttemptHistory } from "./connection-sync-attempt-history";
-import {
-  ConnectionSyncEvidenceCenter,
-  type ConnectionRuntimeBinding,
-} from "./connection-sync-evidence-center";
+import type { ConnectionRuntimeBinding } from "./connection-sync-evidence-center";
 import { ConnectionsManager } from "./connections-manager";
+import { FinancialConnectionOperatingWorkspace } from "./financial-connection-operating-brief";
 import {
-  FinancialContinuityCenter,
-  SchwabMarketDataReadinessView,
   type FinancialContinuityEngine,
   type FinancialContinuityRun,
 } from "./financial-continuity-center";
@@ -535,22 +531,14 @@ export default async function ConnectionsPage() {
             Arbion never asks for your brokerage password.
           </p>
         </header>
-        <ConnectionSyncEvidenceCenter
-          inputs={syncEvidenceInputs}
-          observedAt={continuityObservedAt.toISOString()}
-          expectedBindingCount={runtimeBindings.length}
-        />
-        <FinancialContinuityCenter
+        <FinancialConnectionOperatingWorkspace
           connections={financialConnections}
           accounts={financialAccounts}
           engines={continuityEngines}
+          syncInputs={syncEvidenceInputs}
           observedAt={continuityObservedAt.toISOString()}
           contextAvailable={continuityInventoryAvailable}
-        />
-        <SchwabMarketDataReadinessView
-          connections={financialConnections}
-          engines={continuityEngines}
-          contextAvailable={continuityInventoryAvailable}
+          expectedBindingCount={runtimeBindings.length}
         />
         <div className="financial-provider-grid">
           {availableFinancialProviders.map((provider) => (
