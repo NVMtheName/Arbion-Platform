@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ConnectionSyncEvidenceInput } from "./connection-sync-evidence-center";
 import {
   FinancialConnectionOperatingWorkspace,
+  projectFinancialAuthorizationRuntimeIncidents,
   projectFinancialAuthorizationTimeline,
   projectFinancialConnectionOperatingBrief,
 } from "./financial-connection-operating-brief";
@@ -474,6 +475,327 @@ describe("FinancialConnectionOperatingWorkspace", () => {
     });
   });
 
+  it("pairs a failed authorization incident with a later exact recovery and saved runtime proof", () => {
+    const failedAttempt = "d".repeat(64);
+    const retriedAttempt = "2".repeat(64);
+    const recoveredAttempt = "e".repeat(64);
+    const result = projectFinancialAuthorizationRuntimeIncidents({
+      connections: [connection],
+      receipts: [
+        {
+          id: "10000000-0000-4000-8000-000000000013",
+          attempt_id: failedAttempt,
+          provider: "coinbase",
+          status: "STARTED",
+          connection_id: ids.connection,
+          occurred_at: "2026-09-07T07:00:00Z",
+        },
+        {
+          id: "10000000-0000-4000-8000-000000000014",
+          attempt_id: failedAttempt,
+          provider: "coinbase",
+          status: "FAILED",
+          connection_id: ids.connection,
+          occurred_at: "2026-09-07T07:01:00Z",
+        },
+        {
+          id: "10000000-0000-4000-8000-000000000018",
+          attempt_id: retriedAttempt,
+          provider: "coinbase",
+          status: "STARTED",
+          connection_id: ids.connection,
+          occurred_at: "2026-09-07T07:20:00Z",
+        },
+        {
+          id: "10000000-0000-4000-8000-000000000019",
+          attempt_id: retriedAttempt,
+          provider: "coinbase",
+          status: "FAILED",
+          connection_id: ids.connection,
+          occurred_at: "2026-09-07T07:21:00Z",
+        },
+        {
+          id: "10000000-0000-4000-8000-000000000015",
+          attempt_id: recoveredAttempt,
+          provider: "coinbase",
+          status: "STARTED",
+          connection_id: ids.connection,
+          occurred_at: "2026-09-07T07:39:00Z",
+        },
+        {
+          ...authorizationReceipts[0],
+          attempt_id: recoveredAttempt,
+        },
+      ],
+      engines: [engine],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "VERIFIED",
+      incidentCount: 1,
+      openCount: 0,
+      recoveredCount: 1,
+      unavailableCount: 0,
+    });
+    expect(result.connections[0]).toMatchObject({
+      state: "RECOVERED",
+      incidents: [
+        {
+          kind: "FAILED_ATTEMPT",
+          state: "RECOVERED",
+          startedAt: "2026-09-07T07:00:00Z",
+          latestAt: "2026-09-07T07:21:00Z",
+          recoveredAt: "2026-09-07T07:40:00Z",
+          durationMilliseconds: 40 * 60 * 1000,
+          runtimeStatus: "PROTECTED",
+          attemptIDs: [failedAttempt, retriedAttempt, recoveredAttempt],
+          engines: [
+            {
+              instanceID: ids.instance,
+              executionMode: "PAPER",
+              succeededCount: 1,
+              failedCount: 0,
+              safeWaitCount: 0,
+              latestStatus: "SUCCEEDED",
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("opens a 15-minute pending incident without changing a later Paper runtime", () => {
+    const pendingAttempt = "f".repeat(64);
+    const result = projectFinancialAuthorizationRuntimeIncidents({
+      connections: [connection],
+      receipts: [
+        {
+          id: "10000000-0000-4000-8000-000000000016",
+          attempt_id: pendingAttempt,
+          provider: "coinbase",
+          status: "STARTED",
+          connection_id: ids.connection,
+          occurred_at: "2026-09-07T07:40:00Z",
+        },
+        authorizationReceipts[0],
+      ],
+      engines: [engine],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "ATTENTION",
+      incidentCount: 1,
+      openCount: 1,
+      recoveredCount: 0,
+    });
+    expect(result.connections[0].incidents[0]).toMatchObject({
+      kind: "LONG_PENDING",
+      state: "OPEN",
+      currentAgeMilliseconds: 20 * 60 * 1000,
+      runtimeStatus: "PROTECTED",
+    });
+  });
+
+  it("opens an exact expiry incident and keeps later non-live scheduler evidence separate", () => {
+    const expiresAt = "2026-09-07T07:30:00Z";
+    const result = projectFinancialAuthorizationRuntimeIncidents({
+      connections: [
+        {
+          ...connection,
+          status: "expired",
+          authorization_expires_at: expiresAt,
+        },
+      ],
+      receipts: [
+        {
+          ...authorizationReceipts[0],
+          occurred_at: "2026-09-07T07:00:00Z",
+          authorization_expires_at: expiresAt,
+        },
+      ],
+      engines: [engine],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "ATTENTION",
+      incidentCount: 1,
+      openCount: 1,
+    });
+    expect(result.connections[0].incidents[0]).toMatchObject({
+      kind: "EXPIRED_AUTHORIZATION",
+      state: "OPEN",
+      startedAt: expiresAt,
+      authorizationDeadline: expiresAt,
+      currentAgeMilliseconds: 30 * 60 * 1000,
+      runtimeStatus: "PROTECTED",
+      engines: [
+        {
+          executionMode: "PAPER",
+          succeededCount: 1,
+          failedCount: 0,
+          safeWaitCount: 0,
+          blockedCount: 0,
+        },
+      ],
+    });
+  });
+
+  it("marks a pre-contract failed receipt unavailable instead of inferring lineage", () => {
+    const result = projectFinancialAuthorizationRuntimeIncidents({
+      connections: [connection],
+      receipts: [
+        {
+          id: "10000000-0000-4000-8000-000000000017",
+          provider: "coinbase",
+          status: "FAILED",
+          connection_id: ids.connection,
+          occurred_at: "2026-09-07T07:50:00Z",
+        },
+        authorizationReceipts[0],
+      ],
+      engines: [engine],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "UNAVAILABLE",
+      unavailableCount: 1,
+    });
+    expect(result.connections[0]).toMatchObject({
+      state: "UNAVAILABLE",
+      incidents: [
+        {
+          kind: "FAILED_ATTEMPT",
+          state: "UNAVAILABLE",
+          attemptIDs: [],
+          runtimeStatus: "UNAVAILABLE",
+        },
+      ],
+    });
+  });
+
+  it("closes a historical legacy expiry only with a later exact connection completion", () => {
+    const result = projectFinancialAuthorizationRuntimeIncidents({
+      connections: [connection],
+      receipts: [
+        authorizationReceipts[0],
+        {
+          id: "10000000-0000-4000-8000-000000000020",
+          provider: "coinbase",
+          status: "COMPLETED",
+          connection_id: ids.connection,
+          authorization_expires_at: "2026-09-07T07:00:00Z",
+          current_last_verified_at: connection.last_synced_at ?? undefined,
+          authorization_expiry_matches_current_connection: false,
+          occurred_at: "2026-09-07T06:00:00Z",
+        },
+      ],
+      engines: [engine],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "VERIFIED",
+      incidentCount: 1,
+      openCount: 0,
+      recoveredCount: 1,
+    });
+    expect(result.connections[0].incidents[0]).toMatchObject({
+      kind: "EXPIRED_AUTHORIZATION",
+      state: "RECOVERED",
+      startedAt: "2026-09-07T07:00:00Z",
+      recoveredAt: "2026-09-07T07:40:00Z",
+      durationMilliseconds: 40 * 60 * 1000,
+      attemptIDs: [],
+      eventIDs: [
+        "10000000-0000-4000-8000-000000000020",
+        authorizationReceipts[0].id,
+      ],
+    });
+  });
+
+  it("isolates unbound provider failures from multiple financial connections", () => {
+    const secondary = {
+      ...connection,
+      id: "20000000-0000-4000-8000-000000000001",
+      display_name: "Coinbase Secondary",
+      last_synced_at: "2026-09-07T07:42:00Z",
+    };
+    const result = projectFinancialAuthorizationRuntimeIncidents({
+      connections: [connection, secondary],
+      receipts: [
+        {
+          id: "20000000-0000-4000-8000-000000000012",
+          attempt_id: "1".repeat(64),
+          provider: "coinbase",
+          status: "FAILED",
+          occurred_at: "2026-09-07T07:50:00Z",
+        },
+        authorizationReceipts[0],
+        {
+          id: "20000000-0000-4000-8000-000000000013",
+          provider: "coinbase",
+          status: "COMPLETED",
+          connection_id: secondary.id,
+          current_last_verified_at: secondary.last_synced_at ?? undefined,
+          authorization_expiry_matches_current_connection: true,
+          occurred_at: "2026-09-07T07:42:00Z",
+        },
+      ],
+      engines: [engine],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "VERIFIED",
+      incidentCount: 0,
+      unboundProviderEventCount: 1,
+    });
+    expect(result.connections.map((item) => item.state)).toEqual([
+      "CLEAR",
+      "CLEAR",
+    ]);
+  });
+
+  it("fails closed when runtime history cannot be attributed exactly", () => {
+    const result = projectFinancialAuthorizationRuntimeIncidents({
+      connections: [connection],
+      receipts: authorizationReceipts,
+      engines: [
+        {
+          ...engine,
+          recent_runs: [
+            {
+              ...engine.recent_runs[0],
+              completed_at: "2026-09-07T08:01:00Z",
+            },
+          ],
+        },
+      ],
+      observedAt,
+      evidenceAvailable: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "UNAVAILABLE",
+      unavailableCount: 1,
+    });
+    expect(result.connections[0]).toMatchObject({
+      state: "UNAVAILABLE",
+      incidentCount: 0,
+      incidents: [],
+    });
+  });
+
   it("renders one nontechnical brief with advanced saved evidence collapsed", () => {
     render(
       <FinancialConnectionOperatingWorkspace
@@ -504,6 +826,12 @@ describe("FinancialConnectionOperatingWorkspace", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText("Every saved financial authorization is current."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("RENEWAL INCIDENTS + PROTECTED RUNTIME"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("No connection-bound authorization incident is active."),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "Open immutable activity →" }),
