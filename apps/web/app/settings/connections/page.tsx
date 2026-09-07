@@ -376,6 +376,7 @@ export default async function ConnectionsPage() {
           instance_id: instance.id,
           connection_id: account?.provider_connection_id,
           account_id: account?.id,
+          capital_bucket_id: instance.capital_bucket_id,
           account_name: account?.display_name,
           provider: account?.provider,
           execution_mode: instance.execution_mode,

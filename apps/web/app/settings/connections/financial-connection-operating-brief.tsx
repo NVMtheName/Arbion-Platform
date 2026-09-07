@@ -172,6 +172,55 @@ export type FinancialAuthorizationContinuitySLOProjection = {
   }>;
 };
 
+type AuthorizationRecoveryState =
+  | "CURRENT"
+  | "RENEWAL_WINDOW"
+  | "PENDING"
+  | "FAILED"
+  | "EXPIRED"
+  | "UNAVAILABLE";
+
+export type FinancialAuthorizationRecoveryPlanProjection = {
+  status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
+  currentCount: number;
+  attentionCount: number;
+  unavailableCount: number;
+  accountCount: number;
+  engineCount: number;
+  capitalClaimCount: number;
+  connections: Array<{
+    id: string;
+    provider: string;
+    displayName: string;
+    state: AuthorizationRecoveryState;
+    label: string;
+    deadline?: string;
+    ownerAction: string;
+    beforeExpiry: string;
+    atExpiry: string;
+    afterReconnect: string;
+    incidentState: string;
+    accounts: Array<{
+      id: string;
+      displayName: string;
+      status: string;
+    }>;
+    engines: Array<{
+      instanceID: string;
+      mandateID: string;
+      capitalBucketID: string;
+      accountID: string;
+      accountName: string;
+      executionMode: "PAPER" | "SHADOW";
+      runtimeState: "PROTECTED" | "SAFE_WAIT" | "FAILED_CLOSED";
+      latestStatus: string;
+      latestErrorCode?: string;
+      latestCompletedAt: string;
+      nextRunAt: string;
+    }>;
+  }>;
+};
+
 export type FinancialConnectionOperatingBriefProjection = {
   status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
   onCourseCount: number;
@@ -1269,6 +1318,233 @@ export function projectFinancialAuthorizationContinuitySLO({
   };
 }
 
+export function projectFinancialAuthorizationRecoveryPlan({
+  connections,
+  accounts,
+  receipts,
+  engines,
+  observedAt,
+  evidenceAvailable,
+}: {
+  connections: FinancialConnection[];
+  accounts: FinancialAccount[];
+  receipts: FinancialAuthorizationReceipt[];
+  engines: FinancialContinuityEngine[];
+  observedAt: string;
+  evidenceAvailable: boolean;
+}): FinancialAuthorizationRecoveryPlanProjection {
+  const countdown = projectFinancialAuthorizationContinuitySLO({
+    connections,
+    receipts,
+    engines,
+    observedAt,
+    evidenceAvailable,
+  });
+  const incidents = projectFinancialAuthorizationRuntimeIncidents({
+    connections,
+    receipts,
+    engines,
+    observedAt,
+    evidenceAvailable,
+  });
+  const accountIDs = new Set<string>();
+  const capitalBucketIDs = new Set<string>();
+  const connectionProviders = new Map(
+    connections.map((connection) => [connection.id, connection.provider]),
+  );
+  let identityExact = true;
+  for (const account of accounts) {
+    if (
+      !uuidPattern.test(account.id) ||
+      accountIDs.has(account.id) ||
+      !uuidPattern.test(account.provider_connection_id) ||
+      connectionProviders.get(account.provider_connection_id) !==
+        account.provider
+    ) {
+      identityExact = false;
+      break;
+    }
+    accountIDs.add(account.id);
+  }
+  if (identityExact) {
+    for (const engine of engines) {
+      if (
+        !engine.account_id ||
+        !engine.connection_id ||
+        !engine.capital_bucket_id ||
+        engine.recent_runs.length === 0 ||
+        !accountIDs.has(engine.account_id) ||
+        !uuidPattern.test(engine.capital_bucket_id) ||
+        capitalBucketIDs.has(engine.capital_bucket_id) ||
+        !accounts.some(
+          (account) =>
+            account.id === engine.account_id &&
+            account.provider_connection_id === engine.connection_id &&
+            account.provider === engine.provider,
+        )
+      ) {
+        identityExact = false;
+        break;
+      }
+      capitalBucketIDs.add(engine.capital_bucket_id);
+    }
+  }
+  const projected = connections.map((connection) => {
+    const authorization = countdown.connections.find(
+      (candidate) => candidate.id === connection.id,
+    );
+    const incident = incidents.connections.find(
+      (candidate) => candidate.id === connection.id,
+    );
+    const exact = Boolean(
+      identityExact &&
+        authorization &&
+        authorization.state !== "UNAVAILABLE" &&
+        incident &&
+        incident.state !== "UNAVAILABLE",
+    );
+    const linkedAccounts = exact
+      ? accounts
+          .filter(
+            (account) =>
+              account.provider_connection_id === connection.id &&
+              account.provider === connection.provider,
+          )
+          .map((account) => ({
+            id: account.id,
+            displayName: account.display_name,
+            status: account.status,
+          }))
+      : [];
+    const linkedEngines = exact
+      ? engines
+          .filter((engine) => engine.connection_id === connection.id)
+          .map((engine) => {
+            const latest = engine.recent_runs[0];
+            const safeWait =
+              latest.status === "SKIPPED" &&
+              latest.error_code === "OUTSIDE_SESSION";
+            return {
+              instanceID: engine.instance_id!,
+              mandateID: engine.mandate_id!,
+              capitalBucketID: engine.capital_bucket_id!,
+              accountID: engine.account_id!,
+              accountName: engine.account_name ?? "Financial account",
+              executionMode: engine.execution_mode as "PAPER" | "SHADOW",
+              runtimeState:
+                latest.status === "SUCCEEDED"
+                  ? ("PROTECTED" as const)
+                  : safeWait
+                    ? ("SAFE_WAIT" as const)
+                    : ("FAILED_CLOSED" as const),
+              latestStatus: latest.status!,
+              latestErrorCode: latest.error_code ?? undefined,
+              latestCompletedAt: latest.completed_at!,
+              nextRunAt: latest.next_run_at!,
+            };
+          })
+      : [];
+    let state: AuthorizationRecoveryState = "CURRENT";
+    if (!exact) state = "UNAVAILABLE";
+    else if (authorization?.state === "RENEW_NOW") state = "RENEWAL_WINDOW";
+    else if (authorization?.state === "PENDING") state = "PENDING";
+    else if (authorization?.state === "FAILED") state = "FAILED";
+    else if (authorization?.state === "EXPIRED") state = "EXPIRED";
+    const failedClosed = linkedEngines.some(
+      (engine) => engine.runtimeState === "FAILED_CLOSED",
+    );
+    const safelyWaiting =
+      linkedEngines.length > 0 &&
+      linkedEngines.every((engine) => engine.runtimeState === "SAFE_WAIT");
+    let label = "Authorization and protected runtimes are on course";
+    if (state === "UNAVAILABLE") label = "Blast-radius evidence is unavailable";
+    else if (state === "EXPIRED")
+      label = "Authorization expired; guarded runtimes remain fail closed";
+    else if (state === "FAILED")
+      label = "The latest authorization attempt failed closed";
+    else if (state === "PENDING")
+      label = "Provider callback is pending; no renewal is inferred";
+    else if (state === "RENEWAL_WINDOW")
+      label = "Renewal window is open before the exact deadline";
+    else if (failedClosed)
+      label = "Authorization is current; a guarded runtime failed closed";
+    else if (safelyWaiting)
+      label = "Authorization is current; every bound runtime is safely waiting";
+    const ownerAction =
+      state === "UNAVAILABLE"
+        ? "Review the immutable connection, receipt, and engine identities before relying on this plan."
+        : ["EXPIRED", "FAILED", "RENEWAL_WINDOW"].includes(state)
+          ? "Use the existing provider reconnect control; Arbion will not start or repeat authorization automatically."
+          : state === "PENDING"
+            ? "Finish the existing provider callback; do not start a second authorization attempt."
+            : failedClosed
+              ? "Review the saved engine failure and let the next guarded schedule evaluate automatically."
+              : "No owner action is required before the 24-hour renewal window opens.";
+    return {
+      id: connection.id,
+      provider: connection.provider,
+      displayName: connection.display_name,
+      state,
+      label,
+      deadline: exact ? authorization?.authorizationExpiresAt : undefined,
+      ownerAction,
+      beforeExpiry:
+        state === "UNAVAILABLE"
+          ? "UNAVAILABLE — Arbion will not infer authorization runway or protected scope."
+          : "Linked accounts, Paper/Shadow engine identities, capital claims, and saved evidence remain unchanged. Renew only through the existing owner control.",
+      atExpiry:
+        state === "UNAVAILABLE"
+          ? "UNAVAILABLE — no provider or runtime outcome is predicted."
+          : "New guarded evaluations must fail closed when current provider authorization is unavailable. Existing simulated or shadow evidence is preserved; expiry is not an order-cancellation mechanism.",
+      afterReconnect:
+        state === "UNAVAILABLE"
+          ? "UNAVAILABLE — recovery requires a complete connection-bound evidence chain."
+          : "Recovery is proven only by a later valid COMPLETED receipt bound to this connection, matching updated verification/expiry state, followed by the next saved automatic Paper or Shadow scheduler result.",
+      incidentState: exact ? (incident?.state ?? "CLEAR") : "UNAVAILABLE",
+      accounts: linkedAccounts,
+      engines: linkedEngines,
+    };
+  });
+  const unavailableCount = projected.filter(
+    (connection) => connection.state === "UNAVAILABLE",
+  ).length;
+  const attentionCount = projected.filter(
+    (connection) =>
+      ["RENEWAL_WINDOW", "PENDING", "FAILED", "EXPIRED"].includes(
+        connection.state,
+      ) ||
+      connection.engines.some(
+        (engine) => engine.runtimeState === "FAILED_CLOSED",
+      ),
+  ).length;
+  return {
+    status:
+      unavailableCount > 0
+        ? "UNAVAILABLE"
+        : attentionCount > 0
+          ? "ATTENTION"
+          : "VERIFIED",
+    currentCount: projected.filter(
+      (connection) => connection.state === "CURRENT",
+    ).length,
+    attentionCount,
+    unavailableCount,
+    accountCount: projected.reduce(
+      (count, connection) => count + connection.accounts.length,
+      0,
+    ),
+    engineCount: projected.reduce(
+      (count, connection) => count + connection.engines.length,
+      0,
+    ),
+    capitalClaimCount: projected.reduce(
+      (count, connection) => count + connection.engines.length,
+      0,
+    ),
+    connections: projected,
+  };
+}
+
 export function projectFinancialConnectionOperatingBrief({
   connections,
   accounts,
@@ -1663,6 +1939,203 @@ export function FinancialAuthorizationContinuitySLO({
         Saved evidence only · exact connection isolation · owner-controlled
         reconnect · Paper and Shadow remain non-live · no provider contact · no
         sync · no broker action
+      </footer>
+    </section>
+  );
+}
+
+export function FinancialAuthorizationRecoveryPlan({
+  connections,
+  accounts,
+  receipts,
+  engines,
+  observedAt,
+  evidenceAvailable,
+}: {
+  connections: FinancialConnection[];
+  accounts: FinancialAccount[];
+  receipts: FinancialAuthorizationReceipt[];
+  engines: FinancialContinuityEngine[];
+  observedAt: string;
+  evidenceAvailable: boolean;
+}) {
+  const projection = projectFinancialAuthorizationRecoveryPlan({
+    connections,
+    accounts,
+    receipts,
+    engines,
+    observedAt,
+    evidenceAvailable,
+  });
+  return (
+    <section
+      className={`financial-authorization-recovery-plan is-${projection.status.toLowerCase()}`}
+      aria-labelledby="financial-authorization-recovery-plan-title"
+    >
+      <header>
+        <div>
+          <p className="eyebrow">EXPIRY BLAST RADIUS + SAFE RECOVERY</p>
+          <h2 id="financial-authorization-recovery-plan-title">
+            {projection.status === "VERIFIED"
+              ? "Every connection has an exact protected recovery plan."
+              : projection.status === "ATTENTION"
+                ? "A connection or guarded runtime needs review."
+                : "Some protected recovery evidence is unavailable."}
+          </h2>
+          <p>
+            What stays preserved before expiry, what fails closed at expiry, and
+            the exact saved evidence required after owner-controlled reconnect.
+          </p>
+        </div>
+        <span>
+          {projection.accountCount} accounts · {projection.engineCount} engines
+          · {projection.capitalClaimCount} capital claims
+        </span>
+      </header>
+      <ol>
+        {projection.connections.map((connection) => {
+          const attention =
+            connection.state !== "CURRENT" ||
+            connection.engines.some(
+              (engine) => engine.runtimeState === "FAILED_CLOSED",
+            );
+          return (
+            <li
+              className={`is-${connection.state.toLowerCase().replaceAll("_", "-")}`}
+              key={connection.id}
+            >
+              <header>
+                <div>
+                  <strong>{connection.displayName}</strong>
+                  <small>{providerName(connection.provider)}</small>
+                </div>
+                <span>{connection.state.replaceAll("_", " ")}</span>
+              </header>
+              <h3>{connection.label}</h3>
+              <p>{connection.ownerAction}</p>
+              <div className="financial-authorization-recovery-sequence">
+                <article>
+                  <span>1</span>
+                  <div>
+                    <strong>Before expiry</strong>
+                    <p>{connection.beforeExpiry}</p>
+                  </div>
+                </article>
+                <article>
+                  <span>2</span>
+                  <div>
+                    <strong>At expiry</strong>
+                    <p>{connection.atExpiry}</p>
+                  </div>
+                </article>
+                <article>
+                  <span>3</span>
+                  <div>
+                    <strong>After reconnect</strong>
+                    <p>{connection.afterReconnect}</p>
+                  </div>
+                </article>
+              </div>
+              <dl>
+                <div>
+                  <dt>Exact deadline</dt>
+                  <dd>{readableTime(connection.deadline)}</dd>
+                  <small>Current saved authorization evidence</small>
+                </div>
+                <div>
+                  <dt>Bound scope</dt>
+                  <dd>
+                    {connection.accounts.length} accounts ·{" "}
+                    {connection.engines.length} engines
+                  </dd>
+                  <small>
+                    {connection.engines.length} exact capital claims
+                  </small>
+                </div>
+                <div>
+                  <dt>Incident evidence</dt>
+                  <dd>{connection.incidentState.replaceAll("_", " ")}</dd>
+                  <small>No provider outcome or continuity is inferred</small>
+                </div>
+              </dl>
+              <details open={attention}>
+                <summary>
+                  Exact protected scope and scheduler evidence
+                  <span>{connection.engines.length} guarded engines</span>
+                </summary>
+                {connection.accounts.length === 0 ? (
+                  <p>No connection-bound financial account is available.</p>
+                ) : (
+                  <ol className="financial-authorization-recovery-accounts">
+                    {connection.accounts.map((account) => (
+                      <li key={account.id}>
+                        <div>
+                          <strong>{account.displayName}</strong>
+                          <span>{account.status}</span>
+                        </div>
+                        <small>Account {account.id}</small>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                {connection.engines.length === 0 ? (
+                  <p>No active Paper or Shadow engine is bound.</p>
+                ) : (
+                  <ol className="financial-authorization-recovery-engines">
+                    {connection.engines.map((engine) => (
+                      <li key={engine.instanceID}>
+                        <header>
+                          <div>
+                            <strong>
+                              {engine.executionMode} · {engine.accountName}
+                            </strong>
+                            <small>
+                              {engine.runtimeState.replaceAll("_", " ")}
+                            </small>
+                          </div>
+                          <span>
+                            {engine.latestStatus}
+                            {engine.latestErrorCode
+                              ? ` · ${engine.latestErrorCode}`
+                              : ""}
+                          </span>
+                        </header>
+                        <p>
+                          Latest completion{" "}
+                          {readableTime(engine.latestCompletedAt)}
+                          {" · "}next guarded cycle{" "}
+                          {readableTime(engine.nextRunAt)}
+                        </p>
+                        <small>
+                          Instance {engine.instanceID} · capital claim{" "}
+                          {engine.capitalBucketID}
+                        </small>
+                        <Link
+                          href={`/automations/${encodeURIComponent(engine.mandateID)}#runtime-evidence`}
+                        >
+                          Open immutable engine evidence →
+                        </Link>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </details>
+              <footer>
+                <Link href={`#financial-provider-${connection.provider}`}>
+                  Open existing provider control →
+                </Link>
+                <Link href="/settings/security#security-activity">
+                  Open immutable security evidence →
+                </Link>
+              </footer>
+            </li>
+          );
+        })}
+      </ol>
+      <footer>
+        Saved evidence only · no provider forecast · no continuity claim · no
+        reconnect · no sync · no model rerun · no account mutation · no broker
+        order · no live path
       </footer>
     </section>
   );
@@ -2124,6 +2597,14 @@ export function FinancialConnectionOperatingWorkspace({
       </header>
       <FinancialAuthorizationContinuitySLO
         connections={connections}
+        receipts={authorizationReceipts}
+        engines={engines}
+        observedAt={observedAt}
+        evidenceAvailable={authorizationEvidenceAvailable && contextAvailable}
+      />
+      <FinancialAuthorizationRecoveryPlan
+        connections={connections}
+        accounts={accounts}
         receipts={authorizationReceipts}
         engines={engines}
         observedAt={observedAt}
