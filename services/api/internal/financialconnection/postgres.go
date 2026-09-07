@@ -62,6 +62,67 @@ func (s *PostgresStore) ListConnections(ctx context.Context, user string) ([]Con
 	}
 	return out, rows.Err()
 }
+
+func (s *PostgresStore) ListAuthorizationReceipts(ctx context.Context, user string, limit int) ([]AuthorizationReceipt, error) {
+	rows, err := s.db.Query(ctx, `SELECT event.id::text,event.action,event.metadata->>'provider',
+		NULLIF(event.metadata->>'connection_id',''),
+		CASE WHEN COALESCE(event.metadata->>'authorization_expires_at','') <> ''
+			THEN (event.metadata->>'authorization_expires_at')::timestamptz END,
+		connection.last_verified_at,
+		CASE WHEN event.action='financial.authorization_completed' AND connection.id IS NOT NULL THEN
+			(CASE WHEN COALESCE(event.metadata->>'authorization_expires_at','') = ''
+				THEN connection.authorization_expires_at IS NULL
+				ELSE date_trunc('milliseconds',connection.authorization_expires_at)=date_trunc('milliseconds',(event.metadata->>'authorization_expires_at')::timestamptz) END)
+		END,
+		event.occurred_at
+		FROM audit_events event
+		LEFT JOIN provider_connections connection
+		  ON connection.id::text=event.metadata->>'connection_id'
+		 AND connection.user_id=event.user_id
+		 AND connection.provider_category='financial'
+		 AND connection.provider_name=event.metadata->>'provider'
+		WHERE event.user_id=$1
+		  AND event.action IN ('financial.authorization_started','financial.authorization_completed','financial.authorization_failed')
+		ORDER BY event.occurred_at DESC,event.id DESC
+		LIMIT $2`, user, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	receipts := []AuthorizationReceipt{}
+	for rows.Next() {
+		var receipt AuthorizationReceipt
+		var action string
+		var connectionID *string
+		if err = rows.Scan(
+			&receipt.ID,
+			&action,
+			&receipt.Provider,
+			&connectionID,
+			&receipt.AuthorizationExpiresAt,
+			&receipt.CurrentLastVerifiedAt,
+			&receipt.AuthorizationExpiryMatchesConnection,
+			&receipt.OccurredAt,
+		); err != nil {
+			return nil, err
+		}
+		switch action {
+		case "financial.authorization_started":
+			receipt.Status = "STARTED"
+		case "financial.authorization_completed":
+			receipt.Status = "COMPLETED"
+		case "financial.authorization_failed":
+			receipt.Status = "FAILED"
+		default:
+			return nil, ErrAuthorizationReceiptUnavailable
+		}
+		if connectionID != nil {
+			receipt.ConnectionID = *connectionID
+		}
+		receipts = append(receipts, receipt)
+	}
+	return receipts, rows.Err()
+}
 func (s *PostgresStore) UpsertConnection(ctx context.Context, user, provider, displayName string, expires, authorizationExpires *time.Time) (Connection, error) {
 	return scanConnection(s.db.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status,token_expires_at,authorization_expires_at) VALUES($1,'financial',$2,$3,'pending',$4,$5) ON CONFLICT(user_id,provider_category,provider_name,display_name) DO UPDATE SET status='pending',token_expires_at=excluded.token_expires_at,authorization_expires_at=excluded.authorization_expires_at,updated_at=now() RETURNING `+connectionColumns, user, provider, displayName, expires, authorizationExpires))
 }

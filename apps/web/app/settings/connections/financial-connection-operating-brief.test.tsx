@@ -34,6 +34,18 @@ const connection: FinancialConnection = {
   last_synced_at: "2026-09-07T07:40:00Z",
 };
 
+const authorizationReceipts = [
+  {
+    id: "10000000-0000-4000-8000-000000000010",
+    provider: "coinbase",
+    status: "COMPLETED" as const,
+    connection_id: ids.connection,
+    current_last_verified_at: "2026-09-07T07:40:00Z",
+    authorization_expiry_matches_current_connection: true,
+    occurred_at: "2026-09-07T07:40:00Z",
+  },
+];
+
 const account: FinancialAccount = {
   id: ids.account,
   provider_connection_id: ids.connection,
@@ -174,6 +186,8 @@ describe("FinancialConnectionOperatingWorkspace", () => {
       observedAt,
       contextAvailable: true,
       expectedBindingCount: 1,
+      authorizationReceipts,
+      authorizationEvidenceAvailable: true,
     });
 
     expect(result).toMatchObject({
@@ -216,6 +230,8 @@ describe("FinancialConnectionOperatingWorkspace", () => {
       observedAt,
       contextAvailable: true,
       expectedBindingCount: 1,
+      authorizationReceipts,
+      authorizationEvidenceAvailable: true,
     });
 
     expect(result.status).toBe("ATTENTION");
@@ -224,6 +240,112 @@ describe("FinancialConnectionOperatingWorkspace", () => {
       label: "Sync reliability evidence is collecting forward",
       syncAttemptCount: 0,
       paperEngineCount: 1,
+    });
+  });
+
+  it("shows a newer start receipt as a pending provider callback", () => {
+    const result = projectFinancialConnectionOperatingBrief({
+      connections: [connection],
+      accounts: [account],
+      engines: [engine],
+      syncInputs: [syncInput()],
+      observedAt,
+      contextAvailable: true,
+      expectedBindingCount: 1,
+      authorizationReceipts: [
+        {
+          id: "10000000-0000-4000-8000-000000000011",
+          provider: "coinbase",
+          status: "STARTED",
+          occurred_at: "2026-09-07T07:59:00Z",
+        },
+        ...authorizationReceipts,
+      ],
+      authorizationEvidenceAvailable: true,
+    });
+
+    expect(result.status).toBe("ATTENTION");
+    expect(result.connections[0]).toMatchObject({
+      state: "REVIEW",
+      authorizationReceiptStatus: "PENDING",
+      label: "The latest authorization callback is still pending",
+    });
+  });
+
+  it("fails closed when the latest completion receipt names another connection", () => {
+    const result = projectFinancialConnectionOperatingBrief({
+      connections: [connection],
+      accounts: [account],
+      engines: [engine],
+      syncInputs: [syncInput()],
+      observedAt,
+      contextAvailable: true,
+      expectedBindingCount: 1,
+      authorizationReceipts: [
+        {
+          ...authorizationReceipts[0],
+          connection_id: "10000000-0000-4000-8000-000000000099",
+        },
+      ],
+      authorizationEvidenceAvailable: true,
+    });
+
+    expect(result.status).toBe("UNAVAILABLE");
+    expect(result.connections[0]).toMatchObject({
+      state: "UNAVAILABLE",
+      authorizationReceiptStatus: "UNAVAILABLE",
+    });
+  });
+
+  it("retains an exact prior receipt when another connection for the provider completes", () => {
+    const result = projectFinancialConnectionOperatingBrief({
+      connections: [connection],
+      accounts: [account],
+      engines: [engine],
+      syncInputs: [syncInput()],
+      observedAt,
+      contextAvailable: true,
+      expectedBindingCount: 1,
+      authorizationReceipts: [
+        {
+          id: "10000000-0000-4000-8000-000000000012",
+          provider: "coinbase",
+          status: "COMPLETED",
+          connection_id: "10000000-0000-4000-8000-000000000099",
+          current_last_verified_at: "2026-09-07T07:40:00Z",
+          authorization_expiry_matches_current_connection: true,
+          occurred_at: "2026-09-07T07:50:00Z",
+        },
+        ...authorizationReceipts,
+      ],
+      authorizationEvidenceAvailable: true,
+    });
+
+    expect(result.status).toBe("VERIFIED");
+    expect(result.connections[0]).toMatchObject({
+      state: "ON_COURSE",
+      authorizationReceiptStatus: "COMPLETED",
+      authorizationReceiptAt: "2026-09-07T07:40:00Z",
+    });
+  });
+
+  it("fails closed when a completed receipt has no current verification evidence", () => {
+    const result = projectFinancialConnectionOperatingBrief({
+      connections: [{ ...connection, last_synced_at: null }],
+      accounts: [account],
+      engines: [engine],
+      syncInputs: [syncInput()],
+      observedAt,
+      contextAvailable: true,
+      expectedBindingCount: 1,
+      authorizationReceipts,
+      authorizationEvidenceAvailable: true,
+    });
+
+    expect(result.status).toBe("UNAVAILABLE");
+    expect(result.connections[0]).toMatchObject({
+      state: "UNAVAILABLE",
+      authorizationReceiptStatus: "UNAVAILABLE",
     });
   });
 
@@ -237,6 +359,8 @@ describe("FinancialConnectionOperatingWorkspace", () => {
         observedAt={observedAt}
         contextAvailable
         expectedBindingCount={1}
+        authorizationReceipts={authorizationReceipts}
+        authorizationEvidenceAvailable
       />,
     );
 
@@ -248,6 +372,8 @@ describe("FinancialConnectionOperatingWorkspace", () => {
     expect(screen.getByText("Connected and operating on course")).toBeVisible();
     expect(screen.getAllByText("1 of 1 saved")[0]).toBeVisible();
     expect(screen.getByText("1 Paper · 0 Shadow")).toBeVisible();
+    expect(screen.getByText("Authorization receipt")).toBeVisible();
+    expect(screen.getByText("COMPLETED")).toBeVisible();
     expect(
       screen.getByText(
         "Detailed continuity, sync, and market-readiness evidence",

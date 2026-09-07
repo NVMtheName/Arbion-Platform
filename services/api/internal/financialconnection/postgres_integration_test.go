@@ -41,6 +41,7 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 
 	const (
 		userID      = "c1111111-1111-4111-8111-111111111111"
+		foreignUser = "c9999999-9999-4999-8999-999999999999"
 		connectionA = "c2222222-2222-4222-8222-222222222222"
 		connectionB = "c3333333-3333-4333-8333-333333333333"
 		accountA    = "c4444444-4444-4444-8444-444444444444"
@@ -52,6 +53,7 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 	)
 	statements := []string{
 		`INSERT INTO users(id,email,normalized_email,display_name,email_verified_at) VALUES('` + userID + `','connection-isolation@example.com','connection-isolation@example.com','Connection Isolation',now())`,
+		`INSERT INTO users(id,email,normalized_email,display_name,email_verified_at) VALUES('` + foreignUser + `','foreign-connection-isolation@example.com','foreign-connection-isolation@example.com','Foreign Connection Isolation',now())`,
 		`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES('` + connectionA + `','` + userID + `','financial','coinbase','Coinbase A','active')`,
 		`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES('` + connectionB + `','` + userID + `','financial','coinbase','Coinbase B','active')`,
 		`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES('` + accountA + `','` + userID + `','` + connectionA + `','coinbase','` + providerIDA + `','Portfolio A','digital_asset_portfolio','USD','active','{}')`,
@@ -66,6 +68,32 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 	}
 
 	store := NewPostgresStore(pool)
+	authorizationStartedAt := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Microsecond)
+	authorizationCompletedAt := authorizationStartedAt.Add(time.Minute)
+	authorizationExpiresAt := authorizationCompletedAt.Add(7 * 24 * time.Hour)
+	if _, err = pool.Exec(ctx, `UPDATE provider_connections SET last_verified_at=$2,authorization_expires_at=$3 WHERE id=$1`, connectionA, authorizationCompletedAt, authorizationExpiresAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO audit_events(user_id,actor_type,actor_id,action,target_type,target_id,occurred_at,metadata) VALUES
+		($1,'user',$7,'financial.authorization_started','financial_connection',NULL,$4,jsonb_build_object('provider','coinbase')),
+		($1,'user',$7,'financial.authorization_completed','financial_connection',$2::text,$5,jsonb_build_object('provider','coinbase','connection_id',$2::text,'authorization_expires_at',$6::timestamptz)),
+		($3,'user',$8,'financial.authorization_failed','financial_connection',NULL,$5,jsonb_build_object('provider','coinbase'))`, userID, connectionA, foreignUser, authorizationStartedAt, authorizationCompletedAt, authorizationExpiresAt, userID, foreignUser); err != nil {
+		t.Fatal(err)
+	}
+	receipts, err := store.ListAuthorizationReceipts(ctx, userID, 20)
+	if err != nil || len(receipts) != 2 {
+		t.Fatalf("owner-scoped authorization receipts were unavailable: %#v err=%v", receipts, err)
+	}
+	if receipts[0].Status != "COMPLETED" || receipts[0].Provider != "coinbase" || receipts[0].ConnectionID != connectionA || receipts[0].AuthorizationExpiresAt == nil || !receipts[0].AuthorizationExpiresAt.Equal(authorizationExpiresAt) || receipts[0].CurrentLastVerifiedAt == nil || !receipts[0].CurrentLastVerifiedAt.Equal(authorizationCompletedAt) || receipts[0].AuthorizationExpiryMatchesConnection == nil || !*receipts[0].AuthorizationExpiryMatchesConnection || !receipts[0].OccurredAt.Equal(authorizationCompletedAt) {
+		t.Fatalf("completed authorization receipt was incomplete: %#v", receipts[0])
+	}
+	if receipts[1].Status != "STARTED" || receipts[1].Provider != "coinbase" || receipts[1].ConnectionID != "" || receipts[1].AuthorizationExpiresAt != nil || !receipts[1].OccurredAt.Equal(authorizationStartedAt) {
+		t.Fatalf("started authorization receipt was incomplete: %#v", receipts[1])
+	}
+	boundedReceipts, err := store.ListAuthorizationReceipts(ctx, userID, 1)
+	if err != nil || len(boundedReceipts) != 1 || boundedReceipts[0].ID != receipts[0].ID {
+		t.Fatalf("authorization receipt history was not deterministically bounded: %#v err=%v", boundedReceipts, err)
+	}
 	if err = store.SyncAccounts(ctx, userID, connectionA, []financial.FinancialAccount{{Provider: "coinbase", ProviderAccountID: providerIDA, DisplayName: "Portfolio A refreshed", AccountType: "digital_asset_portfolio", BaseCurrency: "USD", Capabilities: financial.Capabilities{}}}); err != nil {
 		t.Fatal(err)
 	}
