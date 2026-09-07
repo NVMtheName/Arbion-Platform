@@ -2,6 +2,11 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppPageHeader } from "../../app-page-header";
+import { loadAccountSyncHistory } from "../../accounts/[id]/account-sync-history";
+import {
+  ConnectionSyncEvidenceCenter,
+  type ConnectionRuntimeBinding,
+} from "./connection-sync-evidence-center";
 import { ConnectionsManager } from "./connections-manager";
 import {
   FinancialContinuityCenter,
@@ -72,6 +77,8 @@ type StrategyInstance = {
   AutomationMandateID?: string;
   financial_account_id?: string;
   FinancialAccountID?: string;
+  capital_bucket_id?: string;
+  CapitalBucketID?: string;
   strategy_identifier?: string;
   StrategyIdentifier?: string;
   execution_mode?: string;
@@ -123,6 +130,7 @@ function normalizedStrategyInstance(
       instance.automation_mandate_id ?? instance.AutomationMandateID,
     financial_account_id:
       instance.financial_account_id ?? instance.FinancialAccountID,
+    capital_bucket_id: instance.capital_bucket_id ?? instance.CapitalBucketID,
     strategy_identifier:
       instance.strategy_identifier ?? instance.StrategyIdentifier,
     execution_mode: instance.execution_mode ?? instance.ExecutionMode,
@@ -378,6 +386,46 @@ export default async function ConnectionsPage() {
       account.status === "active" &&
       activeFinancialConnectionIDs.has(account.provider_connection_id),
   );
+  const runtimeBindings: ConnectionRuntimeBinding[] = strategyInstances
+    .filter((instance) => instance.status === "ACTIVE")
+    .map((instance) => ({
+      instance_id: instance.id,
+      mandate_id: instance.automation_mandate_id,
+      account_id: instance.financial_account_id,
+      capital_bucket_id: instance.capital_bucket_id,
+      strategy_identifier: instance.strategy_identifier,
+      execution_mode: instance.execution_mode,
+      current_state: instance.current_state,
+      status: instance.status,
+    }));
+  const syncEvidenceInputs = await Promise.all(
+    activeFinancialAccounts.map(async (account) => {
+      const [syncHistory, reconciliationResult] = await Promise.all([
+        loadAccountSyncHistory({
+          account,
+          base,
+          headers: { cookie },
+          viewedAt: continuityObservedAt,
+        }),
+        optionalJSON<unknown>(
+          `${base}/api/accounts/${encodeURIComponent(account.id)}/reconciliations/latest`,
+          cookie,
+        ),
+      ]);
+      if (syncHistory.unauthorized || reconciliationResult.status === 401)
+        redirect("/login");
+      return {
+        account,
+        syncHistory,
+        reconciliationPayload: reconciliationResult.available
+          ? reconciliationResult.payload
+          : undefined,
+        bindings: runtimeBindings.filter(
+          (binding) => binding.account_id === account.id,
+        ),
+      };
+    }),
+  );
   const activeAIConnections = data.connections.filter(
     (connection) => connection.status === "active" && connection.enabled,
   );
@@ -474,6 +522,11 @@ export default async function ConnectionsPage() {
             Arbion never asks for your brokerage password.
           </p>
         </header>
+        <ConnectionSyncEvidenceCenter
+          inputs={syncEvidenceInputs}
+          observedAt={continuityObservedAt.toISOString()}
+          expectedBindingCount={runtimeBindings.length}
+        />
         <FinancialContinuityCenter
           connections={financialConnections}
           accounts={financialAccounts}

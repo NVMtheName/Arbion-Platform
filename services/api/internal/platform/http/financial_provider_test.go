@@ -153,6 +153,21 @@ func TestPortfolioReconciliationRoutesRequireAuthenticationAndApprovedOrigin(t *
 	}
 }
 
+func TestLatestPortfolioReconciliationResponseIsExplicitlySavedAndReadOnly(t *testing.T) {
+	response := latestPortfolioReconciliationResponse(financialconnection.PortfolioReconciliation{
+		ID:                        "reconciliation-1",
+		AutonomyEnforcementActive: true,
+	})
+
+	if response["evidence_semantics"] != "SAVED_PORTFOLIO_RECONCILIATION" || response["provider_read_performed"] != false || response["broker_action_available"] != false || response["live_execution_available"] != false || response["autonomy_enforcement_active"] != true {
+		t.Fatalf("latest reconciliation response did not preserve its explicit saved/read-only contract: %+v", response)
+	}
+	reconciliation, ok := response["reconciliation"].(financialconnection.PortfolioReconciliation)
+	if !ok || reconciliation.ID != "reconciliation-1" {
+		t.Fatalf("latest reconciliation payload was not preserved: %+v", response["reconciliation"])
+	}
+}
+
 func TestPortfolioReconciliationReviewErrorsAreSafeAndActionable(t *testing.T) {
 	for _, testCase := range []struct {
 		err         error
