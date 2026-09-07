@@ -77,6 +77,7 @@ type Service struct {
 	store           Store
 	reconciliations ReconciliationStore
 	syncCheckpoints SyncCheckpointStore
+	syncAttempts    SyncAttemptStore
 	vault           credential.Vault
 	states          *oauthstate.Manager
 	providers       map[string]financial.BrokerProvider
@@ -91,6 +92,9 @@ func NewService(s Store, v credential.Vault, states *oauthstate.Manager, schwab 
 	}
 	if syncCheckpoints, ok := s.(SyncCheckpointStore); ok {
 		service.syncCheckpoints = syncCheckpoints
+	}
+	if syncAttempts, ok := s.(SyncAttemptStore); ok {
+		service.syncAttempts = syncAttempts
 	}
 	if schwab != nil {
 		service.providers["schwab"] = schwab
@@ -302,21 +306,27 @@ func (s *Service) credentials(ctx context.Context, user, id string, allowDisable
 	return c, cr, e
 }
 func (s *Service) sync(ctx context.Context, user, id string) error {
+	observedAt := time.Now().UTC()
 	connection, cr, e := s.credentials(ctx, user, id)
 	if e != nil {
+		s.recordSyncFailure(ctx, user, connection, "CREDENTIAL_ACCESS", e, observedAt)
 		return e
 	}
 	provider, e := s.provider(connection.Provider)
 	if e != nil {
+		s.recordSyncFailure(ctx, user, connection, "CREDENTIAL_ACCESS", e, observedAt)
 		return e
 	}
 	accounts, e := provider.ListAccounts(ctx, &cr)
 	if e != nil {
 		s.observeProviderFailure(ctx, user, connection, e)
+		s.recordSyncFailure(ctx, user, connection, "ACCOUNT_DISCOVERY", e, observedAt)
 		return e
 	}
 	if len(accounts) == 0 {
-		return &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		e = &financial.ProviderError{Code: financial.InvalidProviderResponse}
+		s.recordSyncFailure(ctx, user, connection, "ACCOUNT_DISCOVERY", e, observedAt)
+		return e
 	}
 	for i := range accounts {
 		detail, de := provider.GetAccount(ctx, &cr, accounts[i].ProviderAccountID)
@@ -334,8 +344,44 @@ func (s *Service) sync(ctx context.Context, user, id string) error {
 		}
 		s.store.SetStatus(ctx, user, id, "active", credentialExpiry(cr))
 		s.record(ctx, user, "financial.connection_synced", map[string]any{"connection_id": id, "account_count": len(accounts)})
+	} else {
+		s.recordSyncFailure(ctx, user, connection, "PERSISTENCE", e, observedAt)
 	}
 	return e
+}
+
+func syncFailureCode(err error) string {
+	var providerError *financial.ProviderError
+	if errors.As(err, &providerError) {
+		return string(providerError.Code)
+	}
+	if errors.Is(err, ErrDisabled) {
+		return "CONNECTION_DISABLED"
+	}
+	if errors.Is(err, credential.ErrNotFound) {
+		return "CREDENTIAL_UNAVAILABLE"
+	}
+	return string(financial.InternalError)
+}
+
+func (s *Service) recordSyncFailure(ctx context.Context, user string, connection Connection, stage string, syncErr error, observedAt time.Time) {
+	if s.syncAttempts == nil || connection.ID == "" || connection.Provider == "" {
+		return
+	}
+	recordContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	completedAt := time.Now().UTC()
+	if completedAt.Before(observedAt) {
+		completedAt = observedAt
+	}
+	_ = s.syncAttempts.RecordConnectionSyncFailure(recordContext, user, ConnectionSyncFailure{
+		ProviderConnectionID: connection.ID,
+		Provider:             connection.Provider,
+		FailureStage:         stage,
+		ErrorCode:            syncFailureCode(syncErr),
+		ObservedAt:           observedAt,
+		CompletedAt:          completedAt,
+	})
 }
 func (s *Service) Sync(ctx context.Context, p authorization.Principal, id string) error {
 	if !allowed(p) {

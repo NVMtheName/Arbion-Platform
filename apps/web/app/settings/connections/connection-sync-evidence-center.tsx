@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { AccountSyncHistoryResult } from "../../accounts/[id]/account-sync-history";
+import type { ConnectionSyncAttemptHistoryResult } from "./connection-sync-attempt-history";
 
 export type ConnectionSyncAccount = {
   id: string;
@@ -25,6 +26,7 @@ export type ConnectionRuntimeBinding = {
 export type ConnectionSyncEvidenceInput = {
   account: ConnectionSyncAccount;
   syncHistory: AccountSyncHistoryResult;
+  attemptHistory: ConnectionSyncAttemptHistoryResult;
   reconciliationPayload?: unknown;
   bindings: ConnectionRuntimeBinding[];
 };
@@ -56,7 +58,15 @@ export type ConnectionSyncEvidenceProjection = {
       | "UNAVAILABLE";
     restrictedHoldingCount?: number;
     providerEventTimeStatus: "UNAVAILABLE";
-    syncFailureHistoryStatus: "UNAVAILABLE";
+    syncFailureHistoryStatus: "AVAILABLE" | "COLLECTING" | "UNAVAILABLE";
+    syncAttemptCount: number;
+    syncFailureCount: number;
+    recoveredFailureCount: number;
+    currentFailureCount: number;
+    latestAttemptOutcome?: "SAVED" | "FAILED";
+    latestFailureAt?: string;
+    latestFailureStage?: string;
+    latestFailureCode?: string;
     aiEngineCount: number;
     tradeLifecycleCount: number;
     bindings: Array<Required<ConnectionRuntimeBinding>>;
@@ -320,17 +330,58 @@ export function projectConnectionSyncEvidence({
               latestCheckpoint.provider === account.provider &&
               latestSyncAt)),
       );
+      const attemptHistory = input.attemptHistory;
+      const latestAttempt = attemptHistory.attempts[0];
+      const newestSavedAttempt = attemptHistory.attempts.find(
+        (attempt) => attempt.outcome === "SAVED",
+      );
+      const exactAttemptHistory = Boolean(
+        attemptHistory.state !== "UNAVAILABLE" &&
+          !attemptHistory.unauthorized &&
+          attemptHistory.attempts.length <= 12 &&
+          (!newestSavedAttempt ||
+            (latestCheckpoint &&
+              newestSavedAttempt.id.toLowerCase() ===
+                latestCheckpoint.operationID.toLowerCase())),
+      );
+      const successfulAttemptTimes = attemptHistory.attempts
+        .filter((attempt) => attempt.outcome === "SAVED")
+        .map((attempt) => Date.parse(attempt.completedAt));
+      const failures = attemptHistory.attempts.filter(
+        (attempt) => attempt.outcome === "FAILED",
+      );
+      const recoveredFailures = failures.filter((attempt) =>
+        successfulAttemptTimes.some(
+          (completedAt) => completedAt > Date.parse(attempt.completedAt),
+        ),
+      );
+      const currentFailures = failures.length - recoveredFailures.length;
+      const latestFailure = failures[0];
 
       let state: EvidenceState = "CURRENT";
       let label = "Saved sync and holdings evidence is current";
       let guidance =
         "No owner action is required. Existing Paper and Shadow runtimes remain bound to this account without receiving authority to move assets.";
-      if (!exactAccount || !exactHistory || !portfolio || !bindings) {
+      if (
+        !exactAccount ||
+        !exactHistory ||
+        !exactAttemptHistory ||
+        !portfolio ||
+        !bindings
+      ) {
         state = "UNAVAILABLE";
         label = "Sync evidence is unavailable";
         guidance =
           "Arbion cannot prove the complete saved account, sync, portfolio, and runtime-binding chain and will not infer the missing facts.";
-      } else if (input.syncHistory.state === "FORWARD_COLLECTION_PENDING") {
+      } else if (currentFailures > 0) {
+        state = "REVIEW";
+        label = "The newest account sync failed closed";
+        guidance =
+          "The failed attempt is preserved without credentials or raw provider output. Existing holdings and runtimes are unchanged; review the exact safe failure stage before the next normal sync.";
+      } else if (
+        input.syncHistory.state === "FORWARD_COLLECTION_PENDING" ||
+        attemptHistory.state === "FORWARD_COLLECTION_PENDING"
+      ) {
         state = "COLLECTING";
         label = "Saved sync receipts are collecting forward";
         guidance =
@@ -375,7 +426,20 @@ export function projectConnectionSyncEvidence({
           ? portfolio.restrictedHoldingCount
           : undefined,
         providerEventTimeStatus: "UNAVAILABLE" as const,
-        syncFailureHistoryStatus: "UNAVAILABLE" as const,
+        syncFailureHistoryStatus:
+          attemptHistory.state === "UNAVAILABLE"
+            ? ("UNAVAILABLE" as const)
+            : attemptHistory.state === "FORWARD_COLLECTION_PENDING"
+              ? ("COLLECTING" as const)
+              : ("AVAILABLE" as const),
+        syncAttemptCount: attemptHistory.attempts.length,
+        syncFailureCount: failures.length,
+        recoveredFailureCount: recoveredFailures.length,
+        currentFailureCount: currentFailures,
+        latestAttemptOutcome: latestAttempt?.outcome,
+        latestFailureAt: latestFailure?.completedAt,
+        latestFailureStage: latestFailure?.failureStage,
+        latestFailureCode: latestFailure?.errorCode,
         aiEngineCount:
           bindings?.filter(
             (binding) => binding.strategy_identifier === "ai_shadow",
@@ -556,9 +620,21 @@ export function ConnectionSyncEvidenceCenter({
                   </p>
                   <p>
                     Sync failure and retry history:{" "}
-                    {account.syncFailureHistoryStatus}. Current receipts prove
-                    successful syncs only; no failed sync is inferred.
+                    {account.syncFailureHistoryStatus}.{" "}
+                    {account.syncAttemptCount} immutable attempts loaded;{" "}
+                    {account.syncFailureCount} failed,{" "}
+                    {account.recoveredFailureCount} followed by a later saved
+                    success, {account.currentFailureCount} current.
                   </p>
+                  {account.latestFailureAt ? (
+                    <p>
+                      Latest saved failure: {account.latestFailureStage} /{" "}
+                      {account.latestFailureCode} at{" "}
+                      {readableTime(account.latestFailureAt)}. This
+                      classification contains no credentials, raw provider
+                      output, or causal claim.
+                    </p>
+                  ) : null}
                   <p>
                     Staking / earn classification: UNAVAILABLE. Coinbase’s
                     unavailable-to-trade quantity can include staking, rewards,

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppPageHeader } from "../../app-page-header";
 import { loadAccountSyncHistory } from "../../accounts/[id]/account-sync-history";
+import { loadConnectionSyncAttemptHistory } from "./connection-sync-attempt-history";
 import {
   ConnectionSyncEvidenceCenter,
   type ConnectionRuntimeBinding,
@@ -400,23 +401,35 @@ export default async function ConnectionsPage() {
     }));
   const syncEvidenceInputs = await Promise.all(
     activeFinancialAccounts.map(async (account) => {
-      const [syncHistory, reconciliationResult] = await Promise.all([
-        loadAccountSyncHistory({
-          account,
-          base,
-          headers: { cookie },
-          viewedAt: continuityObservedAt,
-        }),
-        optionalJSON<unknown>(
-          `${base}/api/accounts/${encodeURIComponent(account.id)}/reconciliations/latest`,
-          cookie,
-        ),
-      ]);
-      if (syncHistory.unauthorized || reconciliationResult.status === 401)
+      const [syncHistory, attemptHistory, reconciliationResult] =
+        await Promise.all([
+          loadAccountSyncHistory({
+            account,
+            base,
+            headers: { cookie },
+            viewedAt: continuityObservedAt,
+          }),
+          loadConnectionSyncAttemptHistory({
+            account,
+            base,
+            headers: { cookie },
+            viewedAt: continuityObservedAt,
+          }),
+          optionalJSON<unknown>(
+            `${base}/api/accounts/${encodeURIComponent(account.id)}/reconciliations/latest`,
+            cookie,
+          ),
+        ]);
+      if (
+        syncHistory.unauthorized ||
+        attemptHistory.unauthorized ||
+        reconciliationResult.status === 401
+      )
         redirect("/login");
       return {
         account,
         syncHistory,
+        attemptHistory,
         reconciliationPayload: reconciliationResult.available
           ? reconciliationResult.payload
           : undefined,

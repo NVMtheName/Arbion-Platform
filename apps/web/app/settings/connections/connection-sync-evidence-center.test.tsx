@@ -22,6 +22,7 @@ const ids = {
   instanceRules: "00000000-0000-4000-8000-000000000009",
   mandateRules: "00000000-0000-4000-8000-00000000000a",
   bucketRules: "00000000-0000-4000-8000-00000000000b",
+  failureAttempt: "00000000-0000-4000-8000-00000000000c",
 };
 
 function history(
@@ -104,6 +105,24 @@ function input(
       last_synced_at: "2026-09-07T05:50:02Z",
     },
     syncHistory: history(),
+    attemptHistory: {
+      state: "CURRENT",
+      unauthorized: false,
+      attempts: [
+        {
+          id: ids.operation,
+          providerConnectionID: ids.connection,
+          provider: "coinbase",
+          sourceOperation: "PROVIDER_ACCOUNT_DISCOVERY",
+          outcome: "SAVED",
+          accountCount: 1,
+          observedAt: "2026-09-07T05:50:00.000Z",
+          completedAt: "2026-09-07T05:50:02.000Z",
+          createdAt: "2026-09-07T05:50:02.000Z",
+          durationMilliseconds: 2000,
+        },
+      ],
+    },
     reconciliationPayload: reconciliation(),
     bindings: [
       {
@@ -158,7 +177,11 @@ describe("ConnectionSyncEvidenceCenter", () => {
       aiEngineCount: 1,
       tradeLifecycleCount: 1,
       providerEventTimeStatus: "UNAVAILABLE",
-      syncFailureHistoryStatus: "UNAVAILABLE",
+      syncFailureHistoryStatus: "AVAILABLE",
+      syncAttemptCount: 1,
+      syncFailureCount: 0,
+      recoveredFailureCount: 0,
+      currentFailureCount: 0,
     });
   });
 
@@ -170,6 +193,11 @@ describe("ConnectionSyncEvidenceCenter", () => {
             state: "FORWARD_COLLECTION_PENDING",
             checkpoints: [],
           }),
+          attemptHistory: {
+            state: "FORWARD_COLLECTION_PENDING",
+            unauthorized: false,
+            attempts: [],
+          },
         }),
       ],
       observedAt: viewedAt,
@@ -181,6 +209,61 @@ describe("ConnectionSyncEvidenceCenter", () => {
       state: "COLLECTING",
       holdingsStatus: "COMPLETE",
       holdingCount: 2,
+    });
+  });
+
+  it("shows a preserved failure as followed by a newer exact success", () => {
+    const recovered = input();
+    recovered.attemptHistory.attempts.push({
+      id: ids.failureAttempt,
+      providerConnectionID: ids.connection,
+      provider: "coinbase",
+      sourceOperation: "PROVIDER_ACCOUNT_DISCOVERY",
+      outcome: "FAILED",
+      failureStage: "ACCOUNT_DISCOVERY",
+      errorCode: "RATE_LIMITED",
+      observedAt: "2026-09-07T04:50:00.000Z",
+      completedAt: "2026-09-07T04:50:02.000Z",
+      createdAt: "2026-09-07T04:50:02.000Z",
+      durationMilliseconds: 2000,
+    });
+    const result = projectConnectionSyncEvidence({
+      inputs: [recovered],
+      observedAt: viewedAt,
+      expectedBindingCount: 2,
+    });
+    expect(result.accounts[0]).toMatchObject({
+      state: "CURRENT",
+      syncFailureCount: 1,
+      recoveredFailureCount: 1,
+      currentFailureCount: 0,
+      latestFailureStage: "ACCOUNT_DISCOVERY",
+      latestFailureCode: "RATE_LIMITED",
+    });
+
+    const current = input({
+      attemptHistory: {
+        ...recovered.attemptHistory,
+        attempts: [
+          {
+            ...recovered.attemptHistory.attempts[1],
+            observedAt: "2026-09-07T05:55:00.000Z",
+            completedAt: "2026-09-07T05:55:02.000Z",
+            createdAt: "2026-09-07T05:55:02.000Z",
+          },
+          recovered.attemptHistory.attempts[0],
+        ],
+      },
+    });
+    const currentResult = projectConnectionSyncEvidence({
+      inputs: [current],
+      observedAt: viewedAt,
+      expectedBindingCount: 2,
+    });
+    expect(currentResult.accounts[0]).toMatchObject({
+      state: "REVIEW",
+      currentFailureCount: 1,
+      latestAttemptOutcome: "FAILED",
     });
   });
 

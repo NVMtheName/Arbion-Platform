@@ -19,6 +19,7 @@ type connectionStoreFake struct {
 	account         financial.FinancialAccount
 	providerAccount string
 	connectionInUse bool
+	syncErr         error
 	lockCalls       int
 	lockDepth       int
 	inUseLock       bool
@@ -62,6 +63,9 @@ func (store *connectionStoreFake) ConnectionInUse(context.Context, string, strin
 	return store.connectionInUse, nil
 }
 func (store *connectionStoreFake) SyncAccounts(_ context.Context, _ string, connectionID string, accounts []financial.FinancialAccount) error {
+	if store.syncErr != nil {
+		return store.syncErr
+	}
 	if len(accounts) != 1 {
 		return errors.New("expected one aggregate account")
 	}
@@ -133,6 +137,7 @@ type coinbaseProviderFake struct {
 	positionData []financial.Position
 	balancesErr  error
 	positionsErr error
+	accountsErr  error
 }
 
 type schwabAuthorizerFake struct{ coinbaseProviderFake }
@@ -165,7 +170,10 @@ func (provider *coinbaseProviderFake) VerifyConnection(_ context.Context, creden
 func (provider *coinbaseProviderFake) RefreshAuthorization(ctx context.Context, credentials *financial.Credentials) error {
 	return provider.VerifyConnection(ctx, credentials)
 }
-func (*coinbaseProviderFake) ListAccounts(_ context.Context, credentials *financial.Credentials) ([]financial.FinancialAccount, error) {
+func (provider *coinbaseProviderFake) ListAccounts(_ context.Context, credentials *financial.Credentials) ([]financial.FinancialAccount, error) {
+	if provider.accountsErr != nil {
+		return nil, provider.accountsErr
+	}
 	return []financial.FinancialAccount{{Provider: "coinbase", ProviderAccountID: "portfolio:" + credentials.PortfolioID, DisplayName: "Coinbase Portfolio", AccountType: "digital_asset_portfolio", BaseCurrency: "USD", Status: "active", Capabilities: financial.Capabilities{"crypto_assets": financial.Supported}}}, nil
 }
 func (*coinbaseProviderFake) GetAccount(_ context.Context, credentials *financial.Credentials, id string) (financial.FinancialAccount, error) {
