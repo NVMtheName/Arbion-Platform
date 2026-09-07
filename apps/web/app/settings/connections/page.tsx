@@ -253,6 +253,8 @@ export default async function ConnectionsPage() {
     receipts?: FinancialAuthorizationReceipt[];
     evidence_semantics?: string;
     timestamp_precision?: string;
+    attempt_pairing_semantics?: string;
+    receipt_limit?: number;
     provider_contact_performed?: boolean;
     reconnect_performed?: boolean;
     credentials_exposed?: boolean;
@@ -268,6 +270,9 @@ export default async function ConnectionsPage() {
         "CREDENTIAL_FREE_FINANCIAL_AUTHORIZATION_RECEIPTS" &&
       authorizationReceiptPayload.timestamp_precision ===
         "MILLISECOND_CANONICAL" &&
+      authorizationReceiptPayload.attempt_pairing_semantics ===
+        "EXACT_ATTEMPT_ID_CONNECTION_BOUND" &&
+      authorizationReceiptPayload.receipt_limit === 20 &&
       authorizationReceiptPayload.provider_contact_performed === false &&
       authorizationReceiptPayload.reconnect_performed === false &&
       authorizationReceiptPayload.credentials_exposed === false &&

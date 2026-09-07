@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,8 +76,8 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO audit_events(user_id,actor_type,actor_id,action,target_type,target_id,occurred_at,metadata) VALUES
-		($1,'user',$7,'financial.authorization_started','financial_connection',NULL,$4,jsonb_build_object('provider','coinbase')),
-		($1,'user',$7,'financial.authorization_completed','financial_connection',$2::text,$5,jsonb_build_object('provider','coinbase','connection_id',$2::text,'authorization_expires_at',$6::timestamptz)),
+		($1,'user',$7,'financial.authorization_started','financial_connection',NULL,$4,jsonb_build_object('provider','coinbase','connection_id',$2::text,'attempt_id',repeat('a',64))),
+		($1,'user',$7,'financial.authorization_completed','financial_connection',$2::text,$5,jsonb_build_object('provider','coinbase','connection_id',$2::text,'attempt_id',repeat('a',64),'authorization_expires_at',$6::timestamptz)),
 		($3,'user',$8,'financial.authorization_failed','financial_connection',NULL,$5,jsonb_build_object('provider','coinbase'))`, userID, connectionA, foreignUser, authorizationStartedAt, authorizationCompletedAt, authorizationExpiresAt, userID, foreignUser); err != nil {
 		t.Fatal(err)
 	}
@@ -84,10 +85,10 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 	if err != nil || len(receipts) != 2 {
 		t.Fatalf("owner-scoped authorization receipts were unavailable: %#v err=%v", receipts, err)
 	}
-	if receipts[0].Status != "COMPLETED" || receipts[0].Provider != "coinbase" || receipts[0].ConnectionID != connectionA || receipts[0].AuthorizationExpiresAt == nil || !receipts[0].AuthorizationExpiresAt.Equal(authorizationExpiresAt) || receipts[0].CurrentLastVerifiedAt == nil || !receipts[0].CurrentLastVerifiedAt.Equal(authorizationCompletedAt) || receipts[0].AuthorizationExpiryMatchesConnection == nil || !*receipts[0].AuthorizationExpiryMatchesConnection || !receipts[0].OccurredAt.Equal(authorizationCompletedAt) {
+	if receipts[0].Status != "COMPLETED" || receipts[0].Provider != "coinbase" || receipts[0].ConnectionID != connectionA || receipts[0].AttemptID != strings.Repeat("a", 64) || receipts[0].AuthorizationExpiresAt == nil || !receipts[0].AuthorizationExpiresAt.Equal(authorizationExpiresAt) || receipts[0].CurrentLastVerifiedAt == nil || !receipts[0].CurrentLastVerifiedAt.Equal(authorizationCompletedAt) || receipts[0].AuthorizationExpiryMatchesConnection == nil || !*receipts[0].AuthorizationExpiryMatchesConnection || !receipts[0].OccurredAt.Equal(authorizationCompletedAt) {
 		t.Fatalf("completed authorization receipt was incomplete: %#v", receipts[0])
 	}
-	if receipts[1].Status != "STARTED" || receipts[1].Provider != "coinbase" || receipts[1].ConnectionID != "" || receipts[1].AuthorizationExpiresAt != nil || !receipts[1].OccurredAt.Equal(authorizationStartedAt) {
+	if receipts[1].Status != "STARTED" || receipts[1].Provider != "coinbase" || receipts[1].ConnectionID != connectionA || receipts[1].AttemptID != strings.Repeat("a", 64) || receipts[1].AuthorizationExpiresAt != nil || !receipts[1].OccurredAt.Equal(authorizationStartedAt) {
 		t.Fatalf("started authorization receipt was incomplete: %#v", receipts[1])
 	}
 	boundedReceipts, err := store.ListAuthorizationReceipts(ctx, userID, 1)

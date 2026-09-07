@@ -2,6 +2,7 @@ package financialconnection
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -122,6 +123,45 @@ func (s *Service) record(ctx context.Context, user, action string, meta map[stri
 		s.audit.Record(ctx, &user, action, meta)
 	}
 }
+
+func newAuthorizationAttemptID() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value), nil
+}
+
+func authorizationAttemptIDFromState(state string) string {
+	digest := sha256.Sum256([]byte("arbion:financial-authorization-attempt:" + state))
+	return hex.EncodeToString(digest[:])
+}
+
+func authorizationAuditMetadata(provider, attemptID, connectionID string) map[string]any {
+	metadata := map[string]any{"provider": provider, "attempt_id": attemptID}
+	if connectionID != "" {
+		metadata["connection_id"] = connectionID
+	}
+	return metadata
+}
+
+func (s *Service) uniqueAuthorizationConnection(ctx context.Context, userID, provider string) string {
+	connections, err := s.store.ListConnections(ctx, userID)
+	if err != nil {
+		return ""
+	}
+	connectionID := ""
+	for _, connection := range connections {
+		if connection.Provider != provider || strings.TrimSpace(connection.ID) == "" {
+			continue
+		}
+		if connectionID != "" {
+			return ""
+		}
+		connectionID = connection.ID
+	}
+	return connectionID
+}
 func (s *Service) ListConnections(ctx context.Context, p authorization.Principal) ([]Connection, error) {
 	if !allowed(p) {
 		return nil, ErrForbidden
@@ -142,35 +182,43 @@ func (s *Service) StartAuthorization(ctx context.Context, p authorization.Princi
 	}
 	u, e := provider.AuthorizationURL(state)
 	if e == nil {
-		s.record(ctx, p.UserID, "financial.authorization_started", map[string]any{"provider": "schwab"})
+		s.record(ctx, p.UserID, "financial.authorization_started", authorizationAuditMetadata(
+			"schwab", authorizationAttemptIDFromState(state), s.uniqueAuthorizationConnection(ctx, p.UserID, "schwab"),
+		))
 	}
 	return u, e
 }
 func (s *Service) CompleteAuthorization(ctx context.Context, state, code, providerError string) (string, error) {
+	attemptID := authorizationAttemptIDFromState(state)
 	r, e := s.states.Take(ctx, state)
 	if e != nil {
 		return "", e
 	}
 	if providerError != "" || code == "" {
-		s.record(ctx, r.UserID, "financial.authorization_failed", map[string]any{"provider": "schwab", "outcome": "cancelled"})
+		metadata := authorizationAuditMetadata("schwab", attemptID, s.uniqueAuthorizationConnection(ctx, r.UserID, "schwab"))
+		metadata["outcome"] = "cancelled"
+		s.record(ctx, r.UserID, "financial.authorization_failed", metadata)
 		return r.UserID, &financial.ProviderError{Code: financial.AuthorizationFailed}
 	}
 	provider, ok := s.authorizers["schwab"]
 	if !ok {
+		s.record(ctx, r.UserID, "financial.authorization_failed", authorizationAuditMetadata("schwab", attemptID, s.uniqueAuthorizationConnection(ctx, r.UserID, "schwab")))
 		return r.UserID, &financial.ProviderError{Code: financial.ProviderUnavailable}
 	}
 	cr, e := provider.Exchange(ctx, code)
 	if e != nil {
-		s.record(ctx, r.UserID, "financial.authorization_failed", map[string]any{"provider": "schwab"})
+		s.record(ctx, r.UserID, "financial.authorization_failed", authorizationAuditMetadata("schwab", attemptID, s.uniqueAuthorizationConnection(ctx, r.UserID, "schwab")))
 		return r.UserID, e
 	}
 	authorizationExpiresAt := time.Now().UTC().Add(schwabAuthorizationLifetime)
 	c, e := s.store.UpsertConnection(ctx, r.UserID, "schwab", "Charles Schwab", credentialExpiry(cr), &authorizationExpiresAt)
 	if e != nil {
+		s.record(ctx, r.UserID, "financial.authorization_failed", authorizationAuditMetadata("schwab", attemptID, s.uniqueAuthorizationConnection(ctx, r.UserID, "schwab")))
 		return r.UserID, e
 	}
 	raw, e := cr.Bytes()
 	if e != nil {
+		s.record(ctx, r.UserID, "financial.authorization_failed", authorizationAuditMetadata("schwab", attemptID, c.ID))
 		return r.UserID, e
 	}
 	defer clear(raw)
@@ -181,13 +229,17 @@ func (s *Service) CompleteAuthorization(ctx context.Context, state, code, provid
 		}
 		return nil
 	}); e != nil {
+		s.record(ctx, r.UserID, "financial.authorization_failed", authorizationAuditMetadata("schwab", attemptID, c.ID))
 		return r.UserID, e
 	}
 	if e = s.sync(ctx, r.UserID, c.ID); e != nil {
 		s.store.SetStatus(ctx, r.UserID, c.ID, "error", nil)
+		s.record(ctx, r.UserID, "financial.authorization_failed", authorizationAuditMetadata("schwab", attemptID, c.ID))
 		return r.UserID, e
 	}
-	s.record(ctx, r.UserID, "financial.authorization_completed", map[string]any{"provider": "schwab", "connection_id": c.ID, "authorization_expires_at": authorizationExpiresAt})
+	metadata := authorizationAuditMetadata("schwab", attemptID, c.ID)
+	metadata["authorization_expires_at"] = authorizationExpiresAt
+	s.record(ctx, r.UserID, "financial.authorization_completed", metadata)
 	return r.UserID, nil
 }
 func (s *Service) ConnectAPIKey(ctx context.Context, p authorization.Principal, providerID, keyName, privateKey string) (Connection, error) {
@@ -204,9 +256,14 @@ func (s *Service) ConnectAPIKey(ctx context.Context, p authorization.Principal, 
 	if !ok {
 		return Connection{}, &financial.ProviderError{Code: financial.ProviderUnavailable}
 	}
+	attemptID, err := newAuthorizationAttemptID()
+	if err != nil {
+		return Connection{}, err
+	}
+	s.record(ctx, p.UserID, "financial.authorization_started", authorizationAuditMetadata(providerID, attemptID, ""))
 	credentials := financial.Credentials{APIKeyName: keyName, APIPrivateKey: privateKey}
 	if err := provider.VerifyConnection(ctx, &credentials); err != nil {
-		metadata := map[string]any{"provider": providerID}
+		metadata := authorizationAuditMetadata(providerID, attemptID, "")
 		var providerError *financial.ProviderError
 		if errors.As(err, &providerError) {
 			metadata["code"] = providerError.Code
@@ -215,15 +272,18 @@ func (s *Service) ConnectAPIKey(ctx context.Context, p authorization.Principal, 
 		return Connection{}, err
 	}
 	if strings.TrimSpace(credentials.PortfolioID) == "" {
+		s.record(ctx, p.UserID, "financial.authorization_failed", authorizationAuditMetadata(providerID, attemptID, ""))
 		return Connection{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
 	}
 	providerAccountID := "portfolio:" + credentials.PortfolioID
 	connection, err := s.store.UpsertConnectionForAccount(ctx, p.UserID, providerID, apiKeyConnectionName(providerID, providerAccountID), providerAccountID, nil, nil)
 	if err != nil {
+		s.record(ctx, p.UserID, "financial.authorization_failed", authorizationAuditMetadata(providerID, attemptID, ""))
 		return Connection{}, err
 	}
 	raw, err := credentials.Bytes()
 	if err != nil {
+		s.record(ctx, p.UserID, "financial.authorization_failed", authorizationAuditMetadata(providerID, attemptID, connection.ID))
 		return Connection{}, err
 	}
 	defer clear(raw)
@@ -235,15 +295,19 @@ func (s *Service) ConnectAPIKey(ctx context.Context, p authorization.Principal, 
 		return nil
 	}); err != nil {
 		_, _ = s.store.SetStatus(ctx, p.UserID, connection.ID, "error", nil)
+		s.record(ctx, p.UserID, "financial.authorization_failed", authorizationAuditMetadata(providerID, attemptID, connection.ID))
 		return Connection{}, err
 	}
 	if err = s.sync(ctx, p.UserID, connection.ID); err != nil {
 		_, _ = s.store.SetStatus(ctx, p.UserID, connection.ID, "error", nil)
+		s.record(ctx, p.UserID, "financial.authorization_failed", authorizationAuditMetadata(providerID, attemptID, connection.ID))
 		return Connection{}, err
 	}
 	connection, err = s.store.GetConnection(ctx, p.UserID, connection.ID)
 	if err == nil {
-		s.record(ctx, p.UserID, "financial.authorization_completed", map[string]any{"provider": providerID, "connection_id": connection.ID})
+		s.record(ctx, p.UserID, "financial.authorization_completed", authorizationAuditMetadata(providerID, attemptID, connection.ID))
+	} else {
+		s.record(ctx, p.UserID, "financial.authorization_failed", authorizationAuditMetadata(providerID, attemptID, connection.ID))
 	}
 	return connection, err
 }

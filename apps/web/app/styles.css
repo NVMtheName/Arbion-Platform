@@ -8020,6 +8020,200 @@ button:disabled {
   font-size: 0.68rem;
   line-height: 1.5;
 }
+.financial-authorization-timeline {
+  overflow: hidden;
+  border: 1px solid rgba(111, 170, 255, 0.25);
+  border-radius: 18px;
+  background: rgba(5, 18, 22, 0.78);
+}
+.financial-authorization-timeline.is-attention {
+  border-color: rgba(245, 190, 92, 0.4);
+}
+.financial-authorization-timeline.is-unavailable {
+  border-color: rgba(241, 129, 129, 0.42);
+}
+.financial-authorization-timeline > header,
+.financial-authorization-timeline > ol > li > header,
+.financial-authorization-timeline > ol > li > footer,
+.financial-authorization-timeline details > summary,
+.financial-authorization-timeline details li,
+.financial-authorization-timeline details li > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.financial-authorization-timeline > header {
+  align-items: flex-start;
+  padding: 20px;
+  border-bottom: 1px solid rgba(111, 170, 255, 0.13);
+}
+.financial-authorization-timeline > header h2 {
+  margin: 6px 0 0;
+  color: #e4edf1;
+  font-size: 1.15rem;
+}
+.financial-authorization-timeline > header p:last-child,
+.financial-authorization-timeline > ol > li > p,
+.financial-authorization-timeline details > p {
+  margin: 8px 0 0;
+  color: #849aa1;
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+.financial-authorization-timeline > header > span,
+.financial-authorization-timeline > ol > li > header > span,
+.financial-authorization-timeline details > summary > span {
+  flex: 0 0 auto;
+  color: #9ec5fa;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.financial-authorization-timeline > ol {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 14px;
+  list-style: none;
+}
+.financial-authorization-timeline > ol > li {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid rgba(111, 170, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(3, 14, 17, 0.72);
+}
+.financial-authorization-timeline > ol > li:not(.is-current) {
+  border-color: rgba(245, 190, 92, 0.3);
+}
+.financial-authorization-timeline > ol > li > header strong,
+.financial-authorization-timeline > ol > li > header small {
+  display: block;
+}
+.financial-authorization-timeline > ol > li > header strong {
+  color: #deebf0;
+  font-size: 0.8rem;
+}
+.financial-authorization-timeline > ol > li > header small,
+.financial-authorization-timeline > ol > li > footer span {
+  margin-top: 3px;
+  color: #6f858c;
+  font-size: 0.62rem;
+}
+.financial-authorization-timeline > ol > li > h3 {
+  margin: 15px 0 0;
+  color: #d5e4ea;
+  font-size: 0.82rem;
+}
+.financial-authorization-timeline dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 14px 0;
+  border: 1px solid rgba(111, 170, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(111, 170, 255, 0.12);
+}
+.financial-authorization-timeline dl > div {
+  min-width: 0;
+  padding: 10px;
+  background: #07161a;
+}
+.financial-authorization-timeline dt,
+.financial-authorization-timeline dd,
+.financial-authorization-timeline dl small {
+  overflow-wrap: anywhere;
+}
+.financial-authorization-timeline dt {
+  color: #6f858c;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.financial-authorization-timeline dd {
+  margin: 4px 0 0;
+  color: #d5e4ea;
+  font-size: 0.7rem;
+}
+.financial-authorization-timeline dl small {
+  display: block;
+  margin-top: 3px;
+  color: #6f858c;
+  font-size: 0.59rem;
+  line-height: 1.4;
+}
+.financial-authorization-timeline details {
+  overflow: hidden;
+  margin: 0 0 13px;
+  border: 1px solid rgba(111, 170, 255, 0.12);
+  border-radius: 10px;
+}
+.financial-authorization-timeline details > summary {
+  padding: 10px;
+  color: #8ea7af;
+  cursor: pointer;
+  font-size: 0.65rem;
+  font-weight: 760;
+}
+.financial-authorization-timeline details[open] > summary {
+  border-bottom: 1px solid rgba(111, 170, 255, 0.1);
+}
+.financial-authorization-timeline details > p {
+  padding: 0 10px 10px;
+}
+.financial-authorization-timeline details > ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.financial-authorization-timeline details li {
+  align-items: flex-start;
+  padding: 9px 10px;
+  border-bottom: 1px solid rgba(111, 170, 255, 0.08);
+}
+.financial-authorization-timeline details li:last-child {
+  border-bottom: 0;
+}
+.financial-authorization-timeline details li > div {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+}
+.financial-authorization-timeline details li > div:last-child {
+  align-items: flex-end;
+  text-align: right;
+}
+.financial-authorization-timeline details strong,
+.financial-authorization-timeline details span,
+.financial-authorization-timeline details small {
+  color: #80979f;
+  font-size: 0.6rem;
+}
+.financial-authorization-timeline details strong {
+  color: #b7cbd2;
+}
+.financial-authorization-timeline > ol > li > footer {
+  padding-top: 11px;
+  border-top: 1px solid rgba(111, 170, 255, 0.1);
+}
+.financial-authorization-timeline a {
+  color: #8fc0fa;
+  font-size: 0.65rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.financial-authorization-timeline > footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(111, 170, 255, 0.12);
+  color: #6f858c;
+  font-size: 0.64rem;
+  line-height: 1.5;
+}
 .connection-sync-evidence-center {
   margin-bottom: 28px;
   overflow: hidden;
@@ -18088,6 +18282,22 @@ h1 {
   .financial-connection-workspace > ol,
   .financial-connection-workspace dl {
     grid-template-columns: 1fr;
+  }
+  .financial-authorization-timeline > header,
+  .financial-authorization-timeline > ol > li > header,
+  .financial-authorization-timeline > ol > li > footer,
+  .financial-authorization-timeline details > summary,
+  .financial-authorization-timeline details li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .financial-authorization-timeline > ol,
+  .financial-authorization-timeline dl {
+    grid-template-columns: 1fr;
+  }
+  .financial-authorization-timeline details li > div:last-child {
+    align-items: flex-start;
+    text-align: left;
   }
   .connection-sync-evidence-center > header,
   .connection-sync-evidence-center > ol > li > header,

@@ -661,13 +661,18 @@ func TestScheduledReconciliationRejectsFutureEvidenceAndRefreshesLegacyMatch(t *
 }
 
 func TestSchwabAuthorizationStoresTheWeeklyReauthorizationDeadline(t *testing.T) {
-	store := &connectionStoreFake{}
+	store := &connectionStoreFake{connection: Connection{ID: "connection-1", Provider: "schwab", Status: "active"}}
 	states := oauthstate.New(oauthstate.NewMemoryStore(), time.Minute)
 	provider := &schwabAuthorizerFake{}
-	service := NewService(store, &vaultFake{}, states, provider, nil)
-	state, err := states.Start(context.Background(), founder().UserID)
+	audit := &reconciliationAuditFake{}
+	service := NewService(store, &vaultFake{}, states, provider, audit)
+	authorizationURL, err := service.StartAuthorization(context.Background(), founder())
 	if err != nil {
 		t.Fatal(err)
+	}
+	state := strings.TrimPrefix(authorizationURL, "https://schwab.example/authorize?state=")
+	if state == authorizationURL || state == "" {
+		t.Fatalf("authorization state missing from URL: %q", authorizationURL)
 	}
 	started := time.Now().UTC()
 	userID, err := service.CompleteAuthorization(context.Background(), state, "authorization-code", "")
@@ -682,13 +687,53 @@ func TestSchwabAuthorizationStoresTheWeeklyReauthorizationDeadline(t *testing.T)
 	if store.connection.AuthorizationExpiresAt.Before(minimum) || store.connection.AuthorizationExpiresAt.After(maximum) {
 		t.Fatalf("unexpected weekly authorization deadline: %s", store.connection.AuthorizationExpiresAt)
 	}
+	if len(audit.actions) != 4 || audit.actions[0] != "financial.authorization_started" || audit.actions[3] != "financial.authorization_completed" {
+		t.Fatalf("authorization attempt receipts missing: %#v", audit.actions)
+	}
+	startedAttempt, _ := audit.metadata[0]["attempt_id"].(string)
+	completedAttempt, _ := audit.metadata[3]["attempt_id"].(string)
+	if len(startedAttempt) != 64 || startedAttempt != completedAttempt || audit.metadata[0]["connection_id"] != "connection-1" || audit.metadata[3]["connection_id"] != "connection-1" {
+		t.Fatalf("authorization attempt identity was not exact: %#v", audit.metadata)
+	}
+	encoded, err := json.Marshal(audit.metadata)
+	if err != nil || containsAny(string(encoded), state, "authorization-code", "access-token", "refresh-token") {
+		t.Fatalf("authorization receipts exposed protected material: %s %v", encoded, err)
+	}
+}
+
+func TestSchwabAuthorizationFailurePreservesTheExactAttemptWithoutProviderData(t *testing.T) {
+	store := &connectionStoreFake{connection: Connection{ID: "connection-1", Provider: "schwab", Status: "active"}}
+	states := oauthstate.New(oauthstate.NewMemoryStore(), time.Minute)
+	audit := &reconciliationAuditFake{}
+	service := NewService(store, &vaultFake{}, states, &schwabAuthorizerFake{}, audit)
+	authorizationURL, err := service.StartAuthorization(context.Background(), founder())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := strings.TrimPrefix(authorizationURL, "https://schwab.example/authorize?state=")
+	if _, err = service.CompleteAuthorization(context.Background(), state, "", "access_denied"); err == nil {
+		t.Fatal("cancelled authorization unexpectedly succeeded")
+	}
+	if len(audit.actions) != 2 || audit.actions[0] != "financial.authorization_started" || audit.actions[1] != "financial.authorization_failed" {
+		t.Fatalf("failed authorization receipt chain changed: %#v", audit.actions)
+	}
+	startedAttempt, _ := audit.metadata[0]["attempt_id"].(string)
+	failedAttempt, _ := audit.metadata[1]["attempt_id"].(string)
+	if len(startedAttempt) != 64 || failedAttempt != startedAttempt || audit.metadata[0]["connection_id"] != "connection-1" || audit.metadata[1]["connection_id"] != "connection-1" {
+		t.Fatalf("failed authorization attempt identity changed: %#v", audit.metadata)
+	}
+	encoded, marshalErr := json.Marshal(audit.metadata)
+	if marshalErr != nil || containsAny(string(encoded), state, "access_denied") {
+		t.Fatalf("failed authorization receipts exposed callback data: %s %v", encoded, marshalErr)
+	}
 }
 
 func TestConnectAPIKeyStoresServerOnlyCredentialsAndRoutesAccountReads(t *testing.T) {
 	store := &connectionStoreFake{}
 	vault := &vaultFake{}
 	provider := &coinbaseProviderFake{}
-	service := NewService(store, vault, nil, nil, nil, NamedProvider{ID: "coinbase", Provider: provider})
+	audit := &reconciliationAuditFake{}
+	service := NewService(store, vault, nil, nil, audit, NamedProvider{ID: "coinbase", Provider: provider})
 
 	connection, err := service.ConnectAPIKey(context.Background(), founder(), "coinbase", "organizations/org/apiKeys/key", "private-key")
 	if err != nil {
@@ -706,6 +751,18 @@ func TestConnectAPIKeyStoresServerOnlyCredentialsAndRoutesAccountReads(t *testin
 	}
 	if stored.APIPrivateKey != "private-key" || stored.PortfolioID != "portfolio-1" || !stored.ProviderCanTrade {
 		t.Fatalf("credential payload was not stored through the vault: %#v", stored)
+	}
+	if len(audit.actions) != 4 || audit.actions[0] != "financial.authorization_started" || audit.actions[3] != "financial.authorization_completed" {
+		t.Fatalf("Coinbase authorization receipts missing: %#v", audit.actions)
+	}
+	startedAttempt, _ := audit.metadata[0]["attempt_id"].(string)
+	completedAttempt, _ := audit.metadata[3]["attempt_id"].(string)
+	if len(startedAttempt) != 64 || startedAttempt != completedAttempt || audit.metadata[3]["connection_id"] != connection.ID {
+		t.Fatalf("Coinbase attempt identity was not preserved: %#v", audit.metadata)
+	}
+	auditPayload, err := json.Marshal(audit.metadata)
+	if err != nil || containsAny(string(auditPayload), "private-key", "organizations/org/apiKeys/key") {
+		t.Fatalf("Coinbase receipt metadata exposed credentials: %s %v", auditPayload, err)
 	}
 	public, err := json.Marshal(connection)
 	if err != nil || string(public) == "" || containsAny(string(public), "private-key", "organizations/org/apiKeys/key") {
@@ -741,6 +798,26 @@ func TestConnectAPIKeyRequiresFinancialEntitlementAndValidInput(t *testing.T) {
 	}
 	if _, err := service.ConnectAPIKey(context.Background(), founder(), "coinbase", "", "key"); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected invalid input rejection, got %v", err)
+	}
+}
+
+func TestRejectedAPIKeyAttemptIsPairedWithoutCredentialMetadata(t *testing.T) {
+	audit := &reconciliationAuditFake{}
+	service := NewService(&connectionStoreFake{}, &vaultFake{}, nil, nil, audit, NamedProvider{ID: "coinbase", Provider: &coinbaseProviderFake{}})
+	if _, err := service.ConnectAPIKey(context.Background(), founder(), "coinbase", "organizations/wrong/apiKeys/key", "wrong-private-key"); err == nil {
+		t.Fatal("rejected Coinbase credentials unexpectedly connected")
+	}
+	if len(audit.actions) != 2 || audit.actions[0] != "financial.authorization_started" || audit.actions[1] != "financial.authorization_failed" {
+		t.Fatalf("rejected key receipts changed: %#v", audit.actions)
+	}
+	startedAttempt, _ := audit.metadata[0]["attempt_id"].(string)
+	failedAttempt, _ := audit.metadata[1]["attempt_id"].(string)
+	if len(startedAttempt) != 64 || failedAttempt != startedAttempt {
+		t.Fatalf("rejected key attempt identity changed: %#v", audit.metadata)
+	}
+	encoded, err := json.Marshal(audit.metadata)
+	if err != nil || containsAny(string(encoded), "organizations/wrong/apiKeys/key", "wrong-private-key") {
+		t.Fatalf("rejected key receipts exposed credentials: %s %v", encoded, err)
 	}
 }
 
