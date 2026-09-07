@@ -113,6 +113,37 @@ func TestFinancialConnectionSyncFailureMigrationIsCredentialFreeImmutableAndOwne
 	}
 }
 
+func TestLiveSafetyCaseEvidenceMigrationIsImmutableNonExecutableAndOwnerScoped(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00042_live_safety_case_evidence.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"live_safety_case_evidence",
+		"assessment_state IN ('UNAVAILABLE','BLOCKED_UNIMPLEMENTED')",
+		"structural_blocker",
+		"action_digest_sha256",
+		"evidence_sha256",
+		"content_sha256",
+		"LIVE_RUNTIME_UNIMPLEMENTED",
+		"enforce_live_safety_case_evidence",
+		"reject_live_safety_case_evidence_mutation",
+		"cannot remove immutable live safety case evidence",
+	} {
+		if !strings.Contains(strings.ReplaceAll(string(body), " ", ""), strings.ReplaceAll(required, " ", "")) {
+			t.Errorf("live safety evidence migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{
+		"provider_order_id", "client_order_id", "submit_order", "create_order",
+		"encrypted_credential", "credential_payload", "execution_command", "request_payload",
+	} {
+		if strings.Contains(strings.ToLower(string(body)), prohibited) {
+			t.Errorf("live safety evidence migration unexpectedly contains %q", prohibited)
+		}
+	}
+}
+
 func TestNonLiveStrategyMigrationSeparatesSimulationAndHistory(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00008_nonlive_strategy.sql")
 	if err != nil {
