@@ -15,6 +15,17 @@ import type { FinancialAccount, FinancialConnection } from "./page";
 
 type OperatingState = "ON_COURSE" | "COLLECTING" | "REVIEW" | "UNAVAILABLE";
 
+export type FinancialAuthorizationReceipt = {
+  id: string;
+  provider: string;
+  status: "STARTED" | "COMPLETED" | "FAILED";
+  connection_id?: string;
+  authorization_expires_at?: string;
+  current_last_verified_at?: string;
+  authorization_expiry_matches_current_connection?: boolean;
+  occurred_at: string;
+};
+
 export type FinancialConnectionOperatingBriefProjection = {
   status: "VERIFIED" | "ATTENTION" | "UNAVAILABLE";
   onCourseCount: number;
@@ -30,6 +41,13 @@ export type FinancialConnectionOperatingBriefProjection = {
     guidance: string;
     connectionStatus: string;
     authorizationExpiresAt?: string;
+    authorizationReceiptStatus:
+      | "COMPLETED"
+      | "PENDING"
+      | "FAILED"
+      | "UNAVAILABLE";
+    authorizationReceiptLabel: string;
+    authorizationReceiptAt?: string;
     accountCount: number;
     latestPortfolioObservedAt?: string;
     syncAttemptCount: number;
@@ -81,6 +99,97 @@ function latestTime(values: Array<string | undefined>) {
   )[0];
 }
 
+function authorizationReceiptForConnection({
+  connection,
+  receipts,
+  observedAt,
+  evidenceAvailable,
+}: {
+  connection: ReturnType<
+    typeof projectFinancialContinuityCenter
+  >["connections"][number];
+  receipts: FinancialAuthorizationReceipt[];
+  observedAt: string;
+  evidenceAvailable: boolean;
+}) {
+  const observed = Date.parse(observedAt);
+  const providerReceipts = receipts.filter(
+    (receipt) => receipt.provider === connection.provider,
+  );
+  const receiptTimes = providerReceipts.map((receipt) => receipt.occurred_at);
+  if (
+    !evidenceAvailable ||
+    !Number.isFinite(observed) ||
+    providerReceipts.length === 0 ||
+    new Set(providerReceipts.map((receipt) => receipt.id)).size !==
+      providerReceipts.length ||
+    new Set(receiptTimes).size !== receiptTimes.length ||
+    providerReceipts.some((receipt) => {
+      const occurred = Date.parse(receipt.occurred_at);
+      return (
+        !receipt.id ||
+        !Number.isFinite(occurred) ||
+        occurred > observed ||
+        !["STARTED", "COMPLETED", "FAILED"].includes(receipt.status)
+      );
+    })
+  ) {
+    return {
+      status: "UNAVAILABLE" as const,
+      label: "Authorization receipt unavailable",
+    };
+  }
+  const sortedReceipts = providerReceipts.toSorted(
+    (left, right) =>
+      Date.parse(right.occurred_at) - Date.parse(left.occurred_at),
+  );
+  const latest = sortedReceipts[0];
+  if (latest.status === "STARTED") {
+    return {
+      status: "PENDING" as const,
+      label: "Provider callback has not completed",
+      occurredAt: latest.occurred_at,
+    };
+  }
+  if (latest.status === "FAILED") {
+    return {
+      status: "FAILED" as const,
+      label: "Latest authorization attempt failed closed",
+      occurredAt: latest.occurred_at,
+    };
+  }
+  const completion =
+    latest.connection_id === connection.id
+      ? latest
+      : sortedReceipts.find(
+          (receipt) =>
+            receipt.status === "COMPLETED" &&
+            receipt.connection_id === connection.id,
+        );
+  const lastVerifiedAt = connection.lastVerifiedAt
+    ? Date.parse(connection.lastVerifiedAt)
+    : Number.NaN;
+  if (
+    !completion ||
+    !Number.isFinite(lastVerifiedAt) ||
+    lastVerifiedAt > observed ||
+    lastVerifiedAt < Date.parse(completion.occurred_at) - 5 * 60 * 1000 ||
+    completion.current_last_verified_at !== connection.lastVerifiedAt ||
+    completion.authorization_expiry_matches_current_connection !== true
+  ) {
+    return {
+      status: "UNAVAILABLE" as const,
+      label: "Authorization receipt does not match this connection",
+      occurredAt: completion?.occurred_at ?? latest.occurred_at,
+    };
+  }
+  return {
+    status: "COMPLETED" as const,
+    label: "Latest authorization completed",
+    occurredAt: completion.occurred_at,
+  };
+}
+
 export function projectFinancialConnectionOperatingBrief({
   connections,
   accounts,
@@ -89,6 +198,8 @@ export function projectFinancialConnectionOperatingBrief({
   observedAt,
   contextAvailable,
   expectedBindingCount,
+  authorizationReceipts,
+  authorizationEvidenceAvailable,
 }: {
   connections: FinancialConnection[];
   accounts: FinancialAccount[];
@@ -97,6 +208,8 @@ export function projectFinancialConnectionOperatingBrief({
   observedAt: string;
   contextAvailable: boolean;
   expectedBindingCount: number;
+  authorizationReceipts: FinancialAuthorizationReceipt[];
+  authorizationEvidenceAvailable: boolean;
 }): FinancialConnectionOperatingBriefProjection {
   const continuity = projectFinancialContinuityCenter({
     connections,
@@ -110,6 +223,12 @@ export function projectFinancialConnectionOperatingBrief({
     expectedBindingCount,
   });
   const projected = continuity.connections.map((connection) => {
+    const authorizationReceipt = authorizationReceiptForConnection({
+      connection,
+      receipts: authorizationReceipts,
+      observedAt,
+      evidenceAvailable: authorizationEvidenceAvailable,
+    });
     const linkedAccountIDs = accounts
       .filter((account) => account.provider_connection_id === connection.id)
       .map((account) => account.id)
@@ -126,6 +245,7 @@ export function projectFinancialConnectionOperatingBrief({
       !contextAvailable ||
       connection.state === "UNAVAILABLE" ||
       !completeSyncScope ||
+      authorizationReceipt.status === "UNAVAILABLE" ||
       linkedSync.some((account) => account.state === "UNAVAILABLE");
     const currentFailureCount = linkedSync.reduce(
       (count, account) => count + account.currentFailureCount,
@@ -136,6 +256,8 @@ export function projectFinancialConnectionOperatingBrief({
     );
     const review =
       connection.attention ||
+      authorizationReceipt.status === "PENDING" ||
+      authorizationReceipt.status === "FAILED" ||
       currentFailureCount > 0 ||
       linkedSync.some((account) => account.state === "REVIEW");
     let state: OperatingState = "ON_COURSE";
@@ -152,11 +274,19 @@ export function projectFinancialConnectionOperatingBrief({
       label =
         currentFailureCount > 0
           ? "The newest account sync failed closed"
-          : connection.label;
+          : authorizationReceipt.status === "PENDING"
+            ? "The latest authorization callback is still pending"
+            : authorizationReceipt.status === "FAILED"
+              ? "The latest authorization attempt failed closed"
+              : connection.label;
       guidance =
         currentFailureCount > 0
           ? "Existing holdings and non-live engines are unchanged. Review the saved failure stage; a future normal sync can prove recovery."
-          : connection.guidance;
+          : authorizationReceipt.status === "PENDING"
+            ? "Finish the provider callback in the same browser session. Existing holdings and non-live engines remain unchanged while Arbion waits for an exact completion receipt."
+            : authorizationReceipt.status === "FAILED"
+              ? "Reconnect from the provider card when ready. Existing holdings and non-live engines remain unchanged; Arbion will not infer a renewal from an incomplete attempt."
+              : connection.guidance;
     } else if (collecting) {
       state = "COLLECTING";
       label = "Sync reliability evidence is collecting forward";
@@ -175,6 +305,9 @@ export function projectFinancialConnectionOperatingBrief({
       guidance,
       connectionStatus: connection.connectionStatus ?? "UNAVAILABLE",
       authorizationExpiresAt: connection.authorizationExpiresAt,
+      authorizationReceiptStatus: authorizationReceipt.status,
+      authorizationReceiptLabel: authorizationReceipt.label,
+      authorizationReceiptAt: authorizationReceipt.occurredAt,
       accountCount: linkedAccountIDs.length,
       latestPortfolioObservedAt: latestTime(
         linkedSync.map((account) => account.latestPortfolioObservedAt),
@@ -235,6 +368,8 @@ export function FinancialConnectionOperatingWorkspace({
   observedAt,
   contextAvailable,
   expectedBindingCount,
+  authorizationReceipts,
+  authorizationEvidenceAvailable,
 }: {
   connections: FinancialConnection[];
   accounts: FinancialAccount[];
@@ -243,6 +378,8 @@ export function FinancialConnectionOperatingWorkspace({
   observedAt: string;
   contextAvailable: boolean;
   expectedBindingCount: number;
+  authorizationReceipts: FinancialAuthorizationReceipt[];
+  authorizationEvidenceAvailable: boolean;
 }) {
   if (connections.length === 0) return null;
   const brief = projectFinancialConnectionOperatingBrief({
@@ -253,6 +390,8 @@ export function FinancialConnectionOperatingWorkspace({
     observedAt,
     contextAvailable,
     expectedBindingCount,
+    authorizationReceipts,
+    authorizationEvidenceAvailable,
   });
   const attention = brief.status !== "VERIFIED";
   const headline =
@@ -312,6 +451,16 @@ export function FinancialConnectionOperatingWorkspace({
                   {connection.authorizationExpiresAt
                     ? `Authorization expires ${readableTime(connection.authorizationExpiresAt)}`
                     : "No fixed authorization expiry saved"}
+                </small>
+              </div>
+              <div>
+                <dt>Authorization receipt</dt>
+                <dd>{connection.authorizationReceiptStatus}</dd>
+                <small>
+                  {connection.authorizationReceiptLabel}
+                  {connection.authorizationReceiptAt
+                    ? ` · ${readableTime(connection.authorizationReceiptAt)}`
+                    : ""}
                 </small>
               </div>
               <div>

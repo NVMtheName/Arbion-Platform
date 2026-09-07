@@ -191,6 +191,7 @@ func newFullApplicationHandler(database ReadinessChecker, cfg config.Config, ser
 	registerMarketWatchlistRoutes(mux, h)
 	if h.financial != nil {
 		mux.Handle("GET /api/connections/financial", h.require(stdhttp.HandlerFunc(h.listFinancialConnections)))
+		mux.Handle("GET /api/connections/financial/authorization-receipts", h.require(stdhttp.HandlerFunc(h.financialAuthorizationReceipts)))
 		mux.Handle("POST /api/connections/financial/schwab/start", h.require(stdhttp.HandlerFunc(h.startSchwab)))
 		mux.HandleFunc("GET /api/connections/financial/schwab/callback", h.callbackSchwab)
 		mux.Handle("POST /api/connections/financial/coinbase", h.require(stdhttp.HandlerFunc(h.connectCoinbase)))
@@ -390,6 +391,29 @@ func (h *authHandler) listFinancialConnections(w stdhttp.ResponseWriter, r *stdh
 		return
 	}
 	writeJSON(w, 200, map[string]any{"connections": v})
+}
+func (h *authHandler) financialAuthorizationReceipts(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	receipts, err := h.financial.AuthorizationReceipts(r.Context(), principal(r))
+	if errors.Is(err, financialconnection.ErrAuthorizationReceiptUnavailable) {
+		writeError(w, 503, "AUTHORIZATION_RECEIPTS_UNAVAILABLE", "Saved financial authorization receipts are unavailable.")
+		return
+	}
+	if err != nil {
+		h.financialError(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"receipts":                   receipts,
+		"evidence_semantics":         "CREDENTIAL_FREE_FINANCIAL_AUTHORIZATION_RECEIPTS",
+		"timestamp_precision":        "MILLISECOND_CANONICAL",
+		"provider_contact_performed": false,
+		"reconnect_performed":        false,
+		"credentials_exposed":        false,
+		"account_mutation_available": false,
+		"broker_action_available":    false,
+		"live_execution_available":   false,
+	})
 }
 func (h *authHandler) startSchwab(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	if !h.schwabConfigured {

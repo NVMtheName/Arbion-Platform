@@ -6,7 +6,10 @@ import { loadAccountSyncHistory } from "../../accounts/[id]/account-sync-history
 import { loadConnectionSyncAttemptHistory } from "./connection-sync-attempt-history";
 import type { ConnectionRuntimeBinding } from "./connection-sync-evidence-center";
 import { ConnectionsManager } from "./connections-manager";
-import { FinancialConnectionOperatingWorkspace } from "./financial-connection-operating-brief";
+import {
+  FinancialConnectionOperatingWorkspace,
+  type FinancialAuthorizationReceipt,
+} from "./financial-connection-operating-brief";
 import {
   type FinancialContinuityEngine,
   type FinancialContinuityRun,
@@ -245,6 +248,36 @@ export default async function ConnectionsPage() {
     : [];
   const financialAccounts = Array.isArray(financialAccountsPayload?.accounts)
     ? financialAccountsPayload.accounts
+    : [];
+  const authorizationReceiptResult = await optionalJSON<{
+    receipts?: FinancialAuthorizationReceipt[];
+    evidence_semantics?: string;
+    timestamp_precision?: string;
+    provider_contact_performed?: boolean;
+    reconnect_performed?: boolean;
+    credentials_exposed?: boolean;
+    account_mutation_available?: boolean;
+    broker_action_available?: boolean;
+    live_execution_available?: boolean;
+  }>(`${base}/api/connections/financial/authorization-receipts`, cookie);
+  if (authorizationReceiptResult.status === 401) redirect("/login");
+  const authorizationReceiptPayload = authorizationReceiptResult.payload;
+  const authorizationEvidenceAvailable = Boolean(
+    authorizationReceiptResult.available &&
+      authorizationReceiptPayload?.evidence_semantics ===
+        "CREDENTIAL_FREE_FINANCIAL_AUTHORIZATION_RECEIPTS" &&
+      authorizationReceiptPayload.timestamp_precision ===
+        "MILLISECOND_CANONICAL" &&
+      authorizationReceiptPayload.provider_contact_performed === false &&
+      authorizationReceiptPayload.reconnect_performed === false &&
+      authorizationReceiptPayload.credentials_exposed === false &&
+      authorizationReceiptPayload.account_mutation_available === false &&
+      authorizationReceiptPayload.broker_action_available === false &&
+      authorizationReceiptPayload.live_execution_available === false &&
+      Array.isArray(authorizationReceiptPayload.receipts),
+  );
+  const authorizationReceipts = authorizationEvidenceAvailable
+    ? (authorizationReceiptPayload?.receipts ?? [])
     : [];
   const rawStrategyInstances = Array.isArray(
     strategyInstancesPayload?.strategy_instances,
@@ -539,6 +572,8 @@ export default async function ConnectionsPage() {
           observedAt={continuityObservedAt.toISOString()}
           contextAvailable={continuityInventoryAvailable}
           expectedBindingCount={runtimeBindings.length}
+          authorizationReceipts={authorizationReceipts}
+          authorizationEvidenceAvailable={authorizationEvidenceAvailable}
         />
         <div className="financial-provider-grid">
           {availableFinancialProviders.map((provider) => (
