@@ -551,4 +551,36 @@ def test_internal_insight_rejects_unknown_profile_before_provider_call() -> None
         },
     )
     assert response.status_code == 422
+    assert response.json() == {"detail": {"code": "INVALID_REQUEST"}}
     assert "secret-value" not in response.text
+
+
+def test_shadow_validation_logs_only_credential_free_field_paths(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    os.environ["INTERNAL_SERVICE_TOKEN"] = "internal-test-token"
+    payload = equity_shadow_request_payload()
+    payload["positions"] = [
+        {
+            "symbol": "BTC",
+            "instrument": "CRYPTO",
+            "quantity": "sensitive-invalid-value",
+            "available_quantity": "0",
+            "market_value_usd": "1",
+            "performance_status": "UNAVAILABLE",
+        }
+    ]
+
+    with caplog.at_level("WARNING", logger="uvicorn.error"):
+        response = client.post(
+            "/internal/neural/shadow-decision",
+            headers={"authorization": "Bearer internal-test-token"},
+            json=payload,
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": {"code": "INVALID_REQUEST"}}
+    assert "positions.[].quantity" in caplog.text
+    assert "string_pattern_mismatch" in caplog.text
+    assert "sensitive-invalid-value" not in caplog.text
+    assert "secret-value" not in caplog.text
