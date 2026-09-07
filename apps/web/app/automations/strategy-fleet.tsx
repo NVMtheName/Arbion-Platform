@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { compareExactDecimals } from "../exact-money";
 import { PaperEvidenceThresholdChangeLedger } from "./paper-evidence-threshold-change-ledger";
+import { PaperToLiveReadinessDossier } from "./paper-live-readiness-dossier";
 import { scheduleFailureGuidance } from "./schedule-failure-guidance";
 import type {
   PaperActivityCadence,
@@ -11004,6 +11005,8 @@ export function StrategyFleet({
       )}
 
       {inventoryAvailable && <StrategyFleetCommandDeck items={ordered} />}
+
+      {inventoryAvailable && <PaperToLiveReadinessDossier items={ordered} />}
 
       {inventoryAvailable && (
         <StrategyFleetQuoteCoverageLedgerView items={items} />

@@ -3878,6 +3878,268 @@ button:disabled {
 .strategy-fleet-command-deck > footer {
   margin-top: 14px;
 }
+.paper-live-readiness-dossier {
+  margin-top: 20px;
+  padding: 28px;
+  border: 1px solid rgba(116, 144, 255, 0.3);
+  border-radius: 24px;
+  background:
+    radial-gradient(
+      circle at 96% 2%,
+      rgba(116, 144, 255, 0.17),
+      transparent 32rem
+    ),
+    linear-gradient(145deg, rgba(7, 13, 29, 0.98), rgba(3, 17, 20, 0.96));
+}
+.paper-live-readiness-dossier.is-review-required,
+.paper-live-readiness-dossier.is-evidence-unavailable {
+  border-color: rgba(216, 169, 82, 0.46);
+}
+.paper-live-readiness-dossier > header,
+.paper-live-readiness-dossier > ol > li > header,
+.paper-live-readiness-dossier > ol > li > footer,
+.paper-live-readiness-dossier details > summary,
+.paper-live-readiness-dossier details li > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.paper-live-readiness-dossier > header {
+  align-items: flex-end;
+}
+.paper-live-readiness-dossier > header > div {
+  max-width: 880px;
+}
+.paper-live-readiness-dossier h2 {
+  margin: 7px 0 8px;
+  color: #eef1ff;
+  font-size: clamp(1.5rem, 2.7vw, 2.25rem);
+}
+.paper-live-readiness-dossier > header p:last-child,
+.paper-live-readiness-dossier > footer {
+  color: #7f8fae;
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+.paper-live-readiness-dossier > header > span,
+.paper-live-readiness-dossier > ol > li > header > span,
+.paper-live-readiness-dossier details li > header > span {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 1px solid rgba(116, 144, 255, 0.38);
+  border-radius: 999px;
+  color: #a9bcff;
+  font-size: 0.58rem;
+  font-weight: 780;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.paper-live-readiness-dossier.is-review-required > header > span,
+.paper-live-readiness-dossier.is-evidence-unavailable > header > span {
+  border-color: rgba(216, 169, 82, 0.48);
+  color: #e1bd79;
+}
+.paper-live-readiness-dossier-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(116, 144, 255, 0.14);
+  border-radius: 14px;
+}
+.paper-live-readiness-dossier-metrics article {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 13px 15px;
+  border-left: 1px solid rgba(116, 144, 255, 0.12);
+  background: rgba(8, 14, 31, 0.7);
+}
+.paper-live-readiness-dossier-metrics article:first-child {
+  border-left: 0;
+}
+.paper-live-readiness-dossier-metrics strong {
+  color: #e6ebff;
+  font-size: 1.05rem;
+}
+.paper-live-readiness-dossier-metrics span {
+  color: #70809e;
+  font-size: 0.56rem;
+  font-weight: 720;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.paper-live-readiness-dossier > ol,
+.paper-live-readiness-dossier details ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.paper-live-readiness-dossier > ol {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+.paper-live-readiness-dossier > ol > li {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid rgba(116, 144, 255, 0.19);
+  border-radius: 17px;
+  background: rgba(7, 13, 28, 0.83);
+}
+.paper-live-readiness-dossier > ol > li > header strong {
+  display: block;
+  color: #e7ebff;
+  font-size: 0.86rem;
+}
+.paper-live-readiness-dossier > ol > li > header small {
+  display: block;
+  margin-top: 4px;
+  color: #7483a0;
+  font-size: 0.59rem;
+}
+.paper-live-readiness-dossier > ol > li > p {
+  margin: 14px 0;
+  color: #afbad1;
+  font-size: 0.7rem;
+  line-height: 1.55;
+}
+.paper-live-readiness-dossier > ol > li > dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.paper-live-readiness-dossier > ol > li > dl > div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(116, 144, 255, 0.11);
+  border-radius: 10px;
+  background: rgba(3, 8, 19, 0.62);
+}
+.paper-live-readiness-dossier dt,
+.paper-live-readiness-dossier dd {
+  margin: 0;
+}
+.paper-live-readiness-dossier dt {
+  color: #697893;
+  font-size: 0.53rem;
+  font-weight: 730;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.paper-live-readiness-dossier dd {
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: #c8d0e3;
+  font-size: 0.61rem;
+  line-height: 1.45;
+}
+.paper-live-readiness-dossier details {
+  margin-top: 14px;
+  border-top: 1px solid rgba(116, 144, 255, 0.13);
+}
+.paper-live-readiness-dossier details > summary {
+  padding: 13px 1px;
+  color: #cbd3e7;
+  cursor: pointer;
+  font-size: 0.66rem;
+  font-weight: 730;
+  list-style: none;
+}
+.paper-live-readiness-dossier details > summary::-webkit-details-marker {
+  display: none;
+}
+.paper-live-readiness-dossier details > summary > span {
+  color: #8192bd;
+  font-size: 0.56rem;
+  font-weight: 710;
+  text-transform: uppercase;
+}
+.paper-live-readiness-dossier details > summary::after {
+  content: "+";
+  color: #a9bcff;
+}
+.paper-live-readiness-dossier details[open] > summary::after {
+  content: "−";
+}
+.paper-live-readiness-dossier details > summary:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid #a9bcff;
+  outline-offset: -2px;
+}
+.paper-live-readiness-dossier details ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding-bottom: 4px;
+}
+.paper-live-readiness-dossier details li {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid rgba(124, 235, 177, 0.14);
+  border-radius: 10px;
+  background: rgba(3, 17, 18, 0.6);
+}
+.paper-live-readiness-dossier details li.is-collecting {
+  border-color: rgba(116, 144, 255, 0.28);
+}
+.paper-live-readiness-dossier details li.is-blocked,
+.paper-live-readiness-dossier details li.is-unavailable {
+  border-color: rgba(216, 169, 82, 0.37);
+  background: rgba(31, 24, 10, 0.38);
+}
+.paper-live-readiness-dossier details li > header {
+  align-items: flex-start;
+}
+.paper-live-readiness-dossier details li > header strong {
+  color: #dce3f2;
+  font-size: 0.65rem;
+}
+.paper-live-readiness-dossier details li > header > span {
+  padding: 4px 6px;
+  border-color: rgba(124, 235, 177, 0.26);
+  color: #7cebb1;
+  font-size: 0.5rem;
+}
+.paper-live-readiness-dossier details li.is-collecting > header > span {
+  border-color: rgba(116, 144, 255, 0.32);
+  color: #a9bcff;
+}
+.paper-live-readiness-dossier details li.is-blocked > header > span,
+.paper-live-readiness-dossier details li.is-unavailable > header > span {
+  border-color: rgba(216, 169, 82, 0.42);
+  color: #e1bd79;
+}
+.paper-live-readiness-dossier details li p {
+  margin: 8px 0 6px;
+  color: #9facc4;
+  font-size: 0.6rem;
+  line-height: 1.5;
+}
+.paper-live-readiness-dossier details li small {
+  overflow-wrap: anywhere;
+  color: #63718a;
+  font-size: 0.52rem;
+  line-height: 1.45;
+}
+.paper-live-readiness-dossier > ol > li > footer {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(116, 144, 255, 0.12);
+}
+.paper-live-readiness-dossier > ol > li > footer a {
+  color: #9fb3ff;
+  font-size: 0.62rem;
+  font-weight: 720;
+  text-decoration: none;
+}
+.paper-live-readiness-dossier > footer {
+  margin-top: 14px;
+}
 .strategy-fleet-advanced-evidence {
   margin-top: 20px;
   padding: 26px;
@@ -7428,6 +7690,8 @@ button:disabled {
   .strategy-fleet-safety,
   .strategy-fleet-operating-brief > header,
   .strategy-fleet-command-deck > header,
+  .paper-live-readiness-dossier > header,
+  .paper-live-readiness-dossier > ol > li > header,
   .strategy-fleet-advanced-evidence > header,
   .strategy-fleet-ai-operations > header,
   .strategy-fleet-connection-continuity > header,
@@ -7464,6 +7728,17 @@ button:disabled {
   .strategy-fleet-command-deck > ol {
     grid-template-columns: 1fr;
   }
+  .paper-live-readiness-dossier {
+    padding: 18px;
+    border-radius: 20px;
+  }
+  .paper-live-readiness-dossier > ol > li {
+    padding: 16px;
+  }
+  .paper-live-readiness-dossier > ol > li > dl,
+  .paper-live-readiness-dossier details ol {
+    grid-template-columns: 1fr;
+  }
   .strategy-fleet-provenance-digest-list {
     grid-template-columns: 1fr;
   }
@@ -7487,6 +7762,10 @@ button:disabled {
     flex-direction: column;
   }
   .strategy-fleet-command-deck > ol > li > footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .paper-live-readiness-dossier > ol > li > footer {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -7680,7 +7959,9 @@ button:disabled {
     padding: 14px;
   }
   .strategy-fleet-command-deck > ol > li > header,
-  .strategy-fleet-command-advanced summary {
+  .strategy-fleet-command-advanced summary,
+  .paper-live-readiness-dossier details > summary,
+  .paper-live-readiness-dossier details li > header {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -7692,6 +7973,16 @@ button:disabled {
   }
   .strategy-fleet-command-advanced summary > span:last-child {
     text-align: left;
+  }
+  .paper-live-readiness-dossier-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .paper-live-readiness-dossier-metrics article:nth-child(3) {
+    border-top: 1px solid rgba(116, 144, 255, 0.12);
+    border-left: 0;
+  }
+  .paper-live-readiness-dossier-metrics article:nth-child(4) {
+    border-top: 1px solid rgba(116, 144, 255, 0.12);
   }
 }
 .connection-hub {
