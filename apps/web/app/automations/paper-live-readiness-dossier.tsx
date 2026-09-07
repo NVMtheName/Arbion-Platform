@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { compareExactDecimals } from "../exact-money";
+import { LiveCapabilityDependencyRegister } from "./live-capability-dependency-register";
 import type { StrategyFleetItem } from "./strategy-fleet";
 
 export type PaperLiveReadinessState =
@@ -9,12 +10,34 @@ export type PaperLiveReadinessState =
   | "BLOCKED"
   | "UNAVAILABLE";
 
-type PaperLiveReadinessSignal = {
+export type PaperLiveReadinessSignal = {
   key: string;
   label: string;
   state: PaperLiveReadinessState;
   detail: string;
   evidence: string;
+};
+
+export type PaperLiveReadinessEngineProjection = {
+  id: string;
+  instanceID: string;
+  title: string;
+  accountName: string;
+  provider: string;
+  observedAt?: string;
+  financialAccountID?: string;
+  financialConnectionID?: string;
+  capitalBucketID?: string;
+  capitalReservationID?: string;
+  latestDecisionID?: string;
+  latestDecisionAt?: string;
+  modelRoute: string;
+  status: PaperLiveReadinessDossierProjection["status"];
+  ownerAction: string;
+  signals: PaperLiveReadinessSignal[];
+  shadowInstanceID?: string;
+  shadowMandateID?: string;
+  detailHref: string;
 };
 
 export type PaperLiveReadinessDossierProjection = {
@@ -28,20 +51,7 @@ export type PaperLiveReadinessDossierProjection = {
   collectingCount: number;
   blockedCount: number;
   unavailableCount: number;
-  engines: Array<{
-    id: string;
-    instanceID: string;
-    title: string;
-    accountName: string;
-    provider: string;
-    modelRoute: string;
-    status: PaperLiveReadinessDossierProjection["status"];
-    ownerAction: string;
-    signals: PaperLiveReadinessSignal[];
-    shadowInstanceID?: string;
-    shadowMandateID?: string;
-    detailHref: string;
-  }>;
+  engines: PaperLiveReadinessEngineProjection[];
 };
 
 const uuidPattern =
@@ -625,6 +635,13 @@ export function projectPaperToLiveReadinessDossier(
       title: item.title,
       accountName: item.accountName,
       provider: item.provider,
+      observedAt: item.freshnessObservedAt,
+      financialAccountID: item.financialAccountID,
+      financialConnectionID: item.financialConnectionID,
+      capitalBucketID: item.capitalBucketID,
+      capitalReservationID: item.capitalReservationID,
+      latestDecisionID: item.latestDecisionID,
+      latestDecisionAt: item.latestDecisionAt,
       modelRoute: `${item.latestDecisionAIProvider ?? "UNAVAILABLE"} / ${item.latestDecisionAIModelID ?? item.modelID ?? "UNAVAILABLE"} / ${item.latestDecisionAIProfile ?? "UNAVAILABLE"}`,
       status,
       ownerAction: ownerAction(status),
@@ -771,6 +788,7 @@ export function PaperToLiveReadinessDossier({
                   ))}
                 </ol>
               </details>
+              <LiveCapabilityDependencyRegister engine={engine} />
               <footer>
                 <Link href={engine.detailHref}>
                   Open immutable Paper evidence →
