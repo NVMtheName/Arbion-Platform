@@ -56,11 +56,14 @@ class TradeProposalRequest(ProviderRequest):
     safety_identifier: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
 
 
+# Coinbase preserves up to 32 fractional places while normalizing portfolio
+# balances. Keep the non-live AI input boundary exact at the same finite limit;
+# model proposals retain their separate 18-place output ceiling.
 class ShadowPositionFact(BaseModel):
     symbol: str = Field(min_length=1, max_length=16, pattern=r"^[A-Z][A-Z0-9.-]{0,15}$")
     instrument: Literal["EQUITY", "CRYPTO"]
-    quantity: str = Field(pattern=r"^-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
-    available_quantity: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    quantity: str = Field(pattern=r"^-?(0|[1-9][0-9]{0,19})(\.[0-9]{1,32})?$")
+    available_quantity: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,32})?$")
     market_value_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
     performance_status: Literal["AVAILABLE", "PARTIAL", "UNAVAILABLE"]
     average_price_usd: str = Field(default="", pattern=r"^(|0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
@@ -279,8 +282,8 @@ class ShadowDecisionRequest(ProviderRequest):
     objective: str = Field(min_length=1, max_length=500)
     allowed_symbols: list[str] = Field(min_length=1, max_length=8)
     max_proposal_notional: str = Field(pattern=r"^(0|[1-9][0-9]{0,17})(\.[0-9]{1,18})?$")
-    available_cash_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
-    buying_power_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,18})?$")
+    available_cash_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,32})?$")
+    buying_power_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,32})?$")
     positions: list[ShadowPositionFact] = Field(max_length=200)
     markets: list[ShadowMarketFact] = Field(min_length=1, max_length=8)
     market_event_coverage: list[ShadowMarketEventCoverage] = Field(

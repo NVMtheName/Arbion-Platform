@@ -73,6 +73,47 @@ def test_paper_position_accepts_exact_market_reference_provenance() -> None:
     assert position.performance_status == "PARTIAL"
 
 
+def test_shadow_input_accepts_exact_provider_precision_up_to_thirty_two_places() -> None:
+    exact_quantity = "0." + "1" * 32
+    position = ShadowPositionFact.model_validate(
+        {
+            "symbol": "BTC",
+            "instrument": "CRYPTO",
+            "quantity": exact_quantity,
+            "available_quantity": exact_quantity,
+            "market_value_usd": "1",
+            "performance_status": "UNAVAILABLE",
+        }
+    )
+    assert position.quantity == exact_quantity
+
+    payload = equity_shadow_request_payload()
+    payload["available_cash_usd"] = exact_quantity
+    payload["buying_power_usd"] = exact_quantity
+    request = ShadowDecisionRequest.model_validate(payload)
+    assert request.available_cash_usd == exact_quantity
+
+
+def test_shadow_input_rejects_provider_precision_beyond_thirty_two_places() -> None:
+    too_precise = "0." + "1" * 33
+    with pytest.raises(ValidationError):
+        ShadowPositionFact.model_validate(
+            {
+                "symbol": "BTC",
+                "instrument": "CRYPTO",
+                "quantity": too_precise,
+                "available_quantity": "0",
+                "market_value_usd": "1",
+                "performance_status": "UNAVAILABLE",
+            }
+        )
+
+    payload = equity_shadow_request_payload()
+    payload["available_cash_usd"] = too_precise
+    with pytest.raises(ValidationError):
+        ShadowDecisionRequest.model_validate(payload)
+
+
 def test_health() -> None:
     response = client.get("/healthz")
 
