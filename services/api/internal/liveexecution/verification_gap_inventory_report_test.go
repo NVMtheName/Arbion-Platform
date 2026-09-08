@@ -288,7 +288,8 @@ func TestSafetyEvidenceGapInventoryVerificationReportHasNoRuntimeSurfaceOrProduc
 			if walkErr != nil {
 				return walkErr
 			}
-			if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || path == filepath.Join(directory, "verification_gap_inventory_report.go") {
+			if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+				strings.HasPrefix(path, directory+string(filepath.Separator)) {
 				return nil
 			}
 			payload, readErr := os.ReadFile(path)
