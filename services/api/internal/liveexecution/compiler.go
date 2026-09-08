@@ -134,6 +134,25 @@ func CompileSafetyCaseEnvelope(safetyCase SafetyCase, evaluatedAt time.Time) (Sa
 	if err != nil {
 		return SafetyCaseCompilationEnvelope{}, ErrSafetyCaseEnvelope
 	}
+	envelopeDigest, err := canonicalEnvelopeDigest(
+		SafetyCaseCompilerVersion,
+		ContractVersion,
+		evaluatedAt,
+		safetyDigest,
+		registryDigest,
+	)
+	if err != nil {
+		return SafetyCaseCompilationEnvelope{}, ErrSafetyCaseEnvelope
+	}
+	return SafetyCaseCompilationEnvelope{
+		CompilerVersion: SafetyCaseCompilerVersion, ContractVersion: ContractVersion,
+		EvaluatedAt: evaluatedAt, SafetyCaseDigest: safetyDigest,
+		RegistryInputDigest: registryDigest, EnvelopeDigest: envelopeDigest,
+		RegistryInput: input,
+	}, nil
+}
+
+func canonicalEnvelopeDigest(compilerVersion, contractVersion string, evaluatedAt time.Time, safetyDigest, registryDigest string) (string, error) {
 	envelopePayload, err := json.Marshal(struct {
 		CompilerVersion     string `json:"compiler_version"`
 		ContractVersion     string `json:"contract_version"`
@@ -141,34 +160,21 @@ func CompileSafetyCaseEnvelope(safetyCase SafetyCase, evaluatedAt time.Time) (Sa
 		SafetyCaseDigest    string `json:"safety_case_sha256"`
 		RegistryInputDigest string `json:"registry_input_sha256"`
 	}{
-		CompilerVersion: SafetyCaseCompilerVersion, ContractVersion: ContractVersion,
-		EvaluatedAt: evaluatedAt.Format(time.RFC3339Nano), SafetyCaseDigest: safetyDigest,
+		CompilerVersion: compilerVersion, ContractVersion: contractVersion,
+		EvaluatedAt: evaluatedAt.UTC().Format(time.RFC3339Nano), SafetyCaseDigest: safetyDigest,
 		RegistryInputDigest: registryDigest,
 	})
 	if err != nil {
-		return SafetyCaseCompilationEnvelope{}, ErrSafetyCaseEnvelope
+		return "", err
 	}
-	return SafetyCaseCompilationEnvelope{
-		CompilerVersion: SafetyCaseCompilerVersion, ContractVersion: ContractVersion,
-		EvaluatedAt: evaluatedAt, SafetyCaseDigest: safetyDigest,
-		RegistryInputDigest: registryDigest, EnvelopeDigest: compilerSHA256(envelopePayload),
-		RegistryInput: input,
-	}, nil
+	return compilerSHA256(envelopePayload), nil
 }
 
 // VerifySafetyCaseCompilationEnvelope recomputes the complete canonical
 // envelope. Any changed fact, digest, timestamp, assessment, evidence item, or
 // ordering fails closed; successful verification still grants no authority.
 func VerifySafetyCaseCompilationEnvelope(safetyCase SafetyCase, envelope SafetyCaseCompilationEnvelope) error {
-	if envelope.CompilerVersion != SafetyCaseCompilerVersion || envelope.ContractVersion != ContractVersion ||
-		envelope.EvaluatedAt.IsZero() || envelope.EvaluatedAt.Location() != time.UTC ||
-		!digestPattern.MatchString(envelope.SafetyCaseDigest) ||
-		!digestPattern.MatchString(envelope.RegistryInputDigest) ||
-		!digestPattern.MatchString(envelope.EnvelopeDigest) {
-		return ErrSafetyCaseEnvelope
-	}
-	expected, err := CompileSafetyCaseEnvelope(safetyCase, envelope.EvaluatedAt)
-	if err != nil || !reflect.DeepEqual(expected, envelope) {
+	if BuildSafetyCaseVerificationReport(safetyCase, envelope).Status != VerificationVerified {
 		return ErrSafetyCaseEnvelope
 	}
 	return nil
