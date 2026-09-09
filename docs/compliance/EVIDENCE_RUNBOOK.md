@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Document owner | Security and Compliance Owner |
-| Version | 0.2 |
+| Version | 0.3 |
 | Approval status | PENDING_MANAGEMENT_APPROVAL |
 | Review cadence | Quarterly and after evidence-source change |
 
@@ -30,6 +30,12 @@ Each evidence item must include control ID, UTC collection time, collector, sour
 Authenticate the GitHub CLI to the Arbion repository and AWS CLI to the production account, then run `scripts/collect-soc2-external-evidence.sh` with an output directory outside the repository. The collector performs read-only API calls, omits subscription endpoints and secrets, writes restrictive local permissions, and creates a deterministically ordered SHA-256 manifest.
 
 Before review or transfer, run `scripts/verify-soc2-evidence-snapshot.sh <snapshot-directory>`. The verifier fails closed on missing, extra, duplicate, reordered, malformed, oversized, symlinked, secret-like, checksum-mismatched, or internally inconsistent evidence. Keep the snapshot and manifest together, review every collected file, record exceptions, and move the approved snapshot into immutable or versioned storage in the restricted evidence repository. Successful verification establishes only internal package consistency at that point in time. A party able to alter both evidence and its local manifest can create a new internally consistent package, so authenticity depends on authenticated collection, independent review, access control, and immutable external retention. Neither collection nor verification proves operating effectiveness or SOC 2 certification.
+
+### Production host snapshot
+
+Collect the current host snapshot through the restricted, authenticated administration channel described in `docs/compliance/EXTERNAL_CONTROL_VERIFICATION.md` and save the JSON outside the repository. The root-only collector reads control status but never environment values, credentials, logs, customer or application records, database content, or trading data. It reports a canonical collection identity, exact release marker, the six-service inventory, application-container hardening, the reverse-proxy-only network boundary, nine required monitoring timers, three sensitive-file permission records, backup freshness, six existing read-only checks, and an embedded SHA-256 digest over the canonical payload. A snapshot is `COMPLETE_REVIEW_REQUIRED` only when its release marker is valid, services, application hardening, network exposure, and timers pass, all three environment files are root-owned mode `0600`, read-only checks pass, and the backup marker is current.
+
+Run `scripts/verify-soc2-host-evidence.sh <saved-host-evidence.json>` before review or retention. The verifier fails closed on malformed, oversized, symlinked, secret-like, future-dated, checksum-mismatched, duplicated, missing, or internally inconsistent host evidence. An `INCOMPLETE` snapshot can verify only as an internally consistent exception record; it does not pass the underlying controls and is never upgraded. The embedded digest detects accidental or unreconciled changes but is not a signature: anyone able to alter both payload and digest can reseal the file. Authenticity therefore depends on authenticated SSH collection, independent review, restricted access, and prompt immutable or versioned external retention. Verification never establishes operating effectiveness or SOC 2 certification.
 
 ### Change sample
 

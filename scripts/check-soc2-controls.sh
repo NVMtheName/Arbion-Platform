@@ -80,6 +80,10 @@ done
   fail "external evidence collector is missing or empty"
 [[ -s "$arbion_root/scripts/collect-soc2-host-evidence.sh" ]] ||
   fail "production host evidence collector is missing or empty"
+[[ -x "$arbion_root/scripts/verify-soc2-host-evidence.sh" ]] ||
+  fail "production host evidence verifier is missing or not executable"
+grep -q 'internal payload consistency only' "$arbion_root/scripts/verify-soc2-host-evidence.sh" ||
+  fail "host evidence verification must disclose its consistency-only limitation"
 [[ -x "$arbion_root/scripts/verify-soc2-evidence-snapshot.sh" ]] ||
   fail "external evidence snapshot verifier is missing or not executable"
 grep -q 'internal checksum consistency only' "$arbion_root/scripts/verify-soc2-evidence-snapshot.sh" ||

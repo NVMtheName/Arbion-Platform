@@ -8,7 +8,7 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-for command in awk cat date docker find hostname jq mktemp stat systemctl uname unlink; do
+for command in awk cat date docker find hostname jq mktemp openssl stat systemctl tr uname unlink; do
   command -v "$command" >/dev/null || {
     echo "Required command not found: $command" >&2
     exit 1
@@ -20,12 +20,12 @@ env_file="${ARBION_PRODUCTION_ENV_FILE:-$arbion_root/.env.production}"
 backup_status_file="${ARBION_BACKUP_STATUS_FILE:-/var/lib/arbion-backups/last-success}"
 backup_max_age_seconds="${ARBION_BACKUP_MAX_AGE_SECONDS:-129600}"
 
-[[ -d "$arbion_root" && -r "$arbion_root/.release-sha" && -r "$env_file" ]] || {
+[[ -d "$arbion_root" && -f "$arbion_root/.release-sha" && ! -L "$arbion_root/.release-sha" && -r "$arbion_root/.release-sha" && -r "$env_file" ]] || {
   echo "The production release or root-owned environment file is unavailable." >&2
   exit 1
 }
-[[ "$backup_max_age_seconds" =~ ^[0-9]+$ && "$backup_max_age_seconds" -gt 0 ]] || {
-  echo "ARBION_BACKUP_MAX_AGE_SECONDS must be a positive integer." >&2
+[[ "$backup_max_age_seconds" =~ ^[0-9]+$ && "$backup_max_age_seconds" -gt 0 && "$backup_max_age_seconds" -le 31536000 ]] || {
+  echo "ARBION_BACKUP_MAX_AGE_SECONDS must be between 1 and 31536000." >&2
   exit 1
 }
 
@@ -37,9 +37,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-collected_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 collected_epoch="$(date -u +%s)"
-release_sha="$(cat "$arbion_root/.release-sha")"
+collected_at="$(date -u -d "@$collected_epoch" +%Y-%m-%dT%H:%M:%SZ)"
+collection_id="arbion-soc2-host-${collected_at//[-:]/}"
+release_sha="INVALID"
+release_marker_bytes="$(stat -c '%s' "$arbion_root/.release-sha" 2>/dev/null || true)"
+if [[ "$release_marker_bytes" =~ ^[0-9]+$ && "$release_marker_bytes" -le 128 ]]; then
+  release_candidate="$(tr -d '\r\n' <"$arbion_root/.release-sha")"
+  [[ "$release_candidate" =~ ^[0-9a-f]{40}$ ]] && release_sha="$release_candidate"
+fi
 compose=(docker compose --project-directory "$arbion_root" --env-file "$env_file" -f "$arbion_root/docker-compose.prod.yml")
 
 services=(proxy postgres redis api ai web)
@@ -104,13 +110,15 @@ jq -s . "$temporary_root/timer-records.jsonl" >"$temporary_root/timers.json"
 file_mode_record() {
   local label="$1"
   local path="$2"
-  if [[ -e "$path" ]]; then
+  if [[ -f "$path" && ! -L "$path" ]]; then
     jq -n \
       --arg label "$label" \
       --arg owner "$(stat -c '%U' "$path")" \
       --arg group "$(stat -c '%G' "$path")" \
       --arg mode "$(stat -c '%a' "$path")" \
       '{file: $label, status: "AVAILABLE", owner: $owner, group: $group, mode: $mode}'
+  elif [[ -e "$path" || -L "$path" ]]; then
+    jq -n --arg label "$label" '{file: $label, status: "UNSAFE", owner: null, group: null, mode: null}'
   else
     jq -n --arg label "$label" '{file: $label, status: "UNAVAILABLE", owner: null, group: null, mode: null}'
   fi
@@ -127,17 +135,32 @@ backup_completed_epoch=""
 backup_key=""
 backup_extra=""
 backup_age_seconds=""
-if [[ -r "$backup_status_file" ]]; then
-  read -r backup_completed_epoch backup_key backup_extra <"$backup_status_file" || true
-  if [[ "$backup_completed_epoch" =~ ^[0-9]+$ && -n "$backup_key" && -z "${backup_extra:-}" ]]; then
-    backup_age_seconds="$((collected_epoch - backup_completed_epoch))"
-    if [[ "$backup_age_seconds" -ge 0 && "$backup_age_seconds" -le "$backup_max_age_seconds" ]]; then
-      backup_status="CURRENT"
-    else
-      backup_status="STALE_OR_FUTURE"
-    fi
-  else
+if [[ -e "$backup_status_file" || -L "$backup_status_file" ]]; then
+  if [[ ! -f "$backup_status_file" || -L "$backup_status_file" || ! -r "$backup_status_file" ]]; then
     backup_status="INVALID"
+  else
+    backup_marker_bytes="$(stat -c '%s' "$backup_status_file" 2>/dev/null || true)"
+    backup_marker_lines="$(awk 'END {print NR}' "$backup_status_file" 2>/dev/null || true)"
+    if [[ "$backup_marker_bytes" =~ ^[0-9]+$ && "$backup_marker_bytes" -gt 0 && "$backup_marker_bytes" -le 1024 && "$backup_marker_lines" == "1" ]]; then
+      read -r backup_completed_epoch backup_key backup_extra <"$backup_status_file" || true
+      if [[ "$backup_completed_epoch" =~ ^[0-9]{1,12}$ && "$backup_key" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,511}$ && -z "${backup_extra:-}" ]]; then
+        backup_age_seconds="$((collected_epoch - backup_completed_epoch))"
+        if [[ "$backup_age_seconds" -ge 0 && "$backup_age_seconds" -le "$backup_max_age_seconds" ]]; then
+          backup_status="CURRENT"
+        else
+          backup_status="STALE_OR_FUTURE"
+        fi
+      else
+        backup_status="INVALID"
+      fi
+    else
+      backup_status="INVALID"
+    fi
+  fi
+  if [[ "$backup_status" == "INVALID" ]]; then
+    backup_completed_epoch=""
+    backup_key=""
+    backup_age_seconds=""
   fi
 fi
 jq -n \
@@ -169,14 +192,32 @@ run_check() {
 } | jq -s . >"$temporary_root/checks.json"
 
 service_status="FAIL"
+hardening_status="FAIL"
+network_exposure_status="FAIL"
 timer_status="FAIL"
 check_status="FAIL"
+permission_status="FAIL"
 jq -e 'all(.[]; .status == "running" and (.health == "healthy" or .health == "NOT_CONFIGURED"))' "$temporary_root/services.json" >/dev/null && service_status="PASS"
-jq -e 'all(.[]; .load_state == "loaded" and .active_state == "active" and .unit_file_state == "enabled")' "$temporary_root/timers.json" >/dev/null && timer_status="PASS"
+jq -e '
+  all(.[] | select(.service == "api" or .service == "ai" or .service == "web");
+    .status == "running" and .read_only_root == true and .runtime_user != "IMAGE_DEFAULT" and
+    .process_limit == 256 and ((.capability_drop // []) | index("ALL")) != null and
+    ((.security_options // []) | index("no-new-privileges:true")) != null and
+    all((.published_ports // {}) | to_entries[]?; .value == null)
+  )
+' "$temporary_root/services.json" >/dev/null 2>&1 && hardening_status="PASS"
+jq -e '
+  (.[] | select(.service == "proxy") | .published_ports) as $proxy_ports |
+  all(["80/tcp", "443/tcp", "443/udp"][]; (($proxy_ports // {})[.] | type == "array" and length > 0)) and
+  all(($proxy_ports // {}) | to_entries[]; ((.key | IN("80/tcp", "443/tcp", "443/udp")) or .value == null)) and
+  all(.[] | select(.service != "proxy"); has("published_ports") and all(.published_ports | to_entries[]?; .value == null))
+' "$temporary_root/services.json" >/dev/null 2>&1 && network_exposure_status="PASS"
+jq -e 'all(.[]; .load_state == "loaded" and .active_state == "active" and .unit_file_state == "enabled" and .next_run != "UNAVAILABLE")' "$temporary_root/timers.json" >/dev/null && timer_status="PASS"
 jq -e 'all(.[]; .result == "PASS")' "$temporary_root/checks.json" >/dev/null && check_status="PASS"
+jq -e 'all(.[]; .status == "AVAILABLE" and .owner == "root" and .group == "root" and .mode == "600")' "$temporary_root/file-permissions.json" >/dev/null && permission_status="PASS"
 
 collection_status="INCOMPLETE"
-if [[ "$release_sha" =~ ^[0-9a-f]{40}$ && "$service_status" == "PASS" && "$timer_status" == "PASS" && "$check_status" == "PASS" && "$backup_status" == "CURRENT" ]]; then
+if [[ "$release_sha" =~ ^[0-9a-f]{40}$ && "$service_status" == "PASS" && "$hardening_status" == "PASS" && "$network_exposure_status" == "PASS" && "$timer_status" == "PASS" && "$permission_status" == "PASS" && "$check_status" == "PASS" && "$backup_status" == "CURRENT" ]]; then
   collection_status="COMPLETE_REVIEW_REQUIRED"
 fi
 
@@ -184,7 +225,8 @@ os_id="$(awk -F= '$1 == "ID" {gsub(/\"/, "", $2); print $2}' /etc/os-release 2>/
 os_version="$(awk -F= '$1 == "VERSION_ID" {gsub(/\"/, "", $2); print $2}' /etc/os-release 2>/dev/null || true)"
 
 jq -n \
-  --arg schema_version "1.0" \
+  --arg schema_version "1.1" \
+  --arg collection_id "$collection_id" \
   --arg status "$collection_status" \
   --arg collected_at "$collected_at" \
   --arg host "$(hostname)" \
@@ -193,13 +235,31 @@ jq -n \
   --arg kernel "$(uname -r)" \
   --arg release_sha "$release_sha" \
   --arg service_status "$service_status" \
+  --arg hardening_status "$hardening_status" \
+  --arg network_exposure_status "$network_exposure_status" \
   --arg timer_status "$timer_status" \
+  --arg permission_status "$permission_status" \
   --arg check_status "$check_status" \
   --slurpfile services "$temporary_root/services.json" \
   --slurpfile timers "$temporary_root/timers.json" \
   --slurpfile permissions "$temporary_root/file-permissions.json" \
   --slurpfile backup "$temporary_root/backup.json" \
   --slurpfile checks "$temporary_root/checks.json" \
-  '{schema_version: $schema_version, status: $status, collected_at: $collected_at, host: {name: $host, os: $os_id, os_version: $os_version, kernel: $kernel}, release_sha: $release_sha, summary: {services: $service_status, monitoring_timers: $timer_status, checks: $check_status, backup: $backup[0].status}, services: $services[0], monitoring_timers: $timers[0], sensitive_file_permissions: $permissions[0], backup: $backup[0], read_only_checks: $checks[0], limitations: ["Point-in-time read-only host snapshot", "Contains no environment values, credentials, customer records, application records, database content, or logs", "Requires reviewer evaluation and separate alert-delivery, restore, access, and patch evidence", "Does not by itself establish operating effectiveness or SOC 2 certification"]}'
+  '{schema_version: $schema_version, collection_id: $collection_id, status: $status, collected_at: $collected_at, host: {name: $host, os: $os_id, os_version: $os_version, kernel: $kernel}, release_sha: $release_sha, summary: {services: $service_status, application_hardening: $hardening_status, network_exposure: $network_exposure_status, monitoring_timers: $timer_status, sensitive_file_permissions: $permission_status, checks: $check_status, backup: $backup[0].status}, services: $services[0], monitoring_timers: $timers[0], sensitive_file_permissions: $permissions[0], backup: $backup[0], read_only_checks: $checks[0], limitations: ["Point-in-time read-only host snapshot", "Contains no environment values, credentials, customer records, application records, database content, or logs", "Requires reviewer evaluation and separate alert-delivery, restore, access, and patch evidence", "Does not by itself establish operating effectiveness or SOC 2 certification"]}' \
+  >"$temporary_root/payload.json"
+
+jq -S -c . "$temporary_root/payload.json" >"$temporary_root/canonical-payload.json"
+payload_digest="$(openssl dgst -sha256 "$temporary_root/canonical-payload.json" | awk '{print $NF}')"
+[[ "$payload_digest" =~ ^[0-9a-f]{64}$ ]] || {
+  echo "Could not calculate the host evidence payload digest." >&2
+  exit 1
+}
+jq -S \
+  --arg algorithm "SHA-256" \
+  --arg canonicalization "JQ_SORTED_COMPACT_UTF8_V1" \
+  --arg covers "ENTIRE_DOCUMENT_EXCLUDING_INTEGRITY" \
+  --arg payload_sha256 "$payload_digest" \
+  '. + {integrity: {algorithm: $algorithm, canonicalization: $canonicalization, covers: $covers, payload_sha256: $payload_sha256}}' \
+  "$temporary_root/payload.json"
 
 [[ "$collection_status" == "COMPLETE_REVIEW_REQUIRED" ]] || exit 2

@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Document owner | Security and Compliance Owner |
-| Version | 0.1 |
+| Version | 0.2 |
 | Verification status | AUTHENTICATED_EVIDENCE_NOT_YET_COLLECTED |
 | Review cadence | Quarterly and after material configuration change |
 
@@ -22,7 +22,7 @@ Public repository metadata observed during the review indicated that the reposit
 3. Choose a new directory outside this Git repository on an encrypted workstation volume.
 4. Run `bash scripts/collect-soc2-external-evidence.sh <parent-directory>`.
 5. Review the generated `collection-summary.json` and every JSON source file. An `INCOMPLETE` status is a control exception, not a successful snapshot.
-6. Collect the current Lightsail host snapshot without copying its secret environment: `ssh <restricted-host> 'sudo bash /opt/arbion/scripts/collect-soc2-host-evidence.sh' > <outside-repository>/host.json`. A nonzero result or `INCOMPLETE` status is an exception. Hash the file locally.
+6. Collect the current Lightsail host snapshot without copying its secret environment: `ssh <restricted-host> 'sudo bash /opt/arbion/scripts/collect-soc2-host-evidence.sh' > <outside-repository>/host.json`. A nonzero result or `INCOMPLETE` status is an exception. Run `scripts/verify-soc2-host-evidence.sh <outside-repository>/host.json`, independently review the result, and retain it promptly in restricted immutable or versioned storage. The embedded digest proves only internal payload consistency, not collector identity or authenticity.
 7. Move the reviewed snapshots to the restricted evidence repository, verify their SHA-256 manifests, and record control ID, reviewer, result, exception, and UTC review time.
 
 The collectors omit credential material, secret-scanning alert payloads, notification endpoints, customer data, application/database records, environment values, and CloudTrail event bodies. They do not change any setting. The host collector returns only the release marker, container hardening/health metadata, monitoring-timer state, sensitive-file ownership/modes, backup marker metadata, and results of existing read-only health checks.

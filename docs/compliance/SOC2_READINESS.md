@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Document owner | Security and Compliance Owner |
-| Version | 0.1 |
+| Version | 0.2 |
 | Approval status | PENDING_MANAGEMENT_APPROVAL |
 | Assessment basis | Repository and declared production architecture as of this revision |
 | Program status | READINESS_BASELINE_NOT_CERTIFIED |
@@ -55,7 +55,7 @@ This baseline targets the Security, Availability, and Confidentiality criteria. 
 - A fail-closed Lightsail deployment gate that completes and verifies a new encrypted off-host PostgreSQL backup before production code is replaced, then emits the prior release, rollback artifact, and deployed release for the change record.
 - Target AWS infrastructure definitions for multi-region validated CloudTrail, customer-KMS-encrypted object-locked audit storage, customer-KMS-encrypted CloudTrail and security logs, customer-KMS-encrypted alert delivery, AWS Config recording, GuardDuty, Access Analyzer, CloudTrail security-event alarms, and medium-or-higher GuardDuty finding delivery. These controls remain configuration evidence—not production claims—until an authenticated plan/apply and post-apply verification are retained.
 - A credential-free-in-Git, read-only external evidence collector for GitHub and AWS configuration snapshots. Its output must be written outside the repository and retained in the restricted evidence store.
-- A read-only production-host evidence snapshot that reports only release identity, container hardening and health, monitoring-timer state, backup-marker freshness, sensitive-file ownership/modes, and existing health-check results; it never reads environment values, logs, or application/database records.
+- A read-only production-host evidence snapshot and strict offline verifier that report only release identity, container hardening and health, reverse-proxy-only exposure, monitoring-timer state, backup-marker freshness, sensitive-file ownership/modes, and existing health-check results. The contract is size-bounded, secret-screened, internally checksummed, and consistency-validated; it never reads environment values, logs, trading data, or application/database records, and it does not claim authenticity or control effectiveness.
 
 These controls improve readiness but do not replace management operation, evidence collection, auditor scoping, or the independent examination.
 

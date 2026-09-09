@@ -242,6 +242,7 @@
         "infrastructure/terraform/modules/audit/main.tf",
         "infrastructure/terraform/modules/observability/main.tf",
         "scripts/collect-soc2-host-evidence.sh",
+        "scripts/verify-soc2-host-evidence.sh",
         "scripts/smoke-production.sh",
         "scripts/send-ops-alert.sh"
       ],
@@ -381,6 +382,7 @@
         "scripts/collect-soc2-external-evidence.sh",
         "scripts/collect-soc2-host-evidence.sh",
         "scripts/verify-soc2-evidence-snapshot.sh",
+        "scripts/verify-soc2-host-evidence.sh",
         "scripts/check-soc2-controls.sh"
       ],
       "operational_evidence_required": [
