@@ -64,12 +64,16 @@ the reviewed release with the host-safe helper from the operator workstation:
 ./scripts/deploy-lightsail-release.sh <reviewed-git-sha> <ssh-user>@<lightsail-public-ip> <ssh-private-key>
 ```
 
-The helper verifies the release marker and checksum, preserves the root-owned
-`.env.production`, creates a code-only rollback archive, replaces only the
-release tree, runs the migration and Compose readiness gates, checks the public
-smoke contract, and confirms the expected six-service set. It never deletes
-named data volumes and never invokes a broker operation. Keep the SSH key
-outside the repository and use the host's restricted administration firewall.
+The helper verifies the release marker and checksum, requires the root-owned
+backup unit to complete a new encrypted off-host PostgreSQL backup, verifies
+backup freshness, preserves the root-owned `.env.production`, creates a
+code-only rollback archive, replaces only the release tree, runs the migration
+and Compose readiness gates, checks the public smoke contract, and confirms the
+expected six-service set. It prints the verified-backup result, prior release,
+rollback path, and deployed release for the change evidence record. It never
+reads backup credentials, deletes named data volumes, or invokes a broker
+operation. Keep the SSH key outside the repository and use the host's restricted
+administration firewall.
 
 The repository also contains a separate manual `Deploy application to AWS
 ECS/Fargate` workflow for the Terraform-prepared scalable topology. Do not run

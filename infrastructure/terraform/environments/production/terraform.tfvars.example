@@ -5,3 +5,7 @@ manage_dns_records = false
 route53_zone_id    = null
 # image_tag must be an immutable Git SHA after the initial repositories are populated.
 image_tag = "bootstrap"
+# Audit evidence defaults to seven-year S3 Object Lock retention and one-year
+# CloudWatch retention. Change only after management, legal, and auditor review.
+security_log_retention_days   = 365
+audit_evidence_retention_days = 2555

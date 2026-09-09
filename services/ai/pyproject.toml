@@ -11,13 +11,14 @@ dependencies = [
   "fastapi==0.141.1",
   "httpx==0.28.1",
   "starlette==1.6.0",
-  "uvicorn[standard]==0.35.0",
+  "uvicorn==0.35.0",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest-asyncio==1.4.0",
   "mypy==1.17.1",
+  "pip-audit==2.10.1",
   "pytest==9.0.3",
   "ruff==0.12.8",
 ]

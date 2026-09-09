@@ -1,0 +1,75 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: deps(web)
+
+  - package-ecosystem: gomod
+    directory: /services/api
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:15"
+      timezone: America/New_York
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: deps(api)
+
+  - package-ecosystem: pip
+    directory: /services/ai
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: America/New_York
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: deps(ai)
+
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /apps/web
+      - /services/api
+      - /services/ai
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:45"
+      timezone: America/New_York
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: deps(container)
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:00"
+      timezone: America/New_York
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: deps(actions)
+
+  - package-ecosystem: terraform
+    directories:
+      - /infrastructure/terraform/bootstrap
+      - /infrastructure/terraform/environments/production
+      - /infrastructure/terraform/modules/*
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:15"
+      timezone: America/New_York
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: deps(terraform)

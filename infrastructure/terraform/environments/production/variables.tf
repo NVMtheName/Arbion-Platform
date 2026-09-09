@@ -86,6 +86,28 @@ variable "alarm_email" {
   default  = null
   nullable = true
 }
+variable "security_log_retention_days" {
+
+  type        = number
+  default     = 365
+  description = "CloudTrail security log retention in CloudWatch Logs."
+  validation {
+
+    condition     = contains([365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653], var.security_log_retention_days)
+    error_message = "Security logs must use a supported CloudWatch retention of at least one year."
+  }
+}
+variable "audit_evidence_retention_days" {
+
+  type        = number
+  default     = 2555
+  description = "Governance-mode object retention for CloudTrail and AWS Config evidence."
+  validation {
+
+    condition     = var.audit_evidence_retention_days >= 365
+    error_message = "Audit evidence must be retained for at least 365 days."
+  }
+}
 variable "tags" {
 
   type = map(string)

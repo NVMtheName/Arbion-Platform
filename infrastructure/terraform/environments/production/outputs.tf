@@ -38,3 +38,27 @@ output "dns_cutover_enabled" {
 
   value = var.manage_dns_records
 }
+output "audit_bucket_name" {
+
+  value = module.audit.audit_bucket_name
+}
+output "cloudtrail_name" {
+
+  value = module.audit.cloudtrail_name
+}
+output "config_recorder_name" {
+
+  value = module.audit.config_recorder_name
+}
+output "guardduty_detector_id" {
+
+  value = module.audit.guardduty_detector_id
+}
+output "guardduty_event_rule_arn" {
+
+  value = module.audit.guardduty_event_rule_arn
+}
+output "access_analyzer_arn" {
+
+  value = module.audit.access_analyzer_arn
+}

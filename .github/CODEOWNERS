@@ -1,0 +1,23 @@
+# Default review owner. GitHub rulesets must separately require code-owner review.
+* @NVMtheName
+
+# Security, compliance, release, and infrastructure control surfaces.
+/.github/ @NVMtheName
+/compliance/ @NVMtheName
+/docs/compliance/ @NVMtheName
+/deploy/ @NVMtheName
+/infrastructure/ @NVMtheName
+/scripts/backup-postgres.sh @NVMtheName
+/scripts/deploy-lightsail-release.sh @NVMtheName
+/scripts/deploy-production.sh @NVMtheName
+/scripts/package-release.sh @NVMtheName
+
+# Identity, credentials, policy, risk, execution, and AI trust boundaries.
+/services/api/internal/auth/ @NVMtheName
+/services/api/internal/authorization/ @NVMtheName
+/services/api/internal/credential/ @NVMtheName
+/services/api/internal/liveexecution/ @NVMtheName
+/services/api/internal/neural/ @NVMtheName
+/services/api/internal/orderintent/ @NVMtheName
+/services/api/internal/risk/ @NVMtheName
+/services/ai/app/neural/ @NVMtheName

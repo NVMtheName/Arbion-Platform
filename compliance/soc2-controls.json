@@ -1,0 +1,392 @@
+{
+  "schema_version": "1.0",
+  "program": "Arbion SOC 2 readiness",
+  "program_status": "READINESS_BASELINE_NOT_CERTIFIED",
+  "criteria_scope": [
+    "SECURITY",
+    "AVAILABILITY",
+    "CONFIDENTIALITY"
+  ],
+  "scope_decisions_pending": [
+    "PROCESSING_INTEGRITY",
+    "PRIVACY"
+  ],
+  "control_status_definitions": {
+    "IMPLEMENTED": "The repository contains an implemented technical or procedural control; operating effectiveness still requires period evidence.",
+    "PARTIAL": "Some design or implementation exists, but a defined gap remains.",
+    "OPERATIONAL_ACTION_REQUIRED": "A recurring people or process action must be completed and evidenced outside source control.",
+    "EXTERNAL_CONFIGURATION_REQUIRED": "A control must be configured or verified in an external service and evidenced outside source control."
+  },
+  "controls": [
+    {
+      "id": "GOV-01",
+      "title": "Security governance and accountability",
+      "criteria": ["CC1.1", "CC1.2", "CC1.3", "CC1.5"],
+      "owner_role": "Security and Compliance Owner",
+      "cadence": "ANNUAL_AND_ON_CHANGE",
+      "implementation_status": "OPERATIONAL_ACTION_REQUIRED",
+      "repository_evidence": [
+        "docs/compliance/README.md",
+        "docs/compliance/INFORMATION_SECURITY_POLICY.md"
+      ],
+      "operational_evidence_required": [
+        "Dated management policy approval",
+        "Named control-owner roster",
+        "Annual control-owner certification"
+      ]
+    },
+    {
+      "id": "GOV-02",
+      "title": "System scope and service commitments",
+      "criteria": ["CC2.1", "CC2.2", "CC2.3"],
+      "owner_role": "System Owner",
+      "cadence": "ANNUAL_AND_ON_CHANGE",
+      "implementation_status": "PARTIAL",
+      "repository_evidence": [
+        "docs/compliance/SYSTEM_DESCRIPTION.md",
+        "docs/ARCHITECTURE.md",
+        "README.md"
+      ],
+      "operational_evidence_required": [
+        "Approved system description",
+        "Approved availability and confidentiality commitments",
+        "Auditor-approved system boundary and subservice method"
+      ]
+    },
+    {
+      "id": "RISK-01",
+      "title": "Enterprise risk assessment and treatment",
+      "criteria": ["CC3.1", "CC3.2", "CC3.3", "CC3.4", "CC9.1"],
+      "owner_role": "Security and Compliance Owner",
+      "cadence": "ANNUAL_AND_ON_SIGNIFICANT_CHANGE",
+      "implementation_status": "OPERATIONAL_ACTION_REQUIRED",
+      "repository_evidence": [
+        "docs/compliance/RISK_MANAGEMENT_POLICY.md",
+        "docs/compliance/SOC2_READINESS.md"
+      ],
+      "operational_evidence_required": [
+        "Approved risk register",
+        "Fraud and significant-change assessment",
+        "Risk treatment and exception approvals"
+      ]
+    },
+    {
+      "id": "HR-01",
+      "title": "Workforce security lifecycle",
+      "criteria": ["CC1.4", "CC1.5", "CC2.2"],
+      "owner_role": "Security and Compliance Owner",
+      "cadence": "ON_HIRE_AND_ANNUAL",
+      "implementation_status": "OPERATIONAL_ACTION_REQUIRED",
+      "repository_evidence": [
+        "docs/compliance/INFORMATION_SECURITY_POLICY.md",
+        "docs/compliance/ACCESS_CONTROL_POLICY.md"
+      ],
+      "operational_evidence_required": [
+        "Confidentiality and acceptable-use acknowledgment",
+        "Security awareness completion",
+        "Joiner, mover, and leaver evidence",
+        "Background-screening decision where lawful and applicable"
+      ]
+    },
+    {
+      "id": "AC-01",
+      "title": "Application authentication and owner authorization",
+      "criteria": ["CC6.1", "CC6.2", "CC6.3"],
+      "owner_role": "Engineering Owner",
+      "cadence": "CONTINUOUS",
+      "implementation_status": "IMPLEMENTED",
+      "repository_evidence": [
+        "docs/SECURITY.md",
+        "services/api/internal/auth",
+        "services/api/internal/authorization",
+        "services/api/internal/credential"
+      ],
+      "operational_evidence_required": [
+        "Authentication and authorization CI results",
+        "Sampled secret-free security audit events",
+        "Quarterly application-role review"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "title": "Privileged and infrastructure access",
+      "criteria": ["CC6.1", "CC6.2", "CC6.3", "CC6.8"],
+      "owner_role": "Security and Compliance Owner",
+      "cadence": "QUARTERLY_AND_ON_CHANGE",
+      "implementation_status": "EXTERNAL_CONFIGURATION_REQUIRED",
+      "repository_evidence": [
+        "docs/compliance/ACCESS_CONTROL_POLICY.md",
+        "docs/compliance/EXTERNAL_CONTROL_VERIFICATION.md",
+        "infrastructure/terraform/bootstrap/main.tf",
+        "infrastructure/terraform/modules/ecs/main.tf"
+      ],
+      "operational_evidence_required": [
+        "GitHub, AWS, host, database, DNS, email, and provider access exports",
+        "MFA and least-privilege review",
+        "Same-business-day termination samples"
+      ]
+    },
+    {
+      "id": "SEC-01",
+      "title": "Credential and secret protection",
+      "criteria": ["CC6.1", "CC6.6", "CC6.7"],
+      "owner_role": "Engineering Owner",
+      "cadence": "CONTINUOUS_AND_QUARTERLY_REVIEW",
+      "implementation_status": "IMPLEMENTED",
+      "repository_evidence": [
+        ".gitignore",
+        ".github/workflows/security.yml",
+        "docs/SECURITY.md",
+        "infrastructure/terraform/modules/secrets/main.tf",
+        "services/api/internal/credential"
+      ],
+      "operational_evidence_required": [
+        "Secret-scanning and push-protection configuration",
+        "KMS key rotation and Secrets Manager configuration",
+        "Quarterly secret age and access review"
+      ]
+    },
+    {
+      "id": "SEC-02",
+      "title": "Network, workload, and transport security",
+      "criteria": ["CC6.6", "CC6.7", "CC6.8"],
+      "owner_role": "Engineering Owner",
+      "cadence": "CONTINUOUS",
+      "implementation_status": "IMPLEMENTED",
+      "repository_evidence": [
+        "deploy/Caddyfile",
+        "docker-compose.prod.yml",
+        "infrastructure/terraform/environments/production/main.tf",
+        "infrastructure/terraform/modules/load-balancer/main.tf",
+        "infrastructure/terraform/modules/ecs/main.tf"
+      ],
+      "operational_evidence_required": [
+        "TLS and security-header check results",
+        "AWS network and workload configuration export",
+        "Production container identity and health evidence"
+      ]
+    },
+    {
+      "id": "DATA-01",
+      "title": "Data classification, retention, and disposal",
+      "criteria": ["CC6.5", "C1.1", "C1.2"],
+      "owner_role": "Security and Compliance Owner",
+      "cadence": "ANNUAL_AND_CONTINUOUS",
+      "implementation_status": "PARTIAL",
+      "repository_evidence": [
+        "docs/compliance/DATA_CLASSIFICATION_RETENTION_POLICY.md",
+        "docs/SECURITY.md"
+      ],
+      "operational_evidence_required": [
+        "Management/legal-approved retention schedule",
+        "Production retention configuration and deletion samples",
+        "Legal-hold and customer-request evidence where applicable"
+      ]
+    },
+    {
+      "id": "CHG-01",
+      "title": "Reviewed and traceable production changes",
+      "criteria": ["CC8.1"],
+      "owner_role": "Engineering Owner",
+      "cadence": "EVERY_CHANGE",
+      "implementation_status": "PARTIAL",
+      "repository_evidence": [
+        ".github/CODEOWNERS",
+        ".github/workflows/ci.yml",
+        ".github/workflows/deploy-aws.yml",
+        "docs/compliance/CHANGE_MANAGEMENT_POLICY.md",
+        "docs/compliance/EXTERNAL_CONTROL_VERIFICATION.md",
+        "scripts/check-release-hygiene.sh",
+        "scripts/package-release.sh"
+      ],
+      "operational_evidence_required": [
+        "Protected main ruleset with required review and checks",
+        "Protected production environment with authorized reviewer and no routine bypass",
+        "Sampled pull request and deployment evidence"
+      ]
+    },
+    {
+      "id": "SDLC-01",
+      "title": "Secure development and vulnerability prevention",
+      "criteria": ["CC7.1", "CC8.1"],
+      "owner_role": "Engineering Owner",
+      "cadence": "EVERY_CHANGE_AND_WEEKLY",
+      "implementation_status": "IMPLEMENTED",
+      "repository_evidence": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/security.yml",
+        ".github/dependabot.yml",
+        "services/api/go.sum",
+        "services/ai/pyproject.toml",
+        "services/ai/requirements.lock",
+        "services/ai/requirements-dev.lock",
+        "apps/web/package-lock.json"
+      ],
+      "operational_evidence_required": [
+        "Required CI and dependency-review results",
+        "CodeQL, dependency, and production container vulnerability findings",
+        "Remediation or time-bounded risk-acceptance records"
+      ]
+    },
+    {
+      "id": "MON-01",
+      "title": "Security and service monitoring",
+      "criteria": ["CC4.1", "CC4.2", "CC7.2", "CC7.3"],
+      "owner_role": "System Owner",
+      "cadence": "CONTINUOUS_AND_MONTHLY_REVIEW",
+      "implementation_status": "PARTIAL",
+      "repository_evidence": [
+        "docs/SECURITY.md",
+        "docs/compliance/EXTERNAL_CONTROL_VERIFICATION.md",
+        "deploy/systemd",
+        "infrastructure/terraform/modules/audit/main.tf",
+        "infrastructure/terraform/modules/observability/main.tf",
+        "scripts/collect-soc2-host-evidence.sh",
+        "scripts/smoke-production.sh",
+        "scripts/send-ops-alert.sh"
+      ],
+      "operational_evidence_required": [
+        "Applied CloudTrail security-alarm and GuardDuty finding routes plus alert-delivery test",
+        "CloudTrail, AWS Config, GuardDuty, and Access Analyzer status",
+        "Monthly log/alert review",
+        "Sampled application security and scheduler events"
+      ]
+    },
+    {
+      "id": "IR-01",
+      "title": "Security incident response",
+      "criteria": ["CC7.3", "CC7.4", "CC7.5"],
+      "owner_role": "Incident Response Owner",
+      "cadence": "CONTINUOUS_AND_ANNUAL_EXERCISE",
+      "implementation_status": "OPERATIONAL_ACTION_REQUIRED",
+      "repository_evidence": [
+        ".github/SECURITY.md",
+        "docs/compliance/INCIDENT_RESPONSE_PLAN.md"
+      ],
+      "operational_evidence_required": [
+        "Restricted incident contact appendix",
+        "Annual tabletop report",
+        "Incident register and post-incident actions"
+      ]
+    },
+    {
+      "id": "AV-01",
+      "title": "Availability monitoring and resilient architecture",
+      "criteria": ["A1.1", "A1.2"],
+      "owner_role": "System Owner",
+      "cadence": "CONTINUOUS",
+      "implementation_status": "IMPLEMENTED",
+      "repository_evidence": [
+        "docker-compose.prod.yml",
+        "deploy/systemd",
+        "infrastructure/terraform/modules/database/main.tf",
+        "infrastructure/terraform/modules/cache/main.tf",
+        "infrastructure/terraform/modules/ecs/main.tf",
+        "infrastructure/terraform/modules/observability/main.tf"
+      ],
+      "operational_evidence_required": [
+        "Public/service health history",
+        "Capacity and alarm review",
+        "Approved availability objective and measured attainment"
+      ]
+    },
+    {
+      "id": "DR-01",
+      "title": "Encrypted backup and tested recovery",
+      "criteria": ["A1.2", "A1.3"],
+      "owner_role": "System Owner",
+      "cadence": "DAILY_BACKUP_QUARTERLY_RESTORE",
+      "implementation_status": "PARTIAL",
+      "repository_evidence": [
+        "docs/compliance/BUSINESS_CONTINUITY_AND_DISASTER_RECOVERY.md",
+        "scripts/backup-postgres.sh",
+        "scripts/check-postgres-backup-freshness.sh",
+        "scripts/verify-postgres-restore.sh",
+        "deploy/systemd/arbion-postgres-backup.timer"
+      ],
+      "operational_evidence_required": [
+        "Daily encrypted off-host backup and freshness evidence",
+        "Quarterly isolated restore test",
+        "Approved and measured recovery objectives"
+      ]
+    },
+    {
+      "id": "CONF-01",
+      "title": "Confidential information protection",
+      "criteria": ["C1.1", "C1.2"],
+      "owner_role": "Security and Compliance Owner",
+      "cadence": "CONTINUOUS_AND_ANNUAL_REVIEW",
+      "implementation_status": "PARTIAL",
+      "repository_evidence": [
+        "docs/compliance/DATA_CLASSIFICATION_RETENTION_POLICY.md",
+        "docs/SECURITY.md",
+        "services/api/internal/credential"
+      ],
+      "operational_evidence_required": [
+        "Approved confidentiality commitments",
+        "Data-flow and retention verification",
+        "Sampled access and disposal evidence"
+      ]
+    },
+    {
+      "id": "TPRM-01",
+      "title": "Vendor and subservice-organization risk",
+      "criteria": ["CC9.2"],
+      "owner_role": "Security and Compliance Owner",
+      "cadence": "BEFORE_USE_AND_ANNUAL",
+      "implementation_status": "OPERATIONAL_ACTION_REQUIRED",
+      "repository_evidence": [
+        "docs/compliance/VENDOR_RISK_MANAGEMENT_POLICY.md",
+        "docs/compliance/SYSTEM_DESCRIPTION.md"
+      ],
+      "operational_evidence_required": [
+        "Approved vendor inventory and risk tiers",
+        "Contracts and data-processing terms",
+        "Current independent assurance reviews and exceptions"
+      ]
+    },
+    {
+      "id": "AI-01",
+      "title": "AI and financial-action trust boundary",
+      "criteria": ["CC6.3", "CC6.6", "CC7.2", "CC8.1"],
+      "owner_role": "Engineering Owner",
+      "cadence": "CONTINUOUS",
+      "implementation_status": "IMPLEMENTED",
+      "repository_evidence": [
+        "docs/SECURITY.md",
+        "docs/NEURAL_ENGINE.md",
+        "docs/RISK_CONTROL_ENGINE.md",
+        "services/api/internal/neural",
+        "services/api/internal/risk",
+        "services/api/internal/liveexecution",
+        "services/ai/app/neural"
+      ],
+      "operational_evidence_required": [
+        "AI route and financial-input provenance samples",
+        "Deterministic risk and immutable decision evidence",
+        "Zero unauthorized live/broker execution verification"
+      ]
+    },
+    {
+      "id": "EVID-01",
+      "title": "Control evidence integrity and retention",
+      "criteria": ["CC2.3", "CC4.1", "CC4.2"],
+      "owner_role": "Security and Compliance Owner",
+      "cadence": "CONTINUOUS_AND_MONTHLY_REVIEW",
+      "implementation_status": "PARTIAL",
+      "repository_evidence": [
+        "compliance/soc2-controls.json",
+        "docs/compliance/EVIDENCE_RUNBOOK.md",
+        "docs/compliance/OPERATING_EVIDENCE_WORKBOOK.md",
+        "scripts/collect-soc2-external-evidence.sh",
+        "scripts/collect-soc2-host-evidence.sh",
+        "scripts/check-soc2-controls.sh"
+      ],
+      "operational_evidence_required": [
+        "Restricted evidence repository and access review",
+        "Auditor-agreed retention configuration",
+        "Monthly evidence-completeness review"
+      ]
+    }
+  ]
+}
