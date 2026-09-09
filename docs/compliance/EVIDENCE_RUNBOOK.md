@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Document owner | Security and Compliance Owner |
-| Version | 0.1 |
+| Version | 0.2 |
 | Approval status | PENDING_MANAGEMENT_APPROVAL |
 | Review cadence | Quarterly and after evidence-source change |
 
@@ -27,7 +27,9 @@ Each evidence item must include control ID, UTC collection time, collector, sour
 
 ### External configuration snapshot
 
-Authenticate the GitHub CLI to the Arbion repository and AWS CLI to the production account, then run `scripts/collect-soc2-external-evidence.sh` with an output directory outside the repository. The collector performs read-only API calls, omits subscription endpoints and secrets, writes restrictive local permissions, and creates a SHA-256 manifest. Review every collected file, record exceptions, and move the approved snapshot to the restricted evidence repository. A successful collection proves only what the saved APIs reported at that time; it does not prove operating effectiveness by itself.
+Authenticate the GitHub CLI to the Arbion repository and AWS CLI to the production account, then run `scripts/collect-soc2-external-evidence.sh` with an output directory outside the repository. The collector performs read-only API calls, omits subscription endpoints and secrets, writes restrictive local permissions, and creates a deterministically ordered SHA-256 manifest.
+
+Before review or transfer, run `scripts/verify-soc2-evidence-snapshot.sh <snapshot-directory>`. The verifier fails closed on missing, extra, duplicate, reordered, malformed, oversized, symlinked, secret-like, checksum-mismatched, or internally inconsistent evidence. Keep the snapshot and manifest together, review every collected file, record exceptions, and move the approved snapshot into immutable or versioned storage in the restricted evidence repository. Successful verification establishes only internal package consistency at that point in time. A party able to alter both evidence and its local manifest can create a new internally consistent package, so authenticity depends on authenticated collection, independent review, access control, and immutable external retention. Neither collection nor verification proves operating effectiveness or SOC 2 certification.
 
 ### Change sample
 

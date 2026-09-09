@@ -80,6 +80,10 @@ done
   fail "external evidence collector is missing or empty"
 [[ -s "$arbion_root/scripts/collect-soc2-host-evidence.sh" ]] ||
   fail "production host evidence collector is missing or empty"
+[[ -x "$arbion_root/scripts/verify-soc2-evidence-snapshot.sh" ]] ||
+  fail "external evidence snapshot verifier is missing or not executable"
+grep -q 'internal checksum consistency only' "$arbion_root/scripts/verify-soc2-evidence-snapshot.sh" ||
+  fail "external evidence verification must disclose its consistency-only limitation"
 grep -q 'AUTHENTICATED_EVIDENCE_NOT_YET_COLLECTED' "$arbion_root/docs/compliance/EXTERNAL_CONTROL_VERIFICATION.md" ||
   fail "external control status must fail closed until authenticated evidence is retained"
 

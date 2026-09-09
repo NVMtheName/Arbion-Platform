@@ -13,7 +13,7 @@ fail() {
 }
 
 [[ -n "$output_parent_input" ]] || fail "usage: $0 <existing-output-parent-outside-the-repository>"
-for command in aws gh git jq openssl; do
+for command in awk aws gh git jq openssl; do
   command -v "$command" >/dev/null || fail "required command not found: $command"
 done
 [[ -d "$output_parent_input" ]] || fail "output parent does not exist: $output_parent_input"
@@ -23,7 +23,7 @@ case "$output_parent/" in
 esac
 
 collected_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-collection_id="arbion-soc2-$(date -u +%Y%m%dT%H%M%SZ)"
+collection_id="arbion-soc2-${collected_at//[-:]/}"
 collection_dir="$output_parent/$collection_id"
 [[ ! -e "$collection_dir" ]] || fail "collection path already exists: $collection_dir"
 mkdir -m 700 -- "$collection_dir"
@@ -160,8 +160,11 @@ jq -n \
 
 (
   cd -- "$collection_dir"
+  export LC_ALL=C
   for evidence_file in ./*.json; do
-    openssl dgst -sha256 "$evidence_file"
+    evidence_digest="$(openssl dgst -sha256 "$evidence_file" | awk '{print $NF}')"
+    [[ "$evidence_digest" =~ ^[0-9a-f]{64}$ ]] || fail "could not calculate a canonical SHA-256 digest"
+    printf '%s  %s\n' "$evidence_digest" "${evidence_file#./}"
   done
 ) >"$collection_dir/SHA256SUMS"
 

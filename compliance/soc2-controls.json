@@ -380,6 +380,7 @@
         "docs/compliance/OPERATING_EVIDENCE_WORKBOOK.md",
         "scripts/collect-soc2-external-evidence.sh",
         "scripts/collect-soc2-host-evidence.sh",
+        "scripts/verify-soc2-evidence-snapshot.sh",
         "scripts/check-soc2-controls.sh"
       ],
       "operational_evidence_required": [

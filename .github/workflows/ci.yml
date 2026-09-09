@@ -137,7 +137,7 @@ jobs:
           docker compose -f docker-compose.prod.yml up --no-deps --exit-code-from migrate migrate
           docker compose -f docker-compose.prod.yml up -d --no-deps --build --wait --wait-timeout 120 web
       - run: docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d caddy validate --config /etc/caddy/Caddyfile
-      - run: bash -n scripts/backup-postgres.sh scripts/check-host-capacity.sh scripts/check-memory-pressure.sh scripts/check-postgres-backup-freshness.sh scripts/check-production-containers.sh scripts/check-reboot-required.sh scripts/check-release-hygiene.sh scripts/check-soc2-controls.sh scripts/check-tls-certificate.sh scripts/collect-soc2-external-evidence.sh scripts/collect-soc2-host-evidence.sh scripts/deploy-lightsail-release.sh scripts/deploy-production.sh scripts/lightsail-deploy.test.sh scripts/package-release.sh scripts/release-hygiene.test.sh scripts/send-ops-alert.sh scripts/smoke-production.sh scripts/soc2-controls.test.sh scripts/verify-postgres-restore.sh
+      - run: bash -n scripts/backup-postgres.sh scripts/check-host-capacity.sh scripts/check-memory-pressure.sh scripts/check-postgres-backup-freshness.sh scripts/check-production-containers.sh scripts/check-reboot-required.sh scripts/check-release-hygiene.sh scripts/check-soc2-controls.sh scripts/check-tls-certificate.sh scripts/collect-soc2-external-evidence.sh scripts/collect-soc2-host-evidence.sh scripts/deploy-lightsail-release.sh scripts/deploy-production.sh scripts/lightsail-deploy.test.sh scripts/package-release.sh scripts/release-hygiene.test.sh scripts/send-ops-alert.sh scripts/smoke-production.sh scripts/soc2-controls.test.sh scripts/soc2-evidence-snapshot.test.sh scripts/verify-postgres-restore.sh scripts/verify-soc2-evidence-snapshot.sh
       - run: ./scripts/release-hygiene.test.sh
       - run: ./scripts/lightsail-deploy.test.sh
 
@@ -147,6 +147,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Validate SOC 2 control baseline
         run: ./scripts/soc2-controls.test.sh
+      - name: Verify SOC 2 evidence snapshot integrity controls
+        run: ./scripts/soc2-evidence-snapshot.test.sh
       - name: Generate control evidence report
         run: |
           mkdir -p artifacts
