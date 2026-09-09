@@ -78,6 +78,8 @@ done
 
 [[ -s "$arbion_root/scripts/collect-soc2-external-evidence.sh" ]] ||
   fail "external evidence collector is missing or empty"
+grep -q -- 'gh api --paginate --slurp' "$arbion_root/scripts/collect-soc2-external-evidence.sh" ||
+  fail "external evidence collector does not paginate the GitHub collaborator population"
 [[ -s "$arbion_root/scripts/collect-soc2-host-evidence.sh" ]] ||
   fail "production host evidence collector is missing or empty"
 [[ -x "$arbion_root/scripts/verify-soc2-host-evidence.sh" ]] ||
@@ -88,6 +90,10 @@ grep -q 'internal payload consistency only' "$arbion_root/scripts/verify-soc2-ho
   fail "external evidence snapshot verifier is missing or not executable"
 grep -q 'internal checksum consistency only' "$arbion_root/scripts/verify-soc2-evidence-snapshot.sh" ||
   fail "external evidence verification must disclose its consistency-only limitation"
+[[ -x "$arbion_root/scripts/review-soc2-external-evidence.py" ]] ||
+  fail "external evidence review-draft generator is missing or not executable"
+grep -q 'REVIEW_DRAFT_NOT_OPERATING_EVIDENCE' "$arbion_root/scripts/review-soc2-external-evidence.py" ||
+  fail "external evidence review draft must disclose its non-authoritative status"
 grep -q 'AUTHENTICATED_EVIDENCE_NOT_YET_COLLECTED' "$arbion_root/docs/compliance/EXTERNAL_CONTROL_VERIFICATION.md" ||
   fail "external control status must fail closed until authenticated evidence is retained"
 

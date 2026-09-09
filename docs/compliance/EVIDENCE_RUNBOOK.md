@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Document owner | Security and Compliance Owner |
-| Version | 0.3 |
+| Version | 0.4 |
 | Approval status | PENDING_MANAGEMENT_APPROVAL |
 | Review cadence | Quarterly and after evidence-source change |
 
@@ -29,7 +29,11 @@ Each evidence item must include control ID, UTC collection time, collector, sour
 
 Authenticate the GitHub CLI to the Arbion repository and AWS CLI to the production account, then run `scripts/collect-soc2-external-evidence.sh` with an output directory outside the repository. The collector performs read-only API calls, omits subscription endpoints and secrets, writes restrictive local permissions, and creates a deterministically ordered SHA-256 manifest.
 
-Before review or transfer, run `scripts/verify-soc2-evidence-snapshot.sh <snapshot-directory>`. The verifier fails closed on missing, extra, duplicate, reordered, malformed, oversized, symlinked, secret-like, checksum-mismatched, or internally inconsistent evidence. Keep the snapshot and manifest together, review every collected file, record exceptions, and move the approved snapshot into immutable or versioned storage in the restricted evidence repository. Successful verification establishes only internal package consistency at that point in time. A party able to alter both evidence and its local manifest can create a new internally consistent package, so authenticity depends on authenticated collection, independent review, access control, and immutable external retention. Neither collection nor verification proves operating effectiveness or SOC 2 certification.
+Before review or transfer, run `scripts/verify-soc2-evidence-snapshot.sh <snapshot-directory>`. The verifier fails closed on missing, extra, duplicate, reordered, malformed, oversized, symlinked, secret-like, checksum-mismatched, or internally inconsistent evidence.
+
+After verification, create the bounded reviewer aid outside both the repository and snapshot with `scripts/review-soc2-external-evidence.py <snapshot-directory> <outside-directory>/external-control-review.json`. The collector paginates the GitHub collaborator population before this review. The reviewer aid re-runs package verification, rejects duplicate JSON keys, recomputes every source digest, refuses overwrite, writes mode `0600`, and maps 15 narrow saved-field assertions to the control catalog. Its deterministic output is always labeled `REVIEW_DRAFT_NOT_OPERATING_EVIDENCE`; `PASS` means only that a stated saved-field condition matched. A `FAIL` requires an exception and remediation review, while `UNAVAILABLE` requires recollection or a documented exception. The report cannot approve a control, establish operation over time, or support a compliance or certification claim by itself.
+
+Keep the snapshot, manifest, and review draft together; independently review every source and assertion, record exceptions, and move the approved package into immutable or versioned storage in the restricted evidence repository. Successful verification establishes only internal package consistency at that point in time. A party able to alter both evidence and its local manifest can create a new internally consistent package, so authenticity depends on authenticated collection, independent review, access control, and immutable external retention. Collection, verification, and draft generation do not prove operating effectiveness or SOC 2 certification.
 
 ### Production host snapshot
 

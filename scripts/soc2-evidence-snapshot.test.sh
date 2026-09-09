@@ -121,6 +121,58 @@ collector_snapshots=("$collector_parent"/arbion-soc2-*)
 "$verifier" "${collector_snapshots[0]}" >"$test_root/collector-verification-output"
 grep -Fq 'internal checksum consistency only' "$test_root/collector-verification-output"
 
+paginated_bin="$test_root/paginated-bin"
+paginated_parent="$test_root/paginated-collector"
+mkdir -p -- "$paginated_bin" "$paginated_parent"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'if [[ "$1" == "configure" && "$2" == "get" && "$3" == "region" ]]; then echo us-east-1; exit 0; fi' \
+  'exit 1' >"$paginated_bin/aws"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'if [[ "$1" == "auth" && "$2" == "status" ]]; then exit 0; fi' \
+  '[[ "$1" == "api" ]] || exit 1' \
+  'endpoint=""; saw_paginate=false; saw_slurp=false' \
+  'for argument in "$@"; do' \
+  '  [[ "$argument" == "--paginate" ]] && saw_paginate=true' \
+  '  [[ "$argument" == "--slurp" ]] && saw_slurp=true' \
+  '  case "$argument" in user|repos/example/arbion*) endpoint="$argument" ;; esac' \
+  'done' \
+  'case "$endpoint" in' \
+  '  user) printf "%s\\n" '\''{"login":"collector","id":1}'\'' ;;' \
+  '  repos/example/arbion) printf "%s\\n" '\''{"full_name":"example/arbion"}'\'' ;;' \
+  '  repos/example/arbion/branches/main/protection) printf "%s\\n" '\''{}'\'' ;;' \
+  '  "repos/example/arbion/rulesets?includes_parents=true") printf "%s\\n" '\''[]'\'' ;;' \
+  '  repos/example/arbion/environments/production) printf "%s\\n" '\''{}'\'' ;;' \
+  '  repos/example/arbion/actions/permissions) printf "%s\\n" '\''{}'\'' ;;' \
+  '  "repos/example/arbion/collaborators?affiliation=all&per_page=100")' \
+  '    [[ "$saw_paginate" == true && "$saw_slurp" == true ]] || exit 2' \
+  '    printf "%s\\n" '\''[[{"login":"first","id":1,"role_name":"admin","permissions":{"admin":true}}],[{"login":"second","id":2,"role_name":"write","permissions":{"push":true}}]]'\''' \
+  '    ;;' \
+  '  *) exit 1 ;;' \
+  'esac' >"$paginated_bin/gh"
+chmod 755 "$paginated_bin/aws" "$paginated_bin/gh"
+if ARBION_GITHUB_REPOSITORY=example/arbion PATH="$paginated_bin:$PATH" \
+  "$repo_root/scripts/collect-soc2-external-evidence.sh" "$paginated_parent" \
+  >"$test_root/paginated-output" 2>&1; then
+  fail "partially available mocked collector unexpectedly reported a complete snapshot"
+fi
+paginated_snapshots=("$paginated_parent"/arbion-soc2-*)
+[[ "${#paginated_snapshots[@]}" -eq 1 && -d "${paginated_snapshots[0]}" ]] ||
+  fail "paginated collector did not create exactly one bounded snapshot"
+"$verifier" "${paginated_snapshots[0]}" >"$test_root/paginated-verification-output"
+jq -e '
+  length == 2 and
+  .[0].login == "first" and
+  .[1].login == "second"
+' "${paginated_snapshots[0]}/github-collaborators.json" >/dev/null ||
+  fail "collector did not retain the complete paginated collaborator population"
+jq -e '
+  .status == "INCOMPLETE" and
+  .unavailable_sources == ["aws"]
+' "${paginated_snapshots[0]}/collection-summary.json" >/dev/null ||
+  fail "paginated partial collection did not preserve the exact unavailable source"
+
 tamper_json() {
   local snapshot="$1"
   jq '.tampered = true' "$snapshot/github-repository.json" >"$snapshot/.tmp"

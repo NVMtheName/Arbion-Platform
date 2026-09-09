@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Document owner | Security and Compliance Owner |
-| Version | 0.2 |
+| Version | 0.3 |
 | Verification status | AUTHENTICATED_EVIDENCE_NOT_YET_COLLECTED |
 | Review cadence | Quarterly and after material configuration change |
 
@@ -21,11 +21,13 @@ Public repository metadata observed during the review indicated that the reposit
 2. Authenticate the AWS CLI to the production account with read-only security-audit access.
 3. Choose a new directory outside this Git repository on an encrypted workstation volume.
 4. Run `bash scripts/collect-soc2-external-evidence.sh <parent-directory>`.
-5. Review the generated `collection-summary.json` and every JSON source file. An `INCOMPLETE` status is a control exception, not a successful snapshot.
-6. Collect the current Lightsail host snapshot without copying its secret environment: `ssh <restricted-host> 'sudo bash /opt/arbion/scripts/collect-soc2-host-evidence.sh' > <outside-repository>/host.json`. A nonzero result or `INCOMPLETE` status is an exception. Run `scripts/verify-soc2-host-evidence.sh <outside-repository>/host.json`, independently review the result, and retain it promptly in restricted immutable or versioned storage. The embedded digest proves only internal payload consistency, not collector identity or authenticity.
-7. Move the reviewed snapshots to the restricted evidence repository, verify their SHA-256 manifests, and record control ID, reviewer, result, exception, and UTC review time.
+5. Run `scripts/verify-soc2-evidence-snapshot.sh <snapshot-directory>`. Do not review or transfer a package that fails this internal-consistency boundary.
+6. Run `scripts/review-soc2-external-evidence.py <snapshot-directory> <outside-directory>/external-control-review.json`. The output must remain outside the repository and snapshot. It is a deterministic `REVIEW_DRAFT_NOT_OPERATING_EVIDENCE`, not a control approval.
+7. Independently compare every draft assertion with its cited JSON source and digest. Record `PASS`, `FAIL`, or `UNAVAILABLE`, the reviewer, UTC review time, and an exception for every failed or unavailable result. An `INCOMPLETE` collection or `INCOMPLETE_REVIEW_REQUIRED` draft is a control exception, not successful evidence.
+8. Collect the current Lightsail host snapshot without copying its secret environment: `ssh <restricted-host> 'sudo bash /opt/arbion/scripts/collect-soc2-host-evidence.sh' > <outside-repository>/host.json`. A nonzero result or `INCOMPLETE` status is an exception. Run `scripts/verify-soc2-host-evidence.sh <outside-repository>/host.json`, independently review the result, and retain it promptly in restricted immutable or versioned storage. The embedded digest proves only internal payload consistency, not collector identity or authenticity.
+9. Move the reviewed snapshots and draft to the restricted evidence repository, verify their SHA-256 identities, and retain the signed reviewer conclusion and exception links with them.
 
-The collectors omit credential material, secret-scanning alert payloads, notification endpoints, customer data, application/database records, environment values, and CloudTrail event bodies. They do not change any setting. The host collector returns only the release marker, container hardening/health metadata, monitoring-timer state, sensitive-file ownership/modes, backup marker metadata, and results of existing read-only health checks.
+The collectors omit credential material, secret-scanning alert payloads, notification endpoints, customer data, application/database records, environment values, and CloudTrail event bodies. They do not change any setting. The host collector returns only the release marker, container hardening/health metadata, monitoring-timer state, sensitive-file ownership/modes, backup marker metadata, and results of existing read-only health checks. The external review draft makes no API call and evaluates only the verified saved snapshot; it preserves exact file digests but intentionally omits raw source values.
 
 ## Required GitHub state
 

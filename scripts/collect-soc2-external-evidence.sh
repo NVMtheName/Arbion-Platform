@@ -61,6 +61,23 @@ capture_json() {
   return 0
 }
 
+capture_github_collaborators() {
+  local temporary="$collection_dir/.github-collaborators.tmp"
+  if gh api --paginate --slurp \
+    "repos/$github_repository/collaborators?affiliation=all&per_page=100" \
+    >"$temporary" 2>/dev/null &&
+    jq -e 'type == "array" and all(.[]; type == "array")' "$temporary" >/dev/null 2>&1; then
+    jq -S '[.[][] | {login: .login, id: .id, role_name: .role_name, permissions: .permissions}]' \
+      "$temporary" >"$collection_dir/github-collaborators.json"
+    unlink "$temporary"
+    return 0
+  fi
+
+  [[ ! -e "$temporary" ]] || unlink "$temporary"
+  record_unavailable github-collaborators GITHUB "The paginated read-only collaborator export failed or returned non-JSON. Review authentication and repository administration access."
+  return 0
+}
+
 github_repository="${ARBION_GITHUB_REPOSITORY:-}"
 if gh auth status >/dev/null 2>&1; then
   if [[ -z "$github_repository" ]]; then
@@ -79,7 +96,7 @@ if gh auth status >/dev/null 2>&1; then
     capture_json github-rulesets GITHUB gh api "repos/$github_repository/rulesets?includes_parents=true"
     capture_json github-production-environment GITHUB gh api "repos/$github_repository/environments/production"
     capture_json github-actions-permissions GITHUB gh api "repos/$github_repository/actions/permissions"
-    capture_json github-collaborators GITHUB gh api "repos/$github_repository/collaborators?affiliation=all&per_page=100" --jq '[.[] | {login: .login, id: .id, role_name: .role_name, permissions: .permissions}]'
+    capture_github_collaborators
   else
     record_unavailable github GITHUB "Could not resolve an exact owner/repository name. Set ARBION_GITHUB_REPOSITORY."
   fi

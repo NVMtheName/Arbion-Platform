@@ -381,6 +381,8 @@
         "docs/compliance/OPERATING_EVIDENCE_WORKBOOK.md",
         "scripts/collect-soc2-external-evidence.sh",
         "scripts/collect-soc2-host-evidence.sh",
+        "scripts/review-soc2-external-evidence.py",
+        "scripts/soc2-external-review.test.py",
         "scripts/verify-soc2-evidence-snapshot.sh",
         "scripts/verify-soc2-host-evidence.sh",
         "scripts/check-soc2-controls.sh"
