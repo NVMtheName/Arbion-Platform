@@ -3,7 +3,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 RUN addgroup --system arbion && adduser --system --ingroup arbion arbion
 COPY requirements.lock ./
-RUN pip install --no-cache-dir --require-hashes -r requirements.lock
+# Runtime dependencies are installed at build time; remove pip and its vendored tooling.
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
+    && python -m pip uninstall --yes pip
 COPY app ./app
 USER arbion
 EXPOSE 8000
