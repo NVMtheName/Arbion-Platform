@@ -95,6 +95,15 @@ for timer in "${timers[@]}"; do
   sub_state="$(systemctl show "$timer" --property=SubState --value 2>/dev/null || true)"
   unit_file_state="$(systemctl show "$timer" --property=UnitFileState --value 2>/dev/null || true)"
   next_run="$(systemctl show "$timer" --property=NextElapseUSecRealtime --value 2>/dev/null || true)"
+  next_run_clock="REALTIME"
+  if [[ -z "$next_run" ]]; then
+    next_run="$(systemctl show "$timer" --property=NextElapseUSecMonotonic --value 2>/dev/null || true)"
+    next_run_clock="MONOTONIC"
+  fi
+  if [[ -z "$next_run" || "$next_run" == "infinity" || "$next_run" == "0" ]]; then
+    next_run="UNAVAILABLE"
+    next_run_clock="UNAVAILABLE"
+  fi
   jq -n \
     --arg unit "$timer" \
     --arg load_state "${load_state:-UNAVAILABLE}" \
@@ -102,7 +111,8 @@ for timer in "${timers[@]}"; do
     --arg sub_state "${sub_state:-UNAVAILABLE}" \
     --arg unit_file_state "${unit_file_state:-UNAVAILABLE}" \
     --arg next_run "${next_run:-UNAVAILABLE}" \
-    '{unit: $unit, load_state: $load_state, active_state: $active_state, sub_state: $sub_state, unit_file_state: $unit_file_state, next_run: $next_run}' \
+    --arg next_run_clock "$next_run_clock" \
+    '{unit: $unit, load_state: $load_state, active_state: $active_state, sub_state: $sub_state, unit_file_state: $unit_file_state, next_run: $next_run, next_run_clock: $next_run_clock}' \
     >>"$temporary_root/timer-records.jsonl"
 done
 jq -s . "$temporary_root/timer-records.jsonl" >"$temporary_root/timers.json"
@@ -225,7 +235,7 @@ os_id="$(awk -F= '$1 == "ID" {gsub(/\"/, "", $2); print $2}' /etc/os-release 2>/
 os_version="$(awk -F= '$1 == "VERSION_ID" {gsub(/\"/, "", $2); print $2}' /etc/os-release 2>/dev/null || true)"
 
 jq -n \
-  --arg schema_version "1.1" \
+  --arg schema_version "1.2" \
   --arg collection_id "$collection_id" \
   --arg status "$collection_status" \
   --arg collected_at "$collected_at" \
