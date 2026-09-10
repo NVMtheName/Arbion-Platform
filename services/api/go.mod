@@ -1,13 +1,13 @@
 module github.com/arbion/platform/services/api
 
-go 1.25.13
+go 1.26.0
 
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/pressly/goose/v3 v3.24.3
 	github.com/redis/go-redis/v9 v9.8.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 )
 
 require (
