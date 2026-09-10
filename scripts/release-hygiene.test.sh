@@ -72,4 +72,38 @@ metadata_entry="$(
   exit 1
 }
 
+for packaging_mask in 077 000 022; do
+  permissions_archive="$test_root/permissions-$packaging_mask.tar.gz"
+  (
+    umask "$packaging_mask"
+    # A caller's private evidence policy or Git tar setting must not make
+    # application source unreadable by the non-root container runtime.
+    GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=tar.umask GIT_CONFIG_VALUE_0=0077 \
+      "$repo_root/scripts/package-release.sh" HEAD "$permissions_archive" >/dev/null
+  )
+  python3 - "$permissions_archive" <<'PY'
+import os
+import stat
+import sys
+import tarfile
+
+if stat.S_IMODE(os.stat(sys.argv[1]).st_mode) != 0o600:
+    raise SystemExit("Release archive must remain private to its owner")
+
+with tarfile.open(sys.argv[1], "r:gz") as archive:
+    for path, expected in (
+        ("./services/ai/app", 0o755),
+        ("./services/ai/app/main.py", 0o644),
+        ("./scripts/deploy-production.sh", 0o755),
+        ("./.release-sha", 0o644),
+    ):
+        actual = archive.getmember(path).mode
+        if actual != expected:
+            raise SystemExit(f"Release permission mismatch: {path}: {actual:o}, expected {expected:o}")
+    if any(member.mode & 0o022 for member in archive.getmembers() if member.isfile()):
+        raise SystemExit("Release includes group/world-writable source files")
+print("Canonical non-root source permissions passed")
+PY
+done
+
 echo "Release hygiene tests passed."

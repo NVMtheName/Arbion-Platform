@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Tracked application source must remain readable by non-root container users,
+# independent of a caller's restrictive evidence/log umask. Temporary archives
+# remain private because mktemp creates them with mode 0600.
+umask 022
+
 if [[ "$#" -ne 2 ]]; then
   echo "Usage: $0 <git-ref> <output.tar.gz>" >&2
   exit 2
@@ -53,7 +58,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-git -C "$repo_root" archive --format=tar "$commit" | tar -xf - -C "$stage_dir"
+git -C "$repo_root" -c tar.umask=0022 archive --format=tar "$commit" | tar -xf - -C "$stage_dir"
 printf '%s\n' "$commit" >"$stage_dir/.release-sha"
 
 # COPYFILE_DISABLE prevents macOS tar from serializing extended attributes as

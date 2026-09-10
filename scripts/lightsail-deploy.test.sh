@@ -51,6 +51,13 @@ grep -q 'replacement_completed_epoch=' "$ssh_input"
 grep -q 'rollback_sha256=' "$ssh_input"
 bash -n "$ssh_input"
 
+source_umask_line="$(grep -n '^umask 022$' "$ssh_input" | cut -d: -f1)"
+extraction_line="$(grep -n '^tar --no-same-owner --no-same-permissions ' "$ssh_input" | cut -d: -f1)"
+[[ -n "$source_umask_line" && -n "$extraction_line" && "$source_umask_line" -lt "$extraction_line" ]] || {
+  echo "Lightsail deploy does not set canonical source permissions before extraction." >&2
+  exit 1
+}
+
 backup_line="$(grep -n "systemctl start arbion-postgres-backup.service" "$ssh_input" | cut -d: -f1)"
 release_line="$(grep -n "rsync -a --delete" "$ssh_input" | cut -d: -f1)"
 [[ "$backup_line" -lt "$release_line" ]] || {

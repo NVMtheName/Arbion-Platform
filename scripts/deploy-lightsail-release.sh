@@ -55,6 +55,11 @@ release_sha='$release_sha'
 archive='$remote_archive'
 expected_sha='$archive_sha'
 
+# Extract tracked application code with canonical read/execute permissions even
+# if the remote administrative shell uses a private umask. Existing secret files
+# are excluded from replacement; mktemp still protects temporary artifacts.
+umask 022
+
 [[ -d /opt/arbion && -r /opt/arbion/.env.production ]]
 [[ -f "\$archive" ]]
 for command in cat curl date docker find grep hostname jq mktemp mv rsync sha256sum stat systemctl tar unlink; do
