@@ -156,6 +156,10 @@ jobs:
           python3 ./scripts/soc2-github-security.test.py
       - name: Verify SOC 2 production-host evidence integrity controls
         run: ./scripts/soc2-host-evidence.test.sh
+      - name: Verify exact release lineage and deployment receipt evidence
+        run: |
+          python3 -m py_compile ./scripts/soc2_release_evidence.py ./scripts/soc2-release-evidence.test.py
+          python3 ./scripts/soc2-release-evidence.test.py
       - name: Generate control evidence report
         run: |
           mkdir -p artifacts
