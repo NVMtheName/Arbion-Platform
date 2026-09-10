@@ -144,7 +144,7 @@ printf '%s\n' \
   '  repos/example/arbion/branches/main/protection) printf "%s\\n" '\''{}'\'' ;;' \
   '  "repos/example/arbion/rulesets?includes_parents=true") printf "%s\\n" '\''[]'\'' ;;' \
   '  repos/example/arbion/environments/production) printf "%s\\n" '\''{}'\'' ;;' \
-  '  repos/example/arbion/actions/permissions) printf "%s\\n" '\''{}'\'' ;;' \
+  '  repos/example/arbion/actions/permissions/workflow) printf "%s\\n" '\''{"default_workflow_permissions":"read","can_approve_pull_request_reviews":false}'\'' ;;' \
   '  "repos/example/arbion/collaborators?affiliation=all&per_page=100")' \
   '    [[ "$saw_paginate" == true && "$saw_slurp" == true ]] || exit 2' \
   '    printf "%s\\n" '\''[[{"login":"first","id":1,"role_name":"admin","permissions":{"admin":true}}],[{"login":"second","id":2,"role_name":"write","permissions":{"push":true}}]]'\''' \
@@ -172,6 +172,48 @@ jq -e '
   .unavailable_sources == ["aws"]
 ' "${paginated_snapshots[0]}/collection-summary.json" >/dev/null ||
   fail "paginated partial collection did not preserve the exact unavailable source"
+
+# Read-only detector inventory must be paired with exact status, not existence alone.
+detector_bin="$test_root/detector-bin"
+mkdir -p "$detector_bin"
+cp "$fake_bin/gh" "$detector_bin/gh"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'case "$1 $2" in' \
+  '  "sts get-caller-identity") echo '\''{"Account":"111122223333","Arn":"arn:aws:iam::111122223333:role/test","UserId":"test"}'\'' ;;' \
+  '  "guardduty list-detectors")' \
+  '    case "$DETECTOR_CASE" in' \
+  '      empty) echo '\''{"DetectorIds":[]}'\'' ;;' \
+  '      malformed) echo '\''{"DetectorIds":["../invalid"]}'\'' ;;' \
+  '      *) echo '\''{"DetectorIds":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}'\'' ;;' \
+  '    esac ;;' \
+  '  "guardduty get-detector")' \
+  '    [[ "$3" == "--detector-id" && "$4" == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ]] || exit 2' \
+  '    case "$DETECTOR_CASE" in' \
+  '      denied) exit 1 ;;' \
+  '      disabled) echo '\''{"Status":"DISABLED"}'\'' ;;' \
+  '      *) echo '\''{"Status":"ENABLED"}'\'' ;;' \
+  '    esac ;;' \
+  '  *) exit 1 ;;' \
+  'esac' >"$detector_bin/aws"
+chmod 755 "$detector_bin/aws"
+for detector_case in empty enabled disabled denied malformed; do
+  detector_parent="$test_root/detector-$detector_case"
+  mkdir -p "$detector_parent"
+  if DETECTOR_CASE="$detector_case" AWS_REGION=us-east-1 PATH="$detector_bin:$PATH" \
+    "$repo_root/scripts/collect-soc2-external-evidence.sh" "$detector_parent" >/dev/null 2>&1; then
+    fail "partial detector fixture reported complete collection"
+  fi
+  detector_snapshots=("$detector_parent"/arbion-soc2-*)
+  "$verifier" "${detector_snapshots[0]}" >/dev/null
+  detector_source="${detector_snapshots[0]}/aws-guardduty-detectors.json"
+  case "$detector_case" in
+    empty) jq -e '.DetectorIds == [] and .Detectors == []' "$detector_source" >/dev/null ;;
+    enabled) jq -e '.Detectors == [{DetectorId:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",Status:"ENABLED"}]' "$detector_source" >/dev/null ;;
+    disabled) jq -e '.Detectors[0].Status == "DISABLED"' "$detector_source" >/dev/null ;;
+    *) jq -e '.status == "UNAVAILABLE"' "$detector_source" >/dev/null ;;
+  esac
+done
 
 tamper_json() {
   local snapshot="$1"

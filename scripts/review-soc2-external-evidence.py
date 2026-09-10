@@ -469,9 +469,19 @@ def aws_config_recording(values: Sequence[Any]) -> tuple[bool, bool]:
 def aws_threat_detection(values: Sequence[Any]) -> tuple[bool, bool]:
     guardduty, analyzers = values
     detectors = guardduty.get("DetectorIds", MISSING) if isinstance(guardduty, dict) else MISSING
+    statuses = guardduty.get("Detectors", MISSING) if isinstance(guardduty, dict) else MISSING
     analyzer_list = analyzers.get("analyzers", MISSING) if isinstance(analyzers, dict) else MISSING
     schema = (
         is_string_list(detectors)
+        and len(set(detectors)) == len(detectors)
+        and isinstance(statuses, list)
+        and all(
+            isinstance(item, dict)
+            and is_nonempty_string(item.get("DetectorId"))
+            and item.get("Status") in ("ENABLED", "DISABLED")
+            for item in statuses
+        )
+        and sorted(item["DetectorId"] for item in statuses) == sorted(detectors)
         and isinstance(analyzer_list, list)
         and all(
             isinstance(item, dict)
@@ -481,7 +491,9 @@ def aws_threat_detection(values: Sequence[Any]) -> tuple[bool, bool]:
             for item in analyzer_list
         )
     )
-    passed = schema and bool(detectors) and any(
+    passed = schema and bool(detectors) and all(
+        item["Status"] == "ENABLED" for item in statuses
+    ) and any(
         item.get("status") == "ACTIVE" and item.get("type") == "ACCOUNT"
         for item in analyzer_list
     )
@@ -558,7 +570,8 @@ def aws_bucket_protection(values: Sequence[Any], require_kms: bool) -> tuple[boo
     public, encryption, versioning, object_lock, lifecycle = values
     public_config = nested(public, "PublicAccessBlockConfiguration")
     encryption_rules = nested(encryption, "ServerSideEncryptionConfiguration", "Rules")
-    lock_rule = nested(object_lock, "Rule", "DefaultRetention")
+    lock_config = nested(object_lock, "ObjectLockConfiguration")
+    lock_rule = nested(lock_config, "Rule", "DefaultRetention")
     lifecycle_rules = (
         lifecycle.get("Rules", MISSING)
         if isinstance(lifecycle, dict)
@@ -585,8 +598,8 @@ def aws_bucket_protection(values: Sequence[Any], require_kms: bool) -> tuple[boo
         )
         and isinstance(versioning, dict)
         and isinstance(versioning.get("Status"), str)
-        and isinstance(object_lock, dict)
-        and isinstance(object_lock.get("ObjectLockEnabled"), str)
+        and isinstance(lock_config, dict)
+        and isinstance(lock_config.get("ObjectLockEnabled"), str)
         and isinstance(lock_rule, dict)
         and isinstance(lock_rule.get("Mode"), str)
         and isinstance(lock_rule.get("Days"), int)
@@ -626,7 +639,7 @@ def aws_bucket_protection(values: Sequence[Any], require_kms: bool) -> tuple[boo
         )
         and encryption_pass
         and versioning["Status"] == "Enabled"
-        and object_lock["ObjectLockEnabled"] == "Enabled"
+        and lock_config["ObjectLockEnabled"] == "Enabled"
         and lock_rule["Mode"] in ("GOVERNANCE", "COMPLIANCE")
         and lock_rule["Days"] >= 35
         and lifecycle_pass
@@ -651,6 +664,7 @@ def aws_lightsail_monitoring(values: Sequence[Any]) -> tuple[bool, bool]:
             isinstance(item, dict)
             and is_nonempty_string(item.get("name"))
             and is_nonempty_string(item.get("state"))
+            and is_nonempty_string(item.get("arn"))
             for item in instances
         )
         and all(
@@ -658,6 +672,9 @@ def aws_lightsail_monitoring(values: Sequence[Any]) -> tuple[bool, bool]:
             and is_nonempty_string(item.get("name"))
             and is_bool(item.get("notificationEnabled"))
             and is_string_list(item.get("contactProtocols"))
+            and is_nonempty_string(nested(item, "monitoredResourceInfo", "arn"))
+            and is_nonempty_string(nested(item, "monitoredResourceInfo", "name"))
+            and nested(item, "monitoredResourceInfo", "resourceType") == "Instance"
             for item in alarms
         )
     )
@@ -666,23 +683,26 @@ def aws_lightsail_monitoring(values: Sequence[Any]) -> tuple[bool, bool]:
         "arbion-production-cpu-high",
         "arbion-production-burst-capacity-low",
     }
+    production_instances = [
+        item for item in instances
+        if item.get("name") == "arbion-production-host" and item.get("state") == "running"
+    ] if schema else []
     configured = (
         {
             item.get("name")
             for item in alarms
             if item.get("notificationEnabled") is True
             and "Email" in item["contactProtocols"]
+            and len(production_instances) == 1
+            and nested(item, "monitoredResourceInfo", "arn") == production_instances[0]["arn"]
+            and nested(item, "monitoredResourceInfo", "name") == production_instances[0]["name"]
         }
         if schema
         else set()
     )
     passed = (
         schema
-        and any(
-            item.get("name") == "arbion-production"
-            and item.get("state") == "running"
-            for item in instances
-        )
+        and len(production_instances) == 1
         and required.issubset(configured)
     )
     return schema, passed
