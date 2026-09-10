@@ -57,12 +57,13 @@ expected_sha='$archive_sha'
 
 [[ -d /opt/arbion && -r /opt/arbion/.env.production ]]
 [[ -f "\$archive" ]]
-for command in cat curl date docker find grep mktemp mv rsync sha256sum stat systemctl tar unlink; do
+for command in cat curl date docker find grep hostname jq mktemp mv rsync sha256sum stat systemctl tar unlink; do
   command -v "\$command" >/dev/null || {
     echo "Required host command not found: \$command" >&2
     exit 1
   }
 done
+deployment_started_epoch="\$(date -u +%s)"
 actual_sha="\$(sha256sum "\$archive" | awk '{print \$1}')"
 [[ "\$actual_sha" == "\$expected_sha" ]]
 marker="\$(tar -xOf "\$archive" ./.release-sha)"
@@ -95,18 +96,26 @@ fi
 systemctl start arbion-postgres-backup.service
 [[ "\$(systemctl show arbion-postgres-backup.service --property=Result --value)" == 'success' ]]
 /opt/arbion/scripts/check-postgres-backup-freshness.sh
+[[ -f /var/lib/arbion-backups/last-success && ! -L /var/lib/arbion-backups/last-success ]]
+read -r backup_completed_epoch backup_object_key backup_extra </var/lib/arbion-backups/last-success
+[[ "\$backup_completed_epoch" =~ ^[0-9]{1,12}$ && "\$backup_object_key" =~ ^postgres/daily/[A-Za-z0-9._-]+$ && -z "\${backup_extra:-}" ]]
+[[ "\$backup_completed_epoch" -ge "\$deployment_started_epoch" && "\$backup_completed_epoch" -le "\$(date -u +%s)" ]]
 printf 'PRE_DEPLOY_BACKUP=verified\n'
 
 current_sha="\$(cat /opt/arbion/.release-sha)"
+[[ "\$current_sha" =~ ^[0-9a-f]{40}$ ]]
 timestamp="\$(date -u +%Y%m%dT%H%M%SZ)"
 rollback_tmp="\$(mktemp /opt/arbion/.rollback/.pre-release.XXXXXX)"
 rollback="/opt/arbion/.rollback/release-pre-\${current_sha}-\${timestamp}.tar.gz"
 COPYFILE_DISABLE=1 tar --exclude='./.env.production' --exclude='./.rollback' --exclude='./.incoming.*' --exclude='*.tfstate*' -czf "\$rollback_tmp" -C /opt/arbion .
 mv -- "\$rollback_tmp" "\$rollback"
 rollback_tmp=''
+rollback_sha256="\$(sha256sum "\$rollback" | awk '{print \$1}')"
 
 arbion_owner="\$(stat -c '%U:%G' /opt/arbion)"
+replacement_started_epoch="\$(date -u +%s)"
 rsync -a --delete --exclude='.env.production' --exclude='.rollback/' --exclude='.incoming.*' --chown="\$arbion_owner" "\$stage"/ /opt/arbion/
+replacement_completed_epoch="\$(date -u +%s)"
 [[ "\$(cat /opt/arbion/.release-sha)" == "\$release_sha" ]]
 [[ -r /opt/arbion/.env.production ]]
 
@@ -118,6 +127,15 @@ unlink "\$archive"
 printf 'DEPLOYED_RELEASE=%s\\n' "\$(cat /opt/arbion/.release-sha)"
 printf 'PREVIOUS_RELEASE=%s\\n' "\$current_sha"
 printf 'ROLLBACK_ARCHIVE=%s\\n' "\$rollback"
+# Forward-only, credential-free receipt. This is an observed deployment record,
+# not an approval, signature, restore proof, or independent audit conclusion.
+receipt="\$(jq -cn --arg host "\$(hostname)" --arg release "\$release_sha" --arg previous "\$current_sha" \
+  --arg archive "\$expected_sha" --arg rollback "\$rollback" --arg rollback_sha "\$rollback_sha256" \
+  --arg key "\$backup_object_key" --argjson started "\$deployment_started_epoch" \
+  --argjson backup "\$backup_completed_epoch" --argjson replace_start "\$replacement_started_epoch" \
+  --argjson replace_end "\$replacement_completed_epoch" --argjson completed "\$(date -u +%s)" \
+  '{schema_version:"1.0",source:"LIGHTSAIL_DEPLOY_SCRIPT",host:\$host,release_sha:\$release,previous_release_sha:\$previous,archive_sha256:\$archive,started_epoch:\$started,backup:{completed_epoch:\$backup,object_key:\$key},replacement_started_epoch:\$replace_start,replacement_completed_epoch:\$replace_end,completed_epoch:\$completed,rollback:{path:\$rollback,sha256:\$rollback_sha},checks:{readiness:"PASS",public_smoke:"PASS",containers:"PASS"}}')"
+printf 'ARBION_DEPLOYMENT_EVIDENCE_JSON=%s\\n' "\$receipt"
 REMOTE
 
 echo "Lightsail deployment completed for $release_sha."
