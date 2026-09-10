@@ -57,7 +57,7 @@ expected_sha='$archive_sha'
 
 [[ -d /opt/arbion && -r /opt/arbion/.env.production ]]
 [[ -f "\$archive" ]]
-for command in cat curl date docker find grep mktemp mv rsync sha256sum stat tar unlink; do
+for command in cat curl date docker find grep mktemp mv rsync sha256sum stat systemctl tar unlink; do
   command -v "\$command" >/dev/null || {
     echo "Required host command not found: \$command" >&2
     exit 1
@@ -88,6 +88,15 @@ if find "\$stage" -xdev \( -name '._*' -o -name '__MACOSX' \) -print -quit | gre
   exit 1
 fi
 
+# A release may not replace production code until the current production
+# database has completed a new encrypted off-host backup. The root-owned unit
+# owns its credentials and failure notification; this deploy path never reads
+# or prints them.
+systemctl start arbion-postgres-backup.service
+[[ "\$(systemctl show arbion-postgres-backup.service --property=Result --value)" == 'success' ]]
+/opt/arbion/scripts/check-postgres-backup-freshness.sh
+printf 'PRE_DEPLOY_BACKUP=verified\n'
+
 current_sha="\$(cat /opt/arbion/.release-sha)"
 timestamp="\$(date -u +%Y%m%dT%H%M%SZ)"
 rollback_tmp="\$(mktemp /opt/arbion/.rollback/.pre-release.XXXXXX)"
@@ -107,6 +116,8 @@ env ARBION_PRODUCTION_ENV_FILE=/opt/arbion/.env.production ./scripts/deploy-prod
 ./scripts/check-production-containers.sh
 unlink "\$archive"
 printf 'DEPLOYED_RELEASE=%s\\n' "\$(cat /opt/arbion/.release-sha)"
+printf 'PREVIOUS_RELEASE=%s\\n' "\$current_sha"
+printf 'ROLLBACK_ARCHIVE=%s\\n' "\$rollback"
 REMOTE
 
 echo "Lightsail deployment completed for $release_sha."

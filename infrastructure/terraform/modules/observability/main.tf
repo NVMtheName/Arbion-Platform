@@ -1,6 +1,12 @@
 variable "name" {
   type = string
 }
+variable "region" {
+  type = string
+}
+variable "account_id" {
+  type = string
+}
 variable "retention_days" {
   type    = number
   default = 30
@@ -27,6 +33,75 @@ variable "cache_id" {
   type    = string
   default = ""
 }
+
+data "aws_iam_policy_document" "alarm_key" {
+  statement {
+    sid       = "EnableAccountAdministration"
+    effect    = "Allow"
+    actions   = ["kms:*"]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${var.account_id}:root"]
+    }
+  }
+
+  statement {
+    sid       = "AllowCloudWatchAlarmPublishing"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey*"]
+    resources = ["*"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [var.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:cloudwatch:${var.region}:${var.account_id}:alarm:${var.name}-*"]
+    }
+  }
+
+  # AWS does not support confused-deputy condition keys for EventBridge publishing to an
+  # encrypted SNS topic. This dedicated key is therefore limited to the single alarm topic.
+  statement {
+    sid       = "AllowEventBridgePublishing"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:GenerateDataKey*"]
+    resources = ["*"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_kms_key" "alarms" {
+  description             = "Arbion encrypted operational and security alarms"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+  policy                  = data.aws_iam_policy_document.alarm_key.json
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_kms_alias" "alarms" {
+  name          = "alias/${var.name}-alarms"
+  target_key_id = aws_kms_key.alarms.key_id
+}
+
 resource "aws_cloudwatch_log_group" "this" {
 
   for_each          = toset(["web", "api", "ai", "migrations"])
@@ -34,8 +109,8 @@ resource "aws_cloudwatch_log_group" "this" {
   retention_in_days = var.retention_days
 }
 resource "aws_sns_topic" "alarms" {
-
-  name = "${var.name}-alarms"
+  name              = "${var.name}-alarms"
+  kms_master_key_id = aws_kms_key.alarms.arn
 }
 resource "aws_sns_topic_subscription" "email" {
 
@@ -98,4 +173,7 @@ output "log_group_names" {
 }
 output "alarm_topic_arn" {
   value = aws_sns_topic.alarms.arn
+}
+output "alarm_kms_key_arn" {
+  value = aws_kms_key.alarms.arn
 }

@@ -129,7 +129,7 @@ resource "aws_iam_role_policy" "apply" {
   policy = jsonencode({
     Version = "2012-10-17", Statement = [
       {
-        Sid = "InfrastructureServices", Effect = "Allow", Action = ["ec2:*", "ecs:*", "ecr:*", "elasticloadbalancing:*", "rds:*", "elasticache:*", "servicediscovery:*", "logs:*", "cloudwatch:*", "secretsmanager:*", "kms:*", "acm:*", "route53:*"], Resource = "*"
+        Sid = "InfrastructureServices", Effect = "Allow", Action = ["ec2:*", "ecs:*", "ecr:*", "elasticloadbalancing:*", "rds:*", "elasticache:*", "servicediscovery:*", "logs:*", "cloudwatch:*", "cloudtrail:*", "config:*", "guardduty:*", "access-analyzer:*", "secretsmanager:*", "kms:*", "acm:*", "route53:*"], Resource = "*"
       },
       {
         Sid = "IamRead", Effect = "Allow", Action = ["iam:Get*", "iam:List*"], Resource = "*"
@@ -138,9 +138,9 @@ resource "aws_iam_role_policy" "apply" {
         Sid = "ManageArbionRoles", Effect = "Allow", Action = ["iam:CreateRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:TagRole", "iam:UntagRole"], Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/arbion-production-*"
       },
       {
-        Sid = "ManageArbionExecutionPolicy", Effect = "Allow", Action = ["iam:AttachRolePolicy", "iam:DetachRolePolicy"], Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/arbion-production-*", Condition = {
+        Sid = "ManageArbionManagedPolicyAttachments", Effect = "Allow", Action = ["iam:AttachRolePolicy", "iam:DetachRolePolicy"], Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/arbion-production-*", Condition = {
           ArnEquals = {
-            "iam:PolicyARN" = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+            "iam:PolicyARN" = ["arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy", "arn:aws:iam::aws:policy/service-role/AWS_ConfigRole"]
           }
         }
       },
@@ -150,6 +150,29 @@ resource "aws_iam_role_policy" "apply" {
             "iam:PassedToService" = "ecs-tasks.amazonaws.com"
           }
         }
+      },
+      {
+        Sid = "PassArbionConfigRole", Effect = "Allow", Action = "iam:PassRole", Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/arbion-production-config", Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "config.amazonaws.com"
+          }
+        }
+      },
+      {
+        Sid = "CreateSecurityServiceLinkedRoles", Effect = "Allow", Action = "iam:CreateServiceLinkedRole", Resource = "*", Condition = {
+          StringEquals = {
+            "iam:AWSServiceName" = ["guardduty.amazonaws.com", "access-analyzer.amazonaws.com"]
+          }
+        }
+      },
+      {
+        Sid = "ManageArbionSecurityEventRule", Effect = "Allow", Action = ["events:DeleteRule", "events:DescribeRule", "events:DisableRule", "events:EnableRule", "events:ListTagsForResource", "events:ListTargetsByRule", "events:PutRule", "events:PutTargets", "events:RemoveTargets", "events:TagResource", "events:UntagResource"], Resource = "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/arbion-production-*"
+      },
+      {
+        Sid = "ManageArbionAlarmTopic", Effect = "Allow", Action = ["sns:CreateTopic", "sns:DeleteTopic", "sns:GetSubscriptionAttributes", "sns:GetTopicAttributes", "sns:ListSubscriptionsByTopic", "sns:ListTagsForResource", "sns:SetSubscriptionAttributes", "sns:SetTopicAttributes", "sns:Subscribe", "sns:TagResource", "sns:Unsubscribe", "sns:UntagResource"], Resource = "arn:aws:sns:${var.aws_region}:${data.aws_caller_identity.current.account_id}:arbion-production-alarms"
+      },
+      {
+        Sid = "ManageArbionAuditBucket", Effect = "Allow", Action = ["s3:CreateBucket", "s3:DeleteBucket", "s3:Get*", "s3:List*", "s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:PutBucketPublicAccessBlock", "s3:PutBucketOwnershipControls", "s3:PutBucketVersioning", "s3:PutEncryptionConfiguration", "s3:PutLifecycleConfiguration", "s3:PutBucketObjectLockConfiguration", "s3:PutObject", "s3:DeleteObject"], Resource = ["arn:aws:s3:::arbion-production-*-audit", "arn:aws:s3:::arbion-production-*-audit/*"]
       },
       {
         Sid = "TerraformStateBucket", Effect = "Allow", Action = "s3:ListBucket", Resource = aws_s3_bucket.state.arn

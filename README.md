@@ -11,6 +11,8 @@ Production-oriented foundation for Arbion. Coinbase and Schwab supply owner-scop
 
 See [the architecture guide](docs/ARCHITECTURE.md) for component responsibilities.
 
+Arbion's formal Security, Availability, and Confidentiality control baseline is indexed in [the SOC 2 readiness program](docs/compliance/README.md). It is an audit-readiness program, not a claim of SOC 2 certification.
+
 ## Production readiness
 
 The repository includes a single-host production Compose topology with Caddy-managed HTTPS for `www.arbion.ai`, private application/data services, durable volumes, one-shot migrations, fail-closed configuration, and operator scripts. It prepares deployment but does **not** claim Arbion is deployed. See [the production deployment runbook](docs/DEPLOYMENT.md).
@@ -49,7 +51,7 @@ cd services/api && cp .env.example .env && go run ./cmd/migrate && go run ./cmd/
 
 # Python AI service
 cd services/ai && cp .env.example .env && python -m venv .venv
-source .venv/bin/activate && pip install -e '.[dev]'
+source .venv/bin/activate && python -m pip install --require-hashes -r requirements-dev.lock
 uvicorn app.main:app --reload
 ```
 
@@ -60,7 +62,7 @@ Environment files are examples only. Replace development defaults through your d
 ```bash
 cd apps/web && npm run format:check && npm run lint && npm run typecheck && npm test
 cd services/api && test -z "$(gofmt -l .)" && go vet ./... && go test ./...
-cd services/ai && ruff format --check . && ruff check . && mypy app && pytest
+cd services/ai && ruff format --check . && ruff check . && python -m mypy app && python -m pytest
 docker compose config --quiet
 ```
 

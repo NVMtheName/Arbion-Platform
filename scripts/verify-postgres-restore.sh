@@ -47,7 +47,7 @@ docker run -d \
   -e POSTGRES_PASSWORD="$restore_password" \
   -e POSTGRES_DB=arbion_restore \
   -v "$volume:/var/lib/postgresql/data" \
-  postgres:17-alpine >/dev/null
+  postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73 >/dev/null
 
 for attempt in {1..40}; do
   if docker exec "$container" pg_isready -U postgres -d arbion_restore >/dev/null 2>&1; then

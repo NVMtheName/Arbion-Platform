@@ -41,7 +41,16 @@ grep -q "arbion-release-" "$scp_log"
 grep -q -- "sudo -n bash -s" "$ssh_log"
 grep -q "release_sha='" "$ssh_input"
 grep -q "sha256sum" "$ssh_input"
+grep -q "systemctl start arbion-postgres-backup.service" "$ssh_input"
+grep -q "PRE_DEPLOY_BACKUP=verified" "$ssh_input"
 grep -q "check-production-containers.sh" "$ssh_input"
+
+backup_line="$(grep -n "systemctl start arbion-postgres-backup.service" "$ssh_input" | cut -d: -f1)"
+release_line="$(grep -n "rsync -a --delete" "$ssh_input" | cut -d: -f1)"
+[[ "$backup_line" -lt "$release_line" ]] || {
+  echo "Lightsail deploy does not require a backup before replacing production code." >&2
+  exit 1
+}
 
 if "$repo_root/scripts/deploy-lightsail-release.sh" HEAD 'invalid host' "$key" >"$test_root/invalid-host" 2>&1; then
   echo "Lightsail deploy accepted an invalid host." >&2

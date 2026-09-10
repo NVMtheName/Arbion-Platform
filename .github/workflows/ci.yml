@@ -14,14 +14,15 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=moderate
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
@@ -34,8 +35,8 @@ jobs:
       run:
         working-directory: services/api
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: services/api/go.mod
           cache-dependency-path: services/api/go.sum
@@ -52,7 +53,7 @@ jobs:
         working-directory: services/api
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
         env:
           POSTGRES_DB: arbion_strategy
           POSTGRES_USER: arbion
@@ -68,8 +69,8 @@ jobs:
       STRATEGY_TEST_DATABASE_URL: postgres://arbion:ci-integration-not-a-production-secret@127.0.0.1:5432/arbion_strategy?sslmode=disable
       AUTH_TEST_DATABASE_URL: postgres://arbion:ci-integration-not-a-production-secret@127.0.0.1:5432/arbion_strategy?sslmode=disable
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: services/api/go.mod
           cache-dependency-path: services/api/go.sum
@@ -93,23 +94,23 @@ jobs:
       run:
         working-directory: services/ai
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: services/ai/pyproject.toml
-      - run: pip install -e '.[dev]' pip-audit==2.10.1
-      - run: pip-audit --local
+          cache-dependency-path: services/ai/requirements-dev.lock
+      - run: python -m pip install --require-hashes -r requirements-dev.lock
+      - run: pip-audit --requirement requirements-dev.lock
       - run: ruff format --check .
       - run: ruff check .
-      - run: mypy app
-      - run: pytest
+      - run: python -m mypy app
+      - run: python -m pytest
 
   compose:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - run: cp .env.example .env && docker compose config --quiet
       - name: Validate production deployment configuration
         env:
@@ -130,10 +131,38 @@ jobs:
             jq -e '.services.migrate.environment.AUTH_ALLOWED_ORIGINS == "https://www.arbion.ai"' >/dev/null
           docker compose -f docker-compose.prod.yml config --format json |
             jq -e '.services.api.environment.REGISTRATION_ALLOWLIST == "founder@example.com"' >/dev/null
+          docker compose -f docker-compose.prod.yml config --format json |
+            jq -e '[.services.migrate, .services.api, .services.ai, .services.web] | all(.read_only == true and (.privileged // false) == false and .pids_limit == 256 and .cap_drop == ["ALL"] and (.security_opt | index("no-new-privileges:true")))' >/dev/null
           docker compose -f docker-compose.prod.yml up -d postgres
           docker compose -f docker-compose.prod.yml up --no-deps --exit-code-from migrate migrate
           docker compose -f docker-compose.prod.yml up -d --no-deps --build --wait --wait-timeout 120 web
-      - run: docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile
-      - run: bash -n scripts/backup-postgres.sh scripts/check-host-capacity.sh scripts/check-memory-pressure.sh scripts/check-postgres-backup-freshness.sh scripts/check-production-containers.sh scripts/check-reboot-required.sh scripts/check-release-hygiene.sh scripts/check-tls-certificate.sh scripts/deploy-lightsail-release.sh scripts/deploy-production.sh scripts/lightsail-deploy.test.sh scripts/package-release.sh scripts/release-hygiene.test.sh scripts/send-ops-alert.sh scripts/smoke-production.sh scripts/verify-postgres-restore.sh
+      - run: docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d caddy validate --config /etc/caddy/Caddyfile
+      - run: bash -n scripts/backup-postgres.sh scripts/check-host-capacity.sh scripts/check-memory-pressure.sh scripts/check-postgres-backup-freshness.sh scripts/check-production-containers.sh scripts/check-reboot-required.sh scripts/check-release-hygiene.sh scripts/check-soc2-controls.sh scripts/check-tls-certificate.sh scripts/collect-soc2-external-evidence.sh scripts/collect-soc2-host-evidence.sh scripts/deploy-lightsail-release.sh scripts/deploy-production.sh scripts/lightsail-deploy.test.sh scripts/package-release.sh scripts/release-hygiene.test.sh scripts/send-ops-alert.sh scripts/smoke-production.sh scripts/soc2-controls.test.sh scripts/soc2-evidence-snapshot.test.sh scripts/soc2-host-evidence.test.sh scripts/verify-postgres-restore.sh scripts/verify-soc2-evidence-snapshot.sh scripts/verify-soc2-host-evidence.sh
       - run: ./scripts/release-hygiene.test.sh
       - run: ./scripts/lightsail-deploy.test.sh
+
+  compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Validate SOC 2 control baseline
+        run: ./scripts/soc2-controls.test.sh
+      - name: Verify SOC 2 evidence snapshot integrity controls
+        run: ./scripts/soc2-evidence-snapshot.test.sh
+      - name: Verify SOC 2 external-control review-draft controls
+        run: |
+          python3 -m py_compile ./scripts/review-soc2-external-evidence.py ./scripts/soc2-external-review.test.py
+          python3 ./scripts/soc2-external-review.test.py
+      - name: Verify SOC 2 production-host evidence integrity controls
+        run: ./scripts/soc2-host-evidence.test.sh
+      - name: Generate control evidence report
+        run: |
+          mkdir -p artifacts
+          ./scripts/check-soc2-controls.sh artifacts/soc2-control-baseline.json
+      - name: Retain control evidence report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: soc2-control-baseline-${{ github.sha }}
+          path: artifacts/soc2-control-baseline.json
+          if-no-files-found: error
+          retention-days: 90

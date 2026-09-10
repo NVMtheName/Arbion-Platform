@@ -22,6 +22,9 @@ variable "api_port" {
 variable "domain_name" {
   type = string
 }
+# Public customer ingress is required for arbion.ai. Only HTTPS reaches the application;
+# port 80 redirects to HTTPS, while the application and data tiers remain private.
+#trivy:ignore:AVD-AWS-0053:exp:2027-09-09
 resource "aws_lb" "this" {
 
   name                       = var.name

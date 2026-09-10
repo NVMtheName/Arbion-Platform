@@ -1,5 +1,7 @@
 # Security and Trust Boundaries
 
+The repository's formal SOC 2 readiness scope, policies, control catalog, and evidence requirements are indexed in [`docs/compliance/README.md`](compliance/README.md). Those artifacts describe a readiness program and do not claim an independent SOC 2 examination or certification.
+
 ## Production deployment controls
 
 Production startup rejects missing or development-placeholder database credentials, credential encryption keys, and internal AI tokens. Trusted origins are explicit and restricted to `https://www.arbion.ai`; wildcards and reflected Host/Origin trust are forbidden. Session cookies are `HttpOnly`, `SameSite=Lax`, scoped to `/`, and forced `Secure` in production while localhost development remains usable.

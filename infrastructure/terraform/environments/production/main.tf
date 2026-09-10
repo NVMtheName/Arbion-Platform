@@ -131,6 +131,10 @@ resource "aws_vpc_security_group_egress_rule" "scoped" {
   to_port                      = each.value[2]
   ip_protocol                  = "tcp"
 }
+# Provider APIs and package endpoints use dynamic public addresses. This exception permits
+# only outbound TLS from application services and must be reviewed annually or replaced by
+# an authenticated egress proxy when operationally supportable.
+#trivy:ignore:AVD-AWS-0104:exp:2027-09-09
 resource "aws_vpc_security_group_egress_rule" "https" {
   for_each = toset(["web", "api", "ai"])
   security_group_id = {
@@ -210,11 +214,25 @@ module "observability" {
 
   source        = "../../modules/observability"
   name          = local.name
+  region        = var.aws_region
+  account_id    = data.aws_caller_identity.current.account_id
   alarm_email   = var.alarm_email
   cluster_name  = local.name
   service_names = toset(["arbion-web", "arbion-api", "arbion-ai"])
   db_identifier = module.database.identifier
   cache_id      = module.cache.id
+
+}
+module "audit" {
+
+
+  source                     = "../../modules/audit"
+  name                       = local.name
+  region                     = var.aws_region
+  account_id                 = data.aws_caller_identity.current.account_id
+  alarm_topic_arn            = module.observability.alarm_topic_arn
+  cloudwatch_retention_days  = var.security_log_retention_days
+  object_lock_retention_days = var.audit_evidence_retention_days
 
 }
 module "ecs" {
