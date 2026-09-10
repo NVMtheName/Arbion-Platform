@@ -101,6 +101,21 @@ run "audit_module_scoped_controls" {
     condition     = aws_s3_bucket_object_lock_configuration.audit.rule[0].default_retention[0].mode == "GOVERNANCE" && aws_s3_bucket_object_lock_configuration.audit.rule[0].default_retention[0].days == 365
     error_message = "The plan may not silently choose irreversible compliance retention or a different duration."
   }
+  assert {
+    condition = length([for statement in data.aws_iam_policy_document.audit_key.statement : statement if statement.sid == "AllowCloudWatchLogsEncryption"]) == 1 && alltrue([
+      for statement in data.aws_iam_policy_document.audit_key.statement :
+      statement.sid != "AllowCloudWatchLogsEncryption" || (
+        !contains(statement.actions, "kms:DescribeKey") &&
+        length(statement.condition) == 1 &&
+        alltrue([for condition in statement.condition : condition.test == "StringEquals" && condition.variable == "kms:EncryptionContext:aws:logs:arn" && toset(condition.values) == toset(["arn:aws:logs:us-east-1:123456789012:log-group:/aws/cloudtrail/arbion-production"])])
+      )
+    ])
+    error_message = "Log encryption must remain exact-context bound without an unsupported metadata action or ARN operator."
+  }
+  assert {
+    condition     = length([for statement in data.aws_iam_policy_document.audit_key.statement : statement if statement.sid == "AllowCloudWatchLogsKeyInspection" && toset(statement.actions) == toset(["kms:DescribeKey"]) && length(statement.condition) == 0 && length(statement.principals) == 1 && alltrue([for principal in statement.principals : principal.type == "Service" && toset(principal.identifiers) == toset(["logs.us-east-1.amazonaws.com"])])]) == 1
+    error_message = "Only metadata inspection may be separated from the encryption-context condition."
+  }
 }
 
 run "existing_target_defaults_unchanged" {

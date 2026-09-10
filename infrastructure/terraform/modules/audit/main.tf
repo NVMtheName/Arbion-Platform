@@ -139,7 +139,7 @@ data "aws_iam_policy_document" "audit_key" {
   statement {
     sid       = "AllowCloudWatchLogsEncryption"
     effect    = "Allow"
-    actions   = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"]
+    actions   = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*"]
     resources = ["*"]
 
     principals {
@@ -148,9 +148,23 @@ data "aws_iam_policy_document" "audit_key" {
     }
 
     condition {
-      test     = "ArnEquals"
+      test     = "StringEquals"
       variable = "kms:EncryptionContext:aws:logs:arn"
       values   = [local.cloudtrail_log_group_arn]
+    }
+  }
+
+  # DescribeKey is metadata-only and does not accept an encryption context.
+  # Keep data operations bound to the exact log group in the statement above.
+  statement {
+    sid       = "AllowCloudWatchLogsKeyInspection"
+    effect    = "Allow"
+    actions   = ["kms:DescribeKey"]
+    resources = ["*"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["logs.${var.region}.amazonaws.com"]
     }
   }
 }

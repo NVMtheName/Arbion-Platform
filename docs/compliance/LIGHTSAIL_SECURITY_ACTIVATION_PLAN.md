@@ -43,6 +43,8 @@ Before activation, record the owner's monthly budget/escalation threshold, expli
 
 ## Dependency and policy caveats
 
+AWS's read-only policy validator identified an unsupported encryption-context condition on `kms:DescribeKey` and an operator-type warning in the inherited audit key. The candidate now separates metadata-only inspection for the regional CloudWatch Logs service from data operations; encryption/decryption retain an exact log-group `StringEquals` context restriction. Tests cover that separation. This changes proposed policy design, not a deployed key. [KMS encryption-context conditions](https://docs.aws.amazon.com/kms/latest/developerguide/conditions-kms.html).
+
 - The new topic avoids replacing existing operations policies/subscriptions. It starts without subscribers: notifications are not effective until an approved destination is confirmed and delivery is verified.
 - EventBridge-to-encrypted-SNS has a KMS condition-key limitation. The dedicated key grants the required service actions and is not shared with app/backup data. Review key/topic policies together and prove actual delivery, not just valid JSON. [SNS key management](https://docs.aws.amazon.com/sns/latest/dg/sns-key-management.html).
 - AWS may enable optional GuardDuty plans on detector creation; explicit feature updates set the planned steady state afterward. These operations are not atomic. Verify actual features and organization policy; investigate any failed update. Removing a Terraform feature resource does not disable its AWS feature. [GuardDuty defaults](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty-pricing.html), [provider behavior](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/guardduty_detector_feature).
