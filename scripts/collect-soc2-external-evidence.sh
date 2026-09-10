@@ -13,7 +13,7 @@ fail() {
 }
 
 [[ -n "$output_parent_input" ]] || fail "usage: $0 <existing-output-parent-outside-the-repository>"
-for command in awk aws gh git jq mv openssl; do
+for command in awk aws gh git jq mv openssl python3; do
   command -v "$command" >/dev/null || fail "required command not found: $command"
 done
 [[ -d "$output_parent_input" ]] || fail "output parent does not exist: $output_parent_input"
@@ -114,6 +114,42 @@ capture_guardduty_status() {
   [[ ! -e "$response" ]] || unlink "$response"
 }
 
+capture_alarm_topic() {
+  local name="$1" role="$2" topic="$3" selection_source="$4" other_topic="$5"
+  local attributes="$collection_dir/.$name-attributes.tmp"
+  local subscriptions="$collection_dir/.$name-subscriptions.tmp"
+  local validated="$collection_dir/.$name-validated.tmp"
+  local selection_valid=false
+  local validator=(python3 "$script_dir/soc2_alert_evidence.py" --role "$role"
+    --source "$selection_source" --topic "$topic" --other-topic "$other_topic" --account "$aws_account_id" --region "$aws_region")
+  if "${validator[@]}" >/dev/null 2>&1; then
+    selection_valid=true
+  fi
+  # Explicit selection is account/region-bound before querying; roles cannot alias.
+  if [[ "$selection_valid" == true ]] &&
+    aws sns get-topic-attributes --topic-arn "$topic" --region "$aws_region" \
+      --query 'Attributes.{TopicArn:TopicArn,Owner:Owner,SubscriptionsConfirmed:SubscriptionsConfirmed,SubscriptionsPending:SubscriptionsPending,KmsMasterKeyId:KmsMasterKeyId}' \
+      --output json >"$attributes" 2>/dev/null &&
+    aws sns list-subscriptions-by-topic --topic-arn "$topic" --region "$aws_region" --max-items 1000 \
+      --query '{Subscriptions:Subscriptions[].{SubscriptionArn:SubscriptionArn,TopicArn:TopicArn,Protocol:Protocol,Owner:Owner},NextToken:NextToken}' \
+      --output json >"$subscriptions" 2>/dev/null &&
+    "${validator[@]}" --attributes "$attributes" --subscriptions "$subscriptions" >"$validated" 2>/dev/null; then
+    mv -- "$validated" "$collection_dir/$name.json"
+  else
+    record_unavailable "$name" AWS "The exact topic selection, attributes, or bounded subscription inventory could not be verified. Roles must be distinct and account/region-bound. No delivery test was performed."
+    if [[ "$selection_valid" == true ]]; then
+      # Preserve which safe selection was attempted without inventing attributes.
+      jq --arg role "$role" --arg source "$selection_source" --arg topic "$topic" --arg other "$other_topic" \
+        '. + {role:$role, selection:{source:$source, topic_arn:$topic, other_role_topic_arn:$other}}' \
+        "$collection_dir/$name.json" >"$validated"
+      mv -- "$validated" "$collection_dir/$name.json"
+    fi
+  fi
+  for temporary in "$attributes" "$subscriptions" "$validated"; do
+    [[ ! -e "$temporary" ]] || unlink "$temporary"
+  done
+}
+
 github_repository="${ARBION_GITHUB_REPOSITORY:-}"
 if gh auth status >/dev/null 2>&1; then
   if [[ -z "$github_repository" ]]; then
@@ -156,7 +192,12 @@ if aws sts get-caller-identity --output json >"$aws_identity" 2>/dev/null && jq 
   resource_prefix="arbion-$environment_name"
   trail_name="$resource_prefix-management"
   event_rule_name="$resource_prefix-guardduty-findings"
-  alarm_topic_arn="arn:aws:sns:$aws_region:$aws_account_id:$resource_prefix-alarms"
+  security_topic_arn="${ARBION_SECURITY_ALARM_TOPIC_ARN:-arn:aws:sns:$aws_region:$aws_account_id:$resource_prefix-alarms}"
+  operations_topic_arn="${ARBION_OPERATIONS_ALARM_TOPIC_ARN:-arn:aws:sns:$aws_region:$aws_account_id:$resource_prefix-alerts}"
+  security_topic_source="DEFAULT_TARGET_DESIGN"
+  operations_topic_source="DEFAULT_OPERATIONS_NAME"
+  [[ -z "${ARBION_SECURITY_ALARM_TOPIC_ARN:-}" ]] || security_topic_source="EXPLICIT_ARN"
+  [[ -z "${ARBION_OPERATIONS_ALARM_TOPIC_ARN:-}" ]] || operations_topic_source="EXPLICIT_ARN"
   audit_bucket="$resource_prefix-$aws_account_id-$aws_region-audit"
   backup_bucket="arbion-production-backups-$aws_account_id-$aws_region"
 
@@ -170,8 +211,9 @@ if aws sts get-caller-identity --output json >"$aws_identity" 2>/dev/null && jq 
   capture_json aws-access-analyzers AWS aws accessanalyzer list-analyzers --type ACCOUNT --region "$aws_region" --output json
   capture_json aws-security-event-rule AWS aws events describe-rule --name "$event_rule_name" --region "$aws_region" --output json
   capture_json aws-security-event-targets AWS aws events list-targets-by-rule --rule "$event_rule_name" --region "$aws_region" --output json
-  capture_json aws-alarm-topic-subscriptions AWS aws sns list-subscriptions-by-topic --topic-arn "$alarm_topic_arn" --region "$aws_region" --query 'Subscriptions[].{SubscriptionArn:SubscriptionArn,Protocol:Protocol,Owner:Owner}' --output json
-  capture_json aws-cloudwatch-alarms AWS aws cloudwatch describe-alarms --alarm-name-prefix "$resource_prefix" --region "$aws_region" --query 'MetricAlarms[].{AlarmName:AlarmName,StateValue:StateValue,ActionsEnabled:ActionsEnabled,AlarmActions:AlarmActions,MetricName:MetricName,Namespace:Namespace,Updated:AlarmConfigurationUpdatedTimestamp}' --output json
+  capture_alarm_topic aws-alarm-topic-subscriptions SECURITY "$security_topic_arn" "$security_topic_source" "$operations_topic_arn"
+  capture_alarm_topic aws-operations-alarm-topic OPERATIONS "$operations_topic_arn" "$operations_topic_source" "$security_topic_arn"
+  capture_json aws-cloudwatch-alarms AWS aws cloudwatch describe-alarms --alarm-name-prefix "$resource_prefix" --region "$aws_region" --query 'MetricAlarms[].{AlarmName:AlarmName,AlarmArn:AlarmArn,StateValue:StateValue,ActionsEnabled:ActionsEnabled,AlarmActions:AlarmActions,MetricName:MetricName,Namespace:Namespace,Updated:AlarmConfigurationUpdatedTimestamp}' --output json
   capture_json aws-lightsail-instances AWS aws lightsail get-instances --region "$aws_region" --query 'instances[].{name:name,arn:arn,state:state.name,blueprintId:blueprintId,bundleId:bundleId,createdAt:createdAt,isStaticIp:isStaticIp}' --output json
   capture_json aws-lightsail-alarms AWS aws lightsail get-alarms --region "$aws_region" --query 'alarms[].{name:name,state:state,metricName:metricName,notificationTriggers:notificationTriggers,notificationEnabled:notificationEnabled,contactProtocols:contactProtocols,createdAt:createdAt,monitoredResourceInfo:monitoredResourceInfo}' --output json
 
@@ -201,7 +243,7 @@ else
 fi
 
 jq -n \
-  --arg schema_version "1.0" \
+  --arg schema_version "1.1" \
   --arg collection_id "$collection_id" \
   --arg collected_at "$collected_at" \
   --arg status "$collection_status" \

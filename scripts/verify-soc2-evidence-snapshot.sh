@@ -138,6 +138,9 @@ else
     aws-security-event-targets.json
   )
   printf '%s\n' "${aws_evidence[@]}" >>"$temporary_root/expected-files"
+  if jq -e '.schema_version == "1.1"' "$snapshot/collection-summary.json" >/dev/null; then
+    printf '%s\n' aws-operations-alarm-topic.json >>"$temporary_root/expected-files"
+  fi
 fi
 sort -o "$temporary_root/expected-files" "$temporary_root/expected-files"
 cmp -s "$temporary_root/actual-files" "$temporary_root/expected-files" ||
@@ -170,7 +173,7 @@ cmp -s "$temporary_root/actual-files" "$temporary_root/manifest-files" ||
 
 summary="$snapshot/collection-summary.json"
 jq -e --arg collection_id "$snapshot_name" '
-  .schema_version == "1.0" and
+  (.schema_version | IN("1.0", "1.1")) and
   .collection_id == $collection_id and
   (.collected_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
   ((.collected_at | fromdateiso8601) <= now) and
