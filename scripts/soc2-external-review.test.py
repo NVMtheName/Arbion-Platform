@@ -14,6 +14,12 @@ from pathlib import Path
 from typing import Any
 
 from soc2_alert_evidence import DELIVERY, valid_topic
+from soc2_github_security_evidence import (
+    API_VERSION,
+    CATEGORIES,
+    MAX_ANALYSES,
+    PAGE_SIZE,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
@@ -22,6 +28,8 @@ COLLECTION_ID = "arbion-soc2-20260909T160000Z"
 COLLECTED_AT = "2026-09-09T16:00:00Z"
 
 GITHUB_NAMES = {
+    "github-code-scanning",
+    "github-vulnerability-alerts",
     "github-actions-permissions",
     "github-collaborators",
     "github-identity",
@@ -125,7 +133,7 @@ def make_complete_snapshot(snapshot: Path) -> dict[str, str]:
     write_json(
         snapshot / "collection-summary.json",
         {
-            "schema_version": "1.1",
+            "schema_version": "1.2",
             "collection_id": COLLECTION_ID,
             "collected_at": COLLECTED_AT,
             "status": "COMPLETE_REVIEW_REQUIRED",
@@ -144,6 +152,7 @@ def make_complete_snapshot(snapshot: Path) -> dict[str, str]:
     write_json(
         snapshot / "github-repository.json",
         {
+            "id": 123,
             "full_name": "example/arbion",
             "default_branch": "main",
             "archived": False,
@@ -153,6 +162,59 @@ def make_complete_snapshot(snapshot: Path) -> dict[str, str]:
                 "secret_scanning": {"status": "enabled"},
                 "secret_scanning_push_protection": {"status": "enabled"},
             },
+        },
+    )
+    security_common = {
+        "schema_version": "1.0",
+        "repository": {"id": 123, "full_name": "example/arbion"},
+        "collected_at": COLLECTED_AT,
+        "method": "GET",
+        "api_version": API_VERSION,
+    }
+    write_json(
+        snapshot / "github-vulnerability-alerts.json",
+        {
+            **security_common,
+            "endpoint": "repos/example/arbion/vulnerability-alerts",
+            "http_status": 204,
+        },
+    )
+    head = {
+        "ref": "refs/heads/main",
+        "url": "https://api.github.com/repos/example/arbion/git/refs/heads/main",
+        "object": {"type": "commit", "sha": "a" * 40},
+    }
+    write_json(
+        snapshot / "github-code-scanning.json",
+        {
+            **security_common,
+            "endpoint": "repos/example/arbion/code-scanning/analyses",
+            "scope": {
+                "ref": "refs/heads/main",
+                "tool": "CodeQL",
+                "categories": CATEGORIES,
+                "maximum_analyses": MAX_ANALYSES,
+                "page_size": PAGE_SIZE,
+            },
+            "head_before": head,
+            "head_after": head,
+            "page_counts": [4],
+            "analyses": [
+                {
+                    "id": index + 1,
+                    "ref": "refs/heads/main",
+                    "commit_sha": "a" * 40,
+                    "url": f"https://api.github.com/repos/example/arbion/code-scanning/analyses/{index + 1}",
+                    "category": category,
+                    "analysis_key": ".github/workflows/security.yml:codeql",
+                    "created_at": "2026-09-09T15:00:00Z",
+                    "tool": {"name": "CodeQL", "version": "2.27.0"},
+                    "rules_count": 20,
+                    "error_state": "NONE",
+                    "warning_state": "NONE",
+                }
+                for index, category in enumerate(CATEGORIES)
+            ],
         },
     )
     write_json(
@@ -446,9 +508,9 @@ class ExternalReviewTests(unittest.TestCase):
         self.assertEqual(report["review_state"], "INCOMPLETE_REVIEW_REQUIRED")
         self.assertEqual(
             report["summary"],
-            {"assertion_count": 17, "pass": 16, "fail": 0, "unavailable": 1},
+            {"assertion_count": 22, "pass": 21, "fail": 0, "unavailable": 1},
         )
-        self.assertEqual(len(report["source_inventory"]), 34)
+        self.assertEqual(len(report["source_inventory"]), 36)
         report_inventory = {
             item["file"]: item["sha256"] for item in report["source_inventory"]
         }
@@ -480,6 +542,74 @@ class ExternalReviewTests(unittest.TestCase):
         result = self.assertion(report, "GITHUB_ACTIONS_DEFAULT_READ_ONLY")
         self.assertEqual(result["status"], "FAIL")
         self.assertEqual(report["review_state"], "REVIEW_REQUIRED")
+
+    def test_missing_advanced_security_does_not_erase_explicit_features(self) -> None:
+        path = self.snapshot / "github-repository.json"
+        value = json.loads(path.read_text())
+        del value["security_and_analysis"]["advanced_security"]
+        write_json(path, value)
+        seal_snapshot(self.snapshot)
+        completed, output = self.run_review()
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        report = json.loads(output.read_text())
+        self.assertEqual(
+            self.assertion(report, "GITHUB_SECURITY_FEATURES_ENABLED")["status"],
+            "UNAVAILABLE",
+        )
+        for name in (
+            "GITHUB_DEPENDABOT_UPDATES_ENABLED",
+            "GITHUB_SECRET_SCANNING_ENABLED",
+            "GITHUB_PUSH_PROTECTION_ENABLED",
+            "GITHUB_VULNERABILITY_ALERTS_ENABLED",
+            "GITHUB_CURRENT_MAIN_CODEQL_ANALYSES",
+        ):
+            self.assertEqual(self.assertion(report, name)["status"], "PASS")
+
+    def test_individual_feature_disabled_or_missing_is_not_enabled(self) -> None:
+        path = self.snapshot / "github-repository.json"
+        original = json.loads(path.read_text())
+        for index, (status, expected) in enumerate(
+            (("disabled", "FAIL"), (None, "UNAVAILABLE"), ("unknown", "UNAVAILABLE"))
+        ):
+            value = json.loads(json.dumps(original))
+            value["security_and_analysis"]["secret_scanning"]["status"] = status
+            write_json(path, value)
+            seal_snapshot(self.snapshot)
+            completed, output = self.run_review(f"feature-{index}.json")
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            report = json.loads(output.read_text())
+            self.assertEqual(
+                self.assertion(report, "GITHUB_SECRET_SCANNING_ENABLED")["status"],
+                expected,
+            )
+            self.assertEqual(
+                self.assertion(report, "GITHUB_PUSH_PROTECTION_ENABLED")["status"],
+                "PASS",
+            )
+
+    def test_legacy_11_package_has_no_inferred_scanning_or_alert_evidence(self) -> None:
+        path = self.snapshot / "collection-summary.json"
+        value = json.loads(path.read_text())
+        value["schema_version"] = "1.1"
+        write_json(path, value)
+        for name in ("github-code-scanning.json", "github-vulnerability-alerts.json"):
+            (self.snapshot / name).unlink()
+        seal_snapshot(self.snapshot)
+        completed, output = self.run_review()
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        report = json.loads(output.read_text())
+        for name in (
+            "GITHUB_CURRENT_MAIN_CODEQL_ANALYSES",
+            "GITHUB_VULNERABILITY_ALERTS_ENABLED",
+        ):
+            self.assertEqual(self.assertion(report, name)["status"], "UNAVAILABLE")
+
+    def test_new_package_requires_exact_github_security_inventory(self) -> None:
+        (self.snapshot / "github-code-scanning.json").unlink()
+        seal_snapshot(self.snapshot)
+        completed, output = self.run_review()
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertFalse(output.exists())
 
     def test_security_routing_cannot_borrow_unrelated_targets_or_alarms(self) -> None:
         variants = [
@@ -567,6 +697,8 @@ class ExternalReviewTests(unittest.TestCase):
         summary["schema_version"] = "1.0"
         write_json(path, summary)
         (self.snapshot / "aws-operations-alarm-topic.json").unlink()
+        (self.snapshot / "github-code-scanning.json").unlink()
+        (self.snapshot / "github-vulnerability-alerts.json").unlink()
         write_json(
             self.snapshot / "aws-alarm-topic-subscriptions.json",
             [
@@ -965,7 +1097,7 @@ print(json.dumps(result))
         completed, output = self.run_review()
         self.assertEqual(completed.returncode, 0, completed.stderr)
         report = json.loads(output.read_text(encoding="utf-8"))
-        self.assertEqual(report["summary"]["unavailable"], 17)
+        self.assertEqual(report["summary"]["unavailable"], 22)
         self.assertEqual(report["summary"]["pass"], 0)
         self.assertEqual(report["summary"]["fail"], 0)
         self.assertEqual(len(report["source_inventory"]), 3)

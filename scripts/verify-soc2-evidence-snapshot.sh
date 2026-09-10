@@ -106,6 +106,9 @@ else
     github-rulesets.json
   )
   printf '%s\n' "${github_evidence[@]}" >>"$temporary_root/expected-files"
+  if jq -e '.schema_version == "1.2"' "$snapshot/collection-summary.json" >/dev/null; then
+    printf '%s\n' github-code-scanning.json github-vulnerability-alerts.json >>"$temporary_root/expected-files"
+  fi
 fi
 if [[ -f "$snapshot/aws.json" ]]; then
   printf '%s\n' aws.json >>"$temporary_root/expected-files"
@@ -138,7 +141,7 @@ else
     aws-security-event-targets.json
   )
   printf '%s\n' "${aws_evidence[@]}" >>"$temporary_root/expected-files"
-  if jq -e '.schema_version == "1.1"' "$snapshot/collection-summary.json" >/dev/null; then
+  if jq -e '.schema_version | IN("1.1", "1.2")' "$snapshot/collection-summary.json" >/dev/null; then
     printf '%s\n' aws-operations-alarm-topic.json >>"$temporary_root/expected-files"
   fi
 fi
@@ -173,7 +176,7 @@ cmp -s "$temporary_root/actual-files" "$temporary_root/manifest-files" ||
 
 summary="$snapshot/collection-summary.json"
 jq -e --arg collection_id "$snapshot_name" '
-  (.schema_version | IN("1.0", "1.1")) and
+  (.schema_version | IN("1.0", "1.1", "1.2")) and
   .collection_id == $collection_id and
   (.collected_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
   ((.collected_at | fromdateiso8601) <= now) and

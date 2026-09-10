@@ -169,7 +169,7 @@ jq -e '
   fail "collector did not retain the complete paginated collaborator population"
 jq -e '
   .status == "INCOMPLETE" and
-  .unavailable_sources == ["aws"]
+  (.unavailable_sources | sort) == ["aws", "github-code-scanning", "github-vulnerability-alerts"]
 ' "${paginated_snapshots[0]}/collection-summary.json" >/dev/null ||
   fail "paginated partial collection did not preserve the exact unavailable source"
 
