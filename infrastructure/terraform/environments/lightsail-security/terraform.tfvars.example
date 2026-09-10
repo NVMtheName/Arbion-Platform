@@ -1,0 +1,4 @@
+# REVIEW EXAMPLE ONLY: not approved spending, retention, or activation authority.
+expected_account_id           = "123456789012"
+audit_evidence_retention_days  = 365
+security_log_retention_days    = 365

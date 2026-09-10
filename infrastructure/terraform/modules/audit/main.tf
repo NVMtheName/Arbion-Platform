@@ -22,6 +22,33 @@ variable "object_lock_retention_days" {
   type = number
 }
 
+variable "enable_cloudtrail_insights" {
+  type        = bool
+  default     = true
+  description = "Preserve the target-design default; the Lightsail security plan excludes paid Insights."
+}
+
+variable "config_resource_types" {
+  type        = set(string)
+  default     = []
+  description = "Explicit Config scope; empty preserves the existing all-supported target design."
+}
+
+variable "guardduty_feature_status" {
+  type        = map(string)
+  default     = {}
+  description = "Explicit feature configuration; empty preserves existing detector behavior."
+
+  validation {
+    condition = alltrue([
+      for name, status in var.guardduty_feature_status :
+      contains(["S3_DATA_EVENTS", "EKS_AUDIT_LOGS", "EBS_MALWARE_PROTECTION", "RDS_LOGIN_EVENTS", "LAMBDA_NETWORK_LOGS", "RUNTIME_MONITORING", "AI_PROTECTION", "AI_ANALYST"], name) &&
+      contains(["ENABLED", "DISABLED"], status)
+    ])
+    error_message = "Only explicitly supported GuardDuty features and ENABLED/DISABLED statuses are accepted."
+  }
+}
+
 locals {
   bucket_name              = "${var.name}-${var.account_id}-${var.region}-audit"
   cloudtrail_name          = "${var.name}-management"
@@ -394,8 +421,11 @@ resource "aws_cloudtrail" "management" {
     read_write_type           = "All"
   }
 
-  insight_selector {
-    insight_type = "ApiCallRateInsight"
+  dynamic "insight_selector" {
+    for_each = var.enable_cloudtrail_insights ? [true] : []
+    content {
+      insight_type = "ApiCallRateInsight"
+    }
   }
 
   depends_on = [aws_s3_bucket_policy.audit, aws_iam_role_policy.cloudtrail]
@@ -514,8 +544,9 @@ resource "aws_config_configuration_recorder" "this" {
   role_arn = aws_iam_role.config.arn
 
   recording_group {
-    all_supported                 = true
+    all_supported                 = length(var.config_resource_types) == 0
     include_global_resource_types = true
+    resource_types                = length(var.config_resource_types) == 0 ? null : var.config_resource_types
   }
 }
 
@@ -529,7 +560,14 @@ resource "aws_config_delivery_channel" "this" {
     delivery_frequency = "Six_Hours"
   }
 
-  depends_on = [aws_s3_bucket_policy.audit, aws_iam_role_policy.config_delivery]
+  # PutDeliveryChannel requires a customer-managed recorder to exist first.
+  # https://docs.aws.amazon.com/config/latest/APIReference/API_PutDeliveryChannel.html
+  depends_on = [
+    aws_config_configuration_recorder.this,
+    aws_s3_bucket_policy.audit,
+    aws_iam_role_policy.config_delivery,
+    aws_iam_role_policy_attachment.config
+  ]
 }
 
 resource "aws_config_configuration_recorder_status" "this" {
@@ -542,6 +580,13 @@ resource "aws_config_configuration_recorder_status" "this" {
 resource "aws_guardduty_detector" "this" {
   enable                       = true
   finding_publishing_frequency = "FIFTEEN_MINUTES"
+}
+
+resource "aws_guardduty_detector_feature" "explicit" {
+  for_each    = var.guardduty_feature_status
+  detector_id = aws_guardduty_detector.this.id
+  name        = each.key
+  status      = each.value
 }
 
 resource "aws_cloudwatch_event_rule" "guardduty_findings" {
@@ -663,4 +708,14 @@ output "guardduty_event_rule_arn" {
 
 output "access_analyzer_arn" {
   value = aws_accessanalyzer_analyzer.this.arn
+}
+
+output "planned_scope" {
+  description = "Planned configuration only; not proof of activation, delivery, or coverage."
+  value = {
+    insights_enabled      = length(aws_cloudtrail.management.insight_selector) > 0
+    config_all_supported  = aws_config_configuration_recorder.this.recording_group[0].all_supported
+    config_resource_types = aws_config_configuration_recorder.this.recording_group[0].resource_types
+    guardduty_features    = { for name, feature in aws_guardduty_detector_feature.explicit : name => feature.status }
+  }
 }
