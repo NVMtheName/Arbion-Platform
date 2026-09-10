@@ -105,8 +105,10 @@ def bucket_evidence(snapshot: Path, role: str, algorithm: str) -> None:
     write_json(
         snapshot / f"{prefix}-object-lock.json",
         {
-            "ObjectLockEnabled": "Enabled",
-            "Rule": {"DefaultRetention": {"Mode": "GOVERNANCE", "Days": 35}},
+            "ObjectLockConfiguration": {
+                "ObjectLockEnabled": "Enabled",
+                "Rule": {"DefaultRetention": {"Mode": "GOVERNANCE", "Days": 35}},
+            },
         },
     )
     write_json(
@@ -257,7 +259,10 @@ def make_complete_snapshot(snapshot: Path) -> dict[str, str]:
         snapshot / "aws-config-delivery-channels.json",
         {"DeliveryChannels": [{"name": "arbion-production", "s3BucketName": "arbion-audit"}]},
     )
-    write_json(snapshot / "aws-guardduty-detectors.json", {"DetectorIds": ["detector-1"]})
+    write_json(snapshot / "aws-guardduty-detectors.json", {
+        "DetectorIds": ["a" * 32],
+        "Detectors": [{"DetectorId": "a" * 32, "Status": "ENABLED"}],
+    })
     write_json(
         snapshot / "aws-access-analyzers.json",
         {"analyzers": [{"name": "arbion-production", "status": "ACTIVE", "type": "ACCOUNT"}]},
@@ -292,12 +297,14 @@ def make_complete_snapshot(snapshot: Path) -> dict[str, str]:
     bucket_evidence(snapshot, "backup", "AES256")
     write_json(
         snapshot / "aws-lightsail-instances.json",
-        [{"name": "arbion-production", "state": "running"}],
+        [{"name": "arbion-production-host", "state": "running", "arn": "arn:aws:lightsail:us-east-1:111122223333:Instance/test"}],
     )
     write_json(
         snapshot / "aws-lightsail-alarms.json",
         [
-            {"name": name, "notificationEnabled": True, "contactProtocols": ["Email"]}
+            {"name": name, "notificationEnabled": True, "contactProtocols": ["Email"],
+             "monitoredResourceInfo": {"name": "arbion-production-host", "resourceType": "Instance",
+                                       "arn": "arn:aws:lightsail:us-east-1:111122223333:Instance/test"}}
             for name in (
                 "arbion-production-status-check-failed",
                 "arbion-production-cpu-high",
@@ -394,6 +401,51 @@ class ExternalReviewTests(unittest.TestCase):
         result = self.assertion(report, "GITHUB_ACTIONS_DEFAULT_READ_ONLY")
         self.assertEqual(result["status"], "FAIL")
         self.assertEqual(report["review_state"], "REVIEW_REQUIRED")
+
+    def test_guardduty_requires_exact_enabled_status_inventory(self) -> None:
+        for index, (value, expected) in enumerate([
+            ({"DetectorIds": [], "Detectors": []}, "FAIL"),
+            ({"DetectorIds": ["a" * 32]}, "UNAVAILABLE"),
+            ({"DetectorIds": ["a" * 32], "Detectors": []}, "UNAVAILABLE"),
+            ({"DetectorIds": ["a" * 32], "Detectors": [{"DetectorId": "b" * 32, "Status": "ENABLED"}]}, "UNAVAILABLE"),
+            ({"DetectorIds": ["a" * 32], "Detectors": [{"DetectorId": "a" * 32, "Status": "DISABLED"}]}, "FAIL"),
+            ({"DetectorIds": ["a" * 32], "Detectors": [{"DetectorId": "a" * 32, "Status": "UNKNOWN"}]}, "UNAVAILABLE"),
+            ({"DetectorIds": ["a" * 32, "a" * 32], "Detectors": [{"DetectorId": "a" * 32, "Status": "ENABLED"}] * 2}, "UNAVAILABLE"),
+        ]):
+            with self.subTest(value=value):
+                write_json(self.snapshot / "aws-guardduty-detectors.json", value)
+                seal_snapshot(self.snapshot)
+                completed, output = self.run_review(f"detector-{index}.json")
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                report = json.loads(output.read_text())
+                self.assertEqual(self.assertion(report, "AWS_THREAT_DETECTION_ACTIVE")["status"], expected)
+
+    def test_object_lock_requires_provider_wrapper(self) -> None:
+        path = self.snapshot / "aws-backup-bucket-object-lock.json"
+        original = json.loads(path.read_text())
+        write_json(path, original["ObjectLockConfiguration"])
+        seal_snapshot(self.snapshot)
+        completed, output = self.run_review()
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        report = json.loads(output.read_text())
+        result = next(item for item in report["results"] if "backup-bucket-object-lock.json" in str(item))
+        self.assertEqual(result["status"], "UNAVAILABLE")
+
+    def test_lightsail_alarm_must_target_exact_production_instance(self) -> None:
+        path = self.snapshot / "aws-lightsail-alarms.json"
+        original = json.loads(path.read_text())
+        for index, (resource, expected) in enumerate([
+            ({"name": "arbion-production-host", "resourceType": "Instance", "arn": "arn:aws:lightsail:us-east-1:111122223333:Instance/other"}, "FAIL"),
+            ({}, "UNAVAILABLE"),
+        ]):
+            value = json.loads(json.dumps(original))
+            value[0]["monitoredResourceInfo"] = resource
+            write_json(path, value)
+            seal_snapshot(self.snapshot)
+            completed, output = self.run_review(f"lightsail-{index}.json")
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            report = json.loads(output.read_text())
+            self.assertEqual(self.assertion(report, "AWS_LIGHTSAIL_MONITORING_CONFIGURED")["status"], expected)
 
     def test_missing_field_is_unavailable_without_inference(self) -> None:
         permissions = self.snapshot / "github-actions-permissions.json"

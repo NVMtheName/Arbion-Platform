@@ -13,7 +13,7 @@ fail() {
 }
 
 [[ -n "$output_parent_input" ]] || fail "usage: $0 <existing-output-parent-outside-the-repository>"
-for command in awk aws gh git jq openssl; do
+for command in awk aws gh git jq mv openssl; do
   command -v "$command" >/dev/null || fail "required command not found: $command"
 done
 [[ -d "$output_parent_input" ]] || fail "output parent does not exist: $output_parent_input"
@@ -78,6 +78,42 @@ capture_github_collaborators() {
   return 0
 }
 
+capture_guardduty_status() {
+  local source="$collection_dir/aws-guardduty-detectors.json"
+  local details="$collection_dir/.guardduty-details.tmp"
+  local response="$collection_dir/.guardduty-response.tmp"
+  local combined="$collection_dir/.guardduty-combined.tmp"
+  local detector_id
+  capture_json aws-guardduty-detectors AWS aws guardduty list-detectors --region "$aws_region" --output json
+  if ! jq -e '(.DetectorIds | type == "array") and
+    all(.DetectorIds[]; type == "string" and test("^[0-9a-f]{32}$")) and
+    ((.DetectorIds | unique | length) == (.DetectorIds | length)) and
+    (.DetectorIds | length <= 100)' "$source" >/dev/null; then
+    # Keep API failures explicit; never turn an incomplete inventory into an empty one.
+    if ! jq -e '.status == "UNAVAILABLE"' "$source" >/dev/null; then
+      record_unavailable aws-guardduty-detectors AWS "Detector inventory was malformed or exceeded the bounded review limit."
+    fi
+    return 0
+  fi
+  : >"$details"
+  while IFS= read -r detector_id; do
+    if ! aws guardduty get-detector --detector-id "$detector_id" --region "$aws_region" \
+      --query '{Status:Status}' --output json >"$response" 2>/dev/null ||
+      ! jq -e '.Status | IN("ENABLED", "DISABLED")' "$response" >/dev/null 2>&1; then
+      unlink "$details"
+      [[ ! -e "$response" ]] || unlink "$response"
+      record_unavailable aws-guardduty-detectors AWS "A detector status could not be verified. Detector existence is not evidence that monitoring is enabled."
+      return 0
+    fi
+    jq --arg id "$detector_id" '{DetectorId: $id, Status: .Status}' "$response" >>"$details"
+  done < <(jq -r '.DetectorIds[]' "$source")
+  jq -s . "$details" >"$combined"
+  jq -S --slurpfile detectors "$combined" '. + {Detectors: $detectors[0]}' "$source" >"$details"
+  mv -- "$details" "$source"
+  unlink "$combined"
+  [[ ! -e "$response" ]] || unlink "$response"
+}
+
 github_repository="${ARBION_GITHUB_REPOSITORY:-}"
 if gh auth status >/dev/null 2>&1; then
   if [[ -z "$github_repository" ]]; then
@@ -95,7 +131,7 @@ if gh auth status >/dev/null 2>&1; then
     capture_json github-main-protection GITHUB gh api "repos/$github_repository/branches/main/protection"
     capture_json github-rulesets GITHUB gh api "repos/$github_repository/rulesets?includes_parents=true"
     capture_json github-production-environment GITHUB gh api "repos/$github_repository/environments/production"
-    capture_json github-actions-permissions GITHUB gh api "repos/$github_repository/actions/permissions"
+    capture_json github-actions-permissions GITHUB gh api "repos/$github_repository/actions/permissions/workflow"
     capture_github_collaborators
   else
     record_unavailable github GITHUB "Could not resolve an exact owner/repository name. Set ARBION_GITHUB_REPOSITORY."
@@ -130,14 +166,14 @@ if aws sts get-caller-identity --output json >"$aws_identity" 2>/dev/null && jq 
   capture_json aws-config-recorders AWS aws configservice describe-configuration-recorders --region "$aws_region" --output json
   capture_json aws-config-recorder-status AWS aws configservice describe-configuration-recorder-status --region "$aws_region" --output json
   capture_json aws-config-delivery-channels AWS aws configservice describe-delivery-channels --region "$aws_region" --output json
-  capture_json aws-guardduty-detectors AWS aws guardduty list-detectors --region "$aws_region" --output json
+  capture_guardduty_status
   capture_json aws-access-analyzers AWS aws accessanalyzer list-analyzers --type ACCOUNT --region "$aws_region" --output json
   capture_json aws-security-event-rule AWS aws events describe-rule --name "$event_rule_name" --region "$aws_region" --output json
   capture_json aws-security-event-targets AWS aws events list-targets-by-rule --rule "$event_rule_name" --region "$aws_region" --output json
   capture_json aws-alarm-topic-subscriptions AWS aws sns list-subscriptions-by-topic --topic-arn "$alarm_topic_arn" --region "$aws_region" --query 'Subscriptions[].{SubscriptionArn:SubscriptionArn,Protocol:Protocol,Owner:Owner}' --output json
   capture_json aws-cloudwatch-alarms AWS aws cloudwatch describe-alarms --alarm-name-prefix "$resource_prefix" --region "$aws_region" --query 'MetricAlarms[].{AlarmName:AlarmName,StateValue:StateValue,ActionsEnabled:ActionsEnabled,AlarmActions:AlarmActions,MetricName:MetricName,Namespace:Namespace,Updated:AlarmConfigurationUpdatedTimestamp}' --output json
   capture_json aws-lightsail-instances AWS aws lightsail get-instances --region "$aws_region" --query 'instances[].{name:name,arn:arn,state:state.name,blueprintId:blueprintId,bundleId:bundleId,createdAt:createdAt,isStaticIp:isStaticIp}' --output json
-  capture_json aws-lightsail-alarms AWS aws lightsail get-alarms --region "$aws_region" --query 'alarms[].{name:name,state:state,metricName:metricName,notificationTriggers:notificationTriggers,notificationEnabled:notificationEnabled,contactProtocols:contactProtocols,createdAt:createdAt}' --output json
+  capture_json aws-lightsail-alarms AWS aws lightsail get-alarms --region "$aws_region" --query 'alarms[].{name:name,state:state,metricName:metricName,notificationTriggers:notificationTriggers,notificationEnabled:notificationEnabled,contactProtocols:contactProtocols,createdAt:createdAt,monitoredResourceInfo:monitoredResourceInfo}' --output json
 
   for bucket_role in audit backup; do
     if [[ "$bucket_role" == "audit" ]]; then

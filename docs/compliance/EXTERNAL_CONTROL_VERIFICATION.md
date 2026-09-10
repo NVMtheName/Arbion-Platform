@@ -31,6 +31,8 @@ The collectors omit credential material, secret-scanning alert payloads, notific
 
 ## Required GitHub state
 
+The collector reads Actions defaults from `/actions/permissions/workflow`; the parent permissions endpoint is not evidence of token defaults. S3 Object Lock is evaluated inside the provider's `ObjectLockConfiguration` wrapper. GuardDuty inventory is paired with each detector's explicit `get-detector` status; missing or unpaired status remains unavailable, and a disabled or absent detector does not pass. Lightsail alarm evidence includes the monitored resource and must match the exact running `arbion-production-host` name and ARN. Older snapshots missing these fields remain unavailable; do not modify or infer values into saved history. See the [GitHub permissions API](https://docs.github.com/en/rest/actions/permissions#get-default-workflow-permissions-for-a-repository), [S3 Object Lock response](https://docs.aws.amazon.com/cli/latest/reference/s3api/get-object-lock-configuration.html), and [GuardDuty detector status](https://docs.aws.amazon.com/cli/latest/reference/guardduty/get-detector.html).
+
 - `main` requires a pull request, code-owner review, dismissal of stale approvals, successful required checks, resolved conversations, and linear history; direct pushes, force pushes, branch deletion, and routine administrator bypass are blocked.
 - The `production` environment allows deployment only from `main`, requires an authorized reviewer who cannot routinely bypass the gate, and retains deployment history.
 - CodeQL/code scanning, Dependabot alerts and updates, secret scanning, and push protection are enabled and monitored. Open alerts have owners and due dates or time-bounded risk acceptance.
