@@ -20,7 +20,7 @@ fail() {
   exit 1
 }
 
-grep -Fq -- '--arg schema_version "1.1"' "$collector" || fail "collector does not emit the reviewed schema version"
+grep -Fq -- '--arg schema_version "1.2"' "$collector" || fail "collector does not emit the reviewed schema version"
 grep -Fq 'release_sha="INVALID"' "$collector" || fail "collector does not sanitize an invalid release marker"
 grep -Fq 'application_hardening: $hardening_status' "$collector" || fail "collector omits application-hardening status"
 grep -Fq 'network_exposure: $network_exposure_status' "$collector" || fail "collector omits network-exposure status"
@@ -356,6 +356,26 @@ expect_failure omitted 'core schema' omit_backup
 expect_failure unexpected 'core schema' add_unexpected_field
 expect_failure duplicate-service 'service inventory or summary is inconsistent' duplicate_service
 expect_failure duplicate-container 'service inventory or summary is inconsistent' duplicate_container
+# New snapshots identify the clock domain; legacy 1.1 evidence above remains readable.
+clock_evidence="$test_root/clock.json"
+jq '.schema_version = "1.2" | .monitoring_timers |= map(. + {next_run_clock: "REALTIME"}) |
+    .monitoring_timers[0].next_run_clock = "MONOTONIC" |
+    .monitoring_timers[0].next_run = "2w 4d 23h 13min 16.745423s"' "$complete_evidence" >"$clock_evidence"
+seal_host_evidence "$clock_evidence"
+"$verifier" "$clock_evidence" >/dev/null
+for invalid in '"2026-09-10T01:00:00Z"' '"infinity"' '"0"' '"0s"' '"garbage"'; do
+  jq --argjson invalid "$invalid" '.monitoring_timers[0].next_run = $invalid' "$clock_evidence" >"$test_root/clock-invalid.json"
+  seal_host_evidence "$test_root/clock-invalid.json"
+  if "$verifier" "$test_root/clock-invalid.json" >/dev/null 2>&1; then fail "invalid monotonic time accepted"; fi
+done
+jq '.monitoring_timers[0].next_run_clock = "UNAVAILABLE"' "$clock_evidence" >"$test_root/clock-invalid.json"
+seal_host_evidence "$test_root/clock-invalid.json"
+if "$verifier" "$test_root/clock-invalid.json" >/dev/null 2>&1; then fail "mismatched clock accepted"; fi
+jq '.monitoring_timers[0].next_run_clock = "UNAVAILABLE" | .monitoring_timers[0].next_run = "UNAVAILABLE" |
+    .summary.monitoring_timers = "FAIL" | .status = "INCOMPLETE"' "$clock_evidence" >"$test_root/clock-unavailable.json"
+seal_host_evidence "$test_root/clock-unavailable.json"
+"$verifier" "$test_root/clock-unavailable.json" >/dev/null
+
 expect_failure secret-key 'secret-like key' add_secret_key
 expect_failure secret-value 'secret-like value' add_secret_value
 expect_failure identity 'core schema' change_collection_identity

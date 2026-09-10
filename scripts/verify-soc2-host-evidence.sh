@@ -82,7 +82,7 @@ jq -e '
     "monitoring_timers", "read_only_checks", "release_sha", "schema_version",
     "sensitive_file_permissions", "services", "status", "summary"
   ]) and
-  .schema_version == "1.1" and
+  (.schema_version | IN("1.1", "1.2")) and
   (.status | IN("COMPLETE_REVIEW_REQUIRED", "INCOMPLETE")) and
   (.collection_id | type == "string" and test("^arbion-soc2-host-[0-9]{8}T[0-9]{6}Z$")) and
   (.collected_at | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
@@ -162,6 +162,7 @@ jq -e '
 ' "$evidence" >/dev/null || fail "service inventory or summary is inconsistent"
 
 jq -e '
+  .schema_version as $schema |
   (.monitoring_timers | type == "array" and length == 9) and
   (([.monitoring_timers[].unit] | sort) == [
     "arbion-docker-build-cache-prune.timer", "arbion-host-capacity.timer",
@@ -172,7 +173,12 @@ jq -e '
   ]) and
   (([.monitoring_timers[].unit] | unique | length) == 9) and
   all(.monitoring_timers[];
-    ((keys | sort) == ["active_state", "load_state", "next_run", "sub_state", "unit", "unit_file_state"]) and
+    ((keys | sort) == (if $schema == "1.2" then ["active_state", "load_state", "next_run", "next_run_clock", "sub_state", "unit", "unit_file_state"] else ["active_state", "load_state", "next_run", "sub_state", "unit", "unit_file_state"] end)) and
+    (if $schema == "1.2" then
+      (.next_run_clock | IN("REALTIME", "MONOTONIC", "UNAVAILABLE")) and
+      ((.next_run == "UNAVAILABLE") == (.next_run_clock == "UNAVAILABLE")) and
+      (if .next_run_clock == "MONOTONIC" then (.next_run | test("[1-9]") and test("^[0-9]+(\\.[0-9]+)?(us|ms|s|min|h|d|w|month|y)( [0-9]+(\\.[0-9]+)?(us|ms|s|min|h|d|w|month|y))*$")) else true end)
+    else true end) and
     all(.[]; type == "string" and length > 0 and length <= 512)
   ) and
   ((all(.monitoring_timers[]; .load_state == "loaded" and .active_state == "active" and .unit_file_state == "enabled" and .next_run != "UNAVAILABLE")) as $passing |
