@@ -14,7 +14,7 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
@@ -35,7 +35,7 @@ jobs:
       run:
         working-directory: services/api
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: services/api/go.mod
@@ -69,7 +69,7 @@ jobs:
       STRATEGY_TEST_DATABASE_URL: postgres://arbion:ci-integration-not-a-production-secret@127.0.0.1:5432/arbion_strategy?sslmode=disable
       AUTH_TEST_DATABASE_URL: postgres://arbion:ci-integration-not-a-production-secret@127.0.0.1:5432/arbion_strategy?sslmode=disable
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: services/api/go.mod
@@ -94,7 +94,7 @@ jobs:
       run:
         working-directory: services/ai
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
@@ -110,7 +110,7 @@ jobs:
   compose:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: cp .env.example .env && docker compose config --quiet
       - name: Validate production deployment configuration
         env:
@@ -144,7 +144,7 @@ jobs:
   compliance:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate SOC 2 control baseline
         run: ./scripts/soc2-controls.test.sh
       - name: Verify SOC 2 evidence snapshot integrity controls
