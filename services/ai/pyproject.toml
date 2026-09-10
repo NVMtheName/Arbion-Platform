@@ -19,7 +19,7 @@ dev = [
   "pytest-asyncio==1.4.0",
   "mypy==1.17.1",
   "pip-audit==2.10.1",
-  "pytest==9.0.3",
+  "pytest==9.1.1",
   "ruff==0.12.8",
 ]
 
