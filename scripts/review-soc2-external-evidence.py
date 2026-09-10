@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
+from soc2_alert_evidence import valid_topic
+
 
 MAXIMUM_REPORT_BYTES = 1_048_576
 MAXIMUM_SOURCE_BYTES = 2_097_152
@@ -43,7 +45,9 @@ def parse_json_bytes(raw: bytes, source: str) -> Any:
     except ReviewError:
         raise
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ReviewError(f"malformed JSON after snapshot verification: {source}") from exc
+        raise ReviewError(
+            f"malformed JSON after snapshot verification: {source}"
+        ) from exc
 
 
 def nested(value: Any, *keys: str) -> Any:
@@ -150,7 +154,9 @@ def github_security_features(values: Sequence[Any]) -> tuple[bool, bool]:
         and isinstance(features[name].get("status"), str)
         for name in names
     )
-    return schema, schema and all(features[name]["status"] == "enabled" for name in names)
+    return schema, schema and all(
+        features[name]["status"] == "enabled" for name in names
+    )
 
 
 def github_main_protection(values: Sequence[Any]) -> tuple[bool, bool]:
@@ -158,7 +164,9 @@ def github_main_protection(values: Sequence[Any]) -> tuple[bool, bool]:
     checks = nested(protection, "required_status_checks")
     reviews = nested(protection, "required_pull_request_reviews")
     contexts = checks.get("contexts", MISSING) if isinstance(checks, dict) else MISSING
-    check_entries = checks.get("checks", MISSING) if isinstance(checks, dict) else MISSING
+    check_entries = (
+        checks.get("checks", MISSING) if isinstance(checks, dict) else MISSING
+    )
     contexts_schema = isinstance(contexts, list) and all(
         is_nonempty_string(context) for context in contexts
     )
@@ -167,9 +175,8 @@ def github_main_protection(values: Sequence[Any]) -> tuple[bool, bool]:
         for item in check_entries
     )
     has_check_population = contexts_schema or check_entries_schema
-    check_count = (
-        (len(contexts) if isinstance(contexts, list) else 0)
-        + (len(check_entries) if isinstance(check_entries, list) else 0)
+    check_count = (len(contexts) if isinstance(contexts, list) else 0) + (
+        len(check_entries) if isinstance(check_entries, list) else 0
     )
     required_booleans = (
         nested(protection, "enforce_admins", "enabled"),
@@ -347,10 +354,7 @@ def aws_cloudtrail(values: Sequence[Any]) -> tuple[bool, bool]:
         and all(
             isinstance(field, dict)
             and is_nonempty_string(field.get("Field"))
-            and (
-                "Equals" not in field
-                or is_string_list(field.get("Equals"))
-            )
+            and ("Equals" not in field or is_string_list(field.get("Equals")))
             for field in selector["FieldSelectors"]
         )
         for selector in advanced_selectors
@@ -379,13 +383,17 @@ def aws_cloudtrail(values: Sequence[Any]) -> tuple[bool, bool]:
             for trail in production_trails
         )
     )
-    protected_trail = schema and len(production_trails) == 1 and any(
-        trail.get("IsMultiRegionTrail") is True
-        and trail.get("IncludeGlobalServiceEvents") is True
-        and trail.get("LogFileValidationEnabled") is True
-        and is_nonempty_string(trail.get("S3BucketName"))
-        and is_nonempty_string(trail.get("CloudWatchLogsLogGroupArn"))
-        for trail in production_trails
+    protected_trail = (
+        schema
+        and len(production_trails) == 1
+        and any(
+            trail.get("IsMultiRegionTrail") is True
+            and trail.get("IncludeGlobalServiceEvents") is True
+            and trail.get("LogFileValidationEnabled") is True
+            and is_nonempty_string(trail.get("S3BucketName"))
+            and is_nonempty_string(trail.get("CloudWatchLogsLogGroupArn"))
+            for trail in production_trails
+        )
     )
     basic_management = isinstance(event_selectors, list) and any(
         isinstance(selector, dict)
@@ -438,9 +446,7 @@ def aws_config_recording(values: Sequence[Any]) -> tuple[bool, bool]:
             and is_nonempty_string(item.get("name"))
             and isinstance(item.get("recordingGroup"), dict)
             and is_bool(nested(item, "recordingGroup", "allSupported"))
-            and is_bool(
-                nested(item, "recordingGroup", "includeGlobalResourceTypes")
-            )
+            and is_bool(nested(item, "recordingGroup", "includeGlobalResourceTypes"))
             for item in recorder_list
         )
         and all(
@@ -468,9 +474,17 @@ def aws_config_recording(values: Sequence[Any]) -> tuple[bool, bool]:
 
 def aws_threat_detection(values: Sequence[Any]) -> tuple[bool, bool]:
     guardduty, analyzers = values
-    detectors = guardduty.get("DetectorIds", MISSING) if isinstance(guardduty, dict) else MISSING
-    statuses = guardduty.get("Detectors", MISSING) if isinstance(guardduty, dict) else MISSING
-    analyzer_list = analyzers.get("analyzers", MISSING) if isinstance(analyzers, dict) else MISSING
+    detectors = (
+        guardduty.get("DetectorIds", MISSING)
+        if isinstance(guardduty, dict)
+        else MISSING
+    )
+    statuses = (
+        guardduty.get("Detectors", MISSING) if isinstance(guardduty, dict) else MISSING
+    )
+    analyzer_list = (
+        analyzers.get("analyzers", MISSING) if isinstance(analyzers, dict) else MISSING
+    )
     schema = (
         is_string_list(detectors)
         and len(set(detectors)) == len(detectors)
@@ -491,19 +505,31 @@ def aws_threat_detection(values: Sequence[Any]) -> tuple[bool, bool]:
             for item in analyzer_list
         )
     )
-    passed = schema and bool(detectors) and all(
-        item["Status"] == "ENABLED" for item in statuses
-    ) and any(
-        item.get("status") == "ACTIVE" and item.get("type") == "ACCOUNT"
-        for item in analyzer_list
+    passed = (
+        schema
+        and bool(detectors)
+        and all(item["Status"] == "ENABLED" for item in statuses)
+        and any(
+            item.get("status") == "ACTIVE" and item.get("type") == "ACCOUNT"
+            for item in analyzer_list
+        )
     )
     return schema, passed
 
 
 def aws_security_routing(values: Sequence[Any]) -> tuple[bool, bool]:
-    rule, targets, subscriptions, alarms = values
-    target_list = targets.get("Targets", MISSING) if isinstance(targets, dict) else MISSING
-    event_pattern = rule.get("EventPattern", MISSING) if isinstance(rule, dict) else MISSING
+    rule, targets, topic, alarms, identity, summary = values
+    if not topic_identity_valid(topic, "SECURITY", identity, summary):
+        return False, False
+    subscriptions = topic["subscriptions"]
+    topic_arn = topic["selection"]["topic_arn"]
+    arn_prefix = f"arn:aws:events:{summary['aws_region']}:{identity['Account']}:rule/"
+    target_list = (
+        targets.get("Targets", MISSING) if isinstance(targets, dict) else MISSING
+    )
+    event_pattern = (
+        rule.get("EventPattern", MISSING) if isinstance(rule, dict) else MISSING
+    )
     parsed_pattern: Any = MISSING
     if isinstance(event_pattern, str):
         try:
@@ -521,8 +547,12 @@ def aws_security_routing(values: Sequence[Any]) -> tuple[bool, bool]:
     schema = (
         isinstance(rule, dict)
         and isinstance(rule.get("State"), str)
+        and is_nonempty_string(rule.get("Name"))
+        and is_nonempty_string(rule.get("Arn"))
         and is_string_list(detail_types)
+        and is_string_list(nested(parsed_pattern, "source"))
         and isinstance(target_list, list)
+        and targets.get("NextToken") is None
         and isinstance(subscriptions, list)
         and isinstance(alarms, list)
         and all(
@@ -531,6 +561,7 @@ def aws_security_routing(values: Sequence[Any]) -> tuple[bool, bool]:
             and is_nonempty_string(item.get("Arn"))
             for item in target_list
         )
+        and len({item["Id"] for item in target_list}) == len(target_list)
         and all(
             isinstance(item, dict)
             and is_nonempty_string(item.get("SubscriptionArn"))
@@ -540,10 +571,12 @@ def aws_security_routing(values: Sequence[Any]) -> tuple[bool, bool]:
         and all(
             isinstance(item, dict)
             and is_nonempty_string(item.get("AlarmName"))
+            and is_nonempty_string(item.get("AlarmArn"))
             and is_bool(item.get("ActionsEnabled"))
             and is_string_list(item.get("AlarmActions"))
             for item in alarms
         )
+        and len({item["AlarmArn"] for item in alarms}) == len(alarms)
     )
     confirmed_subscription = schema and any(
         is_nonempty_string(item.get("SubscriptionArn"))
@@ -552,30 +585,59 @@ def aws_security_routing(values: Sequence[Any]) -> tuple[bool, bool]:
     )
     active_alarm = schema and any(
         item.get("ActionsEnabled") is True
-        and isinstance(item.get("AlarmActions"), list)
-        and bool(item["AlarmActions"])
+        and item["AlarmArn"]
+        == f"arn:aws:cloudwatch:{summary['aws_region']}:{identity['Account']}:alarm:{item['AlarmName']}"
+        and topic_arn in item["AlarmActions"]
         for item in alarms
     )
     passed = schema and (
         rule["State"] == "ENABLED"
+        and rule["Arn"] == arn_prefix + rule["Name"]
+        and "aws.guardduty" in parsed_pattern["source"]
         and "GuardDuty Finding" in detail_types
-        and bool(target_list)
+        and any(item["Arn"] == topic_arn for item in target_list)
         and confirmed_subscription
         and active_alarm
     )
     return schema, passed
 
 
-def aws_bucket_protection(values: Sequence[Any], require_kms: bool) -> tuple[bool, bool]:
+def topic_identity_valid(topic: Any, role: str, identity: Any, summary: Any) -> bool:
+    account = nested(identity, "Account")
+    region = nested(summary, "aws_region")
+    arn = nested(identity, "Arn")
+    return bool(
+        isinstance(account, str)
+        and re.fullmatch(r"[0-9]{12}", account)
+        and isinstance(region, str)
+        and isinstance(arn, str)
+        and re.fullmatch(rf"arn:aws:(?:iam|sts)::{account}:.+", arn)
+        and valid_topic(topic, role, account, region)
+    )
+
+
+def aws_operations_topic(values: Sequence[Any]) -> tuple[bool, bool]:
+    topic, identity, summary = values
+    schema = topic_identity_valid(topic, "OPERATIONS", identity, summary)
+    return schema, schema and int(topic["attributes"]["SubscriptionsConfirmed"]) > 0
+
+
+def aws_delivery_unverified(values: Sequence[Any]) -> tuple[bool, bool]:
+    # Configuration reads cannot establish publication, receipt, or response.
+    # Never upgrade this using a caller-supplied flag or subscription count.
+    return False, False
+
+
+def aws_bucket_protection(
+    values: Sequence[Any], require_kms: bool
+) -> tuple[bool, bool]:
     public, encryption, versioning, object_lock, lifecycle = values
     public_config = nested(public, "PublicAccessBlockConfiguration")
     encryption_rules = nested(encryption, "ServerSideEncryptionConfiguration", "Rules")
     lock_config = nested(object_lock, "ObjectLockConfiguration")
     lock_rule = nested(lock_config, "Rule", "DefaultRetention")
     lifecycle_rules = (
-        lifecycle.get("Rules", MISSING)
-        if isinstance(lifecycle, dict)
-        else MISSING
+        lifecycle.get("Rules", MISSING) if isinstance(lifecycle, dict) else MISSING
     )
     schema = (
         isinstance(public_config, dict)
@@ -683,10 +745,16 @@ def aws_lightsail_monitoring(values: Sequence[Any]) -> tuple[bool, bool]:
         "arbion-production-cpu-high",
         "arbion-production-burst-capacity-low",
     }
-    production_instances = [
-        item for item in instances
-        if item.get("name") == "arbion-production-host" and item.get("state") == "running"
-    ] if schema else []
+    production_instances = (
+        [
+            item
+            for item in instances
+            if item.get("name") == "arbion-production-host"
+            and item.get("state") == "running"
+        ]
+        if schema
+        else []
+    )
     configured = (
         {
             item.get("name")
@@ -694,17 +762,15 @@ def aws_lightsail_monitoring(values: Sequence[Any]) -> tuple[bool, bool]:
             if item.get("notificationEnabled") is True
             and "Email" in item["contactProtocols"]
             and len(production_instances) == 1
-            and nested(item, "monitoredResourceInfo", "arn") == production_instances[0]["arn"]
-            and nested(item, "monitoredResourceInfo", "name") == production_instances[0]["name"]
+            and nested(item, "monitoredResourceInfo", "arn")
+            == production_instances[0]["arn"]
+            and nested(item, "monitoredResourceInfo", "name")
+            == production_instances[0]["name"]
         }
         if schema
         else set()
     )
-    passed = (
-        schema
-        and len(production_instances) == 1
-        and required.issubset(configured)
-    )
+    passed = schema and len(production_instances) == 1 and required.issubset(configured)
     return schema, passed
 
 
@@ -811,7 +877,7 @@ ASSERTIONS = (
     ),
     Assertion(
         "AWS_SECURITY_EVENT_ROUTING",
-        "GuardDuty findings and configured alarms have an active delivery path",
+        "Saved GuardDuty rule and alarm select the exact security topic (configuration only)",
         "AWS",
         ("MON-01", "IR-01"),
         (
@@ -819,8 +885,30 @@ ASSERTIONS = (
             "aws-security-event-targets.json",
             "aws-alarm-topic-subscriptions.json",
             "aws-cloudwatch-alarms.json",
+            "aws-identity.json",
+            "collection-summary.json",
         ),
         aws_security_routing,
+    ),
+    Assertion(
+        "AWS_OPERATIONS_TOPIC_CONFIGURED",
+        "Operational alert topic and confirmed subscription have exact account/region attribution",
+        "AWS",
+        ("MON-01", "IR-01"),
+        (
+            "aws-operations-alarm-topic.json",
+            "aws-identity.json",
+            "collection-summary.json",
+        ),
+        aws_operations_topic,
+    ),
+    Assertion(
+        "AWS_ALERT_DELIVERY_TESTED",
+        "End-to-end alert delivery requires a separately observed and reviewed receipt",
+        "AWS",
+        ("MON-01", "IR-01"),
+        ("aws-alarm-topic-subscriptions.json", "aws-operations-alarm-topic.json"),
+        aws_delivery_unverified,
     ),
     Assertion(
         "AWS_AUDIT_BUCKET_PROTECTED",
@@ -861,8 +949,12 @@ ASSERTIONS = (
 )
 
 
-def evidence_rows(names: Iterable[str], sources: dict[str, Source]) -> list[dict[str, str]]:
-    return [{"file": name, "sha256": sources[name].digest} for name in sorted(set(names))]
+def evidence_rows(
+    names: Iterable[str], sources: dict[str, Source]
+) -> list[dict[str, str]]:
+    return [
+        {"file": name, "sha256": sources[name].digest} for name in sorted(set(names))
+    ]
 
 
 def result_follow_up(status: str) -> str:
@@ -882,22 +974,31 @@ def result_follow_up(status: str) -> str:
     )
 
 
-def evaluate_assertion(assertion: Assertion, sources: dict[str, Source]) -> dict[str, Any]:
+def evaluate_assertion(
+    assertion: Assertion, sources: dict[str, Source]
+) -> dict[str, Any]:
     coarse_name = "github.json" if assertion.system == "GITHUB" else "aws.json"
     if coarse_name in sources:
         selected_names = [coarse_name]
         status = "UNAVAILABLE"
     else:
-        selected_names = list(assertion.files)
+        selected_names = [name for name in assertion.files if name in sources]
         selected = [sources[name] for name in selected_names]
-        if any(source.unavailable for source in selected):
+        if len(selected_names) != len(assertion.files) or any(
+            source.unavailable for source in selected
+        ):
             status = "UNAVAILABLE"
         else:
-            schema_available, passed = assertion.evaluate([source.data for source in selected])
+            schema_available, passed = assertion.evaluate(
+                [source.data for source in selected]
+            )
             if not schema_available:
                 status = "UNAVAILABLE"
             else:
                 status = "PASS" if passed else "FAIL"
+    follow_up = result_follow_up(status)
+    if assertion.assertion_id == "AWS_ALERT_DELIVERY_TESTED":
+        follow_up = "Arrange a separately authorized end-to-end delivery exercise and retain a reviewed receipt. This collector does not publish notifications or test delivery."
     return {
         "assertion_id": assertion.assertion_id,
         "title": assertion.title,
@@ -905,7 +1006,7 @@ def evaluate_assertion(assertion: Assertion, sources: dict[str, Source]) -> dict
         "control_ids": sorted(assertion.controls),
         "status": status,
         "evidence": evidence_rows(selected_names, sources),
-        "safe_follow_up": result_follow_up(status),
+        "safe_follow_up": follow_up,
     }
 
 
@@ -929,7 +1030,9 @@ def verify_snapshot(snapshot: Path, verifier: Path) -> None:
         raise ReviewError(classification)
 
 
-def read_verified_snapshot(snapshot: Path, verifier: Path) -> tuple[dict[str, Source], str]:
+def read_verified_snapshot(
+    snapshot: Path, verifier: Path
+) -> tuple[dict[str, Source], str]:
     verify_snapshot(snapshot, verifier)
 
     manifest_path = snapshot / "SHA256SUMS"
@@ -947,7 +1050,9 @@ def read_verified_snapshot(snapshot: Path, verifier: Path) -> tuple[dict[str, So
     except UnicodeDecodeError as exc:
         raise ReviewError("checksum manifest changed after verification") from exc
     for line in manifest_lines:
-        match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._-]*\.json)", line)
+        match = re.fullmatch(
+            r"([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._-]*\.json)", line
+        )
         if not match or match.group(2) in manifest:
             raise ReviewError("checksum manifest changed after verification")
         manifest[match.group(2)] = match.group(1)
@@ -973,6 +1078,10 @@ def read_verified_snapshot(snapshot: Path, verifier: Path) -> tuple[dict[str, So
         }
     )
     expected_names = {"collection-summary.json", *github_names, *aws_names}
+    # The shell verifier enforces the exact versioned inventory. Legacy 1.0
+    # packages remain immutable; their new topic assertions stay UNAVAILABLE.
+    if set(manifest) == expected_names - {"aws-operations-alarm-topic.json"}:
+        expected_names.discard("aws-operations-alarm-topic.json")
     if set(manifest) != expected_names:
         raise ReviewError("source inventory changed after verification")
 
@@ -983,7 +1092,9 @@ def read_verified_snapshot(snapshot: Path, verifier: Path) -> tuple[dict[str, So
         digest = hashlib.sha256(raw).hexdigest()
         if digest != claimed_digest:
             raise ReviewError(f"source checksum changed after verification: {name}")
-        sources[name] = Source(name=name, digest=digest, data=parse_json_bytes(raw, name))
+        sources[name] = Source(
+            name=name, digest=digest, data=parse_json_bytes(raw, name)
+        )
 
     if (
         read_regular_bytes(
@@ -995,9 +1106,7 @@ def read_verified_snapshot(snapshot: Path, verifier: Path) -> tuple[dict[str, So
     ):
         raise ReviewError("checksum manifest changed while sources were read")
     actual_names = {
-        path.name
-        for path in snapshot.iterdir()
-        if path.name != "SHA256SUMS"
+        path.name for path in snapshot.iterdir() if path.name != "SHA256SUMS"
     }
     if actual_names != expected_names:
         raise ReviewError("source inventory changed while sources were read")
@@ -1029,7 +1138,9 @@ def build_report(snapshot: Path, verifier: Path) -> dict[str, Any]:
     if repository_source and not repository_source.unavailable:
         full_name = nested(repository_source.data, "full_name")
         if isinstance(full_name, str) and full_name != summary.get("repository"):
-            raise ReviewError("repository identity conflicts with the collection summary")
+            raise ReviewError(
+                "repository identity conflicts with the collection summary"
+            )
 
     results = [evaluate_assertion(assertion, sources) for assertion in ASSERTIONS]
     counts = {
@@ -1136,7 +1247,9 @@ def write_report(report: dict[str, Any], output: Path) -> None:
         except OSError:
             pass
         if isinstance(exc, OSError):
-            raise ReviewError("review draft output could not be written safely") from exc
+            raise ReviewError(
+                "review draft output could not be written safely"
+            ) from exc
         raise
 
 
