@@ -151,8 +151,9 @@ jobs:
         run: ./scripts/soc2-evidence-snapshot.test.sh
       - name: Verify SOC 2 external-control review-draft controls
         run: |
-          python3 -m py_compile ./scripts/soc2_alert_evidence.py ./scripts/review-soc2-external-evidence.py ./scripts/soc2-external-review.test.py
+          python3 -m py_compile ./scripts/soc2_alert_evidence.py ./scripts/soc2_github_security_evidence.py ./scripts/review-soc2-external-evidence.py ./scripts/soc2-external-review.test.py ./scripts/soc2-github-security.test.py
           python3 ./scripts/soc2-external-review.test.py
+          python3 ./scripts/soc2-github-security.test.py
       - name: Verify SOC 2 production-host evidence integrity controls
         run: ./scripts/soc2-host-evidence.test.sh
       - name: Generate control evidence report

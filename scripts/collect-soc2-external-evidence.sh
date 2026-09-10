@@ -78,6 +78,22 @@ capture_github_collaborators() {
   return 0
 }
 
+capture_github_security_metadata() {
+  local name="$1" kind="$2"
+  local temporary="$collection_dir/.$name.tmp"
+  if python3 "$script_dir/soc2_github_security_evidence.py" "$kind" \
+    --repository "$github_repository" --repository-record "$collection_dir/github-repository.json" \
+    --collected-at "$collected_at" >"$temporary" 2>/dev/null && jq -e . "$temporary" >/dev/null; then
+    mv -- "$temporary" "$collection_dir/$name.json"
+    if jq -e '.status? == "UNAVAILABLE"' "$collection_dir/$name.json" >/dev/null; then
+      unavailable+=("$name")
+    fi
+  else
+    [[ ! -e "$temporary" ]] || unlink "$temporary"
+    record_unavailable "$name" GITHUB "The bounded read-only security metadata collector failed. No setting or license status was inferred."
+  fi
+}
+
 capture_guardduty_status() {
   local source="$collection_dir/aws-guardduty-detectors.json"
   local details="$collection_dir/.guardduty-details.tmp"
@@ -163,12 +179,14 @@ if gh auth status >/dev/null 2>&1; then
   fi
   if [[ "$github_repository" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
     capture_json github-identity GITHUB gh api user --jq '{login: .login, id: .id}'
-    capture_json github-repository GITHUB gh api "repos/$github_repository" --jq '{full_name: .full_name, visibility: .visibility, default_branch: .default_branch, archived: .archived, web_commit_signoff_required: .web_commit_signoff_required, security_and_analysis: .security_and_analysis}'
+    capture_json github-repository GITHUB gh api "repos/$github_repository" --jq '{id: .id, full_name: .full_name, visibility: .visibility, default_branch: .default_branch, archived: .archived, web_commit_signoff_required: .web_commit_signoff_required, security_and_analysis: .security_and_analysis}'
     capture_json github-main-protection GITHUB gh api "repos/$github_repository/branches/main/protection"
     capture_json github-rulesets GITHUB gh api "repos/$github_repository/rulesets?includes_parents=true"
     capture_json github-production-environment GITHUB gh api "repos/$github_repository/environments/production"
     capture_json github-actions-permissions GITHUB gh api "repos/$github_repository/actions/permissions/workflow"
     capture_github_collaborators
+    capture_github_security_metadata github-vulnerability-alerts alerts
+    capture_github_security_metadata github-code-scanning scanning
   else
     record_unavailable github GITHUB "Could not resolve an exact owner/repository name. Set ARBION_GITHUB_REPOSITORY."
   fi
@@ -243,7 +261,7 @@ else
 fi
 
 jq -n \
-  --arg schema_version "1.1" \
+  --arg schema_version "1.2" \
   --arg collection_id "$collection_id" \
   --arg collected_at "$collected_at" \
   --arg status "$collection_status" \

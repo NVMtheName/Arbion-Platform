@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from soc2_alert_evidence import valid_topic
+from soc2_github_security_evidence import current_codeql, valid_alerts
 
 
 MAXIMUM_REPORT_BYTES = 1_048_576
@@ -157,6 +158,20 @@ def github_security_features(values: Sequence[Any]) -> tuple[bool, bool]:
     return schema, schema and all(
         features[name]["status"] == "enabled" for name in names
     )
+
+
+def github_feature(values: Sequence[Any], name: str) -> tuple[bool, bool]:
+    repository, summary = values
+    state = nested(repository, "security_and_analysis", name, "status")
+    schema = isinstance(state, str) and state in ("enabled", "disabled")
+    schema = schema and nested(repository, "full_name") == nested(summary, "repository")
+    return schema, schema and state == "enabled"
+
+
+def github_vulnerability_alerts(values: Sequence[Any]) -> tuple[bool, bool]:
+    evidence, repository, summary = values
+    schema = valid_alerts(evidence, repository, summary)
+    return schema, schema
 
 
 def github_main_protection(values: Sequence[Any]) -> tuple[bool, bool]:
@@ -776,6 +791,54 @@ def aws_lightsail_monitoring(values: Sequence[Any]) -> tuple[bool, bool]:
 
 ASSERTIONS = (
     Assertion(
+        "GITHUB_DEPENDABOT_UPDATES_ENABLED",
+        "Repository explicitly reports Dependabot security updates enabled",
+        "GITHUB",
+        ("SEC-02", "SDLC-01"),
+        ("github-repository.json", "collection-summary.json"),
+        lambda values: github_feature(values, "dependabot_security_updates"),
+    ),
+    Assertion(
+        "GITHUB_SECRET_SCANNING_ENABLED",
+        "Repository explicitly reports secret scanning enabled",
+        "GITHUB",
+        ("SEC-01", "SDLC-01"),
+        ("github-repository.json", "collection-summary.json"),
+        lambda values: github_feature(values, "secret_scanning"),
+    ),
+    Assertion(
+        "GITHUB_PUSH_PROTECTION_ENABLED",
+        "Repository explicitly reports secret-scanning push protection enabled",
+        "GITHUB",
+        ("SEC-01", "SDLC-01"),
+        ("github-repository.json", "collection-summary.json"),
+        lambda values: github_feature(values, "secret_scanning_push_protection"),
+    ),
+    Assertion(
+        "GITHUB_VULNERABILITY_ALERTS_ENABLED",
+        "Exact repository vulnerability-alert endpoint returned HTTP 204",
+        "GITHUB",
+        ("SEC-02", "SDLC-01"),
+        (
+            "github-vulnerability-alerts.json",
+            "github-repository.json",
+            "collection-summary.json",
+        ),
+        github_vulnerability_alerts,
+    ),
+    Assertion(
+        "GITHUB_CURRENT_MAIN_CODEQL_ANALYSES",
+        "Latest saved CodeQL analysis in all four categories matches pinned main without error or warning",
+        "GITHUB",
+        ("SEC-02", "SDLC-01"),
+        (
+            "github-code-scanning.json",
+            "github-repository.json",
+            "collection-summary.json",
+        ),
+        current_codeql,
+    ),
+    Assertion(
         "GITHUB_IDENTITY_REPOSITORY_BOUND",
         "Collector identity is bound to the exact repository",
         "GITHUB",
@@ -999,6 +1062,8 @@ def evaluate_assertion(
     follow_up = result_follow_up(status)
     if assertion.assertion_id == "AWS_ALERT_DELIVERY_TESTED":
         follow_up = "Arrange a separately authorized end-to-end delivery exercise and retain a reviewed receipt. This collector does not publish notifications or test delivery."
+    if assertion.assertion_id == "GITHUB_CURRENT_MAIN_CODEQL_ANALYSES":
+        follow_up = "Review the exact saved repository, main commit, four analysis categories, timestamps, and error/warning presence. This proves neither future enforcement nor an absence of vulnerabilities; unavailable or failed analysis evidence requires review."
     return {
         "assertion_id": assertion.assertion_id,
         "title": assertion.title,
@@ -1080,8 +1145,13 @@ def read_verified_snapshot(
     expected_names = {"collection-summary.json", *github_names, *aws_names}
     # The shell verifier enforces the exact versioned inventory. Legacy 1.0
     # packages remain immutable; their new topic assertions stay UNAVAILABLE.
-    if set(manifest) == expected_names - {"aws-operations-alarm-topic.json"}:
-        expected_names.discard("aws-operations-alarm-topic.json")
+    for legacy_optional in (
+        "aws-operations-alarm-topic.json",
+        "github-code-scanning.json",
+        "github-vulnerability-alerts.json",
+    ):
+        if legacy_optional not in manifest:
+            expected_names.discard(legacy_optional)
     if set(manifest) != expected_names:
         raise ReviewError("source inventory changed after verification")
 
