@@ -16,6 +16,340 @@
 body {
   background: var(--surface-base);
 }
+/* Connections: setup first; saved operating evidence remains a separate review. */
+.connections-workspace .connection-hub-hero {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  gap: 24px;
+  align-items: center;
+  padding: 32px 0 24px;
+}
+.connections-workspace .connection-hub-hero h1 {
+  margin: 8px 0;
+  font-size: clamp(2rem, 3vw, 2.75rem);
+  font-weight: 550;
+  line-height: 1.15;
+}
+.connections-workspace .eyebrow,
+.connections-workspace .connection-step-label {
+  color: var(--surface-accent);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+}
+.connections-workspace .connection-hub-lede {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.connections-workspace .connection-progress {
+  gap: 6px;
+  padding: 16px 18px;
+  border-color: var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: inset 0 1px 0 #ffffff08;
+}
+.connections-workspace .connection-progress strong {
+  color: var(--surface-text);
+}
+.connections-workspace .connection-progress span {
+  font-size: 0.875rem;
+}
+.connections-workspace .connection-health-link {
+  color: var(--surface-accent);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-underline-offset: 3px;
+}
+.connections-workspace .connection-steps {
+  gap: 4px;
+  margin: 0 0 28px;
+  padding: 5px;
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-recessed);
+  box-shadow: inset 0 2px 6px #0003;
+}
+.connections-workspace .connection-steps a {
+  align-content: center;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--surface-text);
+}
+.connections-workspace .connection-steps a:hover {
+  background: #ffffff06;
+  border-color: var(--surface-border);
+}
+.connections-workspace .connection-steps a.is-complete {
+  background: linear-gradient(#24323d, #1a252e);
+  border-color: #3c505e;
+  box-shadow: inset 0 1px 0 #ffffff10;
+}
+.connections-workspace .connection-steps a > span {
+  width: 1.875rem;
+  height: 1.875rem;
+  border-radius: 8px;
+  border-color: #536371;
+  color: var(--surface-muted);
+  font-size: 0.875rem;
+  line-height: 1;
+}
+.connections-workspace .connection-steps a.is-complete > span,
+.connections-workspace .connection-steps a.is-ready > span {
+  background: #75e0ea16;
+  border-color: #75e0ea55;
+  color: var(--surface-accent);
+}
+.connections-workspace .connection-steps a > strong,
+.connections-workspace .connection-steps a > small {
+  font-size: 0.875rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.connections-workspace .connection-steps a > small {
+  color: var(--surface-muted);
+}
+.connections-workspace .connection-hub-section {
+  padding: 28px 0;
+  scroll-margin-top: max(136px, 8.5rem);
+  border-color: var(--surface-border);
+}
+.connections-workspace .connection-section-heading {
+  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  margin-bottom: 20px;
+}
+.connections-workspace .connection-section-heading h2,
+.connections-workspace .model-choice h2,
+.connections-workspace .connection-finish h2 {
+  color: var(--surface-text);
+  font-size: clamp(1.25rem, 2vw, 1.6rem);
+  font-weight: 550;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+}
+.connections-workspace .connection-section-heading > p,
+.connections-workspace .model-choice > div > p:last-child,
+.connections-workspace .connection-finish p:last-child {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.connections-workspace .financial-provider-grid,
+.connections-workspace .ai-provider-grid {
+  align-items: start;
+  gap: 16px;
+}
+.connections-workspace .financial-provider-card,
+.connections-workspace .ai-provider-card {
+  padding: 24px;
+  border-color: var(--surface-border);
+  border-radius: 14px;
+  background: linear-gradient(145deg, #19222c, #111820 55%);
+  box-shadow:
+    inset 0 1px 0 #ffffff08,
+    0 10px 28px #0002;
+  overflow-wrap: anywhere;
+}
+.connections-workspace .financial-provider-card > header,
+.connections-workspace .ai-provider-card > header {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--surface-border);
+}
+.connections-workspace .financial-provider-card > header {
+  flex-wrap: wrap;
+}
+.connections-workspace .provider-mark {
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 #ffffff14;
+}
+.connections-workspace .financial-provider-card h3,
+.connections-workspace .ai-provider-card h3 {
+  color: var(--surface-text);
+  font-size: 1.125rem;
+}
+.connections-workspace .financial-provider-card header p,
+.connections-workspace .ai-provider-card header p,
+.connections-workspace .connection-status,
+.connections-workspace .connection-details summary,
+.connections-workspace .connection-continuity strong,
+.connections-workspace .connection-continuity p,
+.connections-workspace .connection-continuity small,
+.connections-workspace .credential-assurance,
+.connections-workspace .connection-saved-model {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.connections-workspace .financial-provider-card header p,
+.connections-workspace .ai-provider-card header p,
+.connections-workspace .connection-continuity p,
+.connections-workspace .connection-continuity small {
+  color: var(--surface-muted);
+}
+.connections-workspace .connection-card-copy,
+.connections-workspace .connection-card-state,
+.connections-workspace .connection-quiet-state,
+.connections-workspace .connection-coming-soon,
+.connections-workspace .connection-details p,
+.connections-workspace .connection > p {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.connections-workspace .connection-quiet-state,
+.connection-attention-banner {
+  padding: 16px;
+  border: 1px solid #b6904d66;
+  border-radius: 10px;
+  background: #32271680;
+  color: #f4dca6;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.connection-attention-banner a {
+  display: block;
+  margin-top: 6px;
+  color: #f4dca6;
+  text-underline-offset: 3px;
+}
+.connections-workspace :is(input, textarea, select) {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #465361;
+  border-radius: 8px;
+  background: var(--surface-recessed);
+  color: var(--surface-text);
+  font-size: 1rem;
+  line-height: 1.5;
+  box-shadow: inset 0 2px 5px #0003;
+}
+.connections-workspace label {
+  min-width: 0;
+  color: #cbd6e0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.connections-workspace :is(button, .button-link) {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid #53616e;
+  border-radius: 8px;
+  background: linear-gradient(#2b3a46, #1c2832);
+  color: var(--surface-text);
+  box-shadow:
+    inset 0 1px 0 #ffffff16,
+    0 4px 8px #0002;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.connections-workspace button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.connections-workspace button.danger {
+  color: #ffb6b6;
+  border-color: #ac666655;
+  background: #352026;
+}
+.connections-workspace .connection-details summary {
+  padding: 14px 0;
+  color: #c4d0dc;
+}
+.connections-workspace .connection-details {
+  border-color: var(--surface-border);
+}
+.connections-workspace .model-choice {
+  gap: 24px;
+  padding: 24px;
+  border-color: #75e0ea44;
+  border-radius: 14px;
+  background: linear-gradient(125deg, #1b2b34, #121a22);
+  scroll-margin-top: max(136px, 8.5rem);
+}
+.connections-workspace .model-choice > div > p:last-child,
+.connections-workspace .connection-finish > div > p:last-child {
+  margin-top: 10px;
+}
+.connections-workspace .connection-finish {
+  gap: 24px;
+  margin-top: 12px;
+  padding: 24px;
+  border-color: var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+.connection-review-section {
+  margin-top: 36px;
+  scroll-margin-top: max(136px, 8.5rem);
+}
+.connection-review-heading {
+  margin-bottom: 20px;
+}
+.connection-review-heading h2 {
+  margin: 8px 0;
+  font-size: 1.5rem;
+  font-weight: 550;
+  line-height: 1.3;
+}
+.connection-review-section .financial-connection-workspace {
+  border-radius: 14px;
+  background: linear-gradient(145deg, #19222c, #111820 55%);
+}
+.connection-review-section .financial-connection-workspace > header {
+  flex-wrap: wrap;
+  padding: 24px;
+}
+.connection-review-section .financial-connection-workspace > header h2 {
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+.connection-review-section .financial-connection-workspace > header > span,
+.connection-review-section
+  .financial-connection-workspace
+  > ol
+  > li
+  > header
+  > span,
+.connection-review-section .financial-connection-diagnostics > summary > span {
+  flex-shrink: 1;
+  max-width: 100%;
+  border-radius: 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+@media (max-width: 900px) {
+  .connections-workspace .connection-hub-hero,
+  .connections-workspace .connection-section-heading,
+  .connections-workspace .model-choice {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .connections-workspace .ai-provider-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .connections-workspace .connection-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .connections-workspace .connection-steps a {
+    padding: 12px 8px;
+    gap: 4px 8px;
+    border: 1px solid transparent;
+  }
+  .connections-workspace .financial-provider-grid,
+  .connections-workspace .connection-finish {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .connections-workspace .financial-provider-card,
+  .connections-workspace .ai-provider-card,
+  .connections-workspace .model-choice,
+  .connections-workspace .connection-finish {
+    padding: 18px;
+  }
+}
 /* Portfolio working surface: positions first, one exact source of each value. */
 .portfolio-workspace-heading {
   display: flex;

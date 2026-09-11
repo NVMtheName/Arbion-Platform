@@ -266,13 +266,22 @@ export function ConnectionsManager({
         {providers.map((provider) => {
           const items = connections.filter((c) => c.provider === provider.id);
           return (
-            <article className="ai-provider-card" key={provider.id}>
+            <article
+              className="ai-provider-card"
+              key={provider.id}
+              aria-labelledby={`ai-provider-title-${provider.id}`}
+            >
               <header>
-                <span className={`provider-mark provider-${provider.id}`}>
+                <span
+                  aria-hidden="true"
+                  className={`provider-mark provider-${provider.id}`}
+                >
                   {provider.label.slice(0, 1)}
                 </span>
                 <div>
-                  <h3>{provider.label}</h3>
+                  <h3 id={`ai-provider-title-${provider.id}`}>
+                    {provider.label}
+                  </h3>
                   <p>Bring your own API key</p>
                 </div>
               </header>
@@ -280,7 +289,10 @@ export function ConnectionsManager({
                 <>
                   <p className="connection-card-state">Not connected</p>
                   {entitled && (
-                    <button onClick={() => setConnecting(provider.id)}>
+                    <button
+                      aria-label={`Add API key for ${provider.label}`}
+                      onClick={() => setConnecting(provider.id)}
+                    >
                       Add API key
                     </button>
                   )}

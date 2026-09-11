@@ -16,7 +16,7 @@ describe("signed-in command content continuity", () => {
     ["Automation detail", "./automations/[id]/page.tsx"],
     ["Activity", "./activity/page.tsx"],
     ["Capital", "./capital/page.tsx"],
-    ["Connections", "./settings/connections/page.tsx"],
+    ["Connections", "./settings/connections/connections-workspace.tsx"],
     ["Security", "./settings/security/page.tsx"],
     ["Risk settings", "./settings/risk/page.tsx"],
     ["Admin", "./admin/page.tsx"],
@@ -202,7 +202,7 @@ describe("signed-in command content continuity", () => {
     ["Capital", "./capital/page.tsx", "capital-page-title"],
     [
       "Connections",
-      "./settings/connections/page.tsx",
+      "./settings/connections/connections-workspace.tsx",
       "connections-page-title",
     ],
     ["Security", "./settings/security/page.tsx", "security-page-title"],

@@ -38,7 +38,7 @@ React/CSS using the existing Motion configuration and reduced-motion policy.
 `app/precision.css` is imported after the legacy stylesheet at the root so the
 cascade is identical on every route and in the production build. Global changes
 are restricted to base surface tokens, page background and the shared header;
-content changes are scoped to the landing and dashboard. Do not migrate every
+content changes are scoped to the landing, dashboard, Portfolio and Connections. Do not migrate every
 legacy panel in a single unverified rewrite. Later route work should consolidate
 styles into the same surface vocabulary and remove superseded rules as it goes.
 
@@ -69,13 +69,33 @@ Account links have specific accessible names. Filter buttons expose pressed stat
 results announce changes, and the table retains explicit column headers/caption.
 No false live-price indicator, additional provider request or refresh action is added.
 
-Visual QA uses a temporary, explicitly labeled local fixture because the production
-session is signed out. Test desktop, 390px and 320px widths, doubled root text size,
+Visual QA uses temporary, explicitly labeled local fixtures for edge cases. The
+released Portfolio was also verified through the existing signed-in session.
+Test desktop, 390px and 320px widths, doubled root text size,
 partial and unavailable states, filters, and the optimized build. Remove all fixture
 routes and generated development-only instructions before the final production
 build and commit. Do not publish fixtures or bypass authentication.
 
-Apply the same density and hierarchy next to Connections and AI Operations;
+### Connections continuation
+
+Connections now opens on a compact heading and a tactile four-step setup strip.
+Financial provider forms, AI provider setup and default-model choice precede the
+long saved operating evidence. Every existing diagnostic view and automatic
+attention disclosure remains intact, with a direct health link and visible
+authorization/inventory attention banner. Empty health guidance makes the review
+anchor useful before the first connection. Provider cards use charcoal surfaces,
+readable fields, 44px controls and specific accessible provider/action names.
+Section links clear the sticky navigation at mobile and enlarged text sizes.
+
+The testable workspace is extracted from the existing server-loading page.
+Existing fetches, cookie handling, credential inputs, key validation, provider
+authorization, model-loading, mutations and runtime protection remain unchanged.
+When the saved financial inventory is unavailable, the page does not offer an
+empty-state connection form or claim an existing connection is healthy. A missing
+provider catalog or default-model preference is explicitly unavailable. Planned
+providers stay unavailable; completing setup is not trading authorization.
+
+Apply the same density and hierarchy next to AI Operations;
 verify each with real existing component fixtures before release. Richer market
 charts should use actual source-attributed data, not decorative growth curves.
 Reserve any future WebGL scene for an optional lazy-loaded public marketing
