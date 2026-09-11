@@ -971,7 +971,7 @@ export function CryptoPortfolioCommandCenter({
     <section className="crypto-command" aria-labelledby="crypto-command-title">
       <motion.header
         className="crypto-command-hero"
-        initial={{ opacity: 0, y: 16 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
       >
         <div>
@@ -1006,13 +1006,13 @@ export function CryptoPortfolioCommandCenter({
       )}
 
       <section className="crypto-value-rail" aria-label="Portfolio summary">
-        <motion.article initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <motion.article initial={false} animate={{ opacity: 1 }}>
           <span>Observed portfolio</span>
           <strong>{money(snapshot.observed_value)}</strong>
           <small>USD cash + valued holdings</small>
         </motion.article>
         <motion.article
-          initial={{ opacity: 0 }}
+          initial={false}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.04 }}
         >
@@ -1021,7 +1021,7 @@ export function CryptoPortfolioCommandCenter({
           <small>{digitalAssetValueLabel(snapshot.pricing_basis)}</small>
         </motion.article>
         <motion.article
-          initial={{ opacity: 0 }}
+          initial={false}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.08 }}
         >
@@ -1030,7 +1030,7 @@ export function CryptoPortfolioCommandCenter({
           <small>{money(snapshot.balances.available_cash)} available</small>
         </motion.article>
         <motion.article
-          initial={{ opacity: 0 }}
+          initial={false}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.12 }}
         >
@@ -1053,7 +1053,7 @@ export function CryptoPortfolioCommandCenter({
       <section className="crypto-command-grid">
         <motion.article
           className="crypto-allocation-panel"
-          initial={{ opacity: 0, y: 18 }}
+          initial={false}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.12 }}
         >
@@ -1077,7 +1077,7 @@ export function CryptoPortfolioCommandCenter({
                 return (
                   <motion.div
                     key={position.symbol}
-                    initial={{ opacity: 0, x: -10 }}
+                    initial={false}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.16 + index * 0.035 }}
                   >
@@ -1107,7 +1107,7 @@ export function CryptoPortfolioCommandCenter({
 
         <motion.article
           className="crypto-evidence-panel"
-          initial={{ opacity: 0, y: 18 }}
+          initial={false}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.18 }}
         >
@@ -1146,7 +1146,7 @@ export function CryptoPortfolioCommandCenter({
       <motion.section
         className="crypto-history-panel"
         aria-labelledby="crypto-history-title"
-        initial={{ opacity: 0, y: 18 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.22 }}
       >
@@ -1343,7 +1343,7 @@ export function CryptoPortfolioCommandCenter({
       <motion.section
         className="crypto-venue-stats-panel"
         aria-labelledby="crypto-venue-stats-title"
-        initial={{ opacity: 0, y: 18 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.225 }}
       >
@@ -1457,7 +1457,7 @@ export function CryptoPortfolioCommandCenter({
       <motion.section
         className="crypto-liquidity-panel"
         aria-labelledby="crypto-liquidity-title"
-        initial={{ opacity: 0, y: 18 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.23 }}
       >
@@ -1606,7 +1606,7 @@ export function CryptoPortfolioCommandCenter({
       <motion.section
         className="crypto-market-tape"
         aria-labelledby="crypto-market-tape-title"
-        initial={{ opacity: 0, y: 18 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.235 }}
       >
@@ -1736,7 +1736,7 @@ export function CryptoPortfolioCommandCenter({
       <motion.section
         className="crypto-cost-panel"
         aria-labelledby="crypto-cost-title"
-        initial={{ opacity: 0, y: 18 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.23 }}
       >
@@ -1840,7 +1840,7 @@ export function CryptoPortfolioCommandCenter({
       <motion.section
         className="crypto-order-monitor"
         aria-labelledby="crypto-order-title"
-        initial={{ opacity: 0, y: 18 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.24 }}
       >
@@ -2013,7 +2013,7 @@ export function CryptoPortfolioCommandCenter({
       <motion.section
         className="crypto-activity-panel"
         aria-labelledby="crypto-activity-title"
-        initial={{ opacity: 0, y: 18 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.25 }}
       >

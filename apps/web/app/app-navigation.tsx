@@ -271,7 +271,13 @@ function isCurrent(pathname: string, matches: readonly string[]) {
   );
 }
 
-export function AppNavigation({ className = "" }: { className?: string }) {
+export function AppNavigation({
+  className = "",
+  showConnectionHealth = true,
+}: {
+  className?: string;
+  showConnectionHealth?: boolean;
+}) {
   const pathname = usePathname();
   const navigationRef = useRef<HTMLElement>(null);
   const [pendingNavigation, setPendingNavigation] = useState<{
@@ -391,7 +397,16 @@ export function AppNavigation({ className = "" }: { className?: string }) {
             }
           >
             {destination.label}
-            {isConnections ? <ConnectionNavigationHealthSignal /> : null}
+            {isConnections ? (
+              showConnectionHealth ? (
+                <ConnectionNavigationHealthSignal />
+              ) : (
+                <span
+                  className="connection-navigation-health"
+                  aria-hidden="true"
+                />
+              )
+            ) : null}
           </Link>
         );
       })}

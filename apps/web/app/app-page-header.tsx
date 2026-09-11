@@ -9,13 +9,15 @@ type AppPageHeaderProps = {
   backLabel?: string;
   actions?: ReactNode;
   contentHeadingId?: string;
+  showConnectionHealth?: boolean;
 };
 
 export function AppPageHeader({
-  backHref = "/dashboard",
-  backLabel = "Dashboard",
+  backHref,
+  backLabel,
   actions,
   contentHeadingId,
+  showConnectionHealth = true,
 }: AppPageHeaderProps) {
   return (
     <>
@@ -24,13 +26,14 @@ export function AppPageHeader({
           Skip to main content
         </a>
         <ArbionBrand className="section-brand" href="/dashboard" priority />
-        <AppNavigation />
+        <AppNavigation showConnectionHealth={showConnectionHealth} />
         <div className="app-page-header-actions">
-          {actions ?? (
-            <Link className="app-back-link" href={backHref}>
-              ← {backLabel}
-            </Link>
-          )}
+          {actions ??
+            (backHref && backHref !== "/dashboard" && backLabel ? (
+              <Link className="app-back-link" href={backHref}>
+                ← {backLabel}
+              </Link>
+            ) : null)}
         </div>
       </header>
       <span

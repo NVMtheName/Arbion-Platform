@@ -352,7 +352,7 @@ export function CommandCenterDashboard({
 
       <motion.section
         className="command-welcome portfolio-welcome"
-        initial="hidden"
+        initial={false}
         animate="visible"
         transition={{ staggerChildren: 0.08 }}
       >
@@ -421,7 +421,7 @@ export function CommandCenterDashboard({
         <motion.section
           className="command-setup-path"
           aria-labelledby="setup-path-title"
-          initial={{ opacity: 0, y: 14 }}
+          initial={false}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
         >
@@ -463,7 +463,7 @@ export function CommandCenterDashboard({
       <motion.section
         className="portfolio-command"
         aria-labelledby="portfolio-command-title"
-        initial={{ opacity: 0, y: 18 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.18 }}
       >
@@ -501,7 +501,7 @@ export function CommandCenterDashboard({
             <div className="portfolio-account-grid">
               {activeAccounts.map((account, index) => (
                 <motion.article
-                  initial={{ opacity: 0, y: 12 }}
+                  initial={false}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.24 + index * 0.06 }}
                   key={account.id}
@@ -549,7 +549,7 @@ export function CommandCenterDashboard({
       <motion.section
         className="ai-engine-cockpit"
         aria-labelledby="ai-engine-cockpit-title"
-        initial={{ opacity: 0, y: 18 }}
+        initial={false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.16 }}
       >
@@ -717,7 +717,7 @@ export function CommandCenterDashboard({
 
       <motion.section
         className="strategy-launchpad"
-        initial={{ opacity: 0, y: 18 }}
+        initial={false}
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, amount: 0.3 }}
       >

@@ -120,3 +120,33 @@ charts should use actual source-attributed data, not decorative growth curves.
 Reserve any future WebGL scene for an optional lazy-loaded public marketing
 accent with reduced-motion and non-WebGL fallbacks; do not add it to the
 financial working surface merely to create motion.
+
+### Shared palette and route continuity
+
+All legacy neutral foundations now reference the same charcoal surface, slate
+border, muted text and high-contrast foreground tokens used by the precision
+pages. This is a color-only migration of the legacy stylesheet: selectors,
+layout declarations and behavior are unchanged. Saturated warning, danger,
+gain/loss, Paper/Shadow and provider identity colors remain meaningful; primary
+buttons and navigation accents use cyan. New surface colors must use these
+tokens instead of adding a page-specific green or blue neutral palette.
+
+The shared header no longer defaults to a redundant Dashboard back link. The
+Dashboard tab, brand link, explicit contextual returns and custom account
+actions remain. The action slot retains its dimensions even when empty.
+
+Every primary signed-in destination (including the legacy Connections alias and
+Risk settings) now has a lightweight loading boundary. Next can prefetch the
+data-free shell and stream content without waiting for all page requests. It
+contains navigation and an honest loading status, not cached account values or
+placeholder balances; it does not request connection health. Existing page
+authentication, no-store requests, owner scoping and financial freshness rules
+are unchanged. Navigation remains interruptible. This improves response feedback,
+not the speed of the underlying provider or model.
+
+Working pages use a 160ms opacity-only arrival, excluding the shared header and
+skip target, and disable it for reduced motion. Dashboard, market and crypto
+account entry panels no longer start hidden or wait through staggered reveals.
+Non-landing Motion defaults are 180ms; the public storytelling pace is unchanged.
+Verify slow streaming and final content retain identical header geometry, along
+with desktop, narrow mobile, enlarged text and existing semantic warning states.

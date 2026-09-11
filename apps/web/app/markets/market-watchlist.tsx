@@ -268,7 +268,7 @@ export function MarketWatchlist({
         <div className="market-watchlist-grid">
           {data.items.map((item, index) => (
             <motion.article
-              initial={{ opacity: 0, y: 12 }}
+              initial={false}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: Math.min(index * 0.035, 0.2) }}
               key={item.id}

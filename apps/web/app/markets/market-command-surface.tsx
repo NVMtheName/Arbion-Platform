@@ -349,7 +349,7 @@ export function MarketCommandSurface({
       <div className="live-market-grid">
         <motion.article
           className="live-market-panel equity"
-          initial={{ opacity: 0, y: 18 }}
+          initial={false}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.2 }}
         >
@@ -413,7 +413,7 @@ export function MarketCommandSurface({
           {quote && (
             <motion.div
               className="live-quote"
-              initial={{ opacity: 0 }}
+              initial={false}
               animate={{ opacity: 1 }}
             >
               <div>
@@ -524,7 +524,7 @@ export function MarketCommandSurface({
 
         <motion.article
           className="live-market-panel crypto"
-          initial={{ opacity: 0, y: 18 }}
+          initial={false}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.2 }}
           transition={{ delay: 0.06 }}
@@ -594,7 +594,7 @@ export function MarketCommandSurface({
 
         <motion.article
           className="live-market-panel filings"
-          initial={{ opacity: 0, y: 18 }}
+          initial={false}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.2 }}
           transition={{ delay: 0.12 }}

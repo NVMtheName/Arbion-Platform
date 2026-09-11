@@ -7,6 +7,17 @@
   --surface-muted: #a1afbd;
   --surface-text: #edf3f8;
   --surface-accent: #75e0ea;
+  --surface-base-rgb: 11 15 20;
+  --surface-raised-rgb: 20 27 35;
+  --surface-recessed-rgb: 12 18 25;
+  --surface-border-rgb: 42 53 65;
+  --surface-muted-rgb: 161 175 189;
+  --surface-text-rgb: 237 243 248;
+  --surface-line: #788fa3;
+  --surface-line-rgb: 120 143 163;
+  --brand-cyan: var(--surface-accent);
+  --brand-line: rgb(var(--surface-line-rgb) / 0.2);
+  --brand-ivory: var(--surface-text);
   --brand-ink: var(--surface-base);
   --brand-panel: var(--surface-raised);
   --brand-muted: var(--surface-muted);
@@ -15,6 +26,66 @@
 }
 body {
   background: var(--surface-base);
+}
+/* One application palette, including pages and nested evidence not yet given
+   a layout refresh. Status colors and chart/provider identities stay semantic. */
+.eyebrow,
+main:has(> .app-page-header) > .eyebrow {
+  color: var(--surface-accent);
+}
+.app-page-header-actions {
+  min-height: 44px;
+}
+/* Short opacity-only arrival: never move the shared header, delay interaction,
+   retain a prior account snapshot, or animate table dimensions. */
+@media (prefers-reduced-motion: no-preference) {
+  main:has(> .app-page-header)
+    > :not(.app-page-header):not(.app-main-content-target) {
+    animation: app-content-arrive 160ms ease-out;
+  }
+}
+@keyframes app-content-arrive {
+  from {
+    opacity: 0.8;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.app-route-loading-content {
+  padding-block: 24px;
+}
+.app-route-loading-content h1 {
+  margin-block: 8px;
+  font-size: clamp(2rem, 3vw, 2.75rem);
+}
+.app-route-loading-content > p[role="status"] {
+  color: var(--surface-muted);
+  font-size: 1rem;
+}
+.app-route-skeleton {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-block-start: 24px;
+}
+.app-route-skeleton > div {
+  height: 180px;
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  background: linear-gradient(
+    145deg,
+    var(--surface-raised),
+    var(--surface-recessed)
+  );
+}
+@media (max-width: 600px) {
+  .app-route-skeleton {
+    grid-template-columns: 1fr;
+  }
+  .app-route-skeleton > div {
+    height: 100px;
+  }
 }
 /* Connections: setup first; saved operating evidence remains a separate review. */
 .connections-workspace .connection-hub-hero {
