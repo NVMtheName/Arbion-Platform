@@ -1,14 +1,12 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { AppPageHeader } from "../app-page-header";
 import type { FinancialAccount } from "../settings/connections/page";
-import {
-  PortfolioHoldingsLedger,
-  type HoldingMoney,
-  type PortfolioHolding,
+import type {
+  HoldingMoney,
+  PortfolioHolding,
 } from "./portfolio-holdings-ledger";
+import { PortfolioWorkspace } from "./portfolio-workspace";
 
 type CryptoPosition = {
   symbol: string;
@@ -154,75 +152,11 @@ export default async function Accounts() {
   );
 
   return (
-    <main className="connections-page portfolio-ledger-page command-content-continuity">
-      <AppPageHeader contentHeadingId="portfolio-page-title" />
-      <section className="portfolio-ledger-hero">
-        <p className="eyebrow">PORTFOLIO COMMAND CENTER</p>
-        <h1 id="portfolio-page-title">
-          Everything you own, finally in one view.
-        </h1>
-        <p className="lede">
-          Scan price, movement, market value, and provider-supplied returns
-          across every connected account—without changing a position or
-          interrupting an active strategy.
-        </p>
-      </section>
-
-      {data.accounts.length === 0 ? (
-        <section className="portfolio-empty-state">
-          <h2>Connect your first account</h2>
-          <p>
-            Add Coinbase or Schwab credentials once, then return here for your
-            balances and positions.
-          </p>
-          <Link className="button-link" href="/connections#financial-accounts">
-            Open connection hub
-          </Link>
-        </section>
-      ) : (
-        <>
-          <PortfolioHoldingsLedger
-            holdings={holdings}
-            unavailableAccounts={unavailableAccounts}
-          />
-
-          <section
-            className="portfolio-connected-accounts"
-            aria-labelledby="accounts-title"
-          >
-            <header>
-              <div>
-                <p className="eyebrow">CONNECTED ACCOUNTS</p>
-                <h2 id="accounts-title">Account workspaces</h2>
-              </div>
-              <Link href="/connections#financial-accounts">
-                Manage connections →
-              </Link>
-            </header>
-            <div className="provider-list">
-              {data.accounts.map((account) => (
-                <article key={account.id}>
-                  <span
-                    className={`provider-mark provider-${account.provider}`}
-                  >
-                    {account.provider === "coinbase" ? "C" : "S"}
-                  </span>
-                  <div>
-                    <h3>{account.display_name}</h3>
-                    <p>
-                      {account.provider === "coinbase"
-                        ? "Coinbase"
-                        : "Charles Schwab"}{" "}
-                      · {account.status}
-                    </p>
-                  </div>
-                  <Link href={`/accounts/${account.id}`}>Open account →</Link>
-                </article>
-              ))}
-            </div>
-          </section>
-        </>
-      )}
-    </main>
+    <PortfolioWorkspace
+      accounts={data.accounts}
+      accountsAvailable={response.ok}
+      holdings={holdings}
+      unavailableAccounts={unavailableAccounts}
+    />
   );
 }

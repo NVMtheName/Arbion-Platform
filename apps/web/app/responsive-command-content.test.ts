@@ -8,7 +8,7 @@ const appSource = (relativePath: string) =>
 describe("signed-in command content continuity", () => {
   it.each([
     ["Dashboard", "./dashboard/command-center-dashboard.tsx"],
-    ["Portfolio", "./accounts/page.tsx"],
+    ["Portfolio", "./accounts/portfolio-workspace.tsx"],
     ["Account detail", "./accounts/[id]/page.tsx"],
     ["Markets", "./markets/page.tsx"],
     ["Automations", "./automations/page.tsx"],
@@ -195,7 +195,7 @@ describe("signed-in command content continuity", () => {
       "./dashboard/command-center-dashboard.tsx",
       "dashboard-page-title",
     ],
-    ["Portfolio", "./accounts/page.tsx", "portfolio-page-title"],
+    ["Portfolio", "./accounts/portfolio-workspace.tsx", "portfolio-page-title"],
     ["Markets", "./markets/page.tsx", "markets-page-title"],
     ["Automations", "./automations/page.tsx", "automations-page-title"],
     ["Activity", "./activity/page.tsx", "activity-page-title"],

@@ -52,7 +52,30 @@ fixtures must never be committed, deployed or represented as account evidence.
 
 ## Next visual work
 
-Apply the same density and hierarchy to Portfolio, Connections and AI Operations;
+### Portfolio continuation
+
+The Portfolio workspace now uses a compact page heading, a primary observed-value
+surface, readable summary coverage, tactile provider filters, explicit result
+counts and a clear-filter action. Summaries always describe all loaded positions,
+not the current filter. The exact existing monetary helpers and account-scoped
+GET requests are unchanged. Missing account-list responses are distinct from
+successful empty lists; individual unavailable accounts remain visibly flagged.
+The shared header and skip target remain intact after extracting the testable
+workspace from the server-loading page.
+
+The desktop ledger keeps the asset column anchored during horizontal scrolling.
+Phone cards retain every field, provider/source description and unavailable value.
+Account links have specific accessible names. Filter buttons expose pressed state,
+results announce changes, and the table retains explicit column headers/caption.
+No false live-price indicator, additional provider request or refresh action is added.
+
+Visual QA uses a temporary, explicitly labeled local fixture because the production
+session is signed out. Test desktop, 390px and 320px widths, doubled root text size,
+partial and unavailable states, filters, and the optimized build. Remove all fixture
+routes and generated development-only instructions before the final production
+build and commit. Do not publish fixtures or bypass authentication.
+
+Apply the same density and hierarchy next to Connections and AI Operations;
 verify each with real existing component fixtures before release. Richer market
 charts should use actual source-attributed data, not decorative growth curves.
 Reserve any future WebGL scene for an optional lazy-loaded public marketing
