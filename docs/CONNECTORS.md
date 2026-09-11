@@ -6,7 +6,7 @@ Schwab must register exactly `https://www.arbion.ai/api/connections/financial/sc
 
 ## Role and scope
 
-The financial connector layer translates Arbion's provider-independent financial operations into external provider APIs. Schwab delegated reads and a founder-phase Coinbase account/holdings connection are implemented as described below; E\*TRADE, Alpaca brokerage, Interactive Brokers, and other providers remain candidates.
+The financial connector layer translates Arbion's provider-independent financial operations into external provider APIs. Schwab delegated reads and a founder-phase Coinbase account/holdings connection are implemented as described below. E\*TRADE has an [unwired authorization and account-discovery foundation](ETRADE_CONNECTOR.md), not a usable website connection yet. Alpaca brokerage, Interactive Brokers, and other providers remain candidates.
 
 Connectors belong in the Go modular monolith because Go owns the control plane and financial integration boundary. A connector is an adapter, not a source of authorization or risk policy.
 
