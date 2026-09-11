@@ -38,7 +38,8 @@ React/CSS using the existing Motion configuration and reduced-motion policy.
 `app/precision.css` is imported after the legacy stylesheet at the root so the
 cascade is identical on every route and in the production build. Global changes
 are restricted to base surface tokens, page background and the shared header;
-content changes are scoped to the landing, dashboard, Portfolio and Connections. Do not migrate every
+content changes are scoped to the landing, dashboard, Portfolio, Connections and
+AI Operations. Do not migrate every
 legacy panel in a single unverified rewrite. Later route work should consolidate
 styles into the same surface vocabulary and remove superseded rules as it goes.
 
@@ -95,8 +96,26 @@ empty-state connection form or claim an existing connection is healthy. A missin
 provider catalog or default-model preference is explicitly unavailable. Planned
 providers stay unavailable; completing setup is not trading authorization.
 
-Apply the same density and hierarchy next to AI Operations;
-verify each with real existing component fixtures before release. Richer market
+### AI Operations continuation
+
+Automations now opens with a compact AI Operations heading and an explicit
+setup link, followed by readable fleet counts and the existing engine deck.
+Dimensional charcoal cards prioritize exact account/provider identity, a visible
+Paper/Shadow label, the existing health signal, newest saved decision and next
+guarded cycle. Engine titles are semantic headings; account names and model
+routes wrap instead of being truncated. Next-cycle, scheduler, model, universe
+and exact capital facts retain their existing values and unavailable behavior.
+
+Each engine's specifically named immutable-evidence link comes before its long
+diagnostics. Quote, Paper gate, exposure/outcome and advanced runtime evidence
+are unchanged; native disclosures retain automatic review opening. No projection,
+data-loading, risk, provider, scheduling or execution handler changed. Setup links
+do not run an engine. Missing current context is no longer described as “live.”
+
+Verify desktop, narrow screens, 200% text, unavailable inventory, saved attention
+and empty states using labeled existing-component fixtures; remove fixtures before
+the final build and release. Apply this same focused hierarchy next to Activity's
+saved decision journal, retaining exact provenance and review controls. Richer market
 charts should use actual source-attributed data, not decorative growth curves.
 Reserve any future WebGL scene for an optional lazy-loaded public marketing
 accent with reduced-motion and non-WebGL fallbacks; do not add it to the

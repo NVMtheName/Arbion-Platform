@@ -469,6 +469,79 @@ function paperReviewItem(
 describe("StrategyFleet", () => {
   afterEach(cleanup);
 
+  it("puts each engine's saved conclusion, schedule and specific evidence link before diagnostics", () => {
+    render(<StrategyFleet items={[coinbaseEngine]} />);
+    const deck = screen.getByRole("region", { name: "Your AI engines" });
+    const card = within(deck)
+      .getByRole("heading", {
+        level: 3,
+        name: "AI Shadow Engine",
+      })
+      .closest("li")!;
+    expect(card).toHaveAttribute("aria-labelledby", "engine-title-ai-mandate");
+    expect(
+      card.querySelector(".strategy-fleet-engine-health"),
+    ).toHaveTextContent("Healthy schedule");
+    expect(card).toHaveTextContent("Shadow");
+    expect(card).toHaveTextContent("Latest saved decisionAbstained");
+    expect(card).toHaveTextContent("No action proposed · $0");
+    expect(card).toHaveTextContent("OpenAI · gpt-5.6-sol · Deep");
+    expect(card).toHaveTextContent("$1,000 Shadow claim · $1 proposal ceiling");
+    const next = within(card).getByText("Next guarded cycle");
+    const diagnostics = within(card)
+      .getByText("Advanced engine evidence")
+      .closest("details")!;
+    const link = within(card).getByRole("link", {
+      name: "Open immutable evidence for AI Shadow Engine on Coinbase Portfolio ••••a5d0",
+    });
+    expect(link).toHaveAttribute(
+      "href",
+      "/automations/ai-mandate#runtime-evidence",
+    );
+    expect(
+      next.compareDocumentPosition(diagnostics) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      link.compareDocumentPosition(diagnostics) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(diagnostics).not.toHaveAttribute("open");
+    expect(within(card).queryByRole("button")).toBeNull();
+  });
+
+  it("keeps missing engine evidence visible without claiming a live mode or a successful cycle", () => {
+    render(
+      <StrategyFleet
+        contextWarnings={["Current engine state could not be refreshed."]}
+        items={[
+          {
+            ...coinbaseEngine,
+            instanceContextAvailable: false,
+            scheduleAvailable: false,
+            decisionAvailable: false,
+            nextRunAt: undefined,
+          },
+        ]}
+      />,
+    );
+    expect(
+      screen.getByText("Some current strategy context is unavailable."),
+    ).toBeInTheDocument();
+    const deck = screen.getByRole("region", { name: "Your AI engines" });
+    expect(deck).toHaveTextContent("1 engine needs review.");
+    expect(deck).toHaveTextContent("Engine state unavailable");
+    expect(deck).toHaveTextContent("No saved AI decision yet");
+    expect(deck).toHaveTextContent("Schedule evidence unavailable");
+    expect(deck).not.toHaveTextContent("Succeeded · 0 failures");
+    expect(
+      within(deck).getByText("Advanced engine evidence").closest("details"),
+    ).toHaveAttribute("open");
+    expect(
+      screen.queryByText("Some live strategy context is unavailable."),
+    ).toBeNull();
+  });
+
   it("uses the exact 24-hour reconciliation freshness boundary", () => {
     const now = new Date("2026-08-28T16:00:00Z");
 
@@ -2532,12 +2605,12 @@ describe("StrategyFleet", () => {
     expect(summary).toHaveTextContent("Attention0engine health signals");
     expect(summary).toHaveTextContent("Drafts1not initialized");
     const commandDeck = screen.getByRole("region", {
-      name: "Every AI engine has one clear operating view.",
+      name: "Your AI engines",
     });
-    expect(commandDeck).toHaveTextContent("FLEET COMMAND DECK");
+    expect(commandDeck).toHaveTextContent("Your AI engines");
     expect(commandDeck).toHaveTextContent("1 active · 0 review");
     expect(commandDeck).toHaveTextContent("Coinbase Portfolio ••••a5d0");
-    expect(commandDeck).toHaveTextContent("Newest immutable conclusion");
+    expect(commandDeck).toHaveTextContent("Latest saved decision");
     expect(commandDeck).toHaveTextContent("Abstained");
     expect(commandDeck).toHaveTextContent("No action proposed · $0");
     expect(commandDeck).toHaveTextContent("OpenAI · gpt-5.6-sol · Deep");
@@ -2951,7 +3024,7 @@ describe("StrategyFleet", () => {
     expect(
       within(
         screen.getByRole("region", {
-          name: "Every AI engine has one clear operating view.",
+          name: "Your AI engines",
         }),
       ).getByRole("link", { name: /Open immutable evidence/i }),
     ).toHaveAttribute("href", "/automations/ai-mandate#runtime-evidence");
@@ -3313,7 +3386,7 @@ describe("StrategyFleet", () => {
     );
 
     const commandDeck = screen.getByRole("region", {
-      name: "Every AI engine has one clear operating view.",
+      name: "Your AI engines",
     });
     expect(commandDeck).toHaveTextContent("1 active · 0 review");
     expect(
@@ -4225,7 +4298,7 @@ describe("StrategyFleet", () => {
     );
 
     const fleet = screen.getByRole("region", {
-      name: "1 AI engine has a clear review signal.",
+      name: "Your AI engines",
     });
     expect(fleet).toHaveTextContent("1 active · 1 review");
     expect(
@@ -4897,7 +4970,7 @@ describe("StrategyFleet", () => {
 
     expect(screen.getByText("No strategies yet.")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "Launch an AI Engine" }),
+      screen.getByRole("link", { name: "Set up an AI engine" }),
     ).toHaveAttribute("href", "/automations/new");
   });
 

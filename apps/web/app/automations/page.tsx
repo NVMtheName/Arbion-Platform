@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../app-page-header";
+import { AutomationsHeader } from "./automations-header";
 import {
   compareExactDecimals,
   divideExactDecimals,
@@ -6306,27 +6306,7 @@ export default async function Automations() {
   return (
     <main className="connections-page automation-page strategy-fleet-page command-content-continuity">
       <AppPageHeader contentHeadingId="automations-page-title" />
-      <section className="strategy-fleet-hero">
-        <div>
-          <p className="eyebrow">YOUR AUTONOMY FLEET</p>
-          <h1 id="automations-page-title">
-            Every engine. One command surface.
-          </h1>
-          <p className="lede">
-            See the account, model, coverage, state, and schedule behind every
-            strategy—without opening each mandate first.
-          </p>
-        </div>
-        <div className="strategy-fleet-actions">
-          <Link className="button-link" href="/automations/new">
-            Launch AI Engine
-          </Link>
-          <div className="strategy-fleet-secondary-actions">
-            <Link href="/capital">Capital budgets →</Link>
-            <Link href="/activity">Decision journal →</Link>
-          </div>
-        </div>
-      </section>
+      <AutomationsHeader />
       <StrategyFleet
         contextWarnings={contextWarnings}
         inventoryAvailable={mandatesResult.available}
