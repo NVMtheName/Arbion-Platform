@@ -35,7 +35,9 @@ describe("ConnectionsManager", () => {
     expect(
       screen.getByRole("heading", { name: "Connect an AI provider" }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Add API key" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add API key for OpenAI" }),
+    );
     expect(screen.getByLabelText(/Connection name/)).not.toBeRequired();
     expect(screen.getByLabelText("API key")).toHaveAttribute(
       "type",
