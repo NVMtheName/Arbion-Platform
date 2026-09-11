@@ -212,7 +212,11 @@ describe("signed-in command content continuity", () => {
       const page = appSource(source);
 
       expect(page).toContain(`contentHeadingId="${headingId}"`);
-      expect(page).toContain(`id="${headingId}"`);
+      const headingSource =
+        source === "./automations/page.tsx"
+          ? appSource("./automations/automations-header.tsx")
+          : page;
+      expect(headingSource).toContain(`id="${headingId}"`);
     },
   );
 });

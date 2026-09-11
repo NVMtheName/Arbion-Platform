@@ -7314,16 +7314,11 @@ function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
     >
       <header>
         <div>
-          <p className="eyebrow">FLEET COMMAND DECK</p>
-          <h2 id="strategy-fleet-command-deck-heading">
-            {reviewCount > 0
-              ? `${reviewCount} AI ${reviewCount === 1 ? "engine has" : "engines have"} a clear review signal.`
-              : "Every AI engine has one clear operating view."}
-          </h2>
+          <h2 id="strategy-fleet-command-deck-heading">Your AI engines</h2>
           <p>
-            Account, mode, newest conclusion, exact model route, capital
-            envelope, and scheduler state without repeating the full evidence
-            record. Advanced engine facts stay available on each card.
+            {reviewCount > 0
+              ? `${reviewCount} ${reviewCount === 1 ? "engine needs" : "engines need"} review. Open the saved evidence for the exact limits or missing context.`
+              : "Paper simulates fills. Shadow records what an engine would consider. Neither submits broker orders."}
           </p>
         </div>
         <span>
@@ -7338,6 +7333,7 @@ function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
             <li
               className={`is-${item.executionMode.toLowerCase()}${review ? " needs-review" : ""}`}
               key={item.id}
+              aria-labelledby={`engine-title-${item.id}`}
             >
               <header>
                 <div>
@@ -7347,17 +7343,22 @@ function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
                   >
                     {providerInitial(item.provider)}
                   </span>
-                  <p>
+                  <div className="strategy-fleet-engine-identity">
                     <small>
                       {providerLabel(item.provider)} · {item.accountName}
                     </small>
-                    <strong>{item.title}</strong>
-                  </p>
+                    <h3 id={`engine-title-${item.id}`}>{item.title}</h3>
+                  </div>
                 </div>
                 <span>{readable(item.executionMode)}</span>
               </header>
+              <p
+                className={`strategy-fleet-engine-health ${healthClass(item)}`}
+              >
+                {healthLabel(item)}
+              </p>
               <div className="strategy-fleet-command-decision">
-                <span>Newest immutable conclusion</span>
+                <span>Latest saved decision</span>
                 <strong>{decision.conclusion}</strong>
                 <p>{decision.action}</p>
                 <time dateTime={item.latestDecisionAt}>
@@ -7365,6 +7366,14 @@ function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
                 </time>
               </div>
               <dl>
+                <div className="strategy-fleet-next-cycle">
+                  <dt>Next guarded cycle</dt>
+                  <dd>{readableTime(item.nextRunAt)}</dd>
+                </div>
+                <div>
+                  <dt>Scheduler health</dt>
+                  <dd>{commandDeckScheduleLabel(item)}</dd>
+                </div>
                 <div>
                   <dt>Exact AI route</dt>
                   <dd>{commandDeckRouteLabel(item)}</dd>
@@ -7377,26 +7386,18 @@ function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
                   <dt>Capital envelope</dt>
                   <dd>{commandDeckCapitalEnvelope(item)}</dd>
                 </div>
-                <div>
-                  <dt>Scheduler health</dt>
-                  <dd>{commandDeckScheduleLabel(item)}</dd>
-                </div>
-                <div>
-                  <dt>Next guarded cycle</dt>
-                  <dd>{readableTime(item.nextRunAt)}</dd>
-                </div>
               </dl>
-              <StrategyFleetQuoteProvenance item={item} />
-              <StrategyFleetPaperEvidenceGate item={item} />
-              <StrategyFleetExposureOutcomes item={item} />
               <footer>
-                <span className={healthClass(item)}>
-                  <i /> {healthLabel(item)}
-                </span>
-                <Link href={`/automations/${item.id}#runtime-evidence`}>
+                <Link
+                  aria-label={`Open immutable evidence for ${item.title} on ${item.accountName}`}
+                  href={`/automations/${item.id}#runtime-evidence`}
+                >
                   Open immutable evidence →
                 </Link>
               </footer>
+              <StrategyFleetQuoteProvenance item={item} />
+              <StrategyFleetPaperEvidenceGate item={item} />
+              <StrategyFleetExposureOutcomes item={item} />
               <details
                 className="strategy-fleet-command-advanced"
                 open={review}
@@ -7409,7 +7410,7 @@ function StrategyFleetCommandDeck({ items }: { items: StrategyFleetItem[] }) {
                       and outcome records
                     </small>
                   </span>
-                  <span>{review ? "Review evidence" : "Verified details"}</span>
+                  <span>{review ? "Review evidence" : "Saved details"}</span>
                 </summary>
                 <div>
                   <StrategyFleetRuntimeContract item={item} />
@@ -10999,7 +11000,7 @@ export function StrategyFleet({
 
       {inventoryAvailable && contextWarnings.length > 0 && (
         <section className="strategy-fleet-warning" role="status">
-          <strong>Some live strategy context is unavailable.</strong>
+          <strong>Some current strategy context is unavailable.</strong>
           <p>{contextWarnings.join(" ")}</p>
         </section>
       )}
@@ -11077,7 +11078,7 @@ export function StrategyFleet({
 
       {!inventoryAvailable ? (
         <section className="strategy-fleet-empty is-unavailable" role="status">
-          <p className="eyebrow">LIVE STATUS UNAVAILABLE</p>
+          <p className="eyebrow">CURRENT STATUS UNAVAILABLE</p>
           <h2>Strategies could not be loaded.</h2>
           <p>
             Existing mandates and schedules were not changed. Return to the
@@ -11096,7 +11097,7 @@ export function StrategyFleet({
             budget, then begin with Paper simulation or Shadow observation.
           </p>
           <Link className="button-link" href="/automations/new">
-            Launch an AI Engine
+            Set up an AI engine
           </Link>
         </section>
       ) : rulesBased.length > 0 ? (
