@@ -11,7 +11,9 @@ describe("Arbion landing experience", () => {
 
     expect(screen.getAllByRole("img", { name: "Arbion" })).toHaveLength(2);
     expect(
-      screen.getByRole("heading", { name: /see your money as a system/i }),
+      screen.getByRole("heading", {
+        name: /your accounts.*your AI.*one command/i,
+      }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: /enter command center/i }),

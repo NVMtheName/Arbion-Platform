@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { MotionProvider } from "./motion-provider";
 import "./styles.css";
+import "./precision.css";
 
 export const metadata: Metadata = {
   title: {

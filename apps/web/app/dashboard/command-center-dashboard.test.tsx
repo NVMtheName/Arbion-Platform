@@ -93,7 +93,7 @@ describe("Portfolio-first command center", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: /your portfolio. one clear view/i }),
+      screen.getByRole("heading", { name: /your command center/i }),
     ).toBeInTheDocument();
     const applicationHeader = container.querySelector<HTMLElement>(
       "main > .app-page-header",
@@ -137,6 +137,18 @@ describe("Portfolio-first command center", () => {
       "Observe the mandate across a longer window",
     );
     expect(cockpit).toHaveTextContent("No broker order can be sent");
+    const portfolio = screen.getByRole("region", {
+      name: "Portfolio overview",
+    });
+    expect(
+      portfolio.compareDocumentPosition(cockpit) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const disclosure = cockpit.querySelector("details");
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(cockpit.querySelector(".engine-conclusion")).toHaveTextContent(
+      "Would have submitted · XRP",
+    );
     expect(
       screen.getByRole("link", { name: "Review journal →" }),
     ).toHaveAttribute("href", "/automations/mandate-1");
@@ -303,5 +315,51 @@ describe("Portfolio-first command center", () => {
     expect(cockpit).toHaveTextContent("Evidence unavailable");
     expect(cockpit).toHaveTextContent("Unattributed legacy route");
     expect(cockpit).toHaveTextContent("Telemetry unavailable");
+    expect(cockpit.querySelector("details")).toHaveAttribute("open");
+  });
+
+  it("collapses only clear controls and opens unavailable or inconsistent evidence", () => {
+    const base = {
+      accounts: [],
+      connectionCount: 0,
+      modelConfigured: false,
+      user: {
+        email: "owner@example.com",
+        display_name: "Owner",
+        role: "user",
+        entitlement: "founder",
+      },
+    };
+    const clear = {
+      generated_at: "2026-09-11T14:00:00Z",
+      status: "CLEAR" as const,
+      items: [],
+      total: 0,
+      attention_count: 0,
+      stopped_count: 0,
+      live_execution_available: false as const,
+      broker_action_requested: false as const,
+    };
+    const { container, rerender } = render(
+      <CommandCenterDashboard
+        {...base}
+        attention={clear}
+        financialInputChainsAvailable={false}
+      />,
+    );
+    const cards = () => container.querySelectorAll(".dashboard-status-card");
+    expect(cards()[0]).not.toHaveAttribute("open");
+    expect(cards()[1]).toHaveAttribute("open");
+    expect(
+      screen.getByText("Financial input status is unavailable."),
+    ).toBeVisible();
+    rerender(
+      <CommandCenterDashboard {...base} attention={{ ...clear, total: 1 }} />,
+    );
+    expect(cards()[0]).toHaveAttribute("open");
+    expect(cards()[0]).toHaveTextContent("Review operating status");
+    rerender(<CommandCenterDashboard {...base} attentionAvailable={false} />);
+    expect(cards()[0]).toHaveAttribute("open");
+    expect(screen.getByText("Attention status is unavailable.")).toBeVisible();
   });
 });

@@ -180,6 +180,19 @@ function engineNeedsReview(engine: DashboardAIEngineSummary) {
   );
 }
 
+function engineEvidenceNeedsReview(engine: DashboardAIEngineSummary) {
+  return (
+    engineNeedsReview(engine) ||
+    engine.evidenceAvailable === false ||
+    !engine.latestDecisionAIProvider ||
+    !engine.latestDecisionAIModelID ||
+    !engine.latestDecisionAIProfile ||
+    engine.latestDecisionLatencyMS === undefined ||
+    engine.latestDecisionInputUsage === undefined ||
+    engine.latestDecisionOutputUsage === undefined
+  );
+}
+
 function engineStatus(engine: DashboardAIEngineSummary) {
   if (engine.status === "PAUSED") return "Paused";
   if (engine.currentState === "AI_MONITORING") return "Monitoring";
@@ -286,6 +299,23 @@ export function CommandCenterDashboard({
   );
   const accountCount = activeAccounts.length;
   const portfolio = observedPortfolio(activeAccounts);
+  const controlsClear =
+    attentionAvailable &&
+    attention?.status === "CLEAR" &&
+    attention.total === 0 &&
+    attention.attention_count === 0 &&
+    attention.stopped_count === 0 &&
+    attention.items.length === 0;
+  const inputsCurrent =
+    financialInputChainsAvailable &&
+    financialInputChains?.status === "VERIFIED" &&
+    financialInputChains.waitingCount === 0 &&
+    financialInputChains.blockedCount === 0 &&
+    financialInputChains.unavailableCount === 0 &&
+    financialInputChains.engineCount > 0 &&
+    financialInputChains.currentCount === financialInputChains.engineCount &&
+    financialInputChains.engines.length === financialInputChains.engineCount &&
+    financialInputChains.engines.every((engine) => engine.state === "CURRENT");
   const setupComplete =
     accountCount > 0 && connectionCount > 0 && modelConfigured;
   const nextSetupAction =
@@ -330,11 +360,8 @@ export function CommandCenterDashboard({
           <p className="command-kicker">
             <span /> WELCOME, {firstName(user).toUpperCase()}
           </p>
-          <h1 id="dashboard-page-title">Your portfolio. One clear view.</h1>
-          <p>
-            Real connected accounts, your chosen AI model, and your strategies
-            together—without the infrastructure noise.
-          </p>
+          <h1 id="dashboard-page-title">Your command center.</h1>
+          <p>Your connected portfolio and AI strategies. All in view.</p>
         </motion.div>
         <motion.div className="command-primary-actions" variants={enter}>
           <Link className="command-primary-link" href={nextSetupAction.href}>
@@ -346,15 +373,49 @@ export function CommandCenterDashboard({
         </motion.div>
       </motion.section>
 
-      <OwnerAttentionCenter
-        attention={attention}
-        available={attentionAvailable}
-      />
-
-      <FinancialInputChainSummary
-        projection={financialInputChains}
-        available={financialInputChainsAvailable}
-      />
+      <div className="dashboard-status-rail">
+        <details
+          className={`dashboard-status-card ${controlsClear ? "is-current" : "needs-review"}`}
+          open={!controlsClear}
+        >
+          <summary>
+            <span>Operating status</span>
+            <strong>
+              {controlsClear
+                ? "Monitored controls clear"
+                : "Review operating status"}
+            </strong>
+            <span aria-hidden="true">+</span>
+          </summary>
+          <OwnerAttentionCenter
+            attention={attention}
+            available={attentionAvailable}
+          />
+        </details>
+        {!(
+          financialInputChainsAvailable &&
+          financialInputChains?.engineCount === 0
+        ) && (
+          <details
+            className={`dashboard-status-card ${inputsCurrent ? "is-current" : "needs-review"}`}
+            open={!inputsCurrent}
+          >
+            <summary>
+              <span>Financial inputs</span>
+              <strong>
+                {inputsCurrent
+                  ? "Saved input chains current"
+                  : "Review input evidence"}
+              </strong>
+              <span aria-hidden="true">+</span>
+            </summary>
+            <FinancialInputChainSummary
+              projection={financialInputChains}
+              available={financialInputChainsAvailable}
+            />
+          </details>
+        )}
+      </div>
 
       {!setupComplete && (
         <motion.section
@@ -400,169 +461,6 @@ export function CommandCenterDashboard({
       )}
 
       <motion.section
-        className="ai-engine-cockpit"
-        aria-labelledby="ai-engine-cockpit-title"
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.16 }}
-      >
-        <header>
-          <div>
-            <p className="command-kicker">AUTONOMOUS ENGINE</p>
-            <h2 id="ai-engine-cockpit-title">AI oversight at a glance.</h2>
-            <p>
-              Current model, schedule health, and immutable non-live reasoning
-              across your connected accounts.
-            </p>
-          </div>
-          <Link href="/automations">Open AI strategies ↗</Link>
-        </header>
-
-        {aiEngines.length === 0 ? (
-          <div className="ai-engine-empty">
-            <strong>No AI Engine is monitoring yet.</strong>
-            <p>
-              Start with a bounded, non-live engine tied to one account and one
-              model.
-            </p>
-            <Link href="/automations/new">Create an AI Engine →</Link>
-          </div>
-        ) : (
-          <div className="ai-engine-grid">
-            {aiEngines.map((engine) => {
-              const paper = engine.executionMode === "PAPER";
-              const evidence = paper ? undefined : evidenceSummary(engine);
-              return (
-                <article key={engine.id}>
-                  <header>
-                    <div>
-                      <span
-                        className={`provider-mark provider-${engine.provider}`}
-                      >
-                        {providerInitial(engine.provider)}
-                      </span>
-                      <div>
-                        <strong>{engine.accountName}</strong>
-                        <small>{providerLabel(engine.provider)}</small>
-                      </div>
-                    </div>
-                    <div className="ai-engine-badges">
-                      <span
-                        className={
-                          engine.status === "ACTIVE"
-                            ? "is-monitoring"
-                            : "is-paused"
-                        }
-                      >
-                        {engineStatus(engine)}
-                      </span>
-                      <span className={paper ? "is-paper" : "is-shadow"}>
-                        {paper ? "Paper simulation" : "Shadow only"}
-                      </span>
-                    </div>
-                  </header>
-                  <dl>
-                    <div>
-                      <dt>Model</dt>
-                      <dd>{engine.modelID ?? "Not recorded"}</dd>
-                    </div>
-                    <div>
-                      <dt>Latest decision</dt>
-                      <dd>{decisionLabel(engine)}</dd>
-                    </div>
-                    <div>
-                      <dt>AI route</dt>
-                      <dd>{latestRouteLabel(engine)}</dd>
-                    </div>
-                    <div>
-                      <dt>Route telemetry</dt>
-                      <dd>{latestTelemetryLabel(engine)}</dd>
-                    </div>
-                    <div>
-                      <dt>Last cycle</dt>
-                      <dd>
-                        {readableTime(
-                          engine.lastDecisionAt ?? engine.lastEvaluatedAt,
-                        )}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Next cycle</dt>
-                      <dd>
-                        {engine.nextRunAt
-                          ? readableTime(engine.nextRunAt)
-                          : "Not scheduled"}
-                      </dd>
-                    </div>
-                  </dl>
-                  {paper ? (
-                    <div
-                      className="ai-engine-evidence is-paper"
-                      aria-label="Paper simulation boundary"
-                    >
-                      <div className="ai-engine-evidence-heading">
-                        <span>PAPER LEDGER</span>
-                        <strong>Simulation only</strong>
-                      </div>
-                      <small>
-                        Isolated simulated cash, positions, and fills. The
-                        connected account supplies prices only; no broker order
-                        can be sent.
-                      </small>
-                    </div>
-                  ) : (
-                    <div
-                      className="ai-engine-evidence"
-                      aria-label="Shadow evidence progress"
-                    >
-                      <div className="ai-engine-evidence-heading">
-                        <span>Shadow evidence</span>
-                        <strong>{evidence?.label}</strong>
-                      </div>
-                      <progress
-                        max={evidence?.required}
-                        value={evidence?.completed}
-                        aria-label={`${evidence?.completed} of ${evidence?.required} evidence marks`}
-                      />
-                      <small>{evidence?.detail}</small>
-                      {evidence && evidence.blockers.length > 0 && (
-                        <ul
-                          className="ai-engine-evidence-blockers"
-                          aria-label="Shadow evidence blockers"
-                        >
-                          {evidence.blockers.map((blocker) => (
-                            <li key={blocker}>
-                              {evidenceBlockerLabel(blocker)}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-                  <footer>
-                    <span
-                      className={
-                        engineNeedsReview(engine) ? "needs-review" : "healthy"
-                      }
-                    >
-                      <i /> {engineHealth(engine)}
-                    </span>
-                    <Link href={`/automations/${engine.mandateID}`}>
-                      Review journal →
-                    </Link>
-                  </footer>
-                </article>
-              );
-            })}
-          </div>
-        )}
-        <p className="ai-engine-safety">
-          No broker order can be sent. Every displayed decision is non-live and
-          remains subject to Arbion&apos;s deterministic controls.
-        </p>
-      </motion.section>
-
-      <motion.section
         className="portfolio-command"
         aria-labelledby="portfolio-command-title"
         initial={{ opacity: 0, y: 18 }}
@@ -572,7 +470,7 @@ export function CommandCenterDashboard({
         <header className="portfolio-command-header">
           <div>
             <p className="command-kicker">CONNECTED PORTFOLIO</p>
-            <h2 id="portfolio-command-title">What you own, right now.</h2>
+            <h2 id="portfolio-command-title">Portfolio overview</h2>
           </div>
           <Link href="/accounts">Open full portfolio ↗</Link>
         </header>
@@ -646,6 +544,175 @@ export function CommandCenterDashboard({
             </div>
           </>
         )}
+      </motion.section>
+
+      <motion.section
+        className="ai-engine-cockpit"
+        aria-labelledby="ai-engine-cockpit-title"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.16 }}
+      >
+        <header>
+          <div>
+            <p className="command-kicker">AUTONOMOUS ENGINE</p>
+            <h2 id="ai-engine-cockpit-title">AI oversight at a glance.</h2>
+            <p>
+              Current model, schedule health, and immutable non-live reasoning
+              across your connected accounts.
+            </p>
+          </div>
+          <Link href="/automations">Open AI strategies ↗</Link>
+        </header>
+
+        {aiEngines.length === 0 ? (
+          <div className="ai-engine-empty">
+            <strong>No AI Engine is monitoring yet.</strong>
+            <p>
+              Start with a bounded, non-live engine tied to one account and one
+              model.
+            </p>
+            <Link href="/automations/new">Create an AI Engine →</Link>
+          </div>
+        ) : (
+          <div className="ai-engine-grid">
+            {aiEngines.map((engine) => {
+              const paper = engine.executionMode === "PAPER";
+              const evidence = paper ? undefined : evidenceSummary(engine);
+              return (
+                <article key={engine.id}>
+                  <header>
+                    <div>
+                      <span
+                        className={`provider-mark provider-${engine.provider}`}
+                      >
+                        {providerInitial(engine.provider)}
+                      </span>
+                      <div>
+                        <strong>{engine.accountName}</strong>
+                        <small>{providerLabel(engine.provider)}</small>
+                      </div>
+                    </div>
+                    <div className="ai-engine-badges">
+                      <span
+                        className={
+                          engine.status === "ACTIVE"
+                            ? "is-monitoring"
+                            : "is-paused"
+                        }
+                      >
+                        {engineStatus(engine)}
+                      </span>
+                      <span className={paper ? "is-paper" : "is-shadow"}>
+                        {paper ? "Paper simulation" : "Shadow only"}
+                      </span>
+                    </div>
+                  </header>
+                  <div className="engine-conclusion">
+                    <span>Latest saved decision</span>
+                    <strong>{decisionLabel(engine)}</strong>
+                    <small>{latestRouteLabel(engine)}</small>
+                  </div>
+                  <details
+                    className="engine-evidence-disclosure"
+                    open={engineEvidenceNeedsReview(engine) || undefined}
+                  >
+                    <summary>
+                      Decision evidence & schedule{" "}
+                      <span aria-hidden="true">+</span>
+                    </summary>
+                    <dl>
+                      <div>
+                        <dt>Model</dt>
+                        <dd>{engine.modelID ?? "Not recorded"}</dd>
+                      </div>
+                      <div>
+                        <dt>Route telemetry</dt>
+                        <dd>{latestTelemetryLabel(engine)}</dd>
+                      </div>
+                      <div>
+                        <dt>Last cycle</dt>
+                        <dd>
+                          {readableTime(
+                            engine.lastDecisionAt ?? engine.lastEvaluatedAt,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Next cycle</dt>
+                        <dd>
+                          {engine.nextRunAt
+                            ? readableTime(engine.nextRunAt)
+                            : "Not scheduled"}
+                        </dd>
+                      </div>
+                    </dl>
+                    {paper ? (
+                      <div
+                        className="ai-engine-evidence is-paper"
+                        aria-label="Paper simulation boundary"
+                      >
+                        <div className="ai-engine-evidence-heading">
+                          <span>PAPER LEDGER</span>
+                          <strong>Simulation only</strong>
+                        </div>
+                        <small>
+                          Isolated simulated cash, positions, and fills. The
+                          connected account supplies prices only; no broker
+                          order can be sent.
+                        </small>
+                      </div>
+                    ) : (
+                      <div
+                        className="ai-engine-evidence"
+                        aria-label="Shadow evidence progress"
+                      >
+                        <div className="ai-engine-evidence-heading">
+                          <span>Shadow evidence</span>
+                          <strong>{evidence?.label}</strong>
+                        </div>
+                        <progress
+                          max={evidence?.required}
+                          value={evidence?.completed}
+                          aria-label={`${evidence?.completed} of ${evidence?.required} evidence marks`}
+                        />
+                        <small>{evidence?.detail}</small>
+                        {evidence && evidence.blockers.length > 0 && (
+                          <ul
+                            className="ai-engine-evidence-blockers"
+                            aria-label="Shadow evidence blockers"
+                          >
+                            {evidence.blockers.map((blocker) => (
+                              <li key={blocker}>
+                                {evidenceBlockerLabel(blocker)}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </details>
+                  <footer>
+                    <span
+                      className={
+                        engineNeedsReview(engine) ? "needs-review" : "healthy"
+                      }
+                    >
+                      <i /> {engineHealth(engine)}
+                    </span>
+                    <Link href={`/automations/${engine.mandateID}`}>
+                      Review journal →
+                    </Link>
+                  </footer>
+                </article>
+              );
+            })}
+          </div>
+        )}
+        <p className="ai-engine-safety">
+          No broker order can be sent. Every displayed decision is non-live and
+          remains subject to Arbion&apos;s deterministic controls.
+        </p>
       </motion.section>
 
       <motion.section
