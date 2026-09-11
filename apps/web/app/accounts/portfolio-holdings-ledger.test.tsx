@@ -66,7 +66,7 @@ describe("PortfolioHoldingsLedger", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: "Every position. One ledger." }),
+      screen.getByRole("heading", { name: "Holdings" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("columnheader", { name: "Avg. purchase price" }),
@@ -135,6 +135,72 @@ describe("PortfolioHoldingsLedger", () => {
     );
     expect(screen.queryByText("BTC")).not.toBeInTheDocument();
     expect(screen.getByText("AAPL")).toBeInTheDocument();
+  });
+
+  it("announces filtering, keeps the full summary stable and clears only local filters", () => {
+    render(<PortfolioHoldingsLedger holdings={holdings} />);
+    const summary = screen.getByLabelText(
+      "All loaded holdings, before filters",
+    );
+    const before = summary.textContent;
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "Clear filters" }),
+    ).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Coinbase" }));
+    expect(screen.getByRole("button", { name: "Coinbase" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Showing 1 of 2 holdings",
+    );
+    expect(summary.textContent).toBe(before);
+    fireEvent.change(screen.getByRole("searchbox"), {
+      target: { value: "missing" },
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Showing 0 of 2 holdings",
+    );
+    expect(
+      screen.getByText("No holdings match this filter."),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Showing 2 of 2 holdings",
+    );
+    expect(screen.getByText("BTC")).toBeInTheDocument();
+    expect(screen.getByText("AAPL")).toBeInTheDocument();
+    expect(summary.textContent).toBe(before);
+  });
+
+  it("retains every source field and explicit table headers without a live-price claim", () => {
+    render(<PortfolioHoldingsLedger holdings={holdings} showSummary={false} />);
+    expect(
+      screen.queryByLabelText("All loaded holdings, before filters"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).not.toHaveTextContent("Summary");
+    expect(screen.queryByText(/live connected/i)).not.toBeInTheDocument();
+    for (const header of screen.getAllByRole("columnheader")) {
+      expect(header).toHaveAttribute("scope", "col");
+    }
+    expect(screen.getByRole("table")).toHaveAccessibleName(
+      /Missing provider values/,
+    );
+    expect(screen.getByText("venue last trade")).toBeInTheDocument();
+    expect(
+      screen.getByText("provider position market value per unit"),
+    ).toBeInTheDocument();
   });
 
   it("aggregates holdings exactly and fails mixed currencies closed", () => {

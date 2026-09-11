@@ -131,21 +131,18 @@ export function PortfolioHoldingsLedger({
     >
       <header className="holdings-command-header">
         <div>
-          <p className="eyebrow">UNIFIED HOLDINGS</p>
-          <h2 id="holdings-command-title">Every position. One ledger.</h2>
-          <p>
-            Live connected holdings across Coinbase and Charles Schwab, with
-            provider-supplied performance kept separate from observed market
-            data.
-          </p>
+          <h2 id="holdings-command-title">Holdings</h2>
         </div>
         <span className="holdings-live-state">
-          <i /> {holdings.length} holding{holdings.length === 1 ? "" : "s"}
+          {holdings.length} holding{holdings.length === 1 ? "" : "s"}
         </span>
       </header>
 
       {showSummary && holdings.length > 0 && (
-        <div className="holdings-value-rail">
+        <div
+          className="holdings-value-rail"
+          aria-label="All loaded holdings, before filters"
+        >
           <article>
             <span>Observed holdings value</span>
             <strong>{money(value.money)}</strong>
@@ -204,6 +201,7 @@ export function PortfolioHoldingsLedger({
           <div className="holdings-toolbar">
             <div role="group" aria-label="Filter holdings by provider">
               <button
+                aria-pressed={provider === "all"}
                 className={provider === "all" ? "is-active" : ""}
                 onClick={() => setProvider("all")}
                 type="button"
@@ -212,6 +210,7 @@ export function PortfolioHoldingsLedger({
               </button>
               {providers.map((item) => (
                 <button
+                  aria-pressed={provider === item}
                   className={provider === item ? "is-active" : ""}
                   key={item}
                   onClick={() => setProvider(item)}
@@ -232,6 +231,23 @@ export function PortfolioHoldingsLedger({
             </label>
           </div>
 
+          <div className="holdings-filter-status">
+            <p role="status" aria-live="polite">
+              Showing {visible.length} of {holdings.length} holdings
+              {showSummary ? " · Summary includes all loaded positions" : ""}
+            </p>
+            <button
+              type="button"
+              disabled={provider === "all" && query === ""}
+              onClick={() => {
+                setProvider("all");
+                setQuery("");
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
+
           <p className="command-data-scroll-hint" id="holdings-scroll-hint">
             Swipe or scroll horizontally to review every saved holdings field.
           </p>
@@ -243,16 +259,20 @@ export function PortfolioHoldingsLedger({
             tabIndex={0}
           >
             <table>
+              <caption className="holdings-table-caption">
+                Connected holdings by account. Missing provider values are shown
+                as unavailable, not zero.
+              </caption>
               <thead>
                 <tr>
-                  <th>Asset</th>
-                  <th>Account</th>
-                  <th>Quantity</th>
-                  <th>Avg. purchase price</th>
-                  <th>Current price</th>
-                  <th>Day / 24h change</th>
-                  <th>Market value</th>
-                  <th>Total return</th>
+                  <th scope="col">Asset</th>
+                  <th scope="col">Account</th>
+                  <th scope="col">Quantity</th>
+                  <th scope="col">Avg. purchase price</th>
+                  <th scope="col">Current price</th>
+                  <th scope="col">Day / 24h change</th>
+                  <th scope="col">Market value</th>
+                  <th scope="col">Total return</th>
                 </tr>
               </thead>
               <tbody>
