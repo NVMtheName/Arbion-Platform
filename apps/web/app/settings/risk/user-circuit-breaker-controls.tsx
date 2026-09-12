@@ -60,14 +60,20 @@ export function UserCircuitBreakerControls({
 
   return (
     <section
-      className={`content-card mandate-controls${active ? " circuit-breaker-active" : ""}`}
+      className={`content-card mandate-controls user-stop-control${active ? " circuit-breaker-active" : ""}`}
       aria-label="Owner-wide emergency stop"
     >
-      <p className="eyebrow">OWNER-WIDE SAFETY CONTROL</p>
-      <h2>
-        {active ? "All Arbion actions stopped" : "Stop all Arbion actions"}
-      </h2>
-      <p className="status-badge">{active ? "STOP ACTIVE" : "ACTIVE"}</p>
+      <header className="user-stop-heading">
+        <div>
+          <p className="eyebrow">OWNER-WIDE SAFETY CONTROL</p>
+          <h2>
+            {active ? "All Arbion actions stopped" : "Stop all Arbion actions"}
+          </h2>
+        </div>
+        <p className="status-badge">
+          {active ? "STOP ACTIVE" : "STOP NOT ENGAGED"}
+        </p>
+      </header>
       {active ? (
         <>
           <p role="alert">
