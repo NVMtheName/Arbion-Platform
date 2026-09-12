@@ -281,3 +281,32 @@ only navigation and native disclosures; never trigger a real account refresh,
 reconciliation, breaker, model or preview action for visual QA. Remove every
 fixture before final build and release. Existing non-Coinbase provider labeling
 and loader fallback limitations are separate from this presentation change.
+
+### Individual automation overview continuation
+
+Automation detail now opens with a compact saved-configuration introduction and
+direct links to the always-rendered identity and next-step guidance sections.
+Unavailable mandates show only the heading, without dangling navigation. The
+shared header keeps its exact geometry and meaningful Automations return; its
+skip target names the page heading. Saved identity facts use readable charcoal
+cards, an emphasized account link and explicit Paper/Shadow edges. Long model,
+account, allocation and identifier strings wrap; technical references remain
+keyboard-accessible native disclosures. Next-step guidance keeps its original
+selection, text, destination and warning/paused/running distinctions, on the
+shared neutral surface with a readable link and footer.
+
+No authenticated no-store request, account/model/capital binding, readiness
+assessment, action selection, control order, warning disclosure, calculation,
+handler or operating authority changes. Unknown AI modes no longer receive a
+misleading Shadow heading/engine label or a non-live-adapter assurance in the
+identity view; the saved mode remains displayed and marked for review. This is
+a presentation correction only, not a change in mode eligibility. Other legacy
+loader defaults and unknown-mode guidance assumptions remain separate follow-ups.
+
+Validate actual presentation components with clearly labeled inert local fixtures
+for Paper, Shadow, rules, attention, paused, unavailable and unknown states, long
+names, exact allocation digits, narrow responsive documents and enlarged text.
+Exercise only anchors and native reference disclosures; do not mount or invoke
+live readiness, review, lifecycle, budget, schedule, breaker, model or trading
+controls for design QA. Remove fixtures before final build and release. Preserve
+the existing authentication boundary if a production session is signed out.
