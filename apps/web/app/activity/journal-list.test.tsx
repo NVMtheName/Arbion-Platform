@@ -354,4 +354,76 @@ describe("Decision Journal", () => {
       "/activity?cursor=older-page&view=shadow&decision=decision-1#decision-decision-1",
     );
   });
+
+  it("puts saved decisions before engine comparisons with a direct comparison anchor", () => {
+    const { container } = render(
+      <JournalList entries={[{ ...entry, source: "AI" }]} />,
+    );
+    const timeline = screen.getByRole("region", {
+      name: "Decision journal entries",
+    });
+    const comparison = container.querySelector("#decision-review-index")!;
+    expect(
+      timeline.compareDocumentPosition(comparison) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Compare AI conclusions ↓" }),
+    ).toHaveAttribute("href", "#decision-review-index");
+    expect(
+      screen.getByText("Provenance + market evidence").closest("details"),
+    ).toHaveAttribute("open");
+  });
+
+  it("announces filtered counts as current-page counts, not global totals", () => {
+    render(
+      <JournalList
+        entries={[entry, { ...entry, id: "shadow", execution_mode: "SHADOW" }]}
+        filter="PAPER"
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Showing 1 of 2 saved records on this page.",
+    );
+    expect(screen.getByText("Decisions on this page")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Compare AI conclusions ↓" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps focused records visible and does not offer an absent comparison", () => {
+    render(
+      <JournalList
+        entries={[{ ...entry, source: "AI" }]}
+        focused
+        filter="SHADOW"
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Showing the exact linked record",
+    );
+    expect(
+      screen.queryByRole("link", { name: "Compare AI conclusions ↓" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", {
+        name: "Compare each AI engine’s newest conclusion.",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("visually flags the same review predicate without changing risk evidence", () => {
+    const { container } = render(
+      <JournalList
+        entries={[entry, { ...entry, id: "error", execution_status: "ERROR" }]}
+      />,
+    );
+    expect(container.querySelector("#decision-decision-1")).not.toHaveClass(
+      "is-review",
+    );
+    expect(container.querySelector("#decision-error")).toHaveClass("is-review");
+    expect(container.querySelector("#decision-error details")).toHaveAttribute(
+      "open",
+    );
+  });
 });
