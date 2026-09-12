@@ -56,7 +56,7 @@ describe("MarketWatchlist", () => {
     render(<MarketWatchlist />);
 
     expect(
-      screen.getByRole("heading", { name: "Your market radar." }),
+      screen.getByRole("heading", { name: "Your watchlist" }),
     ).toBeInTheDocument();
     expect(screen.getByText("No saved assets yet")).toBeInTheDocument();
     expect(screen.getByText("OBSERVE ONLY")).toBeInTheDocument();

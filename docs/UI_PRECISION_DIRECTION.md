@@ -222,3 +222,33 @@ never submit actual security actions, enter real credentials, or generate recove
 codes for UI QA. Mocked unit tests verify request boundaries and transient flows.
 Remove fixtures before final build/commit, verify header geometry and anchor
 clearance at narrow/enlarged-text sizes, and record any signed-in QA limitation.
+
+### Markets continuation
+
+Markets now uses a compact introduction, direct links to the watchlist, equity
+and options desk, crypto board, filings and source verification, and readable
+charcoal surfaces matching the other working pages. Summary facts stay together
+in a compact strip; watchlist asset names and monetary values wrap rather than
+truncate. All research controls have readable labels and 44px targets. Exact
+provider, feed, quality, venue and time evidence remains visible, with existing
+unavailable, partial, degraded and aged states retaining distinct treatment.
+The option-chain table remains independently scrollable with its existing hint.
+
+The workspace is extracted from the server loader without changing requests,
+validation, fallback or authorization behavior. Existing watchlist mutations,
+account selection, quote/option/filing handlers, crypto polling, source/history
+refresh intervals and numerical helpers are unchanged. Timer tests verify the
+existing five-second, thirty-second and five-minute cadences and cleanup.
+Source metadata, account inventory and market observations remain separate.
+No new request, dependency, chart data, provider capability or trading path is
+introduced. Existing loader fallback limitations are a separate follow-up, not
+silently rewritten by a visual pass.
+
+For visual QA, mount actual components only behind local mocks installed before
+rendering them: the research board otherwise requests crypto observations on
+mount. Block all fixture API traffic from reaching real endpoints and reject
+mutations. Clearly label illustrative values, remove every fixture before the
+final build/commit, and test desktop, narrow responsive documents, enlarged text,
+long labels, unavailable/partial/empty states, keyboard anchors and stable header
+geometry. Do not submit real research, refresh, account or trading actions for UI
+verification. Preserve authentication if the production session is expired.
