@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
-import { ArbionBrand } from "./brand";
+import { AuthEntryHeader } from "./auth-entry-header";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -66,22 +66,30 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
   return (
     <main className="auth-page">
-      <section className="auth-card">
-        <ArbionBrand className="auth-brand" priority />
-        <h1>
-          {challengeToken
-            ? "Confirm it’s you."
-            : mode === "login"
-              ? "Welcome back."
-              : "Create your invited account."}
-        </h1>
-        <p className="lede">
-          {challengeToken
-            ? "Enter the six-digit code from your authenticator app, or use one of your recovery codes."
-            : mode === "login"
-              ? "A secure workspace for disciplined financial decisions."
-              : "Registration is limited to invited email addresses."}
-        </p>
+      <section className="auth-card" aria-labelledby="auth-entry-title">
+        <AuthEntryHeader
+          step={
+            challengeToken
+              ? "Identity check"
+              : mode === "login"
+                ? "Account access"
+                : "Invited access"
+          }
+          title={
+            challengeToken
+              ? "Confirm it’s you."
+              : mode === "login"
+                ? "Welcome back."
+                : "Create your invited account."
+          }
+          description={
+            challengeToken
+              ? "Enter the six-digit code from your authenticator app, or use one of your recovery codes."
+              : mode === "login"
+                ? "A secure workspace for disciplined financial decisions."
+                : "Registration is limited to invited email addresses."
+          }
+        />
         {challengeToken ? (
           <form onSubmit={submit}>
             <label>
