@@ -257,11 +257,14 @@ export function selectAutomationNextAction(
 
 export function AutomationNextActionPanel({
   action,
+  id,
 }: {
   action: AutomationNextAction;
+  id?: string;
 }) {
   return (
     <section
+      id={id}
       className={`automation-next-action is-${action.tone.toLowerCase()}`}
       aria-label={action.title}
     >

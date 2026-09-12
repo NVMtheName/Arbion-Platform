@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { automationDetailTitle } from "./automation-detail-introduction";
 
 type Entity = Record<string, unknown> | undefined;
 
@@ -27,7 +28,7 @@ function strategyLabel(
   executionMode: string,
 ) {
   if (automationType === "AI_AUTONOMOUS")
-    return executionMode === "PAPER" ? "AI Paper Engine" : "AI Shadow Engine";
+    return automationDetailTitle(automationType, executionMode);
   return humanize(strategyIdentifier) || "Configured strategy";
 }
 
@@ -63,6 +64,7 @@ function reference(id: string) {
 }
 
 export function MandateIdentitySummary({
+  id,
   mandateId,
   automationType,
   financialAccountId,
@@ -77,6 +79,7 @@ export function MandateIdentitySummary({
   currentVersion,
   strategyInstanceId,
 }: {
+  id?: string;
   mandateId: string;
   automationType: string;
   financialAccountId: string;
@@ -110,10 +113,11 @@ export function MandateIdentitySummary({
   return (
     <>
       <section
+        id={id}
         className="review-grid mandate-identity-summary"
         aria-label="Mandate identity and safeguards"
       >
-        <article>
+        <article data-identity="account">
           <strong>Account</strong>
           {financialAccountId && financialAccountId !== "—" ? (
             <Link href={`/accounts/${financialAccountId}`}>{accountName}</Link>
@@ -122,48 +126,48 @@ export function MandateIdentitySummary({
           )}
           <small>{provider}</small>
         </article>
-        <article>
+        <article data-identity="engine">
           <strong>Engine</strong>
           <span>
             {strategyLabel(automationType, strategyIdentifier, executionMode)}
           </span>
           <small>One immutable mandate version at a time</small>
         </article>
-        <article>
+        <article data-identity="capital">
           <strong>Capital guardrail</strong>
           <span>{bucketName}</span>
           <small>{allocationLabel(capitalBucket)}</small>
         </article>
         {automationType === "AI_AUTONOMOUS" && (
-          <article>
+          <article data-identity="model">
             <strong>Decision model</strong>
             <span>{aiModelId || "Saved model"}</span>
             <small>Frozen into this mandate version</small>
           </article>
         )}
-        <article>
+        <article data-identity="autonomy">
           <strong>Autonomy</strong>
           <span>{humanize(autonomyLevel)}</span>
           <small>Bounded by the saved universe and risk policy</small>
         </article>
-        <article>
+        <article data-identity="execution" data-execution-mode={executionMode}>
           <strong>Execution</strong>
           <span>
             {executionMode === "SHADOW"
               ? "Shadow only"
               : executionMode === "PAPER"
                 ? "Paper simulation"
-                : humanize(executionMode)}
+                : humanize(executionMode) || "Unavailable"}
           </span>
           <small>
             {executionMode === "SHADOW"
               ? "No broker order can be sent"
               : executionMode === "PAPER"
                 ? "Isolated simulated ledger; no broker order"
-                : "Uses the configured non-live adapter"}
+                : "Execution support requires review; no authority is inferred"}
           </small>
         </article>
-        <article>
+        <article data-identity="state">
           <strong>State</strong>
           <span>{humanize(status)}</span>
           <small>Mandate version {currentVersion}</small>

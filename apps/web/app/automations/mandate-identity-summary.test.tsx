@@ -6,6 +6,45 @@ import { MandateIdentitySummary } from "./mandate-identity-summary";
 describe("mandate identity summary", () => {
   afterEach(cleanup);
 
+  it.each(["", "LIVE", "BACKTEST", "UNRECOGNIZED"])(
+    "never labels unsupported mode %s as Shadow",
+    (executionMode) => {
+      render(
+        <MandateIdentitySummary
+          mandateId="test-mandate"
+          automationType="AI_AUTONOMOUS"
+          financialAccountId=""
+          financialAccount={{
+            display_name: "Unresolved account",
+            provider: "unknown_provider",
+          }}
+          capitalBucketId=""
+          strategyIdentifier=""
+          aiModelId=""
+          autonomyLevel=""
+          executionMode={executionMode}
+          status="DRAFT"
+          currentVersion={1}
+        />,
+      );
+      expect(screen.getByText("AI Engine")).toBeInTheDocument();
+      expect(screen.getByText("Unknown Provider")).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          "Execution support requires review; no authority is inferred",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("AI Shadow Engine")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("Uses the configured non-live adapter"),
+      ).not.toBeInTheDocument();
+      expect(
+        document.querySelector('[data-identity="execution"]'),
+      ).toHaveAttribute("data-execution-mode", executionMode);
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    },
+  );
+
   it("leads with human-readable AI account and safeguard details", () => {
     render(
       <MandateIdentitySummary

@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { AppPageHeader } from "../../app-page-header";
+import { AutomationDetailIntroduction } from "../automation-detail-introduction";
 import { MandateControls } from "../mandate-controls";
 import { StrategyAutonomyControls } from "../strategy-autonomy-controls";
 import { PaperOptionsSimulationAttestationControls } from "../paper-options-simulation-attestation-controls";
@@ -105,9 +106,13 @@ export default async function MandateReview({
   if (r.status === 401) redirect("/login");
   if (!r.ok)
     return (
-      <main className="command-content-continuity">
-        <AppPageHeader backHref="/automations" backLabel="Automations" />
-        <h1>Mandate unavailable</h1>
+      <main className="connections-page automation-page automation-detail-page command-content-continuity">
+        <AppPageHeader
+          backHref="/automations"
+          backLabel="Automations"
+          contentHeadingId="automation-page-title"
+        />
+        <AutomationDetailIntroduction available={false} />
       </main>
     );
   const automationResponse = (await r.json()) as {
@@ -404,15 +409,18 @@ export default async function MandateReview({
     schedulerEnabled: Boolean(scheduleResponse.scheduler_enabled),
   });
   return (
-    <main className="connections-page automation-page command-content-continuity">
-      <AppPageHeader backHref="/automations" backLabel="Automations" />
-      <p className="eyebrow">AUTOMATION MANDATE REVIEW</p>
-      <h1>
-        {automationType === "AI_AUTONOMOUS"
-          ? `AI ${executionMode === "PAPER" ? "Paper" : "Shadow"} Engine`
-          : automationType}
-      </h1>
+    <main className="connections-page automation-page automation-detail-page command-content-continuity">
+      <AppPageHeader
+        backHref="/automations"
+        backLabel="Automations"
+        contentHeadingId="automation-page-title"
+      />
+      <AutomationDetailIntroduction
+        automationType={automationType}
+        executionMode={executionMode}
+      />
       <MandateIdentitySummary
+        id="mandate-identity"
         mandateId={id}
         automationType={automationType}
         financialAccountId={financialAccountID}
@@ -432,7 +440,10 @@ export default async function MandateReview({
         support. A separately confirmed attestation may permit PAPER-only
         simulation, but never SHADOW, LIVE, or broker execution.
       </p>
-      <AutomationNextActionPanel action={nextAction} />
+      <AutomationNextActionPanel
+        id="automation-next-step"
+        action={nextAction}
+      />
       {automationType === "AI_AUTONOMOUS" && executionMode === "PAPER" && (
         <PaperAutonomyReadinessControlPlane
           provider={financialProvider}
