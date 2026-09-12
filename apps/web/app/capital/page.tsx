@@ -169,11 +169,11 @@ export default async function CapitalPage() {
       <AppPageHeader contentHeadingId="capital-page-title" />
       <section className="capital-center-hero">
         <div>
-          <p className="eyebrow">CAPITAL CONTROL CENTER</p>
-          <h1 id="capital-page-title">Every strategy gets a boundary.</h1>
+          <p className="eyebrow">CAPITAL CONTROL</p>
+          <h1 id="capital-page-title">Capital &amp; budgets</h1>
           <p className="lede">
-            See exactly what Arbion has assigned, protected, and reserved across
-            Coinbase and Schwab—before any strategy is allowed to act.
+            Review each account’s budgets, protected amounts, and strategy
+            reservations. Paper cash stays separate from account policy.
           </p>
         </div>
         <div className="capital-center-assurance">
