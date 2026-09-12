@@ -344,3 +344,27 @@ provider or trading action was triggered for QA. Local fixtures are removed befo
 the production build. Unit tests preserve defaults, exact strings, section order,
 warnings, disabled controls and mock request boundaries. Cross-page palette tests
 bind mode styles to shared tokens and retain status precedence.
+
+### Risk and safety settings continuation
+
+Risk settings uses the same charcoal/cyan workspace, compact heading and stable
+shared navigation as the primary pages. Two keyboard-accessible anchors lead to
+the existing owner-wide stop and account/mandate guidance without reordering
+controls. Saved stop reason and timestamp wrap in responsive fact cards. An
+engaged stop retains its red warning treatment; unavailable state stays amber
+and presents no engage/release form. The inactive badge says STOP NOT ENGAGED,
+not the ambiguous ACTIVE, and does not imply trading authority or account health.
+
+The owner-scoped no-store loader, authentication redirect, original submit
+handlers, required reason and confirmation, busy state, conflict feedback and
+refresh behavior are unchanged. The shared Dashboard tab remains the sole
+Dashboard navigation action apart from the brand link; no duplicate back button
+is added. Legacy malformed-state and transport-error handling remain separate
+from this presentation-only pass.
+
+Actual components were checked behind deny-by-default local API mocks at desktop,
+narrow responsive document widths and enlarged text, including long reasons,
+engaged, inactive and unavailable states. No safety control was submitted during
+visual QA. Focused tests retain the exact mock request boundary, confirmation
+requirements, pending state, failed responses, saved evidence and authentication.
+All local fixtures are removed before the production build and release.

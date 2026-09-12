@@ -3439,6 +3439,229 @@ main:has(> .app-page-header) > .eyebrow {
     grid-template-columns: 1fr;
   }
 }
+/* Risk settings: clear scope and stop state; original confirmations stay visible. */
+.risk-settings-intro {
+  margin-bottom: 1.5rem;
+}
+.risk-settings-intro h1 {
+  margin: 0.5rem 0;
+  font-size: clamp(2rem, 3.5vw, 2.75rem);
+  line-height: 1.15;
+  letter-spacing: -0.045em;
+}
+.risk-settings-intro > p:not(.eyebrow) {
+  max-width: 65ch;
+  margin: 0;
+  color: var(--surface-muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.risk-settings-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+.risk-settings-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface-recessed);
+  color: var(--surface-accent);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-decoration: none;
+}
+.risk-settings-links a:hover {
+  border-color: var(--surface-accent);
+  background: var(--surface-raised);
+}
+.risk-settings-page :is(#owner-wide-stop, #account-mandate-controls) {
+  scroll-margin-block-start: 10rem;
+}
+.risk-settings-page
+  :is(.user-stop-control, .risk-state-unavailable, .risk-scope-guidance) {
+  margin: 0 0 1.5rem;
+  padding: 1.5rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  background: linear-gradient(
+    145deg,
+    var(--surface-raised),
+    var(--surface-recessed)
+  );
+  box-shadow: inset 0 1px 0 #ffffff08;
+}
+.risk-settings-page :is(h1, h2, p, dd, label, a) {
+  overflow-wrap: anywhere;
+}
+.risk-settings-page h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.375rem;
+  line-height: 1.4;
+}
+.risk-settings-page
+  :is(.user-stop-control, .risk-state-unavailable, .risk-scope-guidance)
+  > p {
+  max-width: 85ch;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--surface-muted);
+}
+.risk-settings-page .user-stop-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: start;
+  gap: 0.75rem 1rem;
+  margin-bottom: 0.875rem;
+}
+.risk-settings-page .user-stop-heading > div {
+  min-width: 0;
+}
+.risk-settings-page .user-stop-heading .eyebrow {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+.risk-settings-page .status-badge {
+  flex: 0 0 auto;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  color: var(--surface-muted);
+  background: var(--surface-recessed);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.risk-settings-page .circuit-breaker-active {
+  border-color: #9c5151;
+  box-shadow: inset 3px 0 #b85a5a;
+}
+.risk-settings-page .circuit-breaker-active .status-badge {
+  border-color: #9c5151;
+  color: #ffcdcd;
+  background: #352026;
+}
+.risk-settings-page .circuit-breaker-active > [role="alert"] {
+  color: #ffcdcd;
+}
+.risk-settings-page .risk-state-unavailable {
+  border-color: #7c6540;
+  box-shadow: inset 3px 0 #d0b779;
+}
+.risk-settings-page .risk-state-unavailable h2 {
+  color: #f0c989;
+}
+.risk-settings-page .circuit-breaker-facts {
+  grid-template-columns: minmax(12rem, 1fr) minmax(0, 2fr);
+  gap: 1rem;
+  margin: 1.25rem 0;
+}
+.risk-settings-page .circuit-breaker-facts > div {
+  min-width: 0;
+  align-content: start;
+  padding: 1rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface-recessed);
+}
+.risk-settings-page .circuit-breaker-facts dt {
+  color: var(--surface-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.risk-settings-page .circuit-breaker-facts dd {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.risk-settings-page .user-stop-control form {
+  max-width: 52rem;
+  margin-top: 1.5rem;
+  gap: 1.25rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--surface-border);
+}
+.risk-settings-page .user-stop-control label {
+  min-width: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.risk-settings-page .user-stop-control textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 8rem;
+  resize: vertical;
+  border-color: var(--surface-border);
+  background: var(--surface-recessed);
+  color: var(--surface-text);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.risk-settings-page .user-stop-control .checkbox-row {
+  min-height: 44px;
+  align-items: start;
+}
+.risk-settings-page .user-stop-control .checkbox-row input {
+  flex: 0 0 auto;
+  margin-top: 0.25rem;
+}
+.risk-settings-page .user-stop-control button {
+  justify-self: start;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid #81cad7;
+  border-radius: 10px;
+  background: #183039;
+  color: #c1f3f7;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  white-space: normal;
+}
+.risk-settings-page .user-stop-control button.danger {
+  border-color: #c98484;
+  background: #562b32;
+  color: #ffe5e5;
+}
+.risk-settings-page .user-stop-control button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.risk-settings-page .user-stop-control > [role="status"] {
+  padding: 1rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface-recessed);
+  color: var(--surface-text);
+}
+.risk-settings-page :is(a, button, input, textarea):focus-visible {
+  outline: 2px solid var(--surface-accent);
+  outline-offset: 3px;
+}
+@media (max-width: 40rem) {
+  .risk-settings-page .circuit-breaker-facts {
+    grid-template-columns: 1fr;
+  }
+  .risk-settings-page
+    :is(.user-stop-control, .risk-state-unavailable, .risk-scope-guidance) {
+    padding: 1.25rem;
+  }
+  .risk-settings-links a {
+    flex: 1 1 12rem;
+  }
+  .risk-settings-page .user-stop-control button {
+    width: 100%;
+  }
+}
 /* New engine setup: a compact, numbered form with unchanged operating checks. */
 .automation-builder-intro {
   margin-bottom: 1.5rem;

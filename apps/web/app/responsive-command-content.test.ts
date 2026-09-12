@@ -18,7 +18,7 @@ describe("signed-in command content continuity", () => {
     ["Capital", "./capital/page.tsx"],
     ["Connections", "./settings/connections/connections-workspace.tsx"],
     ["Security", "./settings/security/page.tsx"],
-    ["Risk settings", "./settings/risk/page.tsx"],
+    ["Risk settings", "./settings/risk/risk-settings-workspace.tsx"],
     ["Admin", "./admin/page.tsx"],
     ["Admin user detail", "./admin/users/[id]/page.tsx"],
   ])("keeps %s inside the shared viewport contract", (_label, source) => {
@@ -206,6 +206,11 @@ describe("signed-in command content continuity", () => {
       "connections-page-title",
     ],
     ["Security", "./settings/security/page.tsx", "security-page-title"],
+    [
+      "Risk settings",
+      "./settings/risk/risk-settings-workspace.tsx",
+      "risk-settings-title",
+    ],
   ])(
     "binds the %s skip target to its page-level heading",
     (_label, source, headingId) => {
