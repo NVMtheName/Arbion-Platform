@@ -215,7 +215,9 @@ describe("signed-in command content continuity", () => {
       const headingSource =
         source === "./automations/page.tsx"
           ? appSource("./automations/automations-header.tsx")
-          : page;
+          : source === "./settings/security/page.tsx"
+            ? appSource("./settings/security/security-workspace-intro.tsx")
+            : page;
       expect(headingSource).toContain(`id="${headingId}"`);
     },
   );

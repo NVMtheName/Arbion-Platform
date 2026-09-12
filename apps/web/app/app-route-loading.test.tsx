@@ -32,6 +32,21 @@ describe("consistent application navigation", () => {
     ).toBeEmptyDOMElement();
   });
 
+  it("also suppresses an explicit Dashboard return without removing its navigation tab", () => {
+    render(
+      <AppPageHeader
+        backHref="/dashboard"
+        backLabel="Dashboard"
+        showConnectionHealth={false}
+      />,
+    );
+    expect(document.querySelector(".app-back-link")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute(
+      "href",
+      "/dashboard",
+    );
+  });
+
   it("preserves an explicit contextual return and custom account actions", () => {
     const view = render(
       <AppPageHeader

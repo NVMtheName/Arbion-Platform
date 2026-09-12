@@ -2375,6 +2375,290 @@ main:has(> .app-page-header) > .eyebrow {
     grid-template-columns: 1fr;
   }
 }
+/* Security: readable access controls with no changes to their authority. */
+.security-page .security-workspace-intro {
+  padding: 2rem 0 1rem;
+}
+.security-page .security-workspace-intro h1 {
+  margin: 0.5rem 0;
+  font-size: clamp(2rem, 3vw, 2.75rem);
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+}
+.security-page .security-workspace-intro .security-note {
+  max-width: 54rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--surface-muted);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.security-page .security-section-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.375rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-recessed);
+  box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.2);
+}
+.security-page .security-section-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.625rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--surface-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-decoration: none;
+}
+.security-page .security-section-links a:hover,
+.security-page .security-section-links a:focus-visible {
+  color: var(--surface-accent);
+  border-color: var(--surface-border);
+  background: var(--surface-raised);
+}
+.security-page .security-section-links a:focus-visible {
+  outline: 2px solid var(--surface-accent);
+  outline-offset: 3px;
+}
+.security-page .security-grid {
+  align-items: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+}
+.security-page .security-card-mfa {
+  grid-row: span 2;
+}
+.security-page .security-card {
+  min-width: 0;
+  padding: 1.5rem;
+  background: linear-gradient(
+    145deg,
+    var(--surface-raised),
+    var(--surface-recessed)
+  );
+  box-shadow:
+    inset 0 1px 0 rgb(var(--surface-text-rgb) / 0.05),
+    0 12px 28px rgb(0 0 0 / 0.12);
+}
+.security-page :is(.security-card, .security-activity) {
+  scroll-margin-block-start: 10rem;
+}
+.security-page :is(.security-card, .security-activity):target {
+  border-color: var(--surface-accent);
+}
+.security-page :is(.security-card, .security-activity).is-review {
+  border-color: #7c6540;
+  box-shadow: inset 3px 0 0 #d0b779;
+}
+.security-page .security-card h2,
+.security-page .security-activity > header h2 {
+  margin: 0.5rem 0 0.875rem;
+  font-size: 1.5rem;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+.security-page .security-card p,
+.security-page .security-activity > header p:last-child {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.security-page .security-card .eyebrow,
+.security-page .security-activity .eyebrow {
+  color: var(--surface-accent);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  letter-spacing: 0.12em;
+}
+.security-page .security-card form {
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+.security-page .security-card label {
+  min-width: 0;
+  align-content: start;
+  color: var(--surface-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.security-page :is(input, button, .button-link) {
+  min-height: 44px;
+  max-width: 100%;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.security-page input {
+  min-width: 0;
+  background: var(--surface-recessed);
+}
+.security-page .security-card button,
+.security-page .security-card .button-link {
+  width: fit-content;
+  padding: 0.625rem 1rem;
+}
+.security-page .security-card button.danger {
+  border-color: #a76559;
+  background: #3b2323;
+  color: #ffc6b7;
+}
+.security-page .security-card button.danger:hover:not(:disabled) {
+  border-color: #e8a796;
+  background: #4a2c2b;
+}
+.security-page .security-subsection {
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+}
+.security-page .security-subsection h3 {
+  font-size: 1.125rem;
+  line-height: 1.5;
+}
+.security-page .session-inventory-summary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 1.25rem 0;
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.security-page .session-inventory-summary > div {
+  min-width: 0;
+  padding: 1rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-recessed);
+}
+.security-page .session-inventory-summary > div + div {
+  border-left: 1px solid var(--surface-border);
+}
+.security-page .session-inventory-summary strong {
+  font-size: 1.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.security-page .session-inventory-summary span,
+.security-page .session-current-window,
+.security-page .security-card .session-boundary-note,
+.security-page .session-inventory-unavailable {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.security-page .session-current-window > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  align-items: start;
+  gap: 0.5rem 1rem;
+}
+.security-page .session-actions {
+  gap: 0.75rem;
+}
+.security-page .security-card .session-boundary-note {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--surface-border);
+}
+.security-page .mfa-setup-key span {
+  font-size: 0.875rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.security-page .recovery-code-list {
+  grid-template-columns: 1fr;
+}
+.security-page .security-grid > :is(.form-error, .form-success) {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.security-page .security-activity {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  border-color: var(--surface-border);
+  background: var(--surface-raised);
+}
+.security-page .security-activity > header,
+.security-page .security-activity-list header {
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+.security-page .security-activity > header > span {
+  color: var(--surface-muted);
+  background: var(--surface-recessed);
+  border-color: var(--surface-border);
+  font-family: inherit;
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+}
+.security-page .security-activity-list {
+  margin-top: 1.25rem;
+}
+.security-page .security-activity-list li {
+  padding: 1.25rem 0;
+}
+.security-page .security-activity-list strong {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.security-page .security-activity-list small {
+  color: var(--surface-muted);
+  font-size: 0.875rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.security-page .security-activity-list p,
+.security-page .security-activity-list time,
+.security-page .security-activity > footer,
+.security-page .security-activity > [role="status"] {
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.security-page
+  :is(h1, h2, h3, p, a, button, label, strong, span, code, dt, dd, time) {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 62rem) {
+  .security-page .security-grid {
+    grid-template-columns: 1fr;
+  }
+  .security-page .security-card-mfa {
+    grid-row: auto;
+  }
+}
+@media (max-width: 40rem) {
+  .security-page .security-workspace-intro {
+    padding-top: 1.5rem;
+  }
+  .security-page .security-section-links {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .security-page .security-section-links a {
+    padding: 0.625rem;
+  }
+  .security-page :is(.security-card, .security-activity) {
+    padding: 1rem;
+  }
+  .security-page .session-current-window > div {
+    grid-template-columns: 1fr;
+  }
+  .security-page .session-current-window dd {
+    text-align: left;
+  }
+  .security-page .session-actions > button {
+    width: 100%;
+  }
+}
 /* Capital: exact account policy is the primary working surface. */
 .capital-center-page .capital-center-hero {
   align-items: center;

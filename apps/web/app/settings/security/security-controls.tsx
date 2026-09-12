@@ -258,7 +258,11 @@ export function SecurityControls({
 
   return (
     <div className="security-grid">
-      <section className="security-card" aria-labelledby="mfa-title">
+      <section
+        className="security-card security-card-mfa"
+        id="security-authenticator"
+        aria-labelledby="mfa-title"
+      >
         <p className="eyebrow">AUTHENTICATOR MFA</p>
         <h2 id="mfa-title">
           {mfa.enabled
@@ -403,7 +407,11 @@ export function SecurityControls({
         )}
       </section>
 
-      <section className="security-card" aria-labelledby="password-title">
+      <section
+        className="security-card security-card-password"
+        id="security-password"
+        aria-labelledby="password-title"
+      >
         <p className="eyebrow">PASSWORD</p>
         <h2 id="password-title">Change password</h2>
         <p>
@@ -449,7 +457,11 @@ export function SecurityControls({
         </form>
       </section>
 
-      <section className="security-card" aria-labelledby="sessions-title">
+      <section
+        className={`security-card security-card-sessions${sessionInventoryAvailable && sessionInventory ? "" : " is-review"}`}
+        id="security-sessions"
+        aria-labelledby="sessions-title"
+      >
         <p className="eyebrow">SESSIONS</p>
         <h2 id="sessions-title">Active browser sessions</h2>
         <p>
