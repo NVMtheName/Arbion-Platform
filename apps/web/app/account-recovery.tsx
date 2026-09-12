@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
-import { ArbionBrand } from "./brand";
+import { AuthEntryHeader } from "./auth-entry-header";
 
 type RequestKind = "verification" | "password-reset";
 
@@ -61,22 +61,24 @@ export function EmailRequestForm({
 
   return (
     <main className="auth-page">
-      <section className="auth-card">
-        <ArbionBrand className="auth-brand" priority />
-        <h1>
-          {verification && initialSent
-            ? "Check your inbox."
-            : verification
-              ? "Verify your email."
-              : "Reset your password."}
-        </h1>
-        <p className="lede">
-          {verification && initialSent
-            ? "Your invited Arbion account is protected until you confirm the secure, single-use link we sent."
-            : verification
-              ? "Enter your registered email and we’ll send a new secure verification link."
-              : "Enter your registered email and we’ll send a secure, single-use reset link."}
-        </p>
+      <section className="auth-card" aria-labelledby="auth-entry-title">
+        <AuthEntryHeader
+          step={verification ? "Email verification" : "Account recovery"}
+          title={
+            verification && initialSent
+              ? "Check your inbox."
+              : verification
+                ? "Verify your email."
+                : "Reset your password."
+          }
+          description={
+            verification && initialSent
+              ? "Your invited Arbion account is protected until you confirm the secure, single-use link we sent."
+              : verification
+                ? "Enter your registered email and we’ll send a new secure verification link."
+                : "Enter your registered email and we’ll send a secure, single-use reset link."
+          }
+        />
         {verification && initialSent && (
           <div className="auth-assurance" role="note">
             <strong>One final secure step</strong>
@@ -148,9 +150,16 @@ export function ConfirmEmailForm() {
 
   return (
     <main className="auth-page">
-      <section className="auth-card">
-        <ArbionBrand className="auth-brand" priority />
-        <h1>Verify your email.</h1>
+      <section className="auth-card" aria-labelledby="auth-entry-title">
+        <AuthEntryHeader
+          step="Email verification"
+          title="Verify your email."
+          description={
+            complete
+              ? undefined
+              : "Confirm this single-use link to activate your invited account."
+          }
+        />
         {complete ? (
           <>
             <p className="form-success" role="status">
@@ -162,9 +171,6 @@ export function ConfirmEmailForm() {
           </>
         ) : (
           <>
-            <p className="lede">
-              Confirm this single-use link to activate your invited account.
-            </p>
             <form onSubmit={submit}>
               {error && (
                 <p className="form-error" role="alert">
@@ -221,12 +227,12 @@ export function ConfirmPasswordResetForm() {
 
   return (
     <main className="auth-page">
-      <section className="auth-card">
-        <ArbionBrand className="auth-brand" priority />
-        <h1>Choose a new password.</h1>
-        <p className="lede">
-          Completing this reset signs out every existing Arbion session.
-        </p>
+      <section className="auth-card" aria-labelledby="auth-entry-title">
+        <AuthEntryHeader
+          step="Account recovery"
+          title="Choose a new password."
+          description="Completing this reset signs out every existing Arbion session."
+        />
         <form onSubmit={submit}>
           <label>
             New password
@@ -259,6 +265,9 @@ export function ConfirmPasswordResetForm() {
             {busy ? "Resetting…" : "Reset password"}
           </button>
         </form>
+        <p className="switch">
+          <Link href="/login">Back to login</Link>
+        </p>
       </section>
     </main>
   );

@@ -368,3 +368,32 @@ engaged, inactive and unavailable states. No safety control was submitted during
 visual QA. Focused tests retain the exact mock request boundary, confirmation
 requirements, pending state, failed responses, saved evidence and authentication.
 All local fixtures are removed before the production build and release.
+
+### Account entry and recovery continuation
+
+Login, invited registration, the MFA challenge, email verification and password
+recovery share one compact branded header and named card region. Their original
+headings and explanations remain exact; the small step label distinguishes the
+current flow without adding assurance or trading claims. The wordmark returns
+to the public landing page. Password reset now has an explicit Back to login
+link, consistent with request screens.
+
+Cards share the charcoal/cyan palette, a top-anchored layout, readable form text,
+50px rendered fields/buttons and clear keyboard focus. Error and acknowledgement
+messages retain distinct semantic colors, wrap long messages and remain exposed.
+Narrow screens and enlarged text wrap instead of clipping labels or primary
+controls. No entrance delay or animation of card dimensions is introduced;
+native MFA autofocus and normal browser scrolling are preserved.
+
+All original handlers, fields, names, validators, password-manager autocomplete,
+challenge tokens, fragment-token handling, invitation restrictions, request
+payloads, messages and redirects remain unchanged. No session, credential,
+authentication policy or backend behavior changes. Existing transport-error and
+success-response fallback handling is outside this visual pass.
+
+Verify actual components using labeled deny-by-default local mocks, including
+MFA handoff, long errors, narrow registration/reset and enlarged verification
+guidance. Only explicitly illustrative mock credentials may be used in that
+fixture; never submit real authentication, MFA, verification or reset requests
+for design QA. Unit tests cover exact request, pending/error, restart, token and
+redirect boundaries. Remove all fixtures before the final production build.
