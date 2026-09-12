@@ -252,3 +252,32 @@ final build/commit, and test desktop, narrow responsive documents, enlarged text
 long labels, unavailable/partial/empty states, keyboard anchors and stable header
 geometry. Do not submit real research, refresh, account or trading actions for UI
 verification. Preserve authentication if the production session is expired.
+
+### Account detail continuation
+
+Account pages use the shared charcoal/cyan palette and compact account heading,
+with an exact existing value strip and direct in-page links. Coinbase holdings
+now precede research and external activity. The unchanged saved input-chain and
+sync panels remain immediately after the value strip, retaining automatically
+exposed warnings and explicit Paper/Shadow attribution. Desktop evidence panels
+sit side by side; narrow layouts preserve document order and wrap long names.
+The holdings table stays independently scrollable with a visible hint and an
+anchored asset column. Quantities, staked/unavailable balances, reference prices,
+missing cost basis and all provider/time/source evidence are unchanged.
+
+The original owner-scoped no-store requests, authorization redirects, thirty-
+second portfolio refresh and cleanup, research controls, reconciliation, circuit
+breakers and proposal/preview handlers are unchanged. An unavailable Coinbase
+portfolio keeps its original message and saved evidence, without a false holdings
+or reconciliation anchor. The redundant Dashboard back link remains suppressed
+by the shared header; meaningful Accounts returns remain. Route-independent
+header geometry, the lightweight loading shell and reduced-motion-aware 160ms
+arrival remain shared, without caching private financial snapshots for speed.
+
+Verify actual components behind clearly labeled local API mocks at desktop,
+320px/390px widths and enlarged text, including long names, partial/staked,
+empty and unavailable holdings plus automatically exposed warnings. Exercise
+only navigation and native disclosures; never trigger a real account refresh,
+reconciliation, breaker, model or preview action for visual QA. Remove every
+fixture before final build and release. Existing non-Coinbase provider labeling
+and loader fallback limitations are separate from this presentation change.

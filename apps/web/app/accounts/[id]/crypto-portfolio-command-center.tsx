@@ -1,7 +1,13 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
   CoinbaseOrderPreview,
@@ -496,6 +502,8 @@ export function CryptoPortfolioCommandCenter({
   initialOrderHistory,
   initialTradingCosts,
   capitalPolicies = [],
+  navigation,
+  accountEvidence,
 }: {
   accountID: string;
   initialSnapshot: CryptoPortfolioSnapshot;
@@ -511,6 +519,8 @@ export function CryptoPortfolioCommandCenter({
   initialOrderHistory?: CoinbaseOrderHistory;
   initialTradingCosts?: CoinbaseTradingCostSummary;
   capitalPolicies?: CoinbaseCapitalPolicy[];
+  navigation?: ReactNode;
+  accountEvidence?: ReactNode;
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [refreshing, setRefreshing] = useState(false);
@@ -971,15 +981,16 @@ export function CryptoPortfolioCommandCenter({
     <section className="crypto-command" aria-labelledby="crypto-command-title">
       <motion.header
         className="crypto-command-hero"
+        id="account-overview"
         initial={false}
         animate={{ opacity: 1, y: 0 }}
       >
         <div>
-          <p className="eyebrow">ARBION PORTFOLIO INTELLIGENCE</p>
+          <p className="eyebrow">COINBASE · CONNECTED ACCOUNT</p>
           <h1 id="crypto-command-title">{snapshot.account.display_name}</h1>
           <p>
-            Coinbase holdings meet venue-stamped market observations in one
-            connected trading command surface.
+            Your Coinbase holdings, with source-stamped market observations and
+            saved account evidence.
           </p>
         </div>
         <div className="crypto-command-actions">
@@ -998,6 +1009,8 @@ export function CryptoPortfolioCommandCenter({
           <small>Auto-refreshes every 30 seconds</small>
         </div>
       </motion.header>
+
+      {navigation}
 
       {refreshError && (
         <p className="crypto-command-error" role="alert">
@@ -1048,6 +1061,158 @@ export function CryptoPortfolioCommandCenter({
                 : "Partial—no estimates"}
           </small>
         </motion.article>
+      </section>
+
+      {accountEvidence}
+
+      <section
+        className="crypto-position-ledger"
+        aria-labelledby="crypto-position-title"
+      >
+        <header>
+          <div>
+            <p className="eyebrow">CONNECTED HOLDINGS</p>
+            <h2 id="crypto-position-title">Holdings</h2>
+          </div>
+          <span>
+            {snapshot.holdings_state === "UNAVAILABLE"
+              ? "Assets unavailable"
+              : `${snapshot.total_positions} assets`}
+          </span>
+        </header>
+        {snapshot.holdings_state !== "UNAVAILABLE" &&
+          snapshot.positions.length > 0 && (
+            <p
+              className="command-data-scroll-hint"
+              id="crypto-holdings-scroll-hint"
+            >
+              Scroll horizontally to review quantities, availability and every
+              source field.
+            </p>
+          )}
+        {snapshot.holdings_state === "UNAVAILABLE" ? (
+          <p className="crypto-empty" role="status">
+            Coinbase’s holdings feed is temporarily unavailable. This account
+            remains connected; Arbion has not replaced or cleared any holdings.
+          </p>
+        ) : snapshot.positions.length === 0 ? (
+          <p className="crypto-empty">
+            Coinbase reported no non-zero digital-asset positions.
+          </p>
+        ) : (
+          <div
+            className="crypto-position-table"
+            role="region"
+            aria-label="Coinbase holdings table"
+            aria-describedby="crypto-holdings-scroll-hint"
+            tabIndex={0}
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Quantity</th>
+                  <th>Avg. purchase price</th>
+                  <th>Current price</th>
+                  <th>24h change</th>
+                  <th>Market value</th>
+                  <th>Bid / Ask</th>
+                  <th>Total return</th>
+                  <th>Evidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {snapshot.positions.map((position) => (
+                  <tr key={position.symbol}>
+                    <td>
+                      <strong>{position.symbol}</strong>
+                      <small>{position.pricing_status}</small>
+                    </td>
+                    <td>
+                      <strong>{quantity(position.quantity)}</strong>
+                      <small>
+                        {position.available_quantity === undefined
+                          ? "Availability not supplied"
+                          : `${quantity(position.available_quantity)} available`}
+                        {position.unavailable_to_trade_quantity === undefined
+                          ? ""
+                          : ` · ${quantity(position.unavailable_to_trade_quantity)} staked / unavailable`}
+                      </small>
+                    </td>
+                    <td>
+                      <strong>—</strong>
+                      <small>Not supplied by Coinbase</small>
+                    </td>
+                    <td>
+                      <strong>{money(position.unit_price)}</strong>
+                      <small>
+                        {position.valuation_basis ===
+                        "COINBASE_USDC_USD_REDEMPTION"
+                          ? "USDC 1:1 reference"
+                          : "Coinbase Exchange last trade"}
+                      </small>
+                    </td>
+                    <td className={movementClass(position.position_change_24h)}>
+                      <strong>
+                        {signedMoney(position.position_change_24h)}
+                      </strong>
+                      <small>
+                        {signedPercent(position.change_percent_24h)} · position
+                      </small>
+                    </td>
+                    <td>{money(position.market_value)}</td>
+                    <td>
+                      {position.bid || position.ask
+                        ? `${money(position.bid)} / ${money(position.ask)}`
+                        : "—"}
+                    </td>
+                    <td>
+                      <strong>—</strong>
+                      <small>Cost basis unavailable</small>
+                    </td>
+                    <td>
+                      {position.provenance ? (
+                        <>
+                          <strong>
+                            {position.provenance.venue?.replaceAll("_", " ")}
+                          </strong>
+                          <small>
+                            {position.provenance.quality
+                              .replaceAll("_", " ")
+                              .toLowerCase()}{" "}
+                            ·{" "}
+                            {timestamp(
+                              position.provenance.provider_timestamp,
+                              browserTimeReady,
+                            )}
+                          </small>
+                        </>
+                      ) : (
+                        <small>
+                          {position.valuation_basis ===
+                          "COINBASE_USDC_USD_REDEMPTION"
+                            ? "Coinbase USDC · 1:1 USD redemption reference"
+                            : "No approved USD product"}
+                        </small>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="crypto-position-note">
+          Total holdings include Coinbase App wallets and vaults. Staked /
+          unavailable is the difference between that inventory and the quantity
+          Advanced Trade explicitly reports as tradable; it can include rewards
+          balances, staking, vaults, open-order holds, or other provider
+          restrictions. Coinbase spot does not supply authoritative tax-lot cost
+          basis through this connection, so Arbion leaves purchase price and
+          total return blank instead of inferring them from partial fill
+          history. Current prices and 24h movement use Coinbase Exchange
+          observations and are not executable quotes.
+        </p>
       </section>
 
       <section className="crypto-command-grid">
@@ -1101,7 +1266,7 @@ export function CryptoPortfolioCommandCenter({
           <footer>
             Allocation uses approved USD market observations and Coinbase&apos;s
             1:1 USDC redemption reference. Other unpriced assets remain visible
-            below.
+            in the holdings ledger.
           </footer>
         </motion.article>
 
@@ -2131,140 +2296,6 @@ export function CryptoPortfolioCommandCenter({
           Coinbase order IDs, trade IDs, entry IDs, or pagination tokens.
         </footer>
       </motion.section>
-
-      <section
-        className="crypto-position-ledger"
-        aria-labelledby="crypto-position-title"
-      >
-        <header>
-          <div>
-            <p className="eyebrow">CONNECTED HOLDINGS</p>
-            <h2 id="crypto-position-title">Position ledger</h2>
-          </div>
-          <span>
-            {snapshot.holdings_state === "UNAVAILABLE"
-              ? "Assets unavailable"
-              : `${snapshot.total_positions} assets`}
-          </span>
-        </header>
-        {snapshot.holdings_state === "UNAVAILABLE" ? (
-          <p className="crypto-empty" role="status">
-            Coinbase’s holdings feed is temporarily unavailable. This account
-            remains connected; Arbion has not replaced or cleared any holdings.
-          </p>
-        ) : snapshot.positions.length === 0 ? (
-          <p className="crypto-empty">
-            Coinbase reported no non-zero digital-asset positions.
-          </p>
-        ) : (
-          <div className="crypto-position-table" role="region" tabIndex={0}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Asset</th>
-                  <th>Quantity</th>
-                  <th>Avg. purchase price</th>
-                  <th>Current price</th>
-                  <th>24h change</th>
-                  <th>Market value</th>
-                  <th>Bid / Ask</th>
-                  <th>Total return</th>
-                  <th>Evidence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {snapshot.positions.map((position) => (
-                  <tr key={position.symbol}>
-                    <td>
-                      <strong>{position.symbol}</strong>
-                      <small>{position.pricing_status}</small>
-                    </td>
-                    <td>
-                      <strong>{quantity(position.quantity)}</strong>
-                      <small>
-                        {position.available_quantity === undefined
-                          ? "Availability not supplied"
-                          : `${quantity(position.available_quantity)} available`}
-                        {position.unavailable_to_trade_quantity === undefined
-                          ? ""
-                          : ` · ${quantity(position.unavailable_to_trade_quantity)} staked / unavailable`}
-                      </small>
-                    </td>
-                    <td>
-                      <strong>—</strong>
-                      <small>Not supplied by Coinbase</small>
-                    </td>
-                    <td>
-                      <strong>{money(position.unit_price)}</strong>
-                      <small>
-                        {position.valuation_basis ===
-                        "COINBASE_USDC_USD_REDEMPTION"
-                          ? "USDC 1:1 reference"
-                          : "Coinbase Exchange last trade"}
-                      </small>
-                    </td>
-                    <td className={movementClass(position.position_change_24h)}>
-                      <strong>
-                        {signedMoney(position.position_change_24h)}
-                      </strong>
-                      <small>
-                        {signedPercent(position.change_percent_24h)} · position
-                      </small>
-                    </td>
-                    <td>{money(position.market_value)}</td>
-                    <td>
-                      {position.bid || position.ask
-                        ? `${money(position.bid)} / ${money(position.ask)}`
-                        : "—"}
-                    </td>
-                    <td>
-                      <strong>—</strong>
-                      <small>Cost basis unavailable</small>
-                    </td>
-                    <td>
-                      {position.provenance ? (
-                        <>
-                          <strong>
-                            {position.provenance.venue?.replaceAll("_", " ")}
-                          </strong>
-                          <small>
-                            {position.provenance.quality
-                              .replaceAll("_", " ")
-                              .toLowerCase()}{" "}
-                            ·{" "}
-                            {timestamp(
-                              position.provenance.provider_timestamp,
-                              browserTimeReady,
-                            )}
-                          </small>
-                        </>
-                      ) : (
-                        <small>
-                          {position.valuation_basis ===
-                          "COINBASE_USDC_USD_REDEMPTION"
-                            ? "Coinbase USDC · 1:1 USD redemption reference"
-                            : "No approved USD product"}
-                        </small>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <p className="crypto-position-note">
-          Total holdings include Coinbase App wallets and vaults. Staked /
-          unavailable is the difference between that inventory and the quantity
-          Advanced Trade explicitly reports as tradable; it can include rewards
-          balances, staking, vaults, open-order holds, or other provider
-          restrictions. Coinbase spot does not supply authoritative tax-lot cost
-          basis through this connection, so Arbion leaves purchase price and
-          total return blank instead of inferring them from partial fill
-          history. Current prices and 24h movement use Coinbase Exchange
-          observations and are not executable quotes.
-        </p>
-      </section>
 
       <CoinbaseOrderPreview
         accountID={accountID}
