@@ -185,11 +185,15 @@ export function MarketWatchlist({
   }
 
   return (
-    <section className="market-watchlist" aria-labelledby="watchlist-title">
+    <section
+      className="market-watchlist"
+      id="market-watchlist"
+      aria-labelledby="watchlist-title"
+    >
       <header className="market-watchlist-header">
         <div>
           <p className="eyebrow">DURABLE VENUE WATCHLIST</p>
-          <h2 id="watchlist-title">Your market radar.</h2>
+          <h2 id="watchlist-title">Your watchlist</h2>
           <p>
             Save up to {data.max_items} crypto assets. Prices are current,
             keyless Coinbase Exchange observations—not portfolio positions or

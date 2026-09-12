@@ -338,7 +338,7 @@ export function MarketCommandSurface({
       <header>
         <div>
           <p className="eyebrow">LIVE READ-ONLY SURFACE</p>
-          <h2 id="live-markets-title">Pull the signal. Keep the source.</h2>
+          <h2 id="live-markets-title">Market research</h2>
         </div>
         <p>
           Values load only from configured providers. Every observation carries
@@ -349,6 +349,8 @@ export function MarketCommandSurface({
       <div className="live-market-grid">
         <motion.article
           className="live-market-panel equity"
+          id="market-equities"
+          aria-labelledby="market-equities-title"
           initial={false}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.2 }}
@@ -363,7 +365,7 @@ export function MarketCommandSurface({
                   : "STANDBY"}
             </strong>
           </div>
-          <h3>Equity and options desk</h3>
+          <h3 id="market-equities-title">Equity and options desk</h3>
           <p>
             Broker-entitled observations stay read-only and account-scoped. Feed
             quality is taken from Schwab&apos;s response.
@@ -524,6 +526,8 @@ export function MarketCommandSurface({
 
         <motion.article
           className="live-market-panel crypto"
+          id="market-crypto"
+          aria-labelledby="market-crypto-title"
           initial={false}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.2 }}
@@ -533,7 +537,7 @@ export function MarketCommandSurface({
             <span>02 · CRYPTO</span>
             <strong>{cryptoEnabled ? "COINBASE LIVE" : "STANDBY"}</strong>
           </div>
-          <h3>Live venue board</h3>
+          <h3 id="market-crypto-title">Live venue board</h3>
           <p>
             Keyless Coinbase Exchange snapshots refresh every five seconds. They
             describe one venue and never represent an executable Arbion order.
@@ -594,6 +598,8 @@ export function MarketCommandSurface({
 
         <motion.article
           className="live-market-panel filings"
+          id="market-filings"
+          aria-labelledby="market-filings-title"
           initial={false}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.2 }}
@@ -603,7 +609,7 @@ export function MarketCommandSurface({
             <span>03 · INSIDER FILINGS</span>
             <strong>{filingsEnabled ? "SEC EDGAR" : "STANDBY"}</strong>
           </div>
-          <h3>Primary-source evidence</h3>
+          <h3 id="market-filings-title">Primary-source evidence</h3>
           <p>Forms 3, 4, and 5 from EDGAR remain the authoritative record.</p>
           <form className="market-query" onSubmit={loadFilings}>
             <label htmlFor="issuer-cik">Issuer CIK</label>
