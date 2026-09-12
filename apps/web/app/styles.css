@@ -127,6 +127,8 @@ body {
   width: min(154px, 38vw);
 }
 .app-navigation {
+  /* Keep tab offsetLeft in the same coordinate space as this scrollport. */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -21408,6 +21410,9 @@ main:has(> .app-page-header) {
     min-block-size: 44px;
     align-items: center;
     touch-action: manipulation;
+  }
+  .app-main-content-target {
+    scroll-margin-block-start: max(160px, 10rem);
   }
   .journal-entry {
     scroll-margin-block-start: 136px;

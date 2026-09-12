@@ -283,49 +283,56 @@ describe("persistent connection navigation health", () => {
     ).toHaveTextContent("Portfolio selected");
   });
 
-  it("keeps the current tab visible when the navigation viewport resizes", () => {
-    let resizeCallback: ResizeObserverCallback | undefined;
-    const disconnect = vi.fn();
-    class NavigationResizeObserver {
-      constructor(callback: ResizeObserverCallback) {
-        resizeCallback = callback;
+  it.each([
+    { viewport: 320, content: 960, start: 700, width: 80, expected: 460 },
+    { viewport: 685, content: 743, start: 533, width: 123, expected: 0 },
+    { viewport: 685, content: 743, start: 659, width: 77, expected: 51 },
+  ])(
+    "keeps tab $start visible in a $viewport scrollport without excess movement",
+    ({ viewport, content, start, width, expected }) => {
+      let resizeCallback: ResizeObserverCallback | undefined;
+      const disconnect = vi.fn();
+      class NavigationResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallback = callback;
+        }
+        observe() {}
+        disconnect() {
+          disconnect();
+        }
       }
-      observe() {}
-      disconnect() {
-        disconnect();
-      }
-    }
-    vi.stubGlobal("ResizeObserver", NavigationResizeObserver);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ connections: [connection()] }),
-      }),
-    );
-    const { unmount } = render(<AppNavigation />);
-    const navigation = screen.getByRole("navigation", {
-      name: "Application navigation",
-    });
-    const active = screen.getByRole("link", { name: "Portfolio" });
-    Object.defineProperties(navigation, {
-      clientWidth: { configurable: true, value: 320 },
-      scrollWidth: { configurable: true, value: 960 },
-    });
-    Object.defineProperties(active, {
-      offsetLeft: { configurable: true, value: 700 },
-      offsetWidth: { configurable: true, value: 80 },
-    });
+      vi.stubGlobal("ResizeObserver", NavigationResizeObserver);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ connections: [connection()] }),
+        }),
+      );
+      const { unmount } = render(<AppNavigation />);
+      const navigation = screen.getByRole("navigation", {
+        name: "Application navigation",
+      });
+      const active = screen.getByRole("link", { name: "Portfolio" });
+      Object.defineProperties(navigation, {
+        clientWidth: { configurable: true, value: viewport },
+        scrollWidth: { configurable: true, value: content },
+      });
+      Object.defineProperties(active, {
+        offsetLeft: { configurable: true, value: start },
+        offsetWidth: { configurable: true, value: width },
+      });
 
-    act(() => resizeCallback?.([], {} as ResizeObserver));
+      act(() => resizeCallback?.([], {} as ResizeObserver));
 
-    expect(navigation.scrollLeft).toBe(460);
-    expect(window.sessionStorage.getItem("arbion-navigation-scroll-left")).toBe(
-      "460",
-    );
-    unmount();
-    expect(disconnect).toHaveBeenCalledOnce();
-  });
+      expect(navigation.scrollLeft).toBe(expected);
+      expect(
+        window.sessionStorage.getItem("arbion-navigation-scroll-left"),
+      ).toBe(String(expected));
+      unmount();
+      expect(disconnect).toHaveBeenCalledOnce();
+    },
+  );
 
   it("does not show switching feedback for the current route or a new-tab click", () => {
     vi.stubGlobal(
