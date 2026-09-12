@@ -274,6 +274,7 @@ function DecisionReviewIndex({
   return (
     <section
       className="decision-review-index"
+      id="decision-review-index"
       aria-labelledby="decision-review-index-heading"
     >
       <header>
@@ -444,7 +445,7 @@ export function JournalList({
       <section className="journal-summary" aria-label="Recent journal summary">
         <article>
           <strong>{entries.length}</strong>
-          <span>Recent decisions</span>
+          <span>Decisions on this page</span>
         </article>
         <article>
           <strong>{allowed}</strong>
@@ -480,12 +481,18 @@ export function JournalList({
         </nav>
       )}
 
-      {!focused && (
-        <DecisionReviewIndex
-          cursor={cursor}
-          entries={visibleEntries}
-          filter={filter}
-        />
+      {entries.length > 0 && (
+        <div className="journal-view-context">
+          <p role="status">
+            {focused
+              ? "Showing the exact linked record. Your return context is preserved."
+              : `Showing ${visibleEntries.length} of ${entries.length} saved records on this page.`}
+          </p>
+          {!focused &&
+            visibleEntries.some((entry) => entry.source === "AI") && (
+              <a href="#decision-review-index">Compare AI conclusions ↓</a>
+            )}
+        </div>
       )}
 
       {entries.length === 0 ? (
@@ -493,8 +500,9 @@ export function JournalList({
           <p className="eyebrow">NO DECISIONS YET</p>
           <h2>Your journal is ready.</h2>
           <p>
-            Manually evaluate a READY PAPER or SHADOW automation, or enable its
-            guarded non-live schedule, and decision evidence will appear here.
+            Saved Paper and Shadow decisions will appear here as your configured
+            strategies evaluate. Review your automation setup to see what runs
+            next.
           </p>
           <Link href="/automations">View automations</Link>
         </section>
@@ -525,7 +533,7 @@ export function JournalList({
             return (
               <article
                 aria-labelledby={`decision-${entry.id}-title`}
-                className="journal-entry"
+                className={`journal-entry${reviewRequired ? " is-review" : ""}`}
                 id={`decision-${entry.id}`}
                 key={entry.id}
                 tabIndex={-1}
@@ -682,6 +690,14 @@ export function JournalList({
             );
           })}
         </section>
+      )}
+
+      {!focused && (
+        <DecisionReviewIndex
+          cursor={cursor}
+          entries={visibleEntries}
+          filter={filter}
+        />
       )}
     </>
   );

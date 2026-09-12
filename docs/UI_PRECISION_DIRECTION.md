@@ -150,3 +150,27 @@ account entry panels no longer start hidden or wait through staggered reveals.
 Non-landing Motion defaults are 180ms; the public storytelling pace is unchanged.
 Verify slow streaming and final content retain identical header geometry, along
 with desktop, narrow mobile, enlarged text and existing semantic warning states.
+
+### Activity continuation
+
+The Decision Journal now opens as a saved-record workspace with a compact heading,
+one page-scoped count strip, readable wrapping filters and explicit visible-result
+context. Saved decisions precede the longer AI comparison index; a direct anchor
+reaches the unchanged comparison evidence without hiding its attention states.
+Charcoal record surfaces use the shared palette, while Paper/Shadow labels and the
+existing review predicate retain their distinct meaning. Review-required records
+stay open automatically and receive an amber edge. Exact record links, copy actions,
+account identity, rationale, risk, execution and mandate evidence remain intact.
+
+The server's owner-scoped no-store request, authentication redirect, exact-record
+identity checks and cursor/filter return URLs are unchanged. Regression tests cover
+missing, substituted and ambiguous exact evidence separately from successful empty
+pages. Empty guidance explains the saved activity path without inviting a manual
+cycle. No provider refresh, model call, financial calculation or mutation is added.
+
+Visual verification uses labeled local fixtures for saved, empty, filtered-empty,
+focused, unavailable, long-label and missing-provenance states. Verify desktop,
+narrow 390px/320px frames, doubled root text and direct comparison-link clearance.
+Temporary fixture routes must be removed before the final production build.
+An expired production session is a protected-page visual QA limitation, not a reason
+to bypass authentication or replace saved owner evidence with illustrative data.

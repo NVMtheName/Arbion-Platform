@@ -26,18 +26,20 @@ function JournalUnavailable({
   return (
     <main className="journal-page command-content-continuity">
       <AppPageHeader contentHeadingId="activity-page-title" />
-      <p className="eyebrow">DECISION JOURNAL</p>
-      <h1 id="activity-page-title">
-        {exact ? "Exact record unavailable" : "Journal unavailable"}
-      </h1>
-      <p className="lede">
-        {exact
-          ? "This owner-scoped record link is invalid, unavailable, or outside this account. Arbion does not reveal or substitute another record."
-          : "Arbion could not load this page of activity. Return to the newest entries and try again."}
-      </p>
-      <Link className="button-link" href={returnHref}>
-        {exact ? "Return to journal context" : "Newest entries"}
-      </Link>
+      <section className="journal-hero">
+        <p className="eyebrow">SAVED ACTIVITY</p>
+        <h1 id="activity-page-title">
+          {exact ? "Exact record unavailable" : "Journal unavailable"}
+        </h1>
+        <p className="lede">
+          {exact
+            ? "This owner-scoped record link is invalid, unavailable, or outside this account. Arbion does not reveal or substitute another record."
+            : "Arbion could not load this page of activity. Return to the newest entries and try again."}
+        </p>
+        <Link className="button-link" href={returnHref}>
+          {exact ? "Return to journal context" : "Newest entries"}
+        </Link>
+      </section>
     </main>
   );
 }
@@ -84,21 +86,23 @@ export default async function ActivityPage({
   return (
     <main className="journal-page command-content-continuity">
       <AppPageHeader contentHeadingId="activity-page-title" />
-      <p className="eyebrow">DECISION JOURNAL</p>
-      <h1 id="activity-page-title">
-        {decision
-          ? "One immutable decision, directly linked."
-          : "Every decision, in context."}
-      </h1>
-      <p className="lede">
-        {decision
-          ? "This durable owner-scoped view remains available after newer activity moves the record beyond the newest journal page."
-          : "Review what each strategy proposed, how the deterministic risk gate responded, and what the non-live adapter recorded."}
-      </p>
+      <section className="journal-hero">
+        <p className="eyebrow">SAVED ACTIVITY</p>
+        <h1 id="activity-page-title">
+          {decision ? "Decision record" : "Decision journal"}
+        </h1>
+        <p className="lede">
+          {decision
+            ? "The exact saved decision, with its original account, rationale, and risk evidence."
+            : "What your strategies concluded, how risk checks responded, and what was recorded."}
+        </p>
+      </section>
       <p className="journal-safety">
         <strong>READ-ONLY · LIVE EXECUTION UNAVAILABLE</strong>
-        PAPER entries are simulations. SHADOW entries show what Arbion would
-        have submitted. Neither mode sends a broker order.
+        <span>
+          PAPER entries are simulations. SHADOW entries show what Arbion would
+          have submitted. Neither mode sends a broker order.
+        </span>
       </p>
 
       <JournalList
