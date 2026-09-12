@@ -2495,7 +2495,7 @@ button:disabled {
   background: rgb(var(--surface-recessed-rgb) / 0.88);
 }
 .strategy-fleet-command-deck > ol > li.is-paper {
-  border-color: rgba(116, 144, 255, 0.25);
+  border-color: rgb(var(--surface-paper-rgb) / 0.25);
   background: rgb(var(--surface-raised-rgb) / 0.88);
 }
 .strategy-fleet-command-deck > ol > li.needs-review {
@@ -2528,29 +2528,29 @@ button:disabled {
 }
 .strategy-fleet-command-deck > ol > li > header > span {
   padding: 5px 8px;
-  border: 1px solid rgba(25, 201, 214, 0.27);
+  border: 1px solid rgb(var(--surface-shadow-rgb) / 0.27);
   border-radius: 999px;
-  color: #7ce5ec;
+  color: var(--surface-shadow);
   font-size: 0.58rem;
   font-weight: 780;
   text-transform: uppercase;
 }
 .strategy-fleet-command-deck > ol > li.is-paper > header > span {
-  border-color: rgba(116, 144, 255, 0.34);
-  color: #a9bcff;
+  border-color: rgb(var(--surface-paper-rgb) / 0.34);
+  color: var(--surface-paper);
 }
 .strategy-fleet-command-decision {
   display: grid;
   gap: 5px;
   margin: 16px 0 12px;
   padding: 15px;
-  border-left: 3px solid #19c9d6;
+  border-left: 3px solid var(--surface-shadow);
   border-radius: 4px 12px 12px 4px;
-  background: rgba(25, 201, 214, 0.07);
+  background: rgb(var(--surface-shadow-rgb) / 0.07);
 }
 .is-paper > .strategy-fleet-command-decision {
-  border-left-color: #7490ff;
-  background: rgba(116, 144, 255, 0.08);
+  border-left-color: var(--surface-paper);
+  background: rgb(var(--surface-paper-rgb) / 0.08);
 }
 .strategy-fleet-command-decision > span,
 .strategy-fleet-command-decision time {
@@ -2612,7 +2612,7 @@ button:disabled {
   background: rgb(var(--surface-recessed-rgb) / 0.72);
 }
 .is-paper > .strategy-fleet-quote-provenance {
-  border-color: rgba(116, 144, 255, 0.22);
+  border-color: rgb(var(--surface-paper-rgb) / 0.22);
   background: rgb(var(--surface-raised-rgb) / 0.74);
 }
 .strategy-fleet-quote-provenance.is-legacy-unavailable,
@@ -2915,7 +2915,7 @@ button:disabled {
   background: rgb(var(--surface-recessed-rgb) / 0.76);
 }
 .strategy-fleet-quote-coverage-engines > li.is-paper {
-  border-color: rgba(116, 144, 255, 0.24);
+  border-color: rgb(var(--surface-paper-rgb) / 0.24);
   background: rgb(var(--surface-raised-rgb) / 0.76);
 }
 .strategy-fleet-quote-coverage-engines > li.is-attention,
@@ -3069,7 +3069,7 @@ button:disabled {
   background: rgb(var(--surface-recessed-rgb) / 0.72);
 }
 .strategy-fleet-exposure-outcomes.is-paper {
-  border-color: rgba(116, 144, 255, 0.22);
+  border-color: rgb(var(--surface-paper-rgb) / 0.22);
   background: rgb(var(--surface-raised-rgb) / 0.74);
 }
 .strategy-fleet-exposure-outcomes.is-unavailable {
@@ -3119,7 +3119,7 @@ button:disabled {
   text-transform: uppercase;
 }
 .strategy-fleet-exposure-outcomes.is-paper > summary > span:last-child {
-  color: #a9bcff;
+  color: var(--surface-paper);
 }
 .strategy-fleet-exposure-outcomes.is-unavailable > summary > span:last-child {
   color: #e1bd79;
@@ -11425,12 +11425,15 @@ button:disabled {
   gap: 16px;
   padding: 18px;
   border: 1px solid var(--surface-border);
-  border-left: 3px solid #4d9872;
+  border-left: 3px solid var(--surface-border);
   border-radius: 14px;
   background: rgb(var(--surface-recessed-rgb) / 0.9);
 }
+.decision-review-index > ol > li.is-paper {
+  border-left-color: var(--surface-paper);
+}
 .decision-review-index > ol > li.is-shadow {
-  border-left-color: #7863ad;
+  border-left-color: var(--surface-shadow);
 }
 .decision-review-index > ol > li > header > div {
   display: grid;
@@ -18787,12 +18790,12 @@ h1 {
   color: #e1bd79;
 }
 .ai-engine-badges .is-shadow {
-  border-color: rgba(25, 201, 214, 0.26);
-  color: #65dce5;
+  border-color: rgb(var(--surface-shadow-rgb) / 0.3);
+  color: var(--surface-shadow);
 }
 .ai-engine-badges .is-paper {
-  border-color: rgba(94, 224, 160, 0.3);
-  color: #70e1a5;
+  border-color: rgb(var(--surface-paper-rgb) / 0.3);
+  color: var(--surface-paper);
 }
 .ai-engine-grid dl {
   display: grid;
@@ -18875,8 +18878,8 @@ h1 {
   line-height: 1.45;
 }
 .ai-engine-evidence.is-paper {
-  border-color: rgba(94, 224, 160, 0.16);
-  background: rgba(94, 224, 160, 0.035);
+  border-color: rgb(var(--surface-paper-rgb) / 0.16);
+  background: rgb(var(--surface-paper-rgb) / 0.035);
 }
 .ai-engine-evidence-blockers {
   display: grid;

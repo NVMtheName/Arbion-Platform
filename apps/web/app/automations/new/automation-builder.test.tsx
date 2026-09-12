@@ -4,10 +4,12 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import AutomationBuilder from "./automation-builder";
+import { AutomationBuilderIntroduction } from "./automation-builder-introduction";
 
 function response(payload: unknown, ok = true) {
   return { ok, json: async () => payload } as Response;
@@ -73,6 +75,148 @@ describe("AutomationBuilder AI non-live launch", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("connects every setup link to the original form sections in order without mutations", async () => {
+    const requests = fetchFixtures(connected);
+    vi.stubGlobal("fetch", requests);
+    const { container } = render(
+      <>
+        <AutomationBuilderIntroduction />
+        <AutomationBuilder />
+      </>,
+    );
+    await screen.findByRole("option", { name: "GPT-5.6 Sol" });
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Create an AI engine",
+    );
+    expect(
+      screen.getByText(
+        /boundaries for Paper simulation or observation-only Shadow/,
+      ),
+    ).toBeInTheDocument();
+    const links = within(
+      screen.getByRole("navigation", { name: "Setup sections" }),
+    ).getAllByRole("link");
+    const ids = [
+      "builder-context",
+      "builder-mandate",
+      "builder-guardrails",
+      "builder-capital",
+    ];
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(
+      ids.map((id) => `#${id}`),
+    );
+    expect(
+      Array.from(container.querySelectorAll(".strategy-launch-section")).map(
+        (section) => section.id,
+      ),
+    ).toEqual(ids);
+    for (const id of ids) {
+      const section = container.querySelector(`#${id}`)!;
+      const heading = container.querySelector(
+        `#${section.getAttribute("aria-labelledby")}`,
+      );
+      expect(heading?.tagName).toBe("H2");
+      expect(section.contains(heading)).toBe(true);
+    }
+    expect(
+      screen.getByRole("region", { name: "Set risk limits" }),
+    ).toHaveTextContent("The AI cannot raise, remove, or reinterpret them.");
+    expect(
+      screen.getByText(/Configuration readiness is not market-data proof/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Neither mode can send a broker order/),
+    ).toBeInTheDocument();
+    expect(requests).toHaveBeenCalledTimes(5);
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.every(([, init]) => !init?.method || init.method === "GET"),
+    ).toBe(true);
+  });
+
+  it("preserves default values and exact field strings while changing only the local mode", async () => {
+    vi.stubGlobal("fetch", fetchFixtures(connected));
+    const { container } = render(<AutomationBuilder />);
+    await screen.findByRole("option", { name: "GPT-5.6 Sol" });
+    expect(screen.getByLabelText("AI learning mode")).toHaveValue("PAPER");
+    expect(screen.getByLabelText(/maximum per paper proposal/i)).toHaveValue(1);
+    expect(screen.getByLabelText(/maximum paper actions/i)).toHaveValue(6);
+    expect(
+      screen.getByLabelText(/run guarded evaluations automatically/i),
+    ).not.toBeChecked();
+    const reserve = screen.getByLabelText(
+      /minimum cash reserve/i,
+    ) as HTMLInputElement;
+    fireEvent.change(reserve, { target: { value: "1000.0000000001" } });
+    expect(reserve.value).toBe("1000.0000000001");
+    fireEvent.change(screen.getByLabelText("AI learning mode"), {
+      target: { value: "SHADOW" },
+    });
+    expect(container.querySelector("form")).toHaveAttribute(
+      "data-execution-mode",
+      "SHADOW",
+    );
+    expect(reserve.value).toBe("1000.0000000001");
+    expect(
+      screen.getByRole("button", { name: "Create AI Shadow draft" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole("region", {
+        name: /complete the saved configuration/i,
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/No Coinbase or Schwab order route exists/),
+    ).toBeInTheDocument();
+  });
+
+  it("retains all setup targets during loading without enabling creation", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    const { container } = render(
+      <>
+        <AutomationBuilderIntroduction />
+        <AutomationBuilder />
+      </>,
+    );
+    expect(
+      screen.getByText(/loading your command center connections/i),
+    ).toBeInTheDocument();
+    expect(container.querySelectorAll(".strategy-launch-section")).toHaveLength(
+      4,
+    );
+    expect(
+      screen.getByRole("button", { name: "Create AI Paper draft" }),
+    ).toBeDisabled();
+  });
+
+  it("preserves the unavailable warning and disabled draft action on a load failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("Illustrative unavailable response");
+      }),
+    );
+    const { container } = render(
+      <>
+        <AutomationBuilderIntroduction />
+        <AutomationBuilder />
+      </>,
+    );
+    expect(
+      await screen.findByText("Connections could not be loaded."),
+    ).toHaveClass("form-error");
+    expect(container.querySelectorAll(".strategy-launch-section")).toHaveLength(
+      4,
+    );
+    expect(
+      screen.getByRole("button", { name: "Create AI Paper draft" }),
+    ).toBeDisabled();
   });
 
   it("directs a new owner to connect accounts and an AI decision provider", async () => {

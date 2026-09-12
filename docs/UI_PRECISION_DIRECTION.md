@@ -310,3 +310,37 @@ Exercise only anchors and native reference disclosures; do not mount or invoke
 live readiness, review, lifecycle, budget, schedule, breaker, model or trading
 controls for design QA. Remove fixtures before final build and release. Preserve
 the existing authentication boundary if a production session is signed out.
+
+### New automation setup and cross-page palette continuation
+
+The new Automation form uses the shared charcoal surfaces, cyan navigation and
+compact introduction. Four numbered anchors lead to the existing account/model,
+mandate, risk-limit and capital/schedule sections without reordering controls.
+Fields align at their labels, helper text wraps, controls have readable text and
+44px targets, and narrow layouts become one column. Paper and Shadow remain
+explicitly non-live. Defaults, decimal strings, validators, eligibility, request
+paths, handlers, readiness evidence, warnings and disabled actions are unchanged.
+
+Paper now consistently uses the shared blue mode token and Shadow the shared
+cyan token in Capital, Activity, engine badges, fleet cards, mandate identity and
+the builder. Modes are not health signals: success, warning, failure and missing
+evidence retain their separate semantic treatments. Fleet Paper cards keep the
+same neutral base surface as Shadow instead of a separate purple theme.
+
+The shared route arrival is a subtle opacity-only 120ms fade from 0.92 to 1,
+disabled for reduced-motion preferences. It never moves the header or gates
+interaction. Existing partial-prefetch loading boundaries, immediate pending-tab
+feedback, stable scrollbar gutter and route-independent header geometry remain;
+private account data is not cached to claim speed. The redundant Dashboard back
+link remains suppressed, while the Dashboard tab and meaningful contextual
+returns remain available. This is a transition-duration improvement, not an
+end-to-end server latency benchmark.
+
+The builder was checked with inert local mocks at desktop, narrow responsive
+documents and enlarged text, including long labels, loading, empty and unavailable
+states. Native collapsed selects retain platform text truncation at narrow widths.
+Keyboard anchors clear the fixed header. No real account, budget, schedule, model,
+provider or trading action was triggered for QA. Local fixtures are removed before
+the production build. Unit tests preserve defaults, exact strings, section order,
+warnings, disabled controls and mock request boundaries. Cross-page palette tests
+bind mode styles to shared tokens and retain status precedence.
