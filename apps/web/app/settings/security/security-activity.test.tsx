@@ -111,5 +111,28 @@ describe("SecurityActivity", () => {
     expect(
       screen.getByText(/password and MFA controls remain available/i),
     ).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Security activity could not be verified.",
+    );
+    expect(
+      screen.getByRole("region", { name: "Account security activity" }),
+    ).toHaveClass("is-review");
+  });
+
+  it("keeps an empty successful inventory distinct from unavailable evidence", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SecurityActivity initialActivities={[]} />);
+    expect(
+      screen.getByRole("heading", { name: "Saved security activity" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("No security activity is available yet."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Account security activity" }),
+    ).not.toHaveClass("is-review");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

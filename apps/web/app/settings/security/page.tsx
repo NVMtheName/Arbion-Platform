@@ -7,6 +7,7 @@ import {
   type SecurityActivityRecord,
 } from "./security-activity";
 import { SecurityControls, type SessionInventory } from "./security-controls";
+import { SecurityWorkspaceIntro } from "./security-workspace-intro";
 
 type User = {
   email: string;
@@ -85,15 +86,10 @@ export default async function SecurityPage() {
   return (
     <main className="connections-page security-page command-content-continuity">
       <AppPageHeader contentHeadingId="security-page-title" />
-      <p className="eyebrow">ACCOUNT SECURITY</p>
-      <h1 id="security-page-title">Protect your access.</h1>
-      <p className="security-note">
-        Signed in as {user.email}. Email verification is{" "}
-        {user.email_verified
-          ? "complete"
-          : "not yet enabled for private testing"}
-        .
-      </p>
+      <SecurityWorkspaceIntro
+        email={user.email}
+        emailVerified={user.email_verified}
+      />
       <SecurityControls
         initialMFAStatus={mfa}
         initialSessionInventory={sessionInventory}

@@ -145,6 +145,88 @@ describe("SecurityControls", () => {
     expect(
       screen.getByRole("button", { name: "Sign Out All Sessions" }),
     ).toBeEnabled();
+    expect(
+      screen.getByRole("region", { name: "Active browser sessions" }),
+    ).toHaveClass("is-review");
+  });
+
+  it("keeps all security sections directly addressable and dangerous controls explicit", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <SecurityControls
+        initialMFAStatus={{ enabled: true, recovery_codes_remaining: 0 }}
+      />,
+    );
+    expect(
+      screen.getByRole("region", { name: "Extra sign-in protection is on" }),
+    ).toHaveAttribute("id", "security-authenticator");
+    expect(
+      screen.getByRole("region", { name: "Change password" }),
+    ).toHaveAttribute("id", "security-password");
+    expect(
+      screen.getByRole("region", { name: "Active browser sessions" }),
+    ).toHaveAttribute("id", "security-sessions");
+    expect(
+      screen.getByText(/0 unused recovery codes remain/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disable MFA" })).toHaveClass(
+      "danger",
+    );
+    expect(
+      screen.getByRole("button", { name: "Sign Out All Sessions" }),
+    ).toHaveClass("danger");
+    expect(screen.getByLabelText("New password")).toHaveAttribute(
+      "minlength",
+      "12",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves the exact MFA step-up request and login transition", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <SecurityControls
+        initialMFAStatus={{ enabled: true, recovery_codes_remaining: 4 }}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Current password to disable MFA"), {
+      target: { value: "test-only-long-passphrase" },
+    });
+    fireEvent.change(screen.getByLabelText("Authenticator or recovery code"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Disable MFA" }));
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith("/login"),
+    );
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith("/api/auth/mfa/totp", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        current_password: "test-only-long-passphrase",
+        code: "123456",
+      }),
+    });
+  });
+
+  it("keeps every competing action disabled while a security request is pending", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {})),
+    );
+    render(<SecurityControls />);
+    fireEvent.change(screen.getByLabelText("Current password to enable MFA"), {
+      target: { value: "test-only-long-passphrase" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Set Up Authenticator" }),
+    );
+    expect(screen.getByRole("button", { name: "Preparing…" })).toBeDisabled();
+    screen
+      .getAllByRole("button")
+      .forEach((button) => expect(button).toBeDisabled());
   });
 
   it("enables authenticator MFA and shows recovery codes exactly once", async () => {

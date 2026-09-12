@@ -199,3 +199,26 @@ full-precision amounts, protected reserves, mixed currency, invalid decimals,
 unavailable/empty/disconnected inventories and keyboard archive access. Check
 header coordinates across both long and short states. Use only labeled local
 fixtures when production authentication has expired; remove them before release.
+
+### Security continuation
+
+Security now uses a compact reusable “Security & access” introduction and direct
+in-page links to authenticator, password, browser-session and saved-activity
+sections. The desktop MFA card spans the two adjacent control rows so its height
+does not force the sessions card below the entire MFA block. Narrow screens use
+the unchanged document order in one column. Labels, controls, session timestamps
+and activity categories are readable; the session-count surface uses neutral
+charcoal rather than green. Dangerous buttons retain explicit labels and a
+distinct warm warning treatment. Unavailable sessions and activity remain visible
+with review edges and their existing explanations; no panel is collapsed.
+
+The four owner-scoped no-store requests, authentication redirects, required-data
+failure behavior, session validation, UTC timestamps, activity mapping/cursors,
+MFA/password/session handlers, form requirements, busy/disabled states and recovery
+code lifecycle remain unchanged. The extracted introduction has no data requests
+or client state. This visual work does not strengthen security controls or imply
+compliance. Inert, clearly labeled local fixtures are for visual review only;
+never submit actual security actions, enter real credentials, or generate recovery
+codes for UI QA. Mocked unit tests verify request boundaries and transient flows.
+Remove fixtures before final build/commit, verify header geometry and anchor
+clearance at narrow/enlarged-text sizes, and record any signed-in QA limitation.

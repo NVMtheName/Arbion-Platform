@@ -379,13 +379,13 @@ export function SecurityActivity({
   return (
     <section
       id="security-activity"
-      className="security-activity"
+      className={`security-activity${available ? "" : " is-review"}`}
       aria-label="Account security activity"
     >
       <header>
         <div>
           <p className="eyebrow">ACCOUNT SECURITY ACTIVITY</p>
-          <h2>Every sensitive control change, preserved.</h2>
+          <h2>Saved security activity</h2>
           <p>
             Review access, provider connection, autonomy, approval, and
             emergency-control events from one append-only timeline.
@@ -395,7 +395,7 @@ export function SecurityActivity({
       </header>
 
       {!available ? (
-        <div className="security-activity-empty is-unavailable">
+        <div className="security-activity-empty is-unavailable" role="status">
           <strong>Security activity could not be verified.</strong>
           <p>Your password and MFA controls remain available.</p>
         </div>
