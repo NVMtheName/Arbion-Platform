@@ -3436,6 +3436,342 @@ main:has(> .app-page-header) > .eyebrow {
     grid-template-columns: 1fr;
   }
 }
+/* Account detail: identity and holdings before research, with saved warnings intact. */
+.account-detail-page .crypto-command {
+  margin-top: 0;
+}
+.account-detail-page .crypto-command :is(h2, h3, .crypto-safety-band strong) {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  min-width: 0;
+}
+.account-detail-page .eyebrow,
+.account-detail-page .command-kicker {
+  color: var(--surface-accent);
+}
+.account-detail-page :is(.account-workspace-intro, .crypto-command-hero) {
+  margin: 0 0 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
+  gap: 1.5rem;
+  align-items: start;
+}
+.account-detail-page :is(.account-workspace-intro, .crypto-command-hero) h1 {
+  max-width: 26ch;
+  margin: 0.5rem 0;
+  font-size: clamp(2rem, 3.5vw, 2.75rem);
+  line-height: 1.15;
+  letter-spacing: -0.045em;
+  overflow-wrap: anywhere;
+}
+.account-detail-page .crypto-command-hero > div:first-child > p:last-child {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.account-detail-page .crypto-command-actions {
+  min-width: 0;
+  gap: 0.5rem;
+}
+.account-detail-page .crypto-command-actions button {
+  min-height: 44px;
+  margin-top: 0;
+  border-color: var(--brand-cyan);
+  background: var(--brand-cyan);
+  color: var(--surface-base);
+  font-size: 1rem;
+}
+.account-detail-page .crypto-command-actions small {
+  margin: 0;
+  font-size: 0.875rem;
+}
+.account-section-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 1.5rem;
+  padding: 0.375rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  background: var(--surface-recessed);
+}
+.account-section-links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0.5rem 0.875rem;
+  border-radius: 8px;
+  color: var(--surface-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-decoration: none;
+}
+.account-section-links a:hover {
+  color: var(--surface-text);
+  background: var(--surface-raised);
+}
+.account-detail-page
+  :is(a, button, input, summary, [tabindex="0"]):focus-visible {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 3px;
+}
+.account-detail-page
+  :is(
+    #account-overview,
+    #crypto-position-title,
+    #holdings-command-title,
+    #dashboard-input-chain-title,
+    #account-sync-history-title,
+    #reconciliation-title
+  ) {
+  scroll-margin-top: 10rem;
+}
+.account-detail-page :is(.crypto-value-rail, .account-value-rail) {
+  display: grid;
+  gap: 0;
+  margin: 0 0 1.5rem;
+  overflow: visible;
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  background: var(--surface-raised);
+}
+.account-detail-page .account-value-rail {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.account-detail-page :is(.crypto-value-rail, .account-value-rail) article {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  min-height: 0;
+  min-width: 0;
+  padding: 1.25rem;
+  border: 0;
+  border-right: 1px solid var(--surface-border);
+  border-radius: 0;
+  background: none;
+}
+.account-detail-page
+  :is(.crypto-value-rail, .account-value-rail)
+  article:last-child {
+  border-right: 0;
+}
+.account-detail-page
+  :is(
+    .crypto-value-rail span,
+    .crypto-value-rail small,
+    .account-value-rail h2
+  ) {
+  margin: 0;
+  color: var(--surface-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.account-detail-page :is(.crypto-value-rail strong, .account-value-rail p) {
+  margin: 0;
+  color: var(--surface-text);
+  font-size: clamp(1.5rem, 2.2vw, 1.875rem);
+  line-height: 1.4;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.account-detail-page .account-overview-evidence {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 1rem;
+  margin: 0 0 1.5rem;
+}
+.account-overview-evidence :is(.dashboard-input-chain, .account-sync-history) {
+  min-width: 0;
+  margin: 0;
+  border-color: var(--surface-border);
+  background: var(--surface-raised);
+}
+.account-overview-evidence
+  :is(
+    .dashboard-input-chain.is-attention,
+    .dashboard-input-chain.is-unavailable,
+    .account-sync-history.is-unavailable,
+    .account-sync-history:has(.is-review)
+  ) {
+  border-color: #7c6540;
+}
+.account-overview-evidence
+  :is(
+    .dashboard-input-chain > header,
+    .account-sync-history > header,
+    .account-sync-history-evidence > summary,
+    .account-sync-history-evidence li > header
+  ) {
+  flex-wrap: wrap;
+  align-items: start;
+  gap: 0.75rem;
+}
+.account-overview-evidence
+  :is(
+    .dashboard-input-chain > header,
+    .account-sync-history > header,
+    .account-sync-history-current
+  ) {
+  padding: 1.25rem;
+}
+.account-overview-evidence
+  :is(.dashboard-input-chain, .account-sync-history)
+  h2 {
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+.account-overview-evidence
+  :is(
+    p,
+    small,
+    dt,
+    dd,
+    summary,
+    summary span,
+    footer,
+    strong,
+    .dashboard-input-chain-state,
+    .dashboard-input-chain-next,
+    .account-sync-history-current > div span,
+    .account-sync-history-evidence li > header span
+  ) {
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.account-overview-evidence :is(p, strong, span, small, dd, a, summary) {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-overflow: clip;
+}
+.account-overview-evidence .account-sync-history-current {
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+.account-overview-evidence .account-sync-history dl > div {
+  border-color: var(--surface-border);
+  background: var(--surface-recessed);
+}
+.account-overview-evidence .dashboard-input-chain details > summary {
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+.account-overview-evidence
+  .dashboard-input-chain
+  details
+  > summary
+  > :nth-child(n + 3) {
+  grid-column: 2;
+}
+.account-overview-evidence :is(button, a, summary) {
+  min-height: 44px;
+}
+.account-overview-evidence a {
+  display: inline-flex;
+  align-items: center;
+}
+.account-detail-page .crypto-position-ledger {
+  min-width: 0;
+  margin: 0 0 1.5rem;
+  padding: 1.5rem;
+  border-color: var(--surface-border);
+  background: linear-gradient(
+    145deg,
+    var(--surface-raised),
+    var(--surface-recessed)
+  );
+}
+.account-detail-page .crypto-position-ledger > header {
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.account-detail-page .crypto-position-ledger h2 {
+  font-size: 1.75rem;
+  line-height: 1.3;
+}
+.account-detail-page
+  :is(
+    .crypto-position-ledger > header > span,
+    .crypto-position-note,
+    .crypto-position-table th,
+    .crypto-position-table td small
+  ) {
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.account-detail-page .crypto-position-table {
+  margin-top: 0.75rem;
+}
+.account-detail-page .crypto-position-table table {
+  min-width: 1240px;
+}
+.account-detail-page .crypto-position-table :is(th, td) {
+  padding: 1rem;
+}
+.account-detail-page .crypto-position-table td:is(:first-child, :last-child) {
+  display: table-cell;
+}
+.account-detail-page .crypto-position-table td :is(strong, small) {
+  display: block;
+}
+.account-detail-page .crypto-position-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface-raised);
+}
+.account-detail-page .crypto-position-note {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 70rem) {
+  .account-detail-page .account-overview-evidence {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 50rem) {
+  .account-detail-page .crypto-command-hero {
+    grid-template-columns: 1fr;
+  }
+  .account-detail-page .crypto-command-actions {
+    justify-items: start;
+  }
+  .account-detail-page .crypto-pricing-state {
+    justify-self: start;
+  }
+  .account-detail-page :is(.crypto-value-rail, .account-value-rail) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .account-detail-page :is(.crypto-value-rail, .account-value-rail) article {
+    border: 0;
+    border-bottom: 1px solid var(--surface-border);
+  }
+}
+@media (max-width: 40rem) {
+  .account-section-links {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .account-detail-page :is(.crypto-value-rail, .account-value-rail),
+  .account-overview-evidence .account-sync-history dl {
+    grid-template-columns: 1fr;
+  }
+  .account-detail-page .crypto-position-ledger {
+    padding: 1rem;
+  }
+  .account-detail-page
+    :is(.crypto-value-rail, .account-value-rail)
+    article:last-child {
+    border-bottom: 0;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .landing-primary-action:hover {
     transform: none;

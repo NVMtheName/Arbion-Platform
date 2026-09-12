@@ -5,10 +5,12 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
+import { AccountDetailNavigation } from "./account-detail-navigation";
 
 import {
   CryptoPortfolioCommandCenter,
@@ -263,7 +265,92 @@ const venueStats: CryptoVenueStats = {
 describe("CryptoPortfolioCommandCenter", () => {
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("puts the account summary and holdings before research while retaining saved warnings", () => {
+    const request = vi.fn();
+    vi.stubGlobal("fetch", request);
+    render(
+      <>
+        <CryptoPortfolioCommandCenter
+          accountID="coinbase-1"
+          initialSnapshot={snapshot}
+          navigation={<AccountDetailNavigation portfolio="crypto" />}
+          accountEvidence={
+            <section aria-label="Saved account evidence">
+              <h2 id="dashboard-input-chain-title">
+                Input evidence needs review
+              </h2>
+              <h2 id="account-sync-history-title">Saved syncs</h2>
+            </section>
+          }
+        />
+        <h2 id="reconciliation-title">Reconciliation</h2>
+      </>,
+    );
+    const before = (a: Element, b: Element) =>
+      expect(
+        a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    const heading = screen.getByRole("heading", { name: "Coinbase Portfolio" });
+    const summary = screen.getByRole("region", { name: "Portfolio summary" });
+    const evidence = screen.getByRole("region", {
+      name: "Saved account evidence",
+    });
+    const holdings = screen.getByRole("region", { name: "Holdings" });
+    before(heading, summary);
+    before(summary, evidence);
+    before(evidence, holdings);
+    before(
+      holdings,
+      screen.getByRole("heading", { name: "24h venue movement" }),
+    );
+    const table = screen.getByRole("region", {
+      name: "Coinbase holdings table",
+    });
+    expect(table).toHaveAttribute(
+      "aria-describedby",
+      "crypto-holdings-scroll-hint",
+    );
+    expect(
+      within(holdings).getByText(/0.2 staked \/ unavailable/),
+    ).toBeVisible();
+    expect(screen.getByText("Input evidence needs review")).toBeVisible();
+    for (const link of within(
+      screen.getByRole("navigation", { name: "Account sections" }),
+    ).getAllByRole("link"))
+      expect(document.querySelector(link.getAttribute("href")!)).not.toBeNull();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("preserves the thirty-second account-scoped refresh and cancels it on unmount", async () => {
+    vi.useFakeTimers();
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        portfolio: snapshot,
+        live_execution_available: false,
+      }),
+    });
+    vi.stubGlobal("fetch", request);
+    const view = render(
+      <CryptoPortfolioCommandCenter
+        accountID="coinbase-1"
+        initialSnapshot={snapshot}
+      />,
+    );
+    await act(() => vi.advanceTimersByTimeAsync(29999));
+    expect(request).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(request).toHaveBeenCalledExactlyOnceWith(
+      "/api/accounts/coinbase-1/portfolio/crypto",
+      { cache: "no-store" },
+    );
+    view.unmount();
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
   it("shows observed value, source-stamped chart gaps, and the execution lock", () => {

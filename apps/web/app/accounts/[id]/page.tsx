@@ -8,6 +8,7 @@ import { formatExactMoney } from "../../exact-money";
 import { loadConnectionSyncAttemptHistory } from "../../settings/connections/connection-sync-attempt-history";
 import { loadAccountFinancialInputChain } from "./account-financial-input-chain";
 import { AccountSyncHistoryPanel } from "./account-sync-history-panel";
+import { AccountDetailNavigation } from "./account-detail-navigation";
 import { loadAccountSyncHistory } from "./account-sync-history";
 import {
   AccountCircuitBreakerControls,
@@ -121,6 +122,21 @@ export default async function AccountPage({
   )
     redirect("/login");
 
+  const accountEvidence = (
+    <div className="account-overview-evidence">
+      <FinancialInputChainSummary
+        projection={accountInputChain.projection}
+        available={accountInputChain.available}
+        scope="account"
+      />
+      <AccountSyncHistoryPanel
+        account={account}
+        initial={accountSyncHistory}
+        initialAttempts={connectionSyncAttempts}
+      />
+    </div>
+  );
+
   if (account.provider === "coinbase") {
     const portfolioResponse = await fetch(
       `${base}/api/accounts/${id}/portfolio/crypto`,
@@ -130,25 +146,23 @@ export default async function AccountPage({
     if (portfolioResponse.status === 404) notFound();
     if (!portfolioResponse.ok) {
       return (
-        <main className="connections-page crypto-account-page command-content-continuity">
-          <AppPageHeader backHref="/accounts" backLabel="Accounts" />
-          <FinancialInputChainSummary
-            projection={accountInputChain.projection}
-            available={accountInputChain.available}
-            scope="account"
+        <main className="connections-page crypto-account-page account-detail-page command-content-continuity">
+          <AppPageHeader
+            backHref="/accounts"
+            backLabel="Accounts"
+            contentHeadingId="account-page-title"
           />
-          <AccountSyncHistoryPanel
-            account={account}
-            initial={accountSyncHistory}
-            initialAttempts={connectionSyncAttempts}
-          />
-          <p className="eyebrow">COINBASE · READ-ONLY CONNECTION</p>
-          <h1>{account.display_name}</h1>
+          <section className="account-workspace-intro" id="account-overview">
+            <p className="eyebrow">COINBASE · READ-ONLY CONNECTION</p>
+            <h1 id="account-page-title">{account.display_name}</h1>
+          </section>
+          <AccountDetailNavigation portfolio="unavailable" />
           <p className="unavailable">
             Coinbase holdings could not be refreshed. Arbion has not substituted
             cached balances or estimated values.
           </p>
           <Link href="/connections">Review connection settings</Link>
+          {accountEvidence}
         </main>
       );
     }
@@ -357,19 +371,15 @@ export default async function AccountPage({
       initialVenueStatsCached = Boolean(venueStatsPayload.cached);
     }
     return (
-      <main className="connections-page crypto-account-page command-content-continuity">
-        <AppPageHeader backHref="/accounts" backLabel="Accounts" />
-        <FinancialInputChainSummary
-          projection={accountInputChain.projection}
-          available={accountInputChain.available}
-          scope="account"
-        />
-        <AccountSyncHistoryPanel
-          account={account}
-          initial={accountSyncHistory}
-          initialAttempts={connectionSyncAttempts}
+      <main className="connections-page crypto-account-page account-detail-page command-content-continuity">
+        <AppPageHeader
+          backHref="/accounts"
+          backLabel="Accounts"
+          contentHeadingId="crypto-command-title"
         />
         <CryptoPortfolioCommandCenter
+          navigation={<AccountDetailNavigation portfolio="crypto" />}
+          accountEvidence={accountEvidence}
           accountID={account.id}
           capitalPolicies={capitalPolicies}
           initialActivity={initialActivity}
@@ -456,21 +466,21 @@ export default async function AccountPage({
     priceBasis: position.price_basis,
   }));
   return (
-    <main className="connections-page portfolio-ledger-page schwab-account-page command-content-continuity">
-      <AppPageHeader backHref="/accounts" backLabel="Accounts" />
-      <p className="eyebrow">CHARLES SCHWAB · CONNECTED ACCOUNT</p>
-      <h1>{account.display_name}</h1>
-      <FinancialInputChainSummary
-        projection={accountInputChain.projection}
-        available={accountInputChain.available}
-        scope="account"
+    <main className="connections-page portfolio-ledger-page schwab-account-page account-detail-page command-content-continuity">
+      <AppPageHeader
+        backHref="/accounts"
+        backLabel="Accounts"
+        contentHeadingId="account-page-title"
       />
-      <AccountSyncHistoryPanel
-        account={account}
-        initial={accountSyncHistory}
-        initialAttempts={connectionSyncAttempts}
-      />
-      <section className="dashboard-grid">
+      <section className="account-workspace-intro" id="account-overview">
+        <p className="eyebrow">CHARLES SCHWAB · CONNECTED ACCOUNT</p>
+        <h1 id="account-page-title">{account.display_name}</h1>
+      </section>
+      <AccountDetailNavigation portfolio="broker" />
+      <section
+        className="dashboard-grid account-value-rail"
+        aria-label="Account summary"
+      >
         <article>
           <h2>Account Value</h2>
           <p>{show(balances.account_value)}</p>
@@ -484,6 +494,7 @@ export default async function AccountPage({
           <p>{show(balances.buying_power)}</p>
         </article>
       </section>
+      {accountEvidence}
       <PortfolioHoldingsLedger
         holdings={holdings}
         unavailableAccounts={pr.ok ? [] : [account.display_name]}
