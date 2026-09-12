@@ -369,6 +369,28 @@ visual QA. Focused tests retain the exact mock request boundary, confirmation
 requirements, pending state, failed responses, saved evidence and authentication.
 All local fixtures are removed before the production build and release.
 
+### Shared navigation coordinate audit
+
+The active-tab resolver uses each link's `offsetLeft` together with the
+navigation scrollport width. The navigation itself must be positioned relatively
+so that both measurements share a coordinate system. Without this containing
+block, desktop links were measured from the sticky header: a visible Connections
+tab at approximately 534px within its row was reported at 727px, producing excess
+scroll. This correction does not move the row, resize tabs or change the resolver,
+route requests, pending feedback or retained-scroll behavior.
+
+The two-row mobile header also needs its own main-content anchor clearance.
+The original 112px desktop offset left the heading under the 138px mobile header;
+the mobile target now reserves at least 160px and scales with root text size.
+Desktop clearance and all skip-link semantics remain unchanged.
+
+Verify with the actual shared header in a labeled, data-free local fixture.
+Responsive frames must retain already-visible tabs through breakpoint changes,
+scroll only enough to expose off-screen destinations, keep keyboard focus visible
+and place the content heading below the sticky header. Preserve reduced motion,
+the shared palette and all authenticated data boundaries. Remove fixtures before
+the final build; fixture geometry is not signed-in production evidence.
+
 ### Account entry and recovery continuation
 
 Login, invited registration, the MFA challenge, email verification and password

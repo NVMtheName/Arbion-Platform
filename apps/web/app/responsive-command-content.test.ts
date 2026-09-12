@@ -106,6 +106,21 @@ describe("signed-in command content continuity", () => {
     );
   });
 
+  it("measures tab offsets inside the navigation scrollport, not the sticky header", () => {
+    const styles = appSource("./styles.css");
+    const navigation = appSource("./app-navigation.tsx");
+    expect(styles).toMatch(/\.app-navigation\s*\{[^}]*position:\s*relative;/);
+    expect(navigation).toContain("activeDestination?.offsetLeft");
+    expect(navigation).toContain("viewportWidth: navigation.clientWidth");
+  });
+
+  it("clears the two-row mobile header when skipping to main content", () => {
+    const styles = appSource("./styles.css");
+    expect(styles).toMatch(
+      /@media \(max-width:\s*900px\)[\s\S]*?\.app-main-content-target\s*\{[^}]*scroll-margin-block-start:\s*max\(160px, 10rem\);/,
+    );
+  });
+
   it("turns dense owner evidence into scan-friendly narrow-screen cards", () => {
     const styles = appSource("./styles.css");
     const holdings = appSource("./accounts/portfolio-holdings-ledger.tsx");
