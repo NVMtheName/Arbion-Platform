@@ -443,10 +443,13 @@ export default function AutomationBuilder() {
     );
 
   return (
-    <form className="strategy-launch" onSubmit={submit}>
+    <form
+      className="strategy-launch"
+      data-execution-mode={executionMode}
+      onSubmit={submit}
+    >
       <section className="strategy-prerequisite ai-shadow-banner">
-        <p className="eyebrow">ARBION AUTONOMOUS ENGINE</p>
-        <strong>One intelligence layer. Every connected account.</strong>
+        <strong>Non-live modes only</strong>
         <p>
           Build the same bounded AI decision loop for Coinbase or Schwab. Choose
           an isolated simulated portfolio or observation-only Shadow evidence.
@@ -470,11 +473,15 @@ export default function AutomationBuilder() {
         </section>
       )}
 
-      <section className="strategy-launch-section">
+      <section
+        className="strategy-launch-section"
+        id="builder-context"
+        aria-labelledby="builder-context-title"
+      >
         <header>
           <span>01</span>
           <div>
-            <h2>Choose the live account context</h2>
+            <h2 id="builder-context-title">Choose the account &amp; model</h2>
             <p>
               Each account gets an isolated mandate, budget, journal, and kill
               switch.
@@ -561,11 +568,15 @@ export default function AutomationBuilder() {
         </div>
       </section>
 
-      <section className="strategy-launch-section">
+      <section
+        className="strategy-launch-section"
+        id="builder-mandate"
+        aria-labelledby="builder-mandate-title"
+      >
         <header>
           <span>02</span>
           <div>
-            <h2>Define the AI mandate</h2>
+            <h2 id="builder-mandate-title">Define the AI mandate</h2>
             <p>
               The model may choose only from these symbols and may never exceed
               the per-decision ceiling.
@@ -612,11 +623,15 @@ export default function AutomationBuilder() {
         </div>
       </section>
 
-      <section className="strategy-launch-section">
+      <section
+        className="strategy-launch-section"
+        id="builder-guardrails"
+        aria-labelledby="builder-guardrails-title"
+      >
         <header>
           <span>03</span>
           <div>
-            <h2>Set deterministic guardrails</h2>
+            <h2 id="builder-guardrails-title">Set risk limits</h2>
             <p>
               These limits are enforced by Arbion code after every model
               proposal. The AI cannot raise, remove, or reinterpret them.
@@ -715,11 +730,15 @@ export default function AutomationBuilder() {
         </div>
       </section>
 
-      <section className="strategy-launch-section">
+      <section
+        className="strategy-launch-section"
+        id="builder-capital"
+        aria-labelledby="builder-capital-title"
+      >
         <header>
           <span>04</span>
           <div>
-            <h2>Bind capital and monitoring</h2>
+            <h2 id="builder-capital-title">Assign capital &amp; schedule</h2>
             <p>
               The account budget is a hard boundary, not permission to use the
               rest of the portfolio.

@@ -138,7 +138,64 @@ describe("consistent application navigation", () => {
     expect(legacy).toContain("#ca6969");
     expect(legacy).toContain("#e6af47");
     expect(theme).toContain("prefers-reduced-motion: no-preference");
-    expect(theme).toContain("animation: app-content-arrive 160ms ease-out");
+    expect(theme).toContain("animation: app-content-arrive 120ms ease-out");
     expect(theme).toContain(".app-page-header-actions");
+  });
+
+  it("uses the same Paper and Shadow colors in setup, Capital, Activity and engine views", () => {
+    const legacy = readFileSync(
+      resolve(process.cwd(), "app/styles.css"),
+      "utf8",
+    );
+    const theme = readFileSync(
+      resolve(process.cwd(), "app/precision.css"),
+      "utf8",
+    );
+    const rules = (source: string, selector: string) => {
+      const start = source.indexOf(`${selector} {`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return source.slice(start, source.indexOf("}", start));
+    };
+    for (const mode of ["paper", "shadow"]) {
+      expect(rules(legacy, `.ai-engine-badges .is-${mode}`)).toContain(
+        `var(--surface-${mode})`,
+      );
+      expect(
+        rules(legacy, `.decision-review-index > ol > li.is-${mode}`),
+      ).toContain(`var(--surface-${mode})`);
+      expect(
+        rules(
+          theme,
+          `.capital-center-page .capital-reservation-callout span.is-${mode}`,
+        ),
+      ).toContain(`var(--surface-${mode})`);
+      expect(theme).toMatch(
+        new RegExp(
+          `\\[data-execution-mode="${mode.toUpperCase()}"\\] \\{\\s+border-left: 3px solid var\\(--surface-${mode}\\)`,
+        ),
+      );
+    }
+    expect(
+      rules(
+        theme,
+        '.automation-builder-page [data-execution-mode="PAPER"] .ai-shadow-banner',
+      ),
+    ).toContain("var(--surface-paper)");
+    expect(
+      rules(theme, ".automation-builder-page .ai-shadow-banner"),
+    ).toContain("var(--surface-shadow)");
+    // A mode is not a success/health signal. Existing warnings still override it.
+    expect(
+      legacy.indexOf(
+        ".strategy-fleet-exposure-outcomes.is-unavailable > summary > span:last-child",
+      ),
+    ).toBeGreaterThan(
+      legacy.indexOf(
+        ".strategy-fleet-exposure-outcomes.is-paper > summary > span:last-child",
+      ),
+    );
+    expect(rules(legacy, ".ai-engine-badges .is-monitoring")).toContain(
+      "#70e1a5",
+    );
   });
 });
