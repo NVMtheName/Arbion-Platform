@@ -5,7 +5,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 
-import { CapitalBudgetCenter } from "./capital-budget-center";
+import {
+  CapitalBudgetCenter,
+  type CapitalBucketView,
+} from "./capital-budget-center";
 
 const accounts = [
   {
@@ -242,6 +245,10 @@ describe("CapitalBudgetCenter", () => {
     );
     expect(account).toHaveTextContent("Simulation-only");
     expect(account).toHaveTextContent("Used by an active Paper simulation");
+    expect(within(account).getByText("PAPER · ACTIVE")).toHaveClass("is-paper");
+    expect(within(account).getByText("SHADOW · ACTIVE")).toHaveClass(
+      "is-shadow",
+    );
   });
 
   it("fails closed when the complete inventory cannot be loaded", () => {
@@ -288,5 +295,165 @@ describe("CapitalBudgetCenter", () => {
     expect(
       screen.getByText(/will not calculate account totals/),
     ).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Coinbase Prime" })).toHaveClass(
+      "is-review",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "incomplete exact-decimal",
+    );
+  });
+
+  it("links directly to the existing budget form without hiding account evidence", () => {
+    render(
+      <CapitalBudgetCenter
+        accounts={accounts}
+        buckets={[]}
+        reservations={[]}
+        strategies={[]}
+      />,
+    );
+    expect(
+      screen.getByRole("link", { name: "Create a budget ↓" }),
+    ).toHaveAttribute("href", "#create-capital-budget");
+    expect(
+      screen.getByRole("region", { name: "Create a trading budget" }),
+    ).toHaveAttribute("id", "create-capital-budget");
+    expect(
+      screen.getByRole("region", { name: "Coinbase Prime" }),
+    ).not.toHaveClass("is-review");
+    expect(
+      screen.getByRole("button", { name: "Create Capital Bucket" }),
+    ).toBeEnabled();
+  });
+
+  it("keeps an unavailable or empty inventory distinct from an actionable budget form", () => {
+    const { rerender } = render(
+      <CapitalBudgetCenter
+        accounts={accounts}
+        buckets={[]}
+        reservations={[]}
+        strategies={[]}
+        inventoryAvailable={false}
+      />,
+    );
+    expect(
+      screen.queryByRole("link", { name: "Create a budget ↓" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Create Capital Bucket" }),
+    ).not.toBeInTheDocument();
+    rerender(
+      <CapitalBudgetCenter
+        accounts={[]}
+        buckets={[]}
+        reservations={[]}
+        strategies={[]}
+      />,
+    );
+    expect(
+      screen.getByRole("link", { name: "Connect an account" }),
+    ).toHaveAttribute("href", "/connections#financial-accounts");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Create a budget ↓" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("visibly flags mixed currencies while retaining exact individual policies", () => {
+    const bucket: CapitalBucketView = {
+      id: "euro",
+      financialAccountID: "coinbase-account",
+      name: "Euro policy",
+      allocationType: "FIXED_AMOUNT",
+      allocationValue: "123.0000000001",
+      currency: "EUR",
+      protectedAmount: "3.0000000001",
+      isReserve: false,
+      status: "ACTIVE",
+    };
+    render(
+      <CapitalBudgetCenter
+        accounts={accounts}
+        buckets={[bucket]}
+        reservations={[]}
+        strategies={[]}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "will not combine them",
+    );
+    expect(screen.getByRole("region", { name: "Coinbase Prime" })).toHaveClass(
+      "is-review",
+    );
+    const card = screen.getByRole("article", { name: "Euro policy" });
+    expect(card).toHaveTextContent("EUR 123.0000000001");
+    expect(card).toHaveTextContent("EUR 3.0000000001");
+    expect(screen.getAllByText("Unavailable")).toHaveLength(3);
+  });
+
+  it("keeps released claims and archived policies outside active totals and actions", () => {
+    const bucket: CapitalBucketView = {
+      id: "archived",
+      financialAccountID: "coinbase-account",
+      name: "Old policy",
+      allocationType: "FIXED_AMOUNT",
+      allocationValue: "123.0000000001",
+      currency: "USD",
+      protectedAmount: "0",
+      isReserve: false,
+      status: "ARCHIVED",
+    };
+    render(
+      <CapitalBudgetCenter
+        accounts={accounts}
+        buckets={[bucket]}
+        reservations={[
+          {
+            id: "released",
+            strategyInstanceID: "old-instance",
+            financialAccountID: "coinbase-account",
+            capitalBucketID: "archived",
+            executionMode: "SHADOW",
+            reservationAmount: "123.0000000001",
+            currency: "USD",
+            reservationBasis: "BUCKET_FIXED_CAPACITY",
+            status: "RELEASED",
+            reservedAt: "2026-09-10T10:00:00Z",
+            releasedAt: "2026-09-11T10:00:00Z",
+          },
+        ]}
+        strategies={[]}
+      />,
+    );
+    expect(
+      screen.getByText("1 archived capital policies").closest("details"),
+    ).not.toHaveAttribute("open");
+    expect(screen.getByText("Old policy").closest("li")).toHaveTextContent(
+      "$123.0000000001",
+    );
+    expect(
+      screen.getByRole("region", { name: "Coinbase Prime" }),
+    ).toHaveTextContent("No active claims");
+    expect(
+      screen.queryByRole("article", { name: "Old policy" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("retains exact provider identity without assigning an unknown account a Schwab mark", () => {
+    render(
+      <CapitalBudgetCenter
+        accounts={[{ ...accounts[0], provider: "other-provider" }]}
+        buckets={[]}
+        reservations={[]}
+        strategies={[]}
+      />,
+    );
+    const account = screen.getByRole("region", { name: "Coinbase Prime" });
+    expect(account).toHaveTextContent("other-provider");
+    expect(account.querySelector(".provider-mark")).toHaveTextContent("·");
+    expect(account.querySelector(".provider-mark")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
   });
 });

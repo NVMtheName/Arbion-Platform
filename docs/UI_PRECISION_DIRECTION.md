@@ -174,3 +174,28 @@ narrow 390px/320px frames, doubled root text and direct comparison-link clearanc
 Temporary fixture routes must be removed before the final production build.
 An expired production session is a protected-page visual QA limitation, not a reason
 to bypass authentication or replace saved owner evidence with illustrative data.
+
+### Capital continuation
+
+Capital now begins with a compact budget-workspace heading, readable account and
+reservation counts, and a direct in-page jump to the existing creation form.
+Account surfaces use the shared charcoal palette. Five exact account-policy facts
+form a consistent strip; each named budget has readable full-precision values and
+label/value rows instead of narrow, cramped columns. Paper simulation and Shadow
+claim badges are visibly distinct, with protected reserves retaining their warning
+edge. An unknown provider never receives a decorative Schwab initial.
+
+Named account regions and budget articles support accessible review. The existing
+currency-mismatch and invalid-decimal predicates now also flag account cards and
+announce their unchanged warnings. Archive disclosure remains keyboard accessible.
+Form labels, hints and controls are larger and align consistently; the submission
+handler, validation, account eligibility and state transitions are unchanged.
+The four owner-scoped no-store inventory requests and all exact arithmetic,
+currency separation, claim bases and unavailable behavior remain intact. The jump
+link neither submits the form nor authorizes trading.
+
+Verify desktop, 390px/320px responsive documents, enlarged text, long names,
+full-precision amounts, protected reserves, mixed currency, invalid decimals,
+unavailable/empty/disconnected inventories and keyboard archive access. Check
+header coordinates across both long and short states. Use only labeled local
+fixtures when production authentication has expired; remove them before release.

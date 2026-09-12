@@ -154,6 +154,7 @@ function BudgetCard({
 
   return (
     <article
+      aria-labelledby={`capital-budget-${bucket.id}`}
       className={`capital-budget-card${active ? " is-reserved" : ""}${bucket.isReserve ? " is-reserve" : ""}`}
     >
       <header>
@@ -161,7 +162,7 @@ function BudgetCard({
           <p className="eyebrow">
             {bucket.isReserve ? "NEVER DEPLOY" : "TRADING BUDGET"}
           </p>
-          <h3>{bucket.name}</h3>
+          <h3 id={`capital-budget-${bucket.id}`}>{bucket.name}</h3>
         </div>
         <span>{bucket.status}</span>
       </header>
@@ -197,7 +198,15 @@ function BudgetCard({
       </dl>
       {active && reservation && (
         <div className="capital-reservation-callout">
-          <span>
+          <span
+            className={
+              paper
+                ? "is-paper"
+                : reservation.executionMode === "SHADOW"
+                  ? "is-shadow"
+                  : undefined
+            }
+          >
             {reservation.executionMode} · {strategy?.status ?? "ACTIVE"}
           </span>
           <strong>{reservationBasisLabel(reservation.reservationBasis)}</strong>
@@ -287,6 +296,13 @@ export function CapitalBudgetCenter({
         </article>
       </section>
 
+      {activeAccounts.length > 0 && (
+        <div className="capital-workspace-context">
+          <p>Budgets by account · policy limits, not broker balances</p>
+          <a href="#create-capital-budget">Create a budget ↓</a>
+        </div>
+      )}
+
       {activeAccounts.length === 0 ? (
         <section className="capital-center-empty">
           <h2>Connect an account before assigning capital.</h2>
@@ -372,19 +388,30 @@ export function CapitalBudgetCenter({
                       : "Paper simulation active";
 
             return (
-              <section className="capital-account" key={account.id}>
+              <section
+                aria-labelledby={`capital-account-${account.id}`}
+                className={`capital-account${currencyMismatch || invalidAggregate ? " is-review" : ""}`}
+                key={account.id}
+              >
                 <header>
                   <div className="capital-account-identity">
                     <span
+                      aria-hidden="true"
                       className={`provider-mark provider-${account.provider}`}
                     >
-                      {account.provider === "coinbase" ? "C" : "S"}
+                      {account.provider === "coinbase"
+                        ? "C"
+                        : account.provider === "schwab"
+                          ? "S"
+                          : "·"}
                     </span>
                     <div>
                       <p className="eyebrow">
                         {accountTitle(account.provider)}
                       </p>
-                      <h2>{account.display_name}</h2>
+                      <h2 id={`capital-account-${account.id}`}>
+                        {account.display_name}
+                      </h2>
                     </div>
                   </div>
                   <span className={sharedCeiling ? "is-shareable" : ""}>
@@ -434,14 +461,20 @@ export function CapitalBudgetCenter({
                   </div>
                 </div>
                 {currencyMismatch && (
-                  <p className="capital-account-policy-note is-warning">
+                  <p
+                    className="capital-account-policy-note is-warning"
+                    role="alert"
+                  >
                     Arbion found policies in more than one currency and will not
                     combine them into an account total. Each policy remains
                     visible below with its recorded currency.
                   </p>
                 )}
                 {!currencyMismatch && invalidAggregate && (
-                  <p className="capital-account-policy-note is-warning">
+                  <p
+                    className="capital-account-policy-note is-warning"
+                    role="alert"
+                  >
                     Arbion found incomplete exact-decimal policy evidence and
                     will not calculate account totals. The durable records
                     remain visible below for review.
@@ -501,11 +534,15 @@ export function CapitalBudgetCenter({
       )}
 
       {activeAccounts.length > 0 && (
-        <section className="capital-create-panel">
+        <section
+          className="capital-create-panel"
+          id="create-capital-budget"
+          aria-labelledby="create-capital-budget-title"
+        >
           <header>
             <div>
               <p className="eyebrow">NEW POLICY BOUNDARY</p>
-              <h2>Create a trading budget</h2>
+              <h2 id="create-capital-budget-title">Create a trading budget</h2>
             </div>
             <p>
               Use a shared account ceiling only when you intentionally want
