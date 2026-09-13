@@ -1633,6 +1633,56 @@ describe("StrategyFleet", () => {
     );
   });
 
+  it.each([0, 1])(
+    "does not treat a session skip as recovery with a saved failure counter of %i",
+    (consecutiveFailures) => {
+      const waiting: StrategyFleetItem = {
+        ...coinbaseEngine,
+        scheduleStatus: "SKIPPED",
+        scheduleErrorCode: "OUTSIDE_SESSION",
+        consecutiveFailures,
+        scheduleRecentRuns: [
+          {
+            ...coinbaseEngine.scheduleRecentRuns![0],
+            status: "SKIPPED",
+            errorCode: "OUTSIDE_SESSION",
+            consecutiveFailures,
+          },
+          {
+            id: "unresolved-market-delay",
+            scheduledFor: "2026-08-26T15:17:00Z",
+            completedAt: "2026-08-26T15:17:05Z",
+            nextRunAt: "2026-08-26T16:17:00Z",
+            status: "FAILED",
+            errorCode: "MARKET_DATA_DELAYED",
+            duplicateRecovered: false,
+            consecutiveFailures: 1,
+          },
+        ],
+      };
+      expect(projectStrategyFleetScheduleRecovery([waiting])).toMatchObject({
+        status: "ATTENTION",
+        recoveredCount: 0,
+        engines: [{ state: "ATTENTION", preservedFailureCount: 1 }],
+      });
+      expect(
+        projectStrategyFleetAutomaticCycleSLOHistory([waiting]),
+      ).toMatchObject({
+        status: "ATTENTION",
+        recoveredCount: 0,
+        totalFailureCount: 1,
+        totalSafeWaitCount: 1,
+        engines: [
+          {
+            state: "ATTENTION",
+            latestBreachAt: "2026-08-26T15:17:05Z",
+            latestRecoveryAt: undefined,
+          },
+        ],
+      });
+    },
+  );
+
   it("consolidates stable, recovered, and safe-wait evidence without dropping exact counts", () => {
     const recovered: StrategyFleetItem = {
       ...coinbaseEngine,
