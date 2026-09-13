@@ -134,11 +134,13 @@ type TradeFill struct {
 }
 
 type TradeFillPage struct {
-	Provider    string      `json:"provider"`
-	Feed        string      `json:"feed"`
-	Fills       []TradeFill `json:"fills"`
-	HasMore     bool        `json:"has_more"`
-	RetrievedAt time.Time   `json:"retrieved_at"`
+	Provider              string            `json:"provider"`
+	Feed                  string            `json:"feed"`
+	Fills                 []TradeFill       `json:"fills"`
+	HasMore               bool              `json:"has_more"`
+	RetrievedAt           time.Time         `json:"retrieved_at"`
+	Evidence              *FillEvidencePage `json:"-"`
+	EvidenceCaptureStatus string            `json:"evidence_capture_status,omitempty"`
 }
 
 // OrderObservation is provider-reported order state created outside Arbion.

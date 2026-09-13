@@ -35,6 +35,32 @@ func TestInitialMigrationDefinesRequiredSchema(t *testing.T) {
 	}
 }
 
+func TestPrivateFillEvidenceMigrationIsExactImmutableScopedAndNonAuthoritative(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00045_private_fill_evidence.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"financial_fill_observations", "financial_fill_capture_receipts",
+		"UNIQUE(financial_account_id,entry_reference)",
+		"FOREIGN KEY(financial_account_id,user_id)",
+		"price numeric NOT NULL", "scale(price)<=32", "price<1e40",
+		"commission_currency_status='UNAVAILABLE'", "trade_time text NOT NULL",
+		"inserted_count+matched_count=unique_count", "CHECK(NOT complete_account_history)",
+		"a.provider_name=NEW.provider_name", "private fill evidence is immutable",
+		"BEFORE INSERT OR UPDATE OR DELETE", "cannot remove immutable private fill evidence",
+	} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("private fill migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"access_token", "api_private_key", "raw_payload", "INSERT INTO order_intents", "UPDATE financial_accounts", "UPDATE strategy_instances"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("private evidence crossed boundary: %s", prohibited)
+		}
+	}
+}
+
 func TestAuthenticationMigrationIsVersionedAndConstrained(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00002_user_authentication.sql")
 	if err != nil {

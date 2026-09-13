@@ -54,6 +54,8 @@ Both synthetic scenarios test an uncertain attempt and restart, acknowledgment, 
 
 ## Next integration work
 
+The first production evidence step is now implemented separately: [Private Fill Evidence](PRIVATE_FILL_EVIDENCE.md) captures normalized Coinbase observations during an existing authorized history read, with account-bound identity, duplicate matching, and immutable database safeguards. It does not feed this laboratory, prove complete history/settlement units, or implement a Schwab wire adapter. The following gates remain:
+
 1. Map **read-only, documented provider transactions and order history** into separately tested normalized evidence, with explicit stable IDs, corrections, pagination completeness, settlement/fee semantics, and supported product precision. Do not guess transaction cause from snapshots.
 2. Bind a durable PostgreSQL simulation lifecycle to existing Go risk/mandate/capital evidence and test concurrency/crash boundaries before replacing the current immediate-fill Paper path. Keep existing history intact.
 3. Prove that external-account facts can be ingested without changing strategy allocation, duplicating fills, or requesting routine owner approval for understood cash movements. Keep genuinely unmatched or inconsistent evidence reviewable.
