@@ -83,6 +83,8 @@ The AI-facing tool set may eventually include structured proposal and preview to
 
 No live-order, dispatch-attempt, provider-correlation, broker-write, or reconciliation table/interface/job exists. The implemented `order_intents`, preview/product-evidence, proposal-review, short-lived capital-reservation, and event tables deliberately cannot represent provider submission or execution approval. Canonical live order/leg schemas, durable execution reservations, provider mapping, webhook/poll strategy, cancellation/replacement semantics, correction handling, multi-leg guarantees, and live retry protocols require the approval gates above.
 
+The separate [offline lifecycle laboratory](SIMULATION_LIFECYCLE.md) implements executable fixture state transitions and durable local replay for testing these mechanics now. Its fictional attempts, fills, and cash movements never enter production accounts or the Paper/Shadow scheduler. The fixture configuration is not risk approval, the synthetic provider labels do not certify broker compatibility, and passing the scenarios does not satisfy the live-execution approval gates.
+
 ## Proposed-action boundary
 
 The implemented `ProposedAction` is not an Order Intent or broker payload. After structured risk evaluation it may reach only a PAPER simulation or SHADOW record; it cannot reach Schwab or another broker-write interface. No role, model, strategy, UI, or conversation may bypass the Risk/Control Engine.
