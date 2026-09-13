@@ -1456,9 +1456,13 @@ export function projectStrategyFleetScheduleRecovery(
     const preservedFailureCount = recentRuns.filter(
       (run) => run.status === "FAILED",
     ).length;
+    // Legacy skips may have reset the mutable counter. Saved failures still
+    // require a later successful evaluation, not merely a session wait.
+    const unresolvedFailure =
+      recentRuns.find((run) => run.status !== "SKIPPED")?.status === "FAILED";
     const state = !historyVerified
       ? ("UNAVAILABLE" as const)
-      : latest?.status === "FAILED" || item.consecutiveFailures > 0
+      : unresolvedFailure || item.consecutiveFailures > 0
         ? ("ATTENTION" as const)
         : latest?.status === "SKIPPED"
           ? ("SAFE_WAIT" as const)
@@ -3759,7 +3763,7 @@ export function projectStrategyFleetAutomaticCycleSLOHistory(
             .slice(latestBreachIndex + 1)
             .filter(
               (sample) =>
-                sample.run.status !== "FAILED" &&
+                sample.run.status === "SUCCEEDED" &&
                 sample.latency! <= automaticCycleSLOMilliseconds,
             )
             .at(-1);
@@ -3769,7 +3773,8 @@ export function projectStrategyFleetAutomaticCycleSLOHistory(
         latestSample &&
         (latestSample.run.status === "FAILED" ||
           latestSample.latency! > automaticCycleSLOMilliseconds ||
-          item.consecutiveFailures > 0),
+          item.consecutiveFailures > 0 ||
+          (latestBreachIndex !== undefined && !recovery)),
     );
     const state = !verified
       ? ("UNAVAILABLE" as const)
@@ -5036,6 +5041,8 @@ function commandDeckScheduleLabel(item: StrategyFleetItem) {
     return "Schedule evidence unavailable";
   if (item.scheduleStatus === "FAILED" || item.consecutiveFailures > 0)
     return `${item.consecutiveFailures} current failure${item.consecutiveFailures === 1 ? "" : "s"}`;
+  if (projectStrategyFleetScheduleRecovery([item]).attentionCount > 0)
+    return "Saved failure awaiting successful evaluation";
   if (
     item.scheduleStatus === "SKIPPED" &&
     item.scheduleErrorCode === "OUTSIDE_SESSION"

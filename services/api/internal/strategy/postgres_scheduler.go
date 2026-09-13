@@ -153,9 +153,15 @@ func (s *PostgresStore) CompleteSchedule(ctx context.Context, run ScheduledRun, 
 	defer tx.Rollback(ctx)
 
 	var consecutiveFailures int
+	// A skipped cycle did not evaluate the strategy and cannot prove recovery.
+	// Preserve unresolved failures across session, lifecycle, and budget waits;
+	// only a successful evaluation (including duplicate recovery) clears them.
 	err = tx.QueryRow(ctx, `UPDATE nonlive_strategy_schedules
 		SET next_run_at=$5,lease_token=NULL,lease_expires_at=NULL,last_completed_at=$4,last_status=$6,
-			last_error_code=NULLIF($7,''),consecutive_failures=CASE WHEN $6='FAILED' THEN consecutive_failures+1 ELSE 0 END,updated_at=$4
+			last_error_code=NULLIF($7,''),consecutive_failures=CASE
+				WHEN $6='FAILED' THEN consecutive_failures+1
+				WHEN $6='SUCCEEDED' THEN 0
+				ELSE consecutive_failures END,updated_at=$4
 		WHERE strategy_instance_id=$1 AND user_id=$2 AND lease_token=$3 AND next_run_at=$8
 		RETURNING consecutive_failures`,
 		run.StrategyInstanceID, run.UserID, run.LeaseToken, completion.CompletedAt.UTC(), completion.NextRunAt.UTC(), completion.Status, completion.ErrorCode, run.ScheduledFor.UTC()).Scan(&consecutiveFailures)

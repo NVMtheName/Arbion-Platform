@@ -154,6 +154,50 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if _, err = pool.Exec(ctx, `DELETE FROM nonlive_schedule_runs WHERE id=$1`, scheduleRuns[0].ID); err == nil {
 		t.Fatal("immutable schedule run was deleted")
 	}
+	t.Run("skips cannot clear unresolved evaluation failures", func(t *testing.T) {
+		steps := []struct {
+			status, code string
+			failures     int
+			duplicate    bool
+		}{
+			{"FAILED", "MARKET_DATA_DELAYED", 1, false},
+			{"SKIPPED", "OUTSIDE_SESSION", 1, false},
+			{"SKIPPED", "WAITING_FOR_LIFECYCLE", 1, false},
+			{"SKIPPED", "AI_DECISION_BUDGET_EXHAUSTED", 1, false},
+			{"FAILED", "MARKET_DATA_DELAYED", 2, false},
+			{"SUCCEEDED", "", 0, true},
+			{"SKIPPED", "OUTSIDE_SESSION", 0, false},
+			{"FAILED", "MARKET_DATA_DELAYED", 1, false},
+			{"SUCCEEDED", "", 0, false},
+		}
+		next := claimAt.Add(24 * time.Hour)
+		previousFailures := 0
+		for index, step := range steps {
+			run, claimErr := store.ClaimDueSchedule(ctx, next, scheduleLeaseDuration)
+			if claimErr != nil || run == nil || run.StrategyInstanceID != instance.ID || run.ConsecutiveFailures != previousFailures {
+				t.Fatalf("step %d lost unresolved failure history at claim: run=%#v err=%v", index, run, claimErr)
+			}
+			completion := ScheduleCompletion{CompletedAt: next, NextRunAt: next.Add(time.Hour), Status: step.status, ErrorCode: step.code, DuplicateRecovered: step.duplicate}
+			if completeErr := store.CompleteSchedule(ctx, *run, completion); completeErr != nil {
+				t.Fatal(completeErr)
+			}
+			// Replaying a released lease must not increment or clear the counter.
+			if completeErr := store.CompleteSchedule(ctx, *run, completion); !errors.Is(completeErr, ErrConflict) {
+				t.Fatalf("step %d accepted duplicate completion: %v", index, completeErr)
+			}
+			runs, historyErr := store.ScheduleRuns(ctx, userID, instance.ID, 20, nil)
+			if historyErr != nil || len(runs) != index+2 || runs[0].Status != step.status || runs[0].ConsecutiveFailures != step.failures || runs[0].DuplicateRecovered != step.duplicate {
+				t.Fatalf("step %d lost durable failure/recovery evidence: runs=%#v err=%v", index, runs, historyErr)
+			}
+			for savedIndex := 0; savedIndex <= index; savedIndex++ {
+				if runs[index-savedIndex].ConsecutiveFailures != steps[savedIndex].failures {
+					t.Fatalf("step %d rewrote earlier immutable failure history", index)
+				}
+			}
+			previousFailures = step.failures
+			next = completion.NextRunAt
+		}
+	})
 	if _, err = pool.Exec(ctx, `UPDATE automation_mandates SET status='DISABLED' WHERE id=$1`, mandateID); err != nil {
 		t.Fatal(err)
 	}
