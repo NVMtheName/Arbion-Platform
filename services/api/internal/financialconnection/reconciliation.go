@@ -37,6 +37,7 @@ const (
 const (
 	reconciliationControlTradableInventory = "TRADABLE_INVENTORY"
 	reconciliationControlNonTradableOnly   = "NON_TRADABLE_QUANTITY_ONLY"
+	reconciliationControlAdditiveOnly      = "ADDITIVE_INVENTORY_ONLY"
 )
 
 type ReconciliationChange struct {
@@ -297,9 +298,70 @@ func compareReconciliationPositions(provider string, previous, current []Reconci
 		} else if provider == "coinbase" && exactNonTradableOnlyChange(before, after) {
 			change.ControlImpact = reconciliationControlNonTradableOnly
 		}
+		if provider == "coinbase" && hasAfter && change.ControlImpact == reconciliationControlTradableInventory {
+			var prior *ReconciliationPosition
+			if hadBefore {
+				prior = &before
+			}
+			if exactAdditiveInventoryChange(prior, after) {
+				change.ControlImpact = reconciliationControlAdditiveOnly
+			}
+		}
 		changes = append(changes, change)
 	}
 	return changes
+}
+
+// A fully attributed increase in long Coinbase inventory need not be manually
+// acknowledged. This does not identify a deposit/reward/trade, expand a capital
+// allocation, reconcile an order, or clear a previously recorded drift hold.
+// Every quantity component must reconcile and none may decrease. In particular,
+// moving assets between available and unavailable is not an additive change.
+func exactAdditiveInventoryChange(previous *ReconciliationPosition, current ReconciliationPosition) bool {
+	total, available, unavailable, ok := exactLongCryptoInventory(current)
+	if !ok {
+		return false
+	}
+	if previous == nil {
+		return total.Sign() > 0
+	}
+	priorTotal, priorAvailable, priorUnavailable, ok := exactLongCryptoInventory(*previous)
+	return ok && total.Cmp(priorTotal) > 0 && available.Cmp(priorAvailable) >= 0 && unavailable.Cmp(priorUnavailable) >= 0
+}
+
+func exactLongCryptoInventory(position ReconciliationPosition) (*big.Rat, *big.Rat, *big.Rat, bool) {
+	if position.Direction != "long" || position.InstrumentType != "CRYPTO" || position.AvailableQuantity == nil || position.UnavailableQuantity == nil {
+		return nil, nil, nil, false
+	}
+	for _, value := range []financial.Decimal{position.Quantity, *position.AvailableQuantity, *position.UnavailableQuantity} {
+		if !validDecimal(value) || strings.HasPrefix(string(value), "-") {
+			return nil, nil, nil, false
+		}
+	}
+	total, available, unavailable := decimalRat(position.Quantity), decimalRat(*position.AvailableQuantity), decimalRat(*position.UnavailableQuantity)
+	if total == nil || available == nil || unavailable == nil || total.Sign() < 0 || available.Sign() < 0 || unavailable.Sign() < 0 || total.Cmp(new(big.Rat).Add(available, unavailable)) != 0 {
+		return nil, nil, nil, false
+	}
+	return total, available, unavailable, true
+}
+
+func additiveSnapshotContext(previous PortfolioReconciliation, current PortfolioReconciliation) bool {
+	if previous.Provider != "coinbase" || current.Provider != previous.Provider || previous.FinancialAccountID != current.FinancialAccountID || previous.BalancesStatus != "READY" || previous.PositionsStatus != "READY" || current.BalancesStatus != "READY" || current.PositionsStatus != "READY" || previous.ObservedAt.IsZero() || !current.ObservedAt.After(previous.ObservedAt) {
+		return false
+	}
+	for _, pair := range [][2]*financial.Money{{previous.Balances.Cash, current.Balances.Cash}, {previous.Balances.AvailableCash, current.Balances.AvailableCash}, {previous.Balances.BuyingPower, current.Balances.BuyingPower}} {
+		if pair[0] == nil && pair[1] == nil {
+			continue
+		}
+		if pair[0] == nil || pair[1] == nil || pair[0].Currency != pair[1].Currency || !validDecimal(pair[0].Amount) || !validDecimal(pair[1].Amount) {
+			return false
+		}
+		before, after := decimalRat(pair[0].Amount), decimalRat(pair[1].Amount)
+		if before == nil || after == nil || before.Sign() < 0 || after.Cmp(before) < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func reconciliationQuantitiesEqual(provider string, previous, current ReconciliationPosition) bool {
@@ -624,6 +686,13 @@ func (s *Service) runReconciliationAt(ctx context.Context, principal authorizati
 	} else {
 		report.PreviousReconciliationID = &previous.ID
 		report.Changes = compareReconciliationPositions(account.Provider, previous.Positions, positions)
+		if !additiveSnapshotContext(previous, report) {
+			for index := range report.Changes {
+				if report.Changes[index].ControlImpact == reconciliationControlAdditiveOnly {
+					report.Changes[index].ControlImpact = reconciliationControlTradableInventory
+				}
+			}
+		}
 		report.ChangeCount = len(report.Changes)
 		for _, change := range report.Changes {
 			if change.ControlImpact == reconciliationControlTradableInventory {

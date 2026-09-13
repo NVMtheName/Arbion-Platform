@@ -338,6 +338,23 @@ func TestReconciliationChangeImpactPreservesEvidenceAndFailsClosed(t *testing.T)
 	}
 }
 
+func TestAdditiveReconciliationIsForwardOnlyAndIndependentlyValidated(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00044_additive_inventory_reconciliation.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"ADDITIVE_INVENTORY_ONLY", "TRADABLE_INVENTORY", "enforce_additive_reconciliation_evidence", "enforce_additive_current_positions", "DEFERRABLE INITIALLY DEFERRED", "financial_account_id=NEW.financial_account_id", "ct <> ca + cu", "ca < pa OR cu < pu", "cannot remove immutable additive reconciliation history"} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("additive migration missing %q", required)
+		}
+	}
+	for _, prohibited := range []string{"UPDATE portfolio_reconciliations", "DELETE FROM", "DISABLE TRIGGER", "UPDATE capital_buckets", "UPDATE automation_mandates"} {
+		if strings.Contains(string(body), prohibited) {
+			t.Errorf("additive migration must not contain %q", prohibited)
+		}
+	}
+}
+
 func TestReconciliationNotificationMarkerIsOwnerAccountScopedAndNonExecuting(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00030_reconciliation_notification_marker.sql")
 	if err != nil {

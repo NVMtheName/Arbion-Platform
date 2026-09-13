@@ -39,6 +39,57 @@ describe("PortfolioReconciliationPanel", () => {
     vi.unstubAllGlobals();
   });
 
+  it("records exact additions without owner approval or expanded spending authority", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <PortfolioReconciliationPanel
+        accountID="account-1"
+        accountName="Coinbase Portfolio"
+        initialReport={{
+          ...baseline,
+          comparison_status: "MATCHED",
+          autonomy_signal: "CLEAR",
+          blocks_new_actions: false,
+          change_count: 2,
+          changes: [
+            {
+              symbol: "USDC",
+              instrument_type: "CRYPTO",
+              direction: "long",
+              change_type: "QUANTITY_CHANGED",
+              control_impact: "ADDITIVE_INVENTORY_ONLY",
+              previous_quantity: "17807.60462",
+              current_quantity: "17813.66625",
+              current_available_quantity: "266.13925",
+            },
+            {
+              symbol: "BTC",
+              instrument_type: "CRYPTO",
+              direction: "long",
+              change_type: "POSITION_APPEARED",
+              control_impact: "ADDITIVE_INVENTORY_ONLY",
+              current_quantity: "0.00000202",
+              current_available_quantity: "0.00000202",
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText("Gate clear")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(
+      screen.getAllByText(
+        /Addition recorded automatically; spending limits unchanged/,
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/Added funds do not increase/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/price gains or losses alone do not require review/),
+    ).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("captures the first immutable baseline without implying realized P&L", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
