@@ -236,6 +236,7 @@ func TestPostgresConnectionLifecycleIsAccountScoped(t *testing.T) {
 	if _, err = pool.Exec(ctx, `DELETE FROM portfolio_reconciliation_positions WHERE reconciliation_id=$1`, reconciliation.ID); err == nil {
 		t.Fatal("immutable portfolio reconciliation positions were deleteable")
 	}
+	testAdditiveReconciliationStore(t, store, pool, userID, accountA, accountB, matched)
 	if err = store.Retire(ctx, userID, connectionA); err != nil {
 		t.Fatal(err)
 	}

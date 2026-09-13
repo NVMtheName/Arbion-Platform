@@ -10,7 +10,10 @@ export type PortfolioReconciliationChange = {
     | "POSITION_APPEARED"
     | "POSITION_DISAPPEARED"
     | "QUANTITY_CHANGED";
-  control_impact: "TRADABLE_INVENTORY" | "NON_TRADABLE_QUANTITY_ONLY";
+  control_impact:
+    | "TRADABLE_INVENTORY"
+    | "NON_TRADABLE_QUANTITY_ONLY"
+    | "ADDITIVE_INVENTORY_ONLY";
   previous_quantity?: string;
   current_quantity?: string;
   previous_available_quantity?: string;
@@ -78,6 +81,9 @@ function quantity(value?: string) {
 }
 
 function changeDescription(change: PortfolioReconciliationChange) {
+  if (change.control_impact === "ADDITIVE_INVENTORY_ONLY") {
+    return `${change.change_type === "POSITION_APPEARED" ? "New holding" : quantity(change.previous_quantity)} → ${quantity(change.current_quantity)} · Available to trade ${quantity(change.current_available_quantity)} · Addition recorded automatically; spending limits unchanged`;
+  }
   if (change.change_type === "POSITION_APPEARED") {
     return `Appeared at ${quantity(change.current_quantity)}`;
   }
@@ -311,6 +317,15 @@ export function PortfolioReconciliationPanel({
             compare exact position quantities with its last reliable Arbion
             snapshot.
           </p>
+          <p>
+            Routine checks run automatically for active Shadow engines. Exact
+            Coinbase additions and supported staked-only changes are recorded
+            without approval; price gains or losses alone do not require review.
+            Added funds do not increase the AI&apos;s approved budget. Position
+            reductions, unexplained availability changes, and incomplete
+            evidence still need checks. This does not reconcile or authorize
+            live orders.
+          </p>
         </div>
         <div className="reconciliation-review-action">
           {driftReviewRequired && (
@@ -440,7 +455,9 @@ export function PortfolioReconciliationPanel({
                     <strong>{change.symbol}</strong>
                     <span>
                       {changeDescription(change)}
-                      {change.control_impact === "NON_TRADABLE_QUANTITY_ONLY" &&
+                      {(change.control_impact ===
+                        "NON_TRADABLE_QUANTITY_ONLY" ||
+                        change.control_impact === "ADDITIVE_INVENTORY_ONLY") &&
                         " · Recorded, non-blocking"}
                       {change.control_impact === "TRADABLE_INVENTORY" &&
                         " · Owner review required"}

@@ -429,8 +429,8 @@ func TestCoinbaseReconciliationClassifiesExactUnavailableOnlyMovementWithoutGues
 	current[0].AvailableQuantity = decimal("10.733979")
 	current[0].UnavailableQuantity = decimal("17537.824")
 	changes = compareReconciliationPositions("coinbase", previous, current)
-	if len(changes) != 1 || changes[0].ControlImpact != "TRADABLE_INVENTORY" {
-		t.Fatalf("available inventory movement did not remain blocking: %#v", changes)
+	if len(changes) != 1 || changes[0].ControlImpact != "ADDITIVE_INVENTORY_ONLY" {
+		t.Fatalf("exact available inventory addition was not recorded: %#v", changes)
 	}
 
 	current[0].Quantity = previous[0].Quantity
@@ -489,8 +489,8 @@ func TestCoinbaseUnavailableOnlyMovementKeepsAutonomousProposalGateClear(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.ComparisonStatus != "DRIFT_DETECTED" || !report.BlocksNewActions || report.BlockingChangeCount != 1 || report.Changes[0].ControlImpact != "TRADABLE_INVENTORY" {
-		t.Fatalf("tradable inventory movement did not fail closed: %#v", report)
+	if report.ComparisonStatus != "MATCHED" || report.BlocksNewActions || report.BlockingChangeCount != 0 || report.Changes[0].ControlImpact != "ADDITIVE_INVENTORY_ONLY" {
+		t.Fatalf("exact tradable inventory addition unnecessarily blocked: %#v", report)
 	}
 }
 
