@@ -631,7 +631,15 @@ func (s *Service) GetTradeFills(ctx context.Context, p authorization.Principal, 
 	if !ok {
 		return financial.TradeFillPage{}, &financial.ProviderError{Code: financial.ProviderUnavailable}
 	}
-	return provider.GetTradeFills(ctx, &cr, a.ProviderAccountID, 50)
+	page, err := provider.GetTradeFills(ctx, &cr, a.ProviderAccountID, 50)
+	if err != nil {
+		return financial.TradeFillPage{}, err
+	}
+	s.captureFillPage(ctx, p.UserID, a.ID, &page)
+	// Strip the private projection before it leaves the service boundary,
+	// even though its JSON fields are individually excluded as defense in depth.
+	page.Evidence = nil
+	return page, nil
 }
 
 func (s *Service) GetOrderHistory(ctx context.Context, p authorization.Principal, id string) (financial.OrderHistoryPage, error) {

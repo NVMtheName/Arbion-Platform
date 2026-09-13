@@ -169,6 +169,10 @@ type walletAccountPage struct {
 }
 
 type providerFill struct {
+	EntryID            string      `json:"entry_id"`
+	TradeID            string      `json:"trade_id"`
+	OrderID            string      `json:"order_id"`
+	RetailPortfolioID  string      `json:"retail_portfolio_id"`
 	TradeTime          time.Time   `json:"trade_time"`
 	TradeType          string      `json:"trade_type"`
 	Price              json.Number `json:"price"`
@@ -177,7 +181,7 @@ type providerFill struct {
 	ProductID          string      `json:"product_id"`
 	SequenceTimestamp  time.Time   `json:"sequence_timestamp"`
 	LiquidityIndicator string      `json:"liquidity_indicator"`
-	SizeInQuote        bool        `json:"size_in_quote"`
+	SizeInQuote        *bool       `json:"size_in_quote"`
 	Side               string      `json:"side"`
 }
 
@@ -656,6 +660,9 @@ func (c *Client) GetTradeFills(ctx context.Context, credentials *financial.Crede
 	now := c.now().UTC()
 	fills := make([]financial.TradeFill, 0, len(response.Fills))
 	for _, raw := range response.Fills {
+		if raw.RetailPortfolioID != "" && raw.RetailPortfolioID != credentials.PortfolioID {
+			return financial.TradeFillPage{}, &financial.ProviderError{Code: financial.PermissionDenied}
+		}
 		productID := strings.ToUpper(strings.TrimSpace(raw.ProductID))
 		separator := strings.LastIndexByte(productID, '-')
 		if separator < 1 || separator == len(productID)-1 {
@@ -671,7 +678,7 @@ func (c *Client) GetTradeFills(ctx context.Context, credentials *financial.Crede
 			return financial.TradeFillPage{}, &financial.ProviderError{Code: financial.InvalidProviderResponse}
 		}
 		sizeUnit := baseAsset
-		if raw.SizeInQuote {
+		if raw.SizeInQuote != nil && *raw.SizeInQuote {
 			sizeUnit = quoteCurrency
 		}
 		fills = append(fills, financial.TradeFill{
@@ -687,6 +694,7 @@ func (c *Client) GetTradeFills(ctx context.Context, credentials *financial.Crede
 	return financial.TradeFillPage{
 		Provider: "coinbase", Feed: "advanced_trade_fills", Fills: fills,
 		HasMore: strings.TrimSpace(response.Cursor) != "", RetrievedAt: now,
+		Evidence: privateFillPage(response, credentials.PortfolioID, id, now),
 	}, nil
 }
 
