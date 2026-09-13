@@ -1680,6 +1680,20 @@ describe("StrategyFleet", () => {
           },
         ],
       });
+      render(<StrategyFleet items={[waiting]} />);
+      const deck = within(
+        screen.getByRole("region", { name: "Your AI engines" }),
+      );
+      expect(
+        deck.getByText(
+          consecutiveFailures > 0
+            ? "1 current failure"
+            : "Saved failure awaiting successful evaluation",
+        ),
+      ).toBeInTheDocument();
+      expect(
+        deck.queryByText("Safely waiting for market session"),
+      ).not.toBeInTheDocument();
     },
   );
 

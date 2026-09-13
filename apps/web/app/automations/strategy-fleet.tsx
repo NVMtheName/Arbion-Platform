@@ -5041,6 +5041,8 @@ function commandDeckScheduleLabel(item: StrategyFleetItem) {
     return "Schedule evidence unavailable";
   if (item.scheduleStatus === "FAILED" || item.consecutiveFailures > 0)
     return `${item.consecutiveFailures} current failure${item.consecutiveFailures === 1 ? "" : "s"}`;
+  if (projectStrategyFleetScheduleRecovery([item]).attentionCount > 0)
+    return "Saved failure awaiting successful evaluation";
   if (
     item.scheduleStatus === "SKIPPED" &&
     item.scheduleErrorCode === "OUTSIDE_SESSION"
