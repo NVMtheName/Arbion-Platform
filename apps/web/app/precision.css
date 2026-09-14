@@ -1320,19 +1320,17 @@ main:has(> .app-page-header) > .eyebrow {
 .product-preview-value {
   display: grid;
   gap: 10px;
+  margin-bottom: 28px;
 }
 .product-preview-value > span {
   color: #b8c7d5;
   font-size: 14px;
 }
 .product-preview-value > strong {
-  font-size: clamp(36px, 4.2vw, 58px);
+  font-size: clamp(28px, 3vw, 40px);
   font-weight: 500;
   letter-spacing: -0.055em;
   font-variant-numeric: tabular-nums;
-}
-.product-preview-value > strong span {
-  color: #92a5b6;
 }
 .product-preview-value small,
 .product-preview-account small,
@@ -1340,25 +1338,9 @@ main:has(> .app-page-header) > .eyebrow {
   color: #9aafc0;
   font-size: 12px;
 }
-.product-preview-allocation {
-  display: flex;
-  gap: 5px;
-  height: 8px;
-  margin: 28px 0;
-}
-.product-preview-allocation span:first-child {
-  width: 73.9%;
-  border-radius: 4px 0 0 4px;
-  background: #81dce6;
-  box-shadow: 0 0 12px #75e0ea22;
-}
-.product-preview-allocation span:last-child {
-  flex: 1;
-  border-radius: 0 4px 4px 0;
-  background: #7188d2;
-}
 .product-preview-account {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   align-items: center;
   padding: 16px 0;

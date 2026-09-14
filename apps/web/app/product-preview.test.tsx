@@ -6,11 +6,11 @@ import { ProductPreview } from "./product-preview";
 describe("Illustrative product preview", () => {
   afterEach(cleanup);
 
-  it("clearly labels sample values and never fetches financial data", () => {
+  it("shows no balances or provider accounts and never fetches financial data", () => {
     const fetch = vi.spyOn(globalThis, "fetch");
-    render(<ProductPreview />);
+    const { container } = render(<ProductPreview />);
     expect(
-      screen.getByText("Example values · not account data"),
+      screen.getByText("Sign in to view your accounts and balances."),
     ).toBeInTheDocument();
     expect(screen.getByText("No live prices shown")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "AI Engine" }));
@@ -22,6 +22,12 @@ describe("Illustrative product preview", () => {
       screen.getByRole("tabpanel", { name: "Decision Journal" }),
     ).not.toHaveAttribute("hidden");
     expect(fetch).not.toHaveBeenCalled();
+    // Hidden tabs are included: hiding sensitive values with CSS is not enough.
+    expect(container.textContent).not.toMatch(
+      /[$€£]\s*[\d,.]|Schwab|Coinbase/i,
+    );
+    expect(container.querySelector(".product-preview-allocation")).toBeNull();
+    expect(screen.getAllByText("Sign-in required")).toHaveLength(2);
     fetch.mockRestore();
   });
 

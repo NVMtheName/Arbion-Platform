@@ -1,10 +1,30 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { LandingExperience } from "./landing-experience";
+import Home, { dynamic } from "./page";
 
 describe("Arbion landing experience", () => {
   afterEach(cleanup);
+
+  it("keeps the public server-rendered page free of financial values and account reads", () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      throw new Error("Public landing page attempted an account/network read");
+    });
+    try {
+      const html = renderToStaticMarkup(<Home />);
+      expect(dynamic).toBe("error");
+      expect(html).toContain("Private by design");
+      expect(html).not.toMatch(/[$€£]\s*[\d,.]|Schwab|Coinbase/i);
+      expect(html).not.toMatch(
+        /\/api\/(?:financial|accounts)|provider_account_id|access_token|refresh_token/i,
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
 
   it("presents a branded, truthful path into the product", () => {
     render(<LandingExperience />);

@@ -114,6 +114,8 @@ AI connection lifecycle mutations are dependency-aware at the server boundary. R
 
 ## Authentication architecture
 
+The public landing route is a data-free marketing surface, never a portfolio projection. It renders no account amounts, provider-specific account examples, or allocation percentages, including hidden preview tabs and server-rendered content. Its static-only configuration rejects request-time session cookies and uncached reads. Regression tests forbid account/network reads and account-like values in the public preview; production smoke checks verify the privacy-safe content and unauthenticated rejection of financial account endpoints. Signed-in account pages and trading state are unchanged by this boundary.
+
 ## Authorization and entitlement
 
 **Administrative authority and product entitlement are separate concepts.** Roles form the security hierarchy `superadmin > admin > user`; they do not grant paid product capabilities. Entitlements (`free`, `pro`, `premium`, `founder`, and `internal_comped`) describe product access and do not grant administrative authority. PostgreSQL is authoritative for both, while Redis sessions merely identify a user and never copy or own persistent authorization state.
