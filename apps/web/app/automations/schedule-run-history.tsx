@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { scheduleFailureGuidance } from "./schedule-failure-guidance";
+import { QuoteRejectionEvidence } from "./quote-rejection-evidence";
 
 export type ScheduleRunRecord = {
   id: string;
@@ -21,6 +22,7 @@ export type ScheduleRunRecord = {
   reconciliation_id?: string;
   reconciliation_review_required: boolean;
   consecutive_failures: number;
+  quote_rejection?: unknown;
 };
 
 function label(value?: string) {
@@ -214,6 +216,10 @@ export function ScheduleRunHistory({
                     <span>{recovery.message}</span>
                   </div>
                 )}
+                <QuoteRejectionEvidence
+                  run={run}
+                  financialProvider={financialProvider}
+                />
                 {run.reconciliation_id && (
                   <p
                     className={

@@ -1004,16 +1004,16 @@ func (s *EvaluationService) aiMarketFacts(ctx context.Context, principal authori
 				return nil, err
 			}
 			if !validSchwabAIQuote(quote, symbol) {
-				return nil, ErrEvaluationMarketDataInvalid
+				return nil, rejectSchwabQuote(ErrEvaluationMarketDataInvalid, account.ID, symbol, quote, now)
 			}
 			if !freshMarketTimestamp(quote.ProviderTimestamp, now) {
-				return nil, ErrEvaluationMarketDataStale
+				return nil, rejectSchwabQuote(ErrEvaluationMarketDataStale, account.ID, symbol, quote, now)
 			}
 			if quote.Realtime == nil {
-				return nil, ErrEvaluationMarketDataUnconfirmed
+				return nil, rejectSchwabQuote(ErrEvaluationMarketDataUnconfirmed, account.ID, symbol, quote, now)
 			}
 			if !*quote.Realtime {
-				return nil, ErrEvaluationMarketDataDelayed
+				return nil, rejectSchwabQuote(ErrEvaluationMarketDataDelayed, account.ID, symbol, quote, now)
 			}
 			facts = append(facts, neural.ShadowMarketFact{Symbol: strings.ToUpper(symbol), AssetClass: "EQUITY", Currency: "USD", Bid: financialDecimal(quote.Bid), Ask: financialDecimal(quote.Ask), Mark: financialDecimal(quote.Mark), Last: financialDecimal(quote.Last), Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: quote.ProviderTimestamp, HistoryStatus: "UNAVAILABLE", LiquidityStatus: "UNAVAILABLE"})
 		}

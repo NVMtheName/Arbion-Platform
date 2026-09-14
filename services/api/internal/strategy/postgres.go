@@ -585,7 +585,7 @@ func (s *PostgresStore) PaperPortfolio(c context.Context, userID, instanceID str
 		const runColumns = `r.id::text,r.strategy_instance_id::text,r.mandate_id::text,r.mandate_version,
 			r.execution_mode,r.strategy_state,r.scheduled_for,r.started_at,r.completed_at,r.next_run_at,
 			r.status,r.error_code,r.ai_decision,r.execution_status,r.duplicate_recovered,
-			r.reconciliation_id::text,r.reconciliation_review_required,r.consecutive_failures`
+			r.reconciliation_id::text,r.reconciliation_review_required,r.consecutive_failures,r.quote_rejection`
 		runRows, runErr := tx.Query(c, `SELECT `+runColumns+` FROM nonlive_schedule_runs r
 			WHERE r.strategy_instance_id=$1 AND r.user_id=$2 AND r.completed_at >= $3 AND r.completed_at <= $4
 			ORDER BY r.scheduled_for,r.id`, instanceID, userID, cadenceStart, *latestScheduleCompletedAt)

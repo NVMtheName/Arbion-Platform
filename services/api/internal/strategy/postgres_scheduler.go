@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,6 +21,7 @@ func scanScheduleRun(row scheduleRunScanner) (ScheduleRun, error) {
 		&run.AIDecision, &run.ExecutionStatus, &run.DuplicateRecovered,
 		&run.ReconciliationID, &run.ReconciliationReviewRequired,
 		&run.ConsecutiveFailures,
+		&run.QuoteRejection,
 	)
 	return run, err
 }
@@ -28,7 +30,7 @@ func (s *PostgresStore) ScheduleRuns(ctx context.Context, userID, instanceID str
 	const columns = `r.id::text,r.strategy_instance_id::text,r.mandate_id::text,r.mandate_version,
 		r.execution_mode,r.strategy_state,r.scheduled_for,r.started_at,r.completed_at,r.next_run_at,
 		r.status,r.error_code,r.ai_decision,r.execution_status,r.duplicate_recovered,
-		r.reconciliation_id::text,r.reconciliation_review_required,r.consecutive_failures`
+		r.reconciliation_id::text,r.reconciliation_review_required,r.consecutive_failures,r.quote_rejection`
 	query := `SELECT ` + columns + ` FROM nonlive_schedule_runs r
 		JOIN strategy_instances i ON i.id=r.strategy_instance_id AND i.user_id=r.user_id
 		WHERE r.user_id=$1 AND r.strategy_instance_id=$2
@@ -146,6 +148,17 @@ func (s *PostgresStore) RecordReconciliationNotification(ctx context.Context, ru
 }
 
 func (s *PostgresStore) CompleteSchedule(ctx context.Context, run ScheduledRun, completion ScheduleCompletion) error {
+	var quoteRejection []byte
+	if completion.QuoteRejection != nil {
+		if !completion.QuoteRejection.valid(run, completion) {
+			return ErrInvalid
+		}
+		var err error
+		quoteRejection, err = json.Marshal(completion.QuoteRejection)
+		if err != nil {
+			return ErrInvalid
+		}
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -174,12 +187,12 @@ func (s *PostgresStore) CompleteSchedule(ctx context.Context, run ScheduledRun, 
 	_, err = tx.Exec(ctx, `INSERT INTO nonlive_schedule_runs(
 		user_id,strategy_instance_id,mandate_id,mandate_version,execution_mode,strategy_state,
 		scheduled_for,started_at,completed_at,next_run_at,status,error_code,ai_decision,execution_status,
-		duplicate_recovered,reconciliation_id,reconciliation_review_required,consecutive_failures
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,''),NULLIF($14,''),$15,NULLIF($16,'')::uuid,$17,$18)`,
+		duplicate_recovered,reconciliation_id,reconciliation_review_required,consecutive_failures,quote_rejection
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,''),NULLIF($14,''),$15,NULLIF($16,'')::uuid,$17,$18,$19)`,
 		run.UserID, run.StrategyInstanceID, run.MandateID, run.MandateVersion, run.ExecutionMode, run.CurrentState,
 		run.ScheduledFor.UTC(), run.StartedAt.UTC(), completion.CompletedAt.UTC(), completion.NextRunAt.UTC(), completion.Status,
 		completion.ErrorCode, completion.AIDecision, completion.ExecutionStatus, completion.DuplicateRecovered,
-		completion.ReconciliationID, completion.ReconciliationReviewRequired, consecutiveFailures)
+		completion.ReconciliationID, completion.ReconciliationReviewRequired, consecutiveFailures, quoteRejection)
 	if err != nil {
 		return err
 	}

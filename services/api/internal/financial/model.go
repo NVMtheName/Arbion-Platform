@@ -252,6 +252,7 @@ type SpotOrderPreview struct {
 }
 type Quote struct {
 	Symbol, AssetType    string
+	QuoteType            string
 	Bid, Ask, Mark, Last *Decimal
 	ProviderTimestamp    time.Time
 	Realtime             *bool
