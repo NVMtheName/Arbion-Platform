@@ -28,6 +28,7 @@ var (
 	ErrConflict    = errors.New("conflicting simulation identity")
 	ErrTransition  = errors.New("invalid simulation lifecycle transition")
 	ErrLimits      = errors.New("simulation financial boundary exceeded")
+	ErrSettlement  = errors.New("simulation terminal settlement evidence does not match applied fills; reservations retained")
 	identifier     = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,80}$`)
 	symbolPattern  = regexp.MustCompile(`^[A-Z][A-Z0-9.-]{0,19}$`)
 	decimalPattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,19})(\.[0-9]{1,10})?$`)
@@ -60,21 +61,31 @@ type Config struct {
 // independently of its delivery ID. Amount is a settled USD cash movement;
 // fill cash is calculated exactly from Quantity * Price plus/minus Fee.
 type Event struct {
-	Scope            Scope     `json:"scope"`
-	ID               string    `json:"id"`
-	Kind             string    `json:"kind"`
-	At               time.Time `json:"at"`
-	OrderID          string    `json:"order_id,omitempty"`
-	OrderVersion     uint64    `json:"order_version,omitempty"`
-	SimulatedOrderID string    `json:"simulated_order_id,omitempty"`
-	TransactionID    string    `json:"transaction_id,omitempty"`
-	Symbol           string    `json:"symbol,omitempty"`
-	Side             string    `json:"side,omitempty"`
-	Quantity         string    `json:"quantity,omitempty"`
-	Price            string    `json:"price,omitempty"`
-	Fee              string    `json:"fee,omitempty"`
-	Amount           string    `json:"amount,omitempty"`
-	CashCeiling      string    `json:"cash_ceiling,omitempty"`
+	Scope              Scope             `json:"scope"`
+	ID                 string            `json:"id"`
+	Kind               string            `json:"kind"`
+	At                 time.Time         `json:"at"`
+	OrderID            string            `json:"order_id,omitempty"`
+	OrderVersion       uint64            `json:"order_version,omitempty"`
+	SimulatedOrderID   string            `json:"simulated_order_id,omitempty"`
+	TransactionID      string            `json:"transaction_id,omitempty"`
+	Symbol             string            `json:"symbol,omitempty"`
+	Side               string            `json:"side,omitempty"`
+	Quantity           string            `json:"quantity,omitempty"`
+	Price              string            `json:"price,omitempty"`
+	Fee                string            `json:"fee,omitempty"`
+	Amount             string            `json:"amount,omitempty"`
+	CashCeiling        string            `json:"cash_ceiling,omitempty"`
+	TerminalSettlement *SettlementTotals `json:"terminal_settlement,omitempty"`
+}
+
+// SettlementTotals is a required synthetic terminal witness, not a provider
+// schema or a claim of complete real account history. Cancellation/rejection
+// cannot release a claim until all three exact totals match applied fills.
+type SettlementTotals struct {
+	FilledQuantity string `json:"filled_quantity"`
+	GrossNotional  string `json:"gross_notional"`
+	Fees           string `json:"fees"`
 }
 
 type Order struct {
@@ -89,6 +100,8 @@ type Order struct {
 	LimitPrice       string    `json:"limit_price"`
 	CashCeiling      string    `json:"cash_ceiling"`
 	Filled           string    `json:"filled"`
+	FilledNotional   string    `json:"filled_notional"`
+	FeesPaid         string    `json:"fees_paid"`
 	Spent            string    `json:"spent"`
 	ReservedCash     string    `json:"reserved_cash"`
 	ReservedQuantity string    `json:"reserved_quantity"`
@@ -231,7 +244,7 @@ func (e *Engine) reduce(s *Snapshot, v Event) error {
 		if s.FundingReviewRequired || number(v.CashCeiling).Cmp(number(e.config.OrderCashCeiling)) > 0 || new(big.Rat).Mul(number(v.Quantity), number(v.Price)).Cmp(number(v.CashCeiling)) > 0 {
 			return ErrLimits
 		}
-		order = Order{ID: v.OrderID, State: "REGISTERED", Symbol: v.Symbol, Side: v.Side, Quantity: fixed(number(v.Quantity)), LimitPrice: fixed(number(v.Price)), CashCeiling: fixed(number(v.CashCeiling)), Filled: zero(), Spent: zero(), ReservedCash: zero(), ReservedQuantity: zero()}
+		order = Order{ID: v.OrderID, State: "REGISTERED", Symbol: v.Symbol, Side: v.Side, Quantity: fixed(number(v.Quantity)), LimitPrice: fixed(number(v.Price)), CashCeiling: fixed(number(v.CashCeiling)), Filled: zero(), FilledNotional: zero(), FeesPaid: zero(), Spent: zero(), ReservedCash: zero(), ReservedQuantity: zero()}
 		if v.Side == "BUY" {
 			claims := add(s.ReservedCash, v.CashCeiling)
 			if number(add(claims, e.config.CashReserve)).Cmp(number(s.Cash)) > 0 || number(add(claims, s.BuySpent)).Cmp(number(e.config.BuySpendCeiling)) > 0 {
@@ -288,14 +301,24 @@ func (e *Engine) reduce(s *Snapshot, v Event) error {
 			order.State = "CANCEL_PENDING"
 		case ConfirmCancel:
 			expected.SimulatedOrderID = v.SimulatedOrderID
+			expected.TerminalSettlement = v.TerminalSettlement
 			if order.State != "CANCEL_PENDING" || v.SimulatedOrderID != order.SimulatedOrderID {
 				return ErrTransition
+			}
+			if !terminalSettlementMatches(order, v.TerminalSettlement) {
+				return ErrSettlement
 			}
 			order.State = "CANCELLED"
 			order.ReservedCash, order.ReservedQuantity = zero(), zero()
 		case Reject:
+			expected.TerminalSettlement = v.TerminalSettlement
 			if order.State != "OUTCOME_UNKNOWN" {
 				return ErrTransition
+			}
+			// An unknown attempt is not proof of zero fills. Rejection must
+			// explicitly attest zero quantity, gross and fees; never default.
+			if !terminalSettlementMatches(order, v.TerminalSettlement) {
+				return ErrSettlement
 			}
 			order.State = "REJECTED"
 			order.ReservedCash, order.ReservedQuantity = zero(), zero()
@@ -341,6 +364,8 @@ func settleFill(s *Snapshot, o *Order, v Event) error {
 		o.ReservedQuantity = subtract(o.Quantity, filled)
 	}
 	o.Filled = filled
+	o.FilledNotional = add(o.FilledNotional, fixed(gross))
+	o.FeesPaid = add(o.FeesPaid, v.Fee)
 	if filled == o.Quantity {
 		o.State = "FILLED"
 		o.ReservedCash, o.ReservedQuantity = zero(), zero()
@@ -348,6 +373,22 @@ func settleFill(s *Snapshot, o *Order, v Event) error {
 		o.State = "PARTIALLY_FILLED"
 	}
 	return nil
+}
+
+func terminalSettlementMatches(order Order, totals *SettlementTotals) bool {
+	if totals == nil {
+		return false
+	}
+	for _, pair := range [][2]string{
+		{totals.FilledQuantity, order.Filled},
+		{totals.GrossNotional, order.FilledNotional},
+		{totals.Fees, order.FeesPaid},
+	} {
+		if !validDecimal(pair[0]) || !validDecimal(pair[1]) || number(pair[0]).Cmp(number(pair[1])) != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *Engine) Snapshot() Snapshot {
