@@ -30,6 +30,6 @@ func main() {
 		}
 		fmt.Println(executionsim.Describe(s))
 	}
-	fmt.Println("Verified restart replay, no resend after unknown outcome, partial/cancel race, duplicate fills and transfers, exact cash/quantity, and terminal rejection.")
+	fmt.Println("Verified restart replay, no resend after unknown outcome, partial/cancel race, terminal quantity/gross/fee matching before claim release, duplicate fills and transfers, exact cash/quantity, and terminal rejection.")
 	fmt.Println("Synthetic journals retained at:", directory)
 }

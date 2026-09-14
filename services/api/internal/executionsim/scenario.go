@@ -102,6 +102,26 @@ func RunScenario(path, provider string, now time.Time) (Snapshot, error) {
 	if err = appendEvent(event("cancel-request", RequestCancel, "buy", 5, 5)); err != nil {
 		return Snapshot{}, err
 	}
+	// Terminal totals arrive before the last fill. Keep the claim and the
+	// prior revision intact, including through a restart; do not invent the
+	// missing settlement or consume its order revision.
+	premature := event("premature-cancel", ConfirmCancel, "buy", 6, 6)
+	premature.SimulatedOrderID = "fixture-buy"
+	premature.TerminalSettlement = &SettlementTotals{FilledQuantity: "1.5", GrossNotional: "60", Fees: "0.3"}
+	before, err := j.Snapshot()
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if applied, err := j.Append(premature, now); applied || !errors.Is(err, ErrSettlement) {
+		return Snapshot{}, ErrSettlement
+	}
+	if err = reopen(); err != nil {
+		return Snapshot{}, err
+	}
+	after, err := j.Snapshot()
+	if err != nil || !reflect.DeepEqual(before, after) {
+		return Snapshot{}, ErrJournal
+	}
 	late := event("buy-fill-2", Fill, "buy", 6, 6)
 	late.SimulatedOrderID, late.TransactionID, late.Quantity, late.Price, late.Fee = "fixture-buy", "trade-buy-2", "0.5", "40", "0.1"
 	if err = appendEvent(late); err != nil {
@@ -109,6 +129,7 @@ func RunScenario(path, provider string, now time.Time) (Snapshot, error) {
 	}
 	cancel := event("cancel-confirm", ConfirmCancel, "buy", 7, 7)
 	cancel.SimulatedOrderID = "fixture-buy"
+	cancel.TerminalSettlement = &SettlementTotals{FilledQuantity: "1.5", GrossNotional: "60", Fees: "0.3"}
 	if err = appendEvent(cancel); err != nil {
 		return Snapshot{}, err
 	}
@@ -157,7 +178,9 @@ func RunScenario(path, provider string, now time.Time) (Snapshot, error) {
 	if err = appendEvent(event("reject-send", Send, "reject", 2, 16)); err != nil {
 		return Snapshot{}, err
 	}
-	if err = appendEvent(event("rejected", Reject, "reject", 3, 17)); err != nil {
+	rejected := event("rejected", Reject, "reject", 3, 17)
+	rejected.TerminalSettlement = &SettlementTotals{FilledQuantity: "0", GrossNotional: "0", Fees: "0"}
+	if err = appendEvent(rejected); err != nil {
 		return Snapshot{}, err
 	}
 	if err = reopen(); err != nil {

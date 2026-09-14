@@ -79,6 +79,7 @@ func TestPartialFillCancellationAndLateFill(t *testing.T) {
 	}
 	v = fixtureEvent("cancelled", ConfirmCancel, 7)
 	v.SimulatedOrderID = "sim-order-a"
+	v.TerminalSettlement = &SettlementTotals{FilledQuantity: "1.5", GrossNotional: "60", Fees: "0.3"}
 	apply(t, e, v)
 	s = e.Snapshot()
 	if s.Cash != "939.7000000000" || s.ReservedCash != zero() || s.Positions["XRP"] != "1.5000000000" || s.Orders["order-a"].State != "CANCELLED" {
@@ -135,7 +136,9 @@ func TestUnknownOutcomeCannotResendOrReleaseReservation(t *testing.T) {
 	}
 	unchanged(t, e, fixtureEvent("send-again", Send, 3), ErrTransition)
 	unchanged(t, e, fixtureEvent("cancel-unknown", RequestCancel, 3), ErrTransition)
-	apply(t, e, fixtureEvent("reject", Reject, 3))
+	v = fixtureEvent("reject", Reject, 3)
+	v.TerminalSettlement = &SettlementTotals{FilledQuantity: "0", GrossNotional: "0", Fees: "0"}
+	apply(t, e, v)
 	if s := e.Snapshot(); s.ReservedCash != zero() || s.Cash != "1000.0000000000" {
 		t.Fatal(s)
 	}

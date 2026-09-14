@@ -10,18 +10,27 @@ Coinbase and Schwab scenarios use the same provider-independent engine with diff
 
 ## Lifecycle behavior
 
-| Saved event | Result and reservation behavior |
-| --- | --- |
-| Order opened | REGISTERED; reserve exact maximum buy cash including fees or exact sell quantity. |
-| Send recorded | OUTCOME_UNKNOWN immediately. Submission is not acknowledgment or fill. No resend transition exists. |
-| Matching acknowledgment | ACKNOWLEDGED; bind one unique synthetic order identity. No ledger settlement. |
-| Partial fill settled | Apply exact incremental quantity, price, and fee once. Retain the remaining reservation. |
-| Cancel requested | CANCEL_PENDING; retain the reservation. A matching fill may still arrive. |
-| Remaining quantity filled | FILLED, even if cancellation was pending. Release unused reservation. |
-| Cancel confirmed | CANCELLED; keep earlier fills and release only the remaining reservation. |
-| Rejection of an unknown attempt | REJECTED; release reservation without inventing a fill. |
+| Saved event                                                        | Result and reservation behavior                                                                     |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Order opened                                                       | REGISTERED; reserve exact maximum buy cash including fees or exact sell quantity.                   |
+| Send recorded                                                      | OUTCOME_UNKNOWN immediately. Submission is not acknowledgment or fill. No resend transition exists. |
+| Matching acknowledgment                                            | ACKNOWLEDGED; bind one unique synthetic order identity. No ledger settlement.                       |
+| Partial fill settled                                               | Apply exact incremental quantity, price, and fee once. Retain the remaining reservation.            |
+| Cancel requested                                                   | CANCEL_PENDING; retain the reservation. A matching fill may still arrive.                           |
+| Remaining quantity filled                                          | FILLED, even if cancellation was pending. Release unused reservation.                               |
+| Cancel confirmed with matching terminal totals                     | CANCELLED; keep earlier fills and release only the remaining reservation.                           |
+| Rejection of an unknown attempt with explicit zero terminal totals | REJECTED; release reservation without inventing a fill.                                             |
+| Missing or mismatched terminal totals                              | Reject the input; keep the pending/unknown state, version, cash and quantity claims unchanged.      |
 
 Every new order event requires the exact next per-order version, a nondecreasing order timestamp, and the same owner/account/provider/run identity. Out-of-order or missing revisions, unknown orders, conflicting provider-order identities, overfills, and impossible transitions fail closed without changing the projection. This laboratory does not buffer or reorder provider messages and does not implement replacements, trade busts, fees posted later, settlement delay, fractional-product rules, options, margin, shorting, or live retries.
+
+### Terminal settlement fence
+
+A cancellation status alone is insufficient to release reserved buy cash or sell units. `CANCEL_CONFIRMED` now requires an explicit `terminal_settlement` witness containing cumulative `filled_quantity`, `gross_notional`, and `fees`. The engine independently accumulates those values from each uniquely applied incremental fill using exact decimal arithmetic. All three terminal totals must match; an unknown attempt's `REJECTED` event requires explicit zero in all three fields. Omitted fields never mean zero. Numerically equivalent trailing-zero spellings compare exactly, while changed facts under a previously accepted delivery identity still conflict.
+
+For example, if cancellation reports 1.5 filled units but the journal contains only 1 unit, the engine returns `ErrSettlement` and preserves the outstanding claim. It does not manufacture the missing half-unit fill, apply terminal totals as a second settlement, consume the next revision, or resend an order. The harness must first provide the missing independently identified fill and then present the terminal witness at the correct next revision. The same behavior survives reopening the journal. A write failure cannot publish a reservation release, and concurrent duplicate confirmations have only one effect.
+
+These are **fictional normalized terminal facts**, not a Coinbase or Schwab API schema or proof of complete provider history. They assume each synthetic fill's fee is final and known in the fixture cash currency. Actual terminal status, fill completeness, fee currency/finality, and any later correction still require a documented provider adapter and reconciliation design. Invalid attempted terminal input is not appended as an accepted fact; a future real event-ingestion layer must preserve unresolved inbound observations separately. No existing real observation is used to invent these totals.
 
 ## Economic matching and exact money
 
@@ -41,6 +50,8 @@ A process exiting after a durable attempt but before receiving its result reopen
 
 The hash chain detects accidental inconsistency, **not malicious rewriting, complete-tail truncation, or rollback by a filesystem owner**. This is not authenticated audit archival, a production database transaction design, a high-availability journal, or a substitute for PostgreSQL. The implementation targets the project's macOS development and Linux CI environments.
 
+Older fictional journals containing cancellation/rejection records without the terminal witness now fail replay closed and remain untouched. There is no inferred backfill or automatic rewrite. Journals containing only otherwise valid nonterminal events can still replay and continue; new fixture scenarios use a fresh private journal. Production Paper records and provider observation tables are not read or migrated by this change.
+
 ## Run now, without scheduled cycles
 
 From `services/api`, with the Go version pinned by `go.mod`:
@@ -50,7 +61,7 @@ go test -race ./internal/executionsim
 go run ./cmd/simulate-lifecycle
 ```
 
-Both synthetic scenarios test an uncertain attempt and restart, acknowledgment, partial fill and restart, duplicate fill delivery, cancellation with an intervening fill, confirmed cancellation, duplicate deposit, withdrawal, partial/full sale, terminal rejection, and final full replay. Each ends with exactly 17 applied lifecycle/economic events, six unique settled transactions, three terminal orders, zero remaining reservations, and USD 1,077.3850000000 fictional cash. This balance includes a fictional deposit/withdrawal and artificial prices; it is not strategy performance. The journal additionally preserves two duplicate delivery aliases and genesis. Tests separately cover process exit without Close, competing writers, concurrent duplicate delivery, write failure, corruption, identity isolation, funding shortfalls, double reservation, overselling, and exact decimal rejection. CI runs the complete tests and executable scenarios without network calls from the harness.
+Both synthetic scenarios test an uncertain attempt and restart, acknowledgment, partial fill and restart, duplicate fill delivery, premature cancellation totals rejected before a missing fill (including restart with the reservation intact), cancellation with an intervening fill, matched confirmed cancellation, duplicate deposit, withdrawal, partial/full sale, explicit zero-settlement rejection, and final full replay. Each ends with exactly 17 applied lifecycle/economic events, six unique settled transactions, three terminal orders, zero remaining reservations, and USD 1,077.3850000000 fictional cash. This balance includes a fictional deposit/withdrawal and artificial prices; it is not strategy performance. The journal additionally preserves two duplicate delivery aliases and genesis. Tests separately cover process exit without Close, competing writers, concurrent duplicate terminal delivery, failed terminal writes, legacy terminal evidence, changed/missing quantities and fees, cross-account terminal identity, sell-quantity reservation, corruption, funding shortfalls, double reservation, overselling, and exact decimal rejection. CI runs the complete tests and executable scenarios without network calls from the harness.
 
 ## Next integration work
 
