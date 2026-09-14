@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 
 const views = ["Portfolio", "AI Engine", "Decision Journal"] as const;
 
-/** Marketing illustration only. This component never reads an account or calls an API. */
+/** Public marketing only: no balances, provider-specific accounts, or account/API reads. */
 export function ProductPreview() {
   const [selected, setSelected] = useState(0);
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -68,31 +68,29 @@ export function ProductPreview() {
           tabIndex={0}
         >
           <div className="product-preview-value">
-            <span>Connected portfolio</span>
-            <strong>
-              $24,680<span>.50</span>
-            </strong>
-            <small>Example values · not account data</small>
-          </div>
-          <div className="product-preview-allocation" aria-hidden="true">
-            <span />
-            <span />
+            <span>Your portfolio</span>
+            <strong>Private by design</strong>
+            <small>Sign in to view your accounts and balances.</small>
           </div>
           <div className="product-preview-account">
-            <span className="preview-provider">S</span>
+            <span className="preview-provider" aria-hidden="true">
+              B
+            </span>
             <div>
               <strong>Brokerage</strong>
-              <small>Charles Schwab</small>
+              <small>Account details stay private</small>
             </div>
-            <b>$18,240.00</b>
+            <b>Sign-in required</b>
           </div>
           <div className="product-preview-account">
-            <span className="preview-provider is-crypto">C</span>
+            <span className="preview-provider is-crypto" aria-hidden="true">
+              D
+            </span>
             <div>
               <strong>Digital assets</strong>
-              <small>Coinbase</small>
+              <small>Holdings stay private</small>
             </div>
-            <b>$6,440.50</b>
+            <b>Sign-in required</b>
           </div>
           <p className="product-preview-note">
             One view. Assets stay with your provider.

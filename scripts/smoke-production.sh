@@ -4,7 +4,12 @@ set -euo pipefail
 base="${ARBION_PUBLIC_URL:-https://www.arbion.ai}"
 [[ "$base" == "https://www.arbion.ai" ]] || { echo "Refusing unexpected public URL" >&2; exit 1; }
 
-curl --fail --silent --show-error --max-time 10 "$base/" >/dev/null
+landing_html="$(curl --fail --silent --show-error --max-time 10 "$base/")"
+if ! grep -Fq 'Private by design' <<<"$landing_html" ||
+  grep -Eiq '([$€£][0-9][0-9,]*\.[0-9]{2}|Charles Schwab|Coinbase|provider_account_id|access_token|refresh_token)' <<<"$landing_html"; then
+  echo "Public landing privacy check failed; account-like values or identifiers must not be public." >&2
+  exit 1
+fi
 curl --fail --silent --show-error --max-time 10 "$base/healthz" >/dev/null
 curl --fail --silent --show-error --max-time 10 "$base/readyz" >/dev/null
 curl --fail --silent --show-error --max-time 10 "$base/login" >/dev/null
@@ -14,6 +19,11 @@ curl --fail --silent --show-error --max-time 10 "$base/icon.svg" >/dev/null
 
 journal_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 10 "$base/api/decision-journal")"
 [[ "$journal_status" == "401" ]] || { echo "Decision Journal endpoint is not protected" >&2; exit 1; }
+
+for private_path in /api/accounts /api/connections/financial /api/accounts/00000000-0000-0000-0000-000000000000/balances; do
+  private_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 10 "$base$private_path")"
+  [[ "$private_status" == "401" ]] || { echo "Private financial endpoint is not protected." >&2; exit 1; }
+done
 
 headers="$(curl --fail --silent --show-error --head --max-time 10 "$base/login" | tr -d '\r')"
 require_header() {
