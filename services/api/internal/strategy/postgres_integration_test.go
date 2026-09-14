@@ -776,6 +776,87 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	}
 	assertCount(t, pool, `SELECT count(*) FROM shadow_execution_outcomes`, 1)
 	assertCount(t, pool, `SELECT count(*) FROM shadow_evidence_reviews`, 2)
+	t.Run("immutable owner-bound pre-model quote evidence", func(t *testing.T) {
+		quoteRunAt := aiClaimAt.Add(time.Hour)
+		claimed, claimErr := store.ClaimDueSchedule(ctx, quoteRunAt, scheduleLeaseDuration)
+		if claimErr != nil || claimed == nil || claimed.StrategyInstanceID != aiInstance.ID {
+			t.Fatalf("quote evidence test claim unavailable: %#v %v", claimed, claimErr)
+		}
+		notRealtime := false
+		futureProviderTime := quoteRunAt.Add(time.Second)
+		evidence := &QuoteRejectionEvidence{
+			SchemaVersion: 1, Provider: "schwab", FinancialAccountID: aiAccountID,
+			RequestedSymbol: "SPY", QuoteType: "NFL", Realtime: &notRealtime,
+			ProviderObservedAt: &futureProviderTime, EvaluatedAt: quoteRunAt,
+			RejectionCode: "MARKET_DATA_DELAYED", BeforeModel: true,
+		}
+		completion := ScheduleCompletion{Status: "FAILED", ErrorCode: "MARKET_DATA_DELAYED",
+			CompletedAt: quoteRunAt, NextRunAt: quoteRunAt.Add(time.Hour), QuoteRejection: evidence}
+		evidence.FinancialAccountID = accountID
+		if completeErr := store.CompleteSchedule(ctx, *claimed, completion); !errors.Is(completeErr, ErrInvalid) {
+			t.Fatalf("cross-account metadata accepted: %v", completeErr)
+		}
+		evidence.FinancialAccountID = aiAccountID
+		if completeErr := store.CompleteSchedule(ctx, *claimed, completion); completeErr != nil {
+			t.Fatal(completeErr)
+		}
+		runs, readErr := store.ScheduleRuns(ctx, userID, aiInstance.ID, 10, nil)
+		if readErr != nil || len(runs) != 2 || runs[0].QuoteRejection == nil || runs[1].QuoteRejection != nil {
+			t.Fatalf("forward-only metadata failed round trip: %#v %v", runs, readErr)
+		}
+		saved := runs[0].QuoteRejection
+		if saved.QuoteType != "NFL" || saved.Realtime == nil || *saved.Realtime ||
+			saved.ProviderObservedAt == nil || !saved.ProviderObservedAt.Equal(futureProviderTime) ||
+			runs[0].ConsecutiveFailures != 1 {
+			t.Fatalf("saved quote changed: %#v", saved)
+		}
+		foreign, readErr := store.ScheduleRuns(ctx, "99999999-9999-4999-8999-999999999999", aiInstance.ID, 10, nil)
+		if readErr != nil || len(foreign) != 0 {
+			t.Fatal("quote evidence crossed owner boundary")
+		}
+		for _, mutation := range []string{
+			`UPDATE nonlive_schedule_runs SET quote_rejection=NULL WHERE id=$1`,
+			`DELETE FROM nonlive_schedule_runs WHERE id=$1`,
+		} {
+			if _, mutationErr := pool.Exec(ctx, mutation, runs[0].ID); mutationErr == nil {
+				t.Fatal("quote evidence was mutable")
+			}
+		}
+		body, marshalErr := json.Marshal(evidence)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		for _, change := range []func(map[string]any){
+			func(e map[string]any) { e["financial_account_id"] = accountID },
+			func(e map[string]any) { e["unexpected"] = "synthetic-private-field" },
+			func(e map[string]any) { e["realtime"] = "false" },
+			func(e map[string]any) { e["realtime"] = true },
+			func(e map[string]any) { delete(e, "evaluated_at") },
+			func(e map[string]any) { e["evaluated_at"] = quoteRunAt.Add(time.Hour).Format(time.RFC3339Nano) },
+			func(e map[string]any) { e["provider_observed_at"] = "2026-99-99T00:00:00Z" },
+			func(e map[string]any) { e["quote_type"] = "synthetic-private-field" },
+			func(e map[string]any) { e["before_model"] = false },
+		} {
+			var invalid map[string]any
+			if decodeErr := json.Unmarshal(body, &invalid); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			change(invalid)
+			payload, encodeErr := json.Marshal(invalid)
+			if encodeErr != nil {
+				t.Fatal(encodeErr)
+			}
+			_, insertErr := pool.Exec(ctx, `INSERT INTO nonlive_schedule_runs(
+				user_id,strategy_instance_id,mandate_id,mandate_version,execution_mode,strategy_state,
+				scheduled_for,started_at,completed_at,next_run_at,status,error_code,consecutive_failures,quote_rejection)
+				SELECT user_id,strategy_instance_id,mandate_id,mandate_version,execution_mode,strategy_state,
+				scheduled_for-interval '1 second',started_at,completed_at,next_run_at,status,error_code,consecutive_failures,$2::jsonb
+				FROM nonlive_schedule_runs WHERE id=$1`, runs[0].ID, payload)
+			if insertErr == nil {
+				t.Fatal("database accepted malformed or misbound quote evidence")
+			}
+		}
+	})
 }
 
 func TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing(t *testing.T) {

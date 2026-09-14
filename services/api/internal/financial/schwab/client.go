@@ -295,6 +295,7 @@ func (c *Client) Disconnect(context.Context, *financial.Credentials) error { ret
 type quoteEnvelope struct {
 	AssetMainType string `json:"assetMainType"`
 	Symbol        string `json:"symbol"`
+	QuoteType     string `json:"quoteType"`
 	Realtime      *bool  `json:"realtime"`
 	Quote         struct {
 		BidPrice, AskPrice, Mark, LastPrice decimal
@@ -347,7 +348,15 @@ func (c *Client) GetQuote(ctx context.Context, cr *financial.Credentials, symbol
 	if quoteTime == 0 {
 		quoteTime = value.Quote.TradeTime
 	}
-	return financial.Quote{Symbol: symbol, AssetType: value.AssetMainType, Bid: bid, Ask: ask, Mark: mark, Last: last, ProviderTimestamp: providerTime(quoteTime), Realtime: value.Realtime}, nil
+	quoteType := value.QuoteType
+	switch quoteType {
+	case "NBBO", "NFL":
+	case "":
+		quoteType = "UNAVAILABLE"
+	default:
+		quoteType = "UNRECOGNIZED"
+	}
+	return financial.Quote{Symbol: symbol, AssetType: value.AssetMainType, QuoteType: quoteType, Bid: bid, Ask: ask, Mark: mark, Last: last, ProviderTimestamp: providerTime(quoteTime), Realtime: value.Realtime}, nil
 }
 
 type rawOptionContract struct {

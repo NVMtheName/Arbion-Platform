@@ -12190,6 +12190,28 @@ button:disabled {
 .schedule-run-guidance strong {
   color: var(--surface-text);
 }
+.schedule-quote-evidence {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgb(var(--surface-line-rgb) / 0.24);
+  border-radius: 9px;
+  color: var(--surface-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.schedule-quote-evidence summary {
+  color: var(--surface-text);
+  cursor: pointer;
+  font-weight: 600;
+}
+.schedule-quote-evidence summary:focus-visible {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 4px;
+}
+.schedule-run-list .schedule-quote-evidence dl {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
 .schedule-run-guidance.is-automatic-retry {
   border-color: rgba(25, 201, 214, 0.28);
   background: rgba(25, 201, 214, 0.06);

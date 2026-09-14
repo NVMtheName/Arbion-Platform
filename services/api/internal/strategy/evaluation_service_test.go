@@ -674,6 +674,10 @@ func TestSchwabAIFailsClosedUnlessProviderExplicitlyMarksQuoteRealtime(t *testin
 			if !errors.Is(err, test.want) || !errors.Is(err, ErrEvaluationMarketDataNotRealtime) {
 				t.Fatalf("ambiguous Schwab market entitlement was not rejected: %v", err)
 			}
+			var rejection *quoteRejectionError
+			if !errors.As(err, &rejection) || rejection.evidence.RejectionCode != classifyScheduleError(test.want) || !rejection.evidence.BeforeModel {
+				t.Fatalf("pre-model rejection metadata missing: %v", err)
+			}
 			if finances.quoteCalls != 1 || ai.calls != 0 || store.commits != 0 || store.abstains != 0 || store.paperCommits != 0 {
 				t.Fatalf("rejected quote crossed a downstream boundary: quotes=%d ai=%d commits=%d abstains=%d paper=%d", finances.quoteCalls, ai.calls, store.commits, store.abstains, store.paperCommits)
 			}

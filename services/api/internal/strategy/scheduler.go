@@ -138,6 +138,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 	if completion.CompletedAt.Before(run.StartedAt) {
 		completion.CompletedAt = run.StartedAt
 	}
+	completion.QuoteRejection = scheduledQuoteRejection(err, *run, completion)
 	if err := s.store.CompleteSchedule(ctx, *run, completion); err != nil {
 		return true, err
 	}

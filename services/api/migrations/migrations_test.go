@@ -35,6 +35,27 @@ func TestInitialMigrationDefinesRequiredSchema(t *testing.T) {
 	}
 }
 
+func TestScheduledQuoteRejectionIsBoundedForwardOnlyAndOwnerScoped(t *testing.T) {
+	body, err := fs.ReadFile(Files, "00046_scheduled_quote_rejection_evidence.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"ADD COLUMN quote_rejection jsonb", "e ?& keys AND e - keys = '{}'::jsonb",
+		"octet_length(e::text)<=1536", "NEW.status='FAILED'", "NEW.strategy_state='AI_MONITORING'",
+		"NEW.ai_decision IS NULL", "NEW.execution_status IS NULL", "e->>'rejection_code'=NEW.error_code",
+		"i.user_id=NEW.user_id", "a.user_id=i.user_id", "i.financial_account_id=(e->>'financial_account_id')::uuid",
+		"BEFORE INSERT ON nonlive_schedule_runs", "cannot remove immutable scheduled quote rejection evidence",
+	} {
+		if !strings.Contains(string(body), required) {
+			t.Errorf("missing boundary: %s", required)
+		}
+	}
+	if strings.Contains(string(body), "UPDATE nonlive_schedule_runs") {
+		t.Fatal("migration rewrites immutable history")
+	}
+}
+
 func TestPrivateFillEvidenceMigrationIsExactImmutableScopedAndNonAuthoritative(t *testing.T) {
 	body, err := fs.ReadFile(Files, "00045_private_fill_evidence.sql")
 	if err != nil {
