@@ -10,17 +10,17 @@ Coinbase and Schwab scenarios use the same provider-independent engine with diff
 
 ## Lifecycle behavior
 
-| Saved event | Result and reservation behavior |
-| --- | --- |
-| Order opened | REGISTERED; reserve exact maximum buy cash including fees or exact sell quantity. |
-| Send recorded | OUTCOME_UNKNOWN immediately. Submission is not acknowledgment or fill. No resend transition exists. |
-| Matching acknowledgment | ACKNOWLEDGED; bind one unique synthetic order identity. No ledger settlement. |
-| Partial fill settled | Apply exact incremental quantity, price, and fee once. Retain the remaining reservation. |
-| Cancel requested | CANCEL_PENDING; retain the reservation. A matching fill may still arrive. |
-| Remaining quantity filled | FILLED, even if cancellation was pending. Release unused reservation. |
-| Cancel confirmed with matching terminal totals | CANCELLED; keep earlier fills and release only the remaining reservation. |
-| Rejection of an unknown attempt with explicit zero terminal totals | REJECTED; release reservation without inventing a fill. |
-| Missing or mismatched terminal totals | Reject the input; keep the pending/unknown state, version, cash and quantity claims unchanged. |
+| Saved event                                                        | Result and reservation behavior                                                                     |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Order opened                                                       | REGISTERED; reserve exact maximum buy cash including fees or exact sell quantity.                   |
+| Send recorded                                                      | OUTCOME_UNKNOWN immediately. Submission is not acknowledgment or fill. No resend transition exists. |
+| Matching acknowledgment                                            | ACKNOWLEDGED; bind one unique synthetic order identity. No ledger settlement.                       |
+| Partial fill settled                                               | Apply exact incremental quantity, price, and fee once. Retain the remaining reservation.            |
+| Cancel requested                                                   | CANCEL_PENDING; retain the reservation. A matching fill may still arrive.                           |
+| Remaining quantity filled                                          | FILLED, even if cancellation was pending. Release unused reservation.                               |
+| Cancel confirmed with matching terminal totals                     | CANCELLED; keep earlier fills and release only the remaining reservation.                           |
+| Rejection of an unknown attempt with explicit zero terminal totals | REJECTED; release reservation without inventing a fill.                                             |
+| Missing or mismatched terminal totals                              | Reject the input; keep the pending/unknown state, version, cash and quantity claims unchanged.      |
 
 Every new order event requires the exact next per-order version, a nondecreasing order timestamp, and the same owner/account/provider/run identity. Out-of-order or missing revisions, unknown orders, conflicting provider-order identities, overfills, and impossible transitions fail closed without changing the projection. This laboratory does not buffer or reorder provider messages and does not implement replacements, trade busts, fees posted later, settlement delay, fractional-product rules, options, margin, shorting, or live retries.
 
