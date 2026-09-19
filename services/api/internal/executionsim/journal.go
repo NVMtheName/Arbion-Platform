@@ -87,19 +87,8 @@ func OpenJournal(path string, config Config, now time.Time) (*Journal, error) {
 		if index > 10000 || len(line) > 64<<10 {
 			return fail()
 		}
-		var r record
-		decoder := json.NewDecoder(bytes.NewReader(line))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&r); err != nil {
-			return fail()
-		}
-		if decoder.Decode(new(any)) != io.EOF {
-			return fail()
-		}
-		canonical, _ := json.Marshal(r)
-		// Canonical encoding also rejects duplicate JSON keys and unknown
-		// alternate encodings, rather than letting a decoder choose a value.
-		if !bytes.Equal(canonical, line) || r.Sequence != index+1 || r.Previous != j.previous || r.Hash != recordHash(r) {
+		r, err := decodeRecord(line)
+		if err != nil || r.Sequence != index+1 || r.Previous != j.previous {
 			return fail()
 		}
 		if index == 0 {
@@ -203,6 +192,25 @@ func recordHash(r record) string {
 	data, _ := json.Marshal(r)
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:])
+}
+
+// Shared by file and PostgreSQL replay. Canonical encoding rejects duplicate
+// JSON keys and alternate encodings instead of allowing decoder ambiguity.
+func decodeRecord(data []byte) (record, error) {
+	if len(data) == 0 || len(data) > 64<<10 {
+		return record{}, ErrJournal
+	}
+	var r record
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&r); err != nil || decoder.Decode(new(any)) != io.EOF {
+		return record{}, ErrJournal
+	}
+	canonical, err := json.Marshal(r)
+	if err != nil || !bytes.Equal(canonical, data) || r.Hash != recordHash(r) {
+		return record{}, ErrJournal
+	}
+	return r, nil
 }
 
 func clone(m map[string]string) map[string]string {
