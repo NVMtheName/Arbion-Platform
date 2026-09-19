@@ -44,6 +44,30 @@ export function scheduleFailureGuidance(
         `Reconnect ${provider} before the next scheduled evaluation.`,
       );
     case "PROVIDER":
+      return guidance(
+        "OPERATOR_REVIEW",
+        `${provider} read data was unavailable, but this saved result does not identify why. Review connection status and saved evidence; it does not prove a temporary outage or a quote-entitlement problem.`,
+      );
+    case "INVALID_CREDENTIAL_FORMAT":
+      return guidance(
+        "OWNER_REVIEW",
+        `Review the saved ${provider} connection setup. Its credential format was rejected; do not paste credentials into the AI conversation.`,
+      );
+    case "ACCOUNT_NOT_FOUND":
+      return guidance(
+        "OWNER_REVIEW",
+        `${provider} could not find the linked account. Review the account and connection before the next evaluation; no holdings or allocation were changed.`,
+      );
+    case "PERMISSION_DENIED":
+      return guidance(
+        "OWNER_REVIEW",
+        `${provider} denied the requested read access. Review the connection's account and API permissions; this result alone does not establish quote entitlement.`,
+      );
+    case "INVALID_PROVIDER_RESPONSE":
+      return guidance(
+        "OPERATOR_REVIEW",
+        `${provider} returned evidence that did not satisfy the read contract. Arbion stopped safely; the provider response or adapter needs review.`,
+      );
     case "PROVIDER_UNAVAILABLE":
     case "RATE_LIMITED":
     case "TIMEOUT":

@@ -10,6 +10,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/authorization"
 	"github.com/arbion/platform/services/api/internal/automationnotification"
+	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/neural"
 )
 
@@ -314,6 +315,40 @@ func TestScheduleErrorClassificationPreservesSafeEvaluationDiagnostics(t *testin
 		if got := classifyScheduleError(err); got != want {
 			t.Fatalf("classification=%q want=%q", got, want)
 		}
+	}
+}
+
+func TestSchedulerPreservesOnlyKnownFinancialFailureCodes(t *testing.T) {
+	for _, code := range []financial.ProviderErrorCode{
+		financial.AuthorizationFailed, financial.AuthorizationExpired,
+		financial.InvalidCredentialFormat, financial.ProviderUnavailable,
+		financial.RateLimited, financial.Timeout, financial.AccountNotFound,
+		financial.PermissionDenied, financial.InvalidProviderResponse,
+		financial.InternalError, "", "untrusted provider text", "FUTURE_UNKNOWN_CODE",
+	} {
+		t.Run(string(code), func(t *testing.T) {
+			want := string(code)
+			switch code {
+			case financial.InternalError, "", "untrusted provider text", "FUTURE_UNKNOWN_CODE":
+				want = "PROVIDER"
+			}
+			failure := fmt.Errorf("private wrapper: %w", &financial.ProviderError{Code: code, Err: errors.New("private provider detail")})
+			if got := classifyScheduleError(failure); got != want {
+				t.Fatalf("classification=%q want=%q", got, want)
+			}
+			now := time.Date(2026, 9, 18, 15, 0, 0, 0, time.UTC)
+			store := &scheduleStoreFake{run: scheduledRun(AIMonitoring, now)}
+			evaluator := &scheduledEvaluatorFake{err: failure}
+			scheduler := NewScheduler(store, evaluator)
+			scheduler.now = func() time.Time { return now }
+			claimed, err := scheduler.RunOnce(context.Background())
+			if err != nil || !claimed || evaluator.calls != 1 || store.completion.Status != "FAILED" || store.completion.ErrorCode != want {
+				t.Fatalf("financial failure did not stop safely: %#v %v", store.completion, err)
+			}
+			if store.completion.AIDecision != "" || store.completion.ExecutionStatus != "" || store.completion.DuplicateRecovered || store.completion.QuoteRejection != nil || !store.completion.NextRunAt.Equal(now.Add(time.Hour)) {
+				t.Fatalf("failure created outcome/quote evidence or changed cadence: %#v", store.completion)
+			}
+		})
 	}
 }
 

@@ -8,6 +8,16 @@ describe("scheduleFailureGuidance", () => {
     ["AI_PROVIDER_UNAVAILABLE", "AUTOMATIC_RETRY"],
     ["AI_CONNECTION_UNAVAILABLE", "OWNER_REVIEW"],
     ["AI_REQUEST_INVALID", "OPERATOR_REVIEW"],
+    ["AUTHORIZATION_FAILED", "OWNER_REVIEW"],
+    ["AUTHORIZATION_EXPIRED", "OWNER_REVIEW"],
+    ["INVALID_CREDENTIAL_FORMAT", "OWNER_REVIEW"],
+    ["ACCOUNT_NOT_FOUND", "OWNER_REVIEW"],
+    ["PERMISSION_DENIED", "OWNER_REVIEW"],
+    ["INVALID_PROVIDER_RESPONSE", "OPERATOR_REVIEW"],
+    ["PROVIDER", "OPERATOR_REVIEW"],
+    ["PROVIDER_UNAVAILABLE", "AUTOMATIC_RETRY"],
+    ["RATE_LIMITED", "AUTOMATIC_RETRY"],
+    ["TIMEOUT", "AUTOMATIC_RETRY"],
     ["MARKET_DATA_DELAYED", "OWNER_REVIEW"],
     ["MARKET_DATA_REALTIME_UNCONFIRMED", "OWNER_REVIEW"],
     ["MARKET_DATA_NOT_REALTIME", "OWNER_REVIEW"],
@@ -48,6 +58,23 @@ describe("scheduleFailureGuidance", () => {
       action: "OPERATOR_REVIEW",
       actionLabel: "Operator correction",
     });
+  });
+
+  it("does not infer a temporary outage or entitlement from legacy provider errors", () => {
+    expect(scheduleFailureGuidance("PROVIDER", "schwab").message).toMatch(
+      /does not identify why.*does not prove a temporary outage or a quote-entitlement problem/i,
+    );
+    expect(
+      scheduleFailureGuidance("AUTHORIZATION_EXPIRED", "schwab").message,
+    ).toMatch(/Reconnect Schwab before the next scheduled evaluation/i);
+    expect(
+      scheduleFailureGuidance("PERMISSION_DENIED", "schwab").message,
+    ).toMatch(
+      /denied the requested read access.*does not establish quote entitlement/i,
+    );
+    expect(
+      scheduleFailureGuidance("secret raw error", "<unsafe>").message,
+    ).not.toMatch(/secret raw error|<unsafe>/);
   });
 
   it("explains that ambiguous Schwab entitlement stops before the model", () => {
