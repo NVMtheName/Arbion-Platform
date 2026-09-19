@@ -213,7 +213,6 @@ export type FinancialInputChainProjection = {
 
 const connectionFailureCodes = new Set(["RECONCILIATION_REFRESH_FAILED"]);
 const schwabAutomaticRetryCodes = new Set([
-  "PROVIDER",
   "PROVIDER_UNAVAILABLE",
   "RATE_LIMITED",
   "TIMEOUT",
@@ -1231,7 +1230,10 @@ export function projectSchwabMarketDataReadiness({
         guidance = `Schwab authorization is active, but the newest saved ${symbols.join(" / ")} quote did not explicitly report real-time quality. Review the Schwab account or app's market-data entitlement; reconnecting alone does not prove quote entitlement. Arbion will check again automatically at the next guarded cycle.`;
       } else if (
         code === "AUTHORIZATION_FAILED" ||
-        code === "AUTHORIZATION_EXPIRED"
+        code === "AUTHORIZATION_EXPIRED" ||
+        code === "INVALID_CREDENTIAL_FORMAT" ||
+        code === "ACCOUNT_NOT_FOUND" ||
+        code === "PERMISSION_DENIED"
       ) {
         state = "AUTHORIZATION_REVIEW";
         label = "Authorization needs review";
@@ -1243,6 +1245,10 @@ export function projectSchwabMarketDataReadiness({
       } else if (code === "MARKET_DATA_INVALID") {
         state = "OPERATOR_REVIEW";
         label = "Quote contract needs operator review";
+        guidance = scheduleFailureGuidance(code, "schwab").message;
+      } else if (code === "PROVIDER" || code === "INVALID_PROVIDER_RESPONSE") {
+        state = "OPERATOR_REVIEW";
+        label = "Provider evidence needs review";
         guidance = scheduleFailureGuidance(code, "schwab").message;
       }
       return {

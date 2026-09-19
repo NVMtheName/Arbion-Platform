@@ -267,6 +267,16 @@ func classifyScheduleError(err error) string {
 	}
 	var providerError *financial.ProviderError
 	if errors.As(err, &providerError) {
+		// Preserve only the closed financial-provider vocabulary. A generic
+		// PROVIDER result is not proof of a transient outage or quote entitlement.
+		// Never persist arbitrary Code/Err text, and never rewrite prior runs.
+		switch providerError.Code {
+		case financial.AuthorizationFailed, financial.AuthorizationExpired,
+			financial.InvalidCredentialFormat, financial.ProviderUnavailable,
+			financial.RateLimited, financial.Timeout, financial.AccountNotFound,
+			financial.PermissionDenied, financial.InvalidProviderResponse:
+			return string(providerError.Code)
+		}
 		return "PROVIDER"
 	}
 	return "INTERNAL"

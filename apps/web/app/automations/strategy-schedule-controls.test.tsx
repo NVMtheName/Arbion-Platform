@@ -185,6 +185,13 @@ describe("StrategyScheduleControls", () => {
   });
 
   it.each([
+    [
+      "AUTHORIZATION_EXPIRED",
+      /reconnect.*before the next scheduled evaluation/i,
+    ],
+    ["PERMISSION_DENIED", /denied the requested read access/i],
+    ["INVALID_PROVIDER_RESPONSE", /did not satisfy the read contract/i],
+    ["PROVIDER", /saved result does not identify why/i],
     ["MARKET_DATA_STALE", /after the data refreshes/i],
     ["MARKET_DATA_DELAYED", /explicitly marked.*delayed/i],
     ["MARKET_DATA_REALTIME_UNCONFIRMED", /rather than guessing/i],
