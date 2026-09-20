@@ -264,9 +264,39 @@ Already committed duplicate events remain recoverable even after revocation;
 denials and abstentions retain their immutable non-accepted evidence. Isolated
 PostgreSQL tests reproduce the prior accepted-Shadow-after-revocation defect,
 exercise both actual race orderings, and verify capped percentage/fixed claims,
-account isolation and concurrent duplicates. This is not an atomic re-evaluation
-of every risk input, daily quota, reconciliation snapshot, or provider credential
-generation, and introduces no broker call, live path or weaker control.
+account isolation and concurrent duplicates. Daily quota/cooldown checks are
+described below. This is not an atomic re-evaluation of every risk input,
+reconciliation snapshot, or provider credential generation, and introduces no
+broker call, live path or weaker control.
+
+### Current AI action activity at non-live commit
+
+After the shared instance binding lock and every other write/lock wait, accepted
+AI Paper and Shadow persistence rechecks saved action activity immediately before
+commit. This closes a reproduced Shadow race where distinct prepared evaluations
+could both consume the last daily slot or save the same symbol/side within the
+one-hour cooldown despite passing the older pre-model risk snapshot. The
+instance lock alone did not prevent that because AI_MONITORING saves do not
+advance the strategy state version.
+
+The guard reads only the immutable pinned risk policy and current owner/instance
+execution history, excluding its own provisional result. It preserves existing
+semantics: every saved execution disposition counts toward the UTC daily quota;
+abstentions do not; only accepted same-mode, same-symbol/side results start the
+one-hour cooldown, with the exact one-hour boundary excluded. A legacy optional
+daily limit stays optional, not inferred. Malformed policy, future or wrong-mode
+activity, or a prepared evaluation crossing its UTC day fails closed. No new
+quote, model request, inferred counter, or replacement risk decision is created.
+
+The transaction rolls back event/risk/journal/execution/fill/cash/position/runtime
+effects on refusal. Exact committed duplicates still recover before the guard.
+Quota/cooldown holds produce credential-free SKIPPED scheduler records without
+claiming recovery or clearing prior failures; unavailable activity remains a
+FAILED record requiring evidence review. The normal next cycle may reevaluate
+current evidence, but the old proposal is never retried automatically. Isolated
+tests cover distinct concurrent Shadow events, Paper rollback with current cash,
+denial/abstention counting, future history and cross-account isolation. This is
+not a revalidation of every remaining risk input or any live authority.
 
 ### Atomic emergency-stop coordination for non-live commits
 

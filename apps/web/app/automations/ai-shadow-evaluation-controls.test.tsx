@@ -68,6 +68,15 @@ describe("AIShadowEvaluationControls", () => {
       /hourly AI decision budget is currently used/i,
     ],
     ["AI_PROVIDER_RATE_LIMITED", /AI provider is temporarily rate limited/i],
+    [
+      "COMMIT_ACTION_LIMIT_REACHED",
+      /next normal scheduled cycle.*do not rerun/i,
+    ],
+    [
+      "COMMIT_ACTION_COOLDOWN_ACTIVE",
+      /next normal scheduled cycle.*do not rerun/i,
+    ],
+    ["COMMIT_ACTIVITY_UNAVAILABLE", /UTC day.*do not replay/i],
     ["COMMIT_MARKET_DATA_STALE", /do not rerun the old proposal or loosen/i],
     ["COMMIT_MANDATE_WINDOW_CLOSED", /newer draft does not extend/i],
     ["COMMIT_ACCESS_REVOKED", /logging in again does not restore revoked/i],

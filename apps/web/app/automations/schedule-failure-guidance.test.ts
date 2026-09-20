@@ -3,6 +3,27 @@ import { describe, expect, it } from "vitest";
 import { scheduleFailureGuidance } from "./schedule-failure-guidance";
 
 describe("scheduleFailureGuidance", () => {
+  it.each(["COMMIT_ACTION_LIMIT_REACHED", "COMMIT_ACTION_COOLDOWN_ACTIVE"])(
+    "keeps %s on the normal schedule without bypassing the hold",
+    (code) => {
+      expect(scheduleFailureGuidance(code)).toMatchObject({
+        action: "AUTOMATIC_RETRY",
+        message: expect.stringMatching(
+          /no broker order.*next normal scheduled cycle.*do not rerun.*bypass/,
+        ),
+      });
+    },
+  );
+  it("requires evidence review when commit-time activity is unavailable", () => {
+    expect(
+      scheduleFailureGuidance("COMMIT_ACTIVITY_UNAVAILABLE"),
+    ).toMatchObject({
+      action: "OPERATOR_REVIEW",
+      message: expect.stringMatching(
+        /UTC day.*no simulated fill.*no broker order.*do not replay/,
+      ),
+    });
+  });
   it("requires review of the pinned mandate window without extending it", () => {
     expect(
       scheduleFailureGuidance("COMMIT_MANDATE_WINDOW_CLOSED"),

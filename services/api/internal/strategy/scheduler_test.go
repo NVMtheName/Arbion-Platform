@@ -294,6 +294,8 @@ func TestSchedulerTreatsCommittedDuplicateAsRecoveredSuccess(t *testing.T) {
 
 func TestSchedulerTreatsCommitStopAsSkippedNotRecovery(t *testing.T) {
 	for code, failure := range map[string]error{
+		"COMMIT_ACTION_LIMIT_REACHED":   ErrCommitActionLimit,
+		"COMMIT_ACTION_COOLDOWN_ACTIVE": ErrCommitActionCooldown,
 		"COMMIT_MANDATE_WINDOW_CLOSED":  ErrCommitMandateWindowClosed,
 		"CIRCUIT_BREAKER_ACTIVE":        risk.ErrCommitCircuitBreakerActive,
 		"COMMIT_ACCESS_REVOKED":         ErrCommitAccessRevoked,
@@ -329,6 +331,9 @@ func TestSchedulerPreservesLateQuoteExpiryAsFailedCycle(t *testing.T) {
 
 func TestScheduleErrorClassificationPreservesSafeEvaluationDiagnostics(t *testing.T) {
 	tests := map[string]error{
+		"COMMIT_ACTION_LIMIT_REACHED":      ErrCommitActionLimit,
+		"COMMIT_ACTION_COOLDOWN_ACTIVE":    ErrCommitActionCooldown,
+		"COMMIT_ACTIVITY_UNAVAILABLE":      ErrCommitActivityUnavailable,
 		"COMMIT_MANDATE_WINDOW_CLOSED":     ErrCommitMandateWindowClosed,
 		"COMMIT_ACCESS_REVOKED":            ErrCommitAccessRevoked,
 		"COMMIT_CONNECTION_UNAVAILABLE":    ErrCommitConnectionUnavailable,

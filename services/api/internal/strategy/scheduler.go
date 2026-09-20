@@ -128,7 +128,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 					completion.AIDecision = outcome.AIDecision
 					completion.ExecutionStatus = outcome.Execution.Status
 				}
-			} else if errors.Is(err, aiconnection.ErrRateLimit) || errors.Is(err, risk.ErrCommitCircuitBreakerActive) || errors.Is(err, ErrCommitAccessRevoked) || errors.Is(err, ErrCommitConnectionUnavailable) || errors.Is(err, ErrCommitMandateWindowClosed) {
+			} else if errors.Is(err, aiconnection.ErrRateLimit) || errors.Is(err, risk.ErrCommitCircuitBreakerActive) || errors.Is(err, ErrCommitAccessRevoked) || errors.Is(err, ErrCommitConnectionUnavailable) || errors.Is(err, ErrCommitMandateWindowClosed) || errors.Is(err, ErrCommitActionLimit) || errors.Is(err, ErrCommitActionCooldown) {
 				completion.Status, completion.ErrorCode = "SKIPPED", classifyScheduleError(err)
 			} else {
 				completion.Status, completion.ErrorCode = "FAILED", classifyScheduleError(err)
@@ -217,6 +217,12 @@ func classifyScheduleError(err error) string {
 		return ""
 	}
 	switch {
+	case errors.Is(err, ErrCommitActionLimit):
+		return "COMMIT_ACTION_LIMIT_REACHED"
+	case errors.Is(err, ErrCommitActionCooldown):
+		return "COMMIT_ACTION_COOLDOWN_ACTIVE"
+	case errors.Is(err, ErrCommitActivityUnavailable):
+		return "COMMIT_ACTIVITY_UNAVAILABLE"
 	case errors.Is(err, ErrCommitMandateWindowClosed):
 		return "COMMIT_MANDATE_WINDOW_CLOSED"
 	case errors.Is(err, ErrCommitMarketDataStale):
