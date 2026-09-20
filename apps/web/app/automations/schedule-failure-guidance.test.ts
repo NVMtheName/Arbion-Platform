@@ -3,6 +3,16 @@ import { describe, expect, it } from "vitest";
 import { scheduleFailureGuidance } from "./schedule-failure-guidance";
 
 describe("scheduleFailureGuidance", () => {
+  it("requires review of the pinned mandate window without extending it", () => {
+    expect(
+      scheduleFailureGuidance("COMMIT_MANDATE_WINDOW_CLOSED"),
+    ).toMatchObject({
+      action: "OWNER_REVIEW",
+      message: expect.stringMatching(
+        /no broker order.*newer draft does not extend.*Do not rerun.*automatically extend/,
+      ),
+    });
+  });
   it("uses the next normal cycle after a quote expires at commit", () => {
     expect(scheduleFailureGuidance("COMMIT_MARKET_DATA_STALE")).toMatchObject({
       action: "AUTOMATIC_RETRY",

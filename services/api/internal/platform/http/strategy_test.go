@@ -58,6 +58,7 @@ func TestStrategyErrorReturnsSafeEvaluationDiagnostics(t *testing.T) {
 		{risk.ErrCommitCircuitBreakerActive, stdhttp.StatusConflict, "CIRCUIT_BREAKER_ACTIVE"},
 		{strategy.ErrCommitAccessRevoked, stdhttp.StatusForbidden, "COMMIT_ACCESS_REVOKED"},
 		{strategy.ErrCommitMarketDataStale, stdhttp.StatusUnprocessableEntity, "COMMIT_MARKET_DATA_STALE"},
+		{strategy.ErrCommitMandateWindowClosed, stdhttp.StatusUnprocessableEntity, "COMMIT_MANDATE_WINDOW_CLOSED"},
 		{strategy.ErrCommitConnectionUnavailable, stdhttp.StatusConflict, "COMMIT_CONNECTION_UNAVAILABLE"},
 		{strategy.ErrEvaluationInactive, stdhttp.StatusConflict, "STRATEGY_NOT_ACTIVE"},
 		{strategy.ErrEvaluationConfigurationChanged, stdhttp.StatusConflict, "STRATEGY_CONFIGURATION_CHANGED"},

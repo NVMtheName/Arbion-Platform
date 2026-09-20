@@ -347,6 +347,8 @@ func (h *authHandler) decisionJournal(w stdhttp.ResponseWriter, r *stdhttp.Reque
 }
 func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 	switch {
+	case errors.Is(e, strategy.ErrCommitMandateWindowClosed):
+		writeError(w, 422, "COMMIT_MANDATE_WINDOW_CLOSED", "The pinned AI mandate was outside its approved effective window at the final non-live commit check. This attempt saved no simulated fill or would-have-submitted action and sent no broker order.")
 	case errors.Is(e, strategy.ErrCommitMarketDataStale):
 		writeError(w, 422, "COMMIT_MARKET_DATA_STALE", "The saved AI quote was outside the permitted time window at the final non-live commit check. This attempt saved no simulated fill or would-have-submitted action and sent no broker order.")
 	case errors.Is(e, strategy.ErrCommitAccessRevoked):

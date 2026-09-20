@@ -182,6 +182,9 @@ func TestPostgresAIPaperCommitBindings(t *testing.T) {
 	t.Run("commit quote freshness", func(t *testing.T) {
 		testAICommitMarketTime(t, ctx, pool)
 	})
+	t.Run("commit mandate window", func(t *testing.T) {
+		testAICommitMandateWindow(t, ctx, pool)
+	})
 	t.Run("concurrent different deliveries cannot double spend", func(t *testing.T) {
 		f := newPaperBindingFixture(t, ctx, pool)
 		other := f
@@ -222,6 +225,10 @@ func (f paperBindingFixture) assertEmpty(t *testing.T, ctx context.Context) {
 	}
 	assertCount(t, f.store.db, `SELECT count(*) FROM strategy_evaluation_events WHERE strategy_instance_id='`+f.instance.ID+`'`, 0)
 	assertCount(t, f.store.db, `SELECT count(*) FROM paper_positions WHERE paper_portfolio_id=(SELECT id FROM paper_portfolios WHERE strategy_instance_id='`+f.instance.ID+`')`, 0)
+	if f.instance.ExecutionMode != Paper {
+		assertCount(t, f.store.db, `SELECT count(*) FROM paper_portfolios WHERE strategy_instance_id='`+f.instance.ID+`'`, 0)
+		return
+	}
 	var cash string
 	if err := f.store.db.QueryRow(ctx, `SELECT cash::text FROM paper_portfolios WHERE strategy_instance_id=$1`, f.instance.ID).Scan(&cash); err != nil || !sameAIPaperDecimal(cash, "1000") {
 		t.Fatal("rejected commit changed cash", cash, err)
@@ -238,6 +245,13 @@ func paperBindingUUID(t *testing.T, ctx context.Context, pool *pgxpool.Pool) str
 }
 
 func newPaperBindingFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ownerIDs ...string) paperBindingFixture {
+	t.Helper()
+	return newNonLiveBindingFixture(t, ctx, pool, Paper, json.RawMessage(`{}`), ownerIDs...)
+}
+
+// Snapshot overrides are applied only at insertion into the isolated test DB;
+// immutable history is never updated or its protections disabled.
+func newNonLiveBindingFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, mode ExecutionMode, snapshotOverride json.RawMessage, ownerIDs ...string) paperBindingFixture {
 	t.Helper()
 	u, financial, ai, account, bucket, mandate := paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool)
 	exec := func(query string, args ...any) {
@@ -256,9 +270,10 @@ func newPaperBindingFixture(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	exec(`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES($1,$2,$3,'coinbase',$4,'Test account','crypto','USD','active','{}')`, account, u, financial, "fixture:"+account)
 	exec(`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES($1,$2,$3,'Test budget','FIXED_AMOUNT',1000,'USD',0,'ACTIVE')`, bucket, u, account)
 	exec(`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,ai_provider_connection_id,ai_model_id,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES($1,$2,$3,'AI_AUTONOMOUS',$4,'gpt-5.6-sol',$5,'FULL_AUTONOMOUS','PAPER','READY',1,'{"objective":"Simulation only.","max_proposal_notional":"100"}','{}','{"symbols":["BTC"]}','{"symbols":[]}',false,false,'{"enabled":false}',false)`, mandate, u, account, ai, bucket)
-	exec(`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'UI',to_jsonb(m), '{}' FROM automation_mandates m WHERE id=$1`, mandate)
+	exec(`UPDATE automation_mandates SET execution_mode=$2 WHERE id=$1`, mandate, mode)
+	exec(`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'UI',to_jsonb(m) || $2::jsonb, '{}' FROM automation_mandates m WHERE id=$1`, mandate, snapshotOverride)
 	store := NewPostgresStore(pool)
-	i, err := store.Initialize(ctx, u, automation.Mandate{ID: mandate, UserID: u, FinancialAccountID: account, CapitalBucketID: bucket, AIProviderConnectionID: &ai, AutomationType: "AI_AUTONOMOUS", ExecutionMode: "PAPER", Status: "READY", CurrentVersion: 1, ScheduleConditions: json.RawMessage(`{"enabled":false}`)}, "1000", AIMonitoring)
+	i, err := store.Initialize(ctx, u, automation.Mandate{ID: mandate, UserID: u, FinancialAccountID: account, CapitalBucketID: bucket, AIProviderConnectionID: &ai, AutomationType: "AI_AUTONOMOUS", ExecutionMode: string(mode), Status: "READY", CurrentVersion: 1, ScheduleConditions: json.RawMessage(`{"enabled":false}`)}, "1000", AIMonitoring)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,6 +291,7 @@ func newPaperBindingFixture(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	if fill.Status != SimulatedFilled {
 		t.Fatal("invalid test simulation", fill)
 	}
+	e.Mode = string(mode)
 	return paperBindingFixture{store: store, instance: i, decision: d, evaluation: e, fill: fill, now: now}
 }
 
