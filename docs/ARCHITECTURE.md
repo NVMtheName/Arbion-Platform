@@ -334,6 +334,27 @@ AI execution reference only; it does not make every portfolio or risk input
 current, alter rules-based Wheel quotes, establish a live policy, or guarantee
 freshness at a future broker acknowledgement. No broker path is added.
 
+### Pinned AI mandate window at non-live commit
+
+The shared current-access guard reads `effective_from` and `effective_until`
+only from the immutable mandate version pinned to an AI Paper or Shadow engine.
+Both saved fields are required; an explicit null end is unbounded, not a missing
+start or malformed timestamp. Missing, zero, malformed, or reversed windows fail
+closed as unavailable configuration. A newer draft cannot shorten or extend the
+running instance's approved window. Database `clock_timestamp()` checks the
+inclusive start and exclusive end alongside entitlement and connection expiry,
+after access locks and again immediately before accepted persistence, after
+ledger/runtime waits. The earlier risk evaluation time cannot extend authority.
+
+An out-of-window accepted action rolls back the event, risk, journal, execution,
+fill, cash/position and runtime changes. `COMMIT_MANDATE_WINDOW_CLOSED` is a
+SKIPPED result requiring owner review, not a successful recovery; unresolved
+failure streaks remain intact. Duplicate recovery, abstention and deterministic
+denial evidence remain unchanged. No old proposal is rerun and no window is
+automatically extended. This bounded check does not replace the existing Paper
+binding locks, extend them to every generic Shadow binding, revalidate all risk
+inputs, or authorize an eventual broker dispatch. No live path is added.
+
 ## Scalable AWS production topology
 
 The long-term scalable production foundation retains the same modular-monolith-plus-Neural-Engine boundary. A public AWS ALB terminates ACM TLS and routes `/api/*` to private Go Fargate tasks and default traffic to private Next.js tasks. Python is private and discovered through AWS Cloud Map; token authentication remains mandatory. Private Multi-AZ RDS is durable truth and encrypted ElastiCache is ephemeral coordination/session infrastructure. Application tasks use private subnets with NAT egress for fixed provider adapters, while data subnets have no Internet route. ECR, Secrets Manager/KMS, CloudWatch, and GitHub OIDC supply image, secret, telemetry, and temporary deployment-identity boundaries. See [AWS deployment](AWS_DEPLOYMENT.md).

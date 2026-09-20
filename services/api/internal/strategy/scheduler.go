@@ -128,7 +128,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 					completion.AIDecision = outcome.AIDecision
 					completion.ExecutionStatus = outcome.Execution.Status
 				}
-			} else if errors.Is(err, aiconnection.ErrRateLimit) || errors.Is(err, risk.ErrCommitCircuitBreakerActive) || errors.Is(err, ErrCommitAccessRevoked) || errors.Is(err, ErrCommitConnectionUnavailable) {
+			} else if errors.Is(err, aiconnection.ErrRateLimit) || errors.Is(err, risk.ErrCommitCircuitBreakerActive) || errors.Is(err, ErrCommitAccessRevoked) || errors.Is(err, ErrCommitConnectionUnavailable) || errors.Is(err, ErrCommitMandateWindowClosed) {
 				completion.Status, completion.ErrorCode = "SKIPPED", classifyScheduleError(err)
 			} else {
 				completion.Status, completion.ErrorCode = "FAILED", classifyScheduleError(err)
@@ -217,6 +217,8 @@ func classifyScheduleError(err error) string {
 		return ""
 	}
 	switch {
+	case errors.Is(err, ErrCommitMandateWindowClosed):
+		return "COMMIT_MANDATE_WINDOW_CLOSED"
 	case errors.Is(err, ErrCommitMarketDataStale):
 		return "COMMIT_MARKET_DATA_STALE"
 	case errors.Is(err, ErrCommitAccessRevoked):

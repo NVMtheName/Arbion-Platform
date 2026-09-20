@@ -57,6 +57,7 @@ export function AIShadowEvaluationControls(props: Props) {
         code &&
         [
           "COMMIT_MARKET_DATA_STALE",
+          "COMMIT_MANDATE_WINDOW_CLOSED",
           "COMMIT_ACCESS_REVOKED",
           "COMMIT_CONNECTION_UNAVAILABLE",
           "CIRCUIT_BREAKER_ACTIVE",

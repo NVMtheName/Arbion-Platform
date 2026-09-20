@@ -69,6 +69,7 @@ describe("AIShadowEvaluationControls", () => {
     ],
     ["AI_PROVIDER_RATE_LIMITED", /AI provider is temporarily rate limited/i],
     ["COMMIT_MARKET_DATA_STALE", /do not rerun the old proposal or loosen/i],
+    ["COMMIT_MANDATE_WINDOW_CLOSED", /newer draft does not extend/i],
     ["COMMIT_ACCESS_REVOKED", /logging in again does not restore revoked/i],
     [
       "COMMIT_CONNECTION_UNAVAILABLE",

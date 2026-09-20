@@ -37,6 +37,11 @@ export function scheduleFailureGuidance(
 ): ScheduleFailureGuidance {
   const provider = financialProviderLabel(financialProvider);
   switch (code) {
+    case "COMMIT_MANDATE_WINDOW_CLOSED":
+      return guidance(
+        "OWNER_REVIEW",
+        "The approved mandate version pinned to this engine was outside its effective window at the final save check. This attempt saved no simulated fill or would-have-submitted action, and no broker order was sent. Review the engine's approved start and end times; a newer draft does not extend its authorization. Do not rerun the old proposal or automatically extend the window.",
+      );
     case "COMMIT_MARKET_DATA_STALE":
       return guidance(
         "AUTOMATIC_RETRY",

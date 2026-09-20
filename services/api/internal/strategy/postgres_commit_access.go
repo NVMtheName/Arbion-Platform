@@ -18,6 +18,7 @@ type nonLiveCommitAccess struct {
 	startsAt               time.Time
 	expiresAt              *time.Time
 	authorizationExpiresAt *time.Time
+	mandateWindow          *aiCommitMandateWindow
 }
 
 // lockNonLiveCommitAccess repeats the existing founder-only automation policy
@@ -30,13 +31,19 @@ func lockNonLiveCommitAccess(ctx context.Context, tx pgx.Tx, instance Instance, 
 	var access nonLiveCommitAccess
 	var aiConnectionID *string
 	if instance.StrategyIdentifier == "ai_shadow" {
-		err := tx.QueryRow(ctx, `SELECT v.snapshot->>'ai_provider_connection_id'
+		var from, until []byte
+		err := tx.QueryRow(ctx, `SELECT v.snapshot->>'ai_provider_connection_id',
+			v.snapshot->'effective_from',v.snapshot->'effective_until'
 			FROM automation_mandate_versions v JOIN automation_mandates m ON m.id=v.mandate_id
 			WHERE m.id=$1 AND m.user_id=$2 AND v.version_number=$3`,
-			instance.AutomationMandateID, instance.UserID, instance.MandateVersion).Scan(&aiConnectionID)
+			instance.AutomationMandateID, instance.UserID, instance.MandateVersion).Scan(&aiConnectionID, &from, &until)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (aiConnectionID == nil || *aiConnectionID == "")) {
 			return access, ErrEvaluationConfigurationChanged
 		}
+		if err != nil {
+			return access, err
+		}
+		access.mandateWindow, err = parseAICommitMandateWindow(from, until)
 		if err != nil {
 			return access, err
 		}
@@ -113,6 +120,9 @@ func (a nonLiveCommitAccess) checkTime(ctx context.Context, tx pgx.Tx) error {
 	}
 	if a.authorizationExpiresAt != nil && !now.Before(*a.authorizationExpiresAt) {
 		return ErrCommitConnectionUnavailable
+	}
+	if a.mandateWindow != nil && !a.mandateWindow.current(now) {
+		return ErrCommitMandateWindowClosed
 	}
 	return nil
 }
