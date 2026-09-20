@@ -124,11 +124,18 @@ func testAICommitMandateWindow(t *testing.T, ctx context.Context, pool *pgxpool.
 				assertCount(t, pool, `SELECT count(*) FROM ai_paper_spot_fills WHERE strategy_instance_id='`+f.instance.ID+`'`, 0)
 			})
 			t.Run("malformed window is unavailable not unbounded", func(t *testing.T) {
-				f := newNonLiveBindingFixture(t, ctx, pool, mode, json.RawMessage(`{"effective_until":"bad-time"}`))
-				if err := commit(f); !errors.Is(err, ErrEvaluationConfigurationChanged) {
-					t.Fatal("malformed end became unbounded authority", err)
+				for _, snapshot := range []string{
+					`{"effective_until":"bad-time"}`,
+					`{"effective_from":null}`,
+					`{"effective_from":"0001-01-01T00:00:00Z"}`,
+					`{"effective_from":"2026-01-02T00:00:00Z","effective_until":"2026-01-01T00:00:00Z"}`,
+				} {
+					f := newNonLiveBindingFixture(t, ctx, pool, mode, json.RawMessage(snapshot))
+					if err := commit(f); !errors.Is(err, ErrEvaluationConfigurationChanged) {
+						t.Fatal("malformed window became unbounded authority", err)
+					}
+					f.assertEmpty(t, ctx)
 				}
-				f.assertEmpty(t, ctx)
 			})
 			t.Run("another account's expired window cannot stop this account", func(t *testing.T) {
 				end := time.Now().UTC().Add(-time.Minute)
