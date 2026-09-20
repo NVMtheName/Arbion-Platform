@@ -347,6 +347,10 @@ func (h *authHandler) decisionJournal(w stdhttp.ResponseWriter, r *stdhttp.Reque
 }
 func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 	switch {
+	case errors.Is(e, strategy.ErrCommitAccessRevoked):
+		writeError(w, 403, "COMMIT_ACCESS_REVOKED", "Current account ownership or automation access did not permit the non-live commit. No simulated fill or broker order was created by this attempt.")
+	case errors.Is(e, strategy.ErrCommitConnectionUnavailable):
+		writeError(w, 409, "COMMIT_CONNECTION_UNAVAILABLE", "The bound financial account or pinned provider connection was unavailable at the non-live commit. No simulated fill or broker order was created by this attempt.")
 	case errors.Is(e, risk.ErrCommitCircuitBreakerActive):
 		writeError(w, 409, "CIRCUIT_BREAKER_ACTIVE", "An emergency stop blocked the non-live commit. No simulated fill or broker order was created by this attempt. Review the active stop before resuming.")
 	case errors.Is(e, strategy.ErrForbidden):

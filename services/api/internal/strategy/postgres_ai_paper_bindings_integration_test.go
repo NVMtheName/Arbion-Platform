@@ -92,7 +92,7 @@ func TestPostgresAIPaperCommitBindings(t *testing.T) {
 		f.instance.FinancialAccountID = f.instance.UserID // Valid UUID, not this account.
 		f.decision.ProposedAction.FinancialAccountID = f.instance.FinancialAccountID
 		f.evaluation.AccountID = f.instance.FinancialAccountID
-		if err := f.commit(ctx); !errors.Is(err, ErrEvaluationConfigurationChanged) {
+		if err := f.commit(ctx); !errors.Is(err, ErrCommitConnectionUnavailable) {
 			t.Fatal("cross-account binding accepted", err)
 		}
 		f.assertEmpty(t, ctx)
@@ -175,6 +175,9 @@ func TestPostgresAIPaperCommitBindings(t *testing.T) {
 	})
 	t.Run("atomic emergency stops", func(t *testing.T) {
 		testPaperCommitEmergencyStops(t, ctx, pool)
+	})
+	t.Run("current commit access", func(t *testing.T) {
+		testNonLiveCommitAccess(t, ctx, pool)
 	})
 	t.Run("concurrent different deliveries cannot double spend", func(t *testing.T) {
 		f := newPaperBindingFixture(t, ctx, pool)

@@ -74,6 +74,10 @@ func (s *PostgresStore) CommitAIPaperEvaluation(ctx context.Context, instance In
 	if err = risk.LockCircuitBreakersForCommit(ctx, tx, instance.UserID, instance.FinancialAccountID, instance.AutomationMandateID); err != nil {
 		return err
 	}
+	access, err := lockNonLiveCommitAccess(ctx, tx, instance, fill.MarketProvider)
+	if err != nil {
+		return err
+	}
 	reservedCash, err := lockAIPaperCommitBindings(ctx, tx, instance)
 	if err != nil {
 		return err
@@ -149,6 +153,9 @@ func (s *PostgresStore) CommitAIPaperEvaluation(ctx context.Context, instance In
 		return ErrConflict
 	}
 	if err != nil {
+		return err
+	}
+	if err = access.checkTime(ctx, tx); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

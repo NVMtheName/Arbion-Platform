@@ -3,6 +3,24 @@ import { describe, expect, it } from "vitest";
 import { scheduleFailureGuidance } from "./schedule-failure-guidance";
 
 describe("scheduleFailureGuidance", () => {
+  it("does not confuse revoked automation access with browser sign-in", () => {
+    expect(scheduleFailureGuidance("COMMIT_ACCESS_REVOKED")).toMatchObject({
+      action: "OWNER_REVIEW",
+      message: expect.stringMatching(
+        /logging in again does not restore revoked permissions.*No broker order/,
+      ),
+    });
+  });
+  it("keeps intentional connection revocation in place", () => {
+    expect(
+      scheduleFailureGuidance("COMMIT_CONNECTION_UNAVAILABLE"),
+    ).toMatchObject({
+      action: "OWNER_REVIEW",
+      message: expect.stringMatching(
+        /do not re-enable an intentionally disabled connection.*no simulated fill.*no broker order/,
+      ),
+    });
+  });
   it("explains a late stop without asking the owner to release it", () => {
     expect(scheduleFailureGuidance("CIRCUIT_BREAKER_ACTIVE")).toMatchObject({
       action: "OWNER_REVIEW",

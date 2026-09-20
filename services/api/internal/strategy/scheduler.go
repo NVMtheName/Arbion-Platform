@@ -128,7 +128,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 					completion.AIDecision = outcome.AIDecision
 					completion.ExecutionStatus = outcome.Execution.Status
 				}
-			} else if errors.Is(err, aiconnection.ErrRateLimit) || errors.Is(err, risk.ErrCommitCircuitBreakerActive) {
+			} else if errors.Is(err, aiconnection.ErrRateLimit) || errors.Is(err, risk.ErrCommitCircuitBreakerActive) || errors.Is(err, ErrCommitAccessRevoked) || errors.Is(err, ErrCommitConnectionUnavailable) {
 				completion.Status, completion.ErrorCode = "SKIPPED", classifyScheduleError(err)
 			} else {
 				completion.Status, completion.ErrorCode = "FAILED", classifyScheduleError(err)
@@ -217,6 +217,10 @@ func classifyScheduleError(err error) string {
 		return ""
 	}
 	switch {
+	case errors.Is(err, ErrCommitAccessRevoked):
+		return "COMMIT_ACCESS_REVOKED"
+	case errors.Is(err, ErrCommitConnectionUnavailable):
+		return "COMMIT_CONNECTION_UNAVAILABLE"
 	case errors.Is(err, risk.ErrCommitCircuitBreakerActive):
 		return "CIRCUIT_BREAKER_ACTIVE"
 	case errors.Is(err, ErrForbidden):

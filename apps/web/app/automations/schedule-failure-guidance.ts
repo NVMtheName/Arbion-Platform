@@ -37,6 +37,16 @@ export function scheduleFailureGuidance(
 ): ScheduleFailureGuidance {
   const provider = financialProviderLabel(financialProvider);
   switch (code) {
+    case "COMMIT_ACCESS_REVOKED":
+      return guidance(
+        "OWNER_REVIEW",
+        "Current owner or automation access did not permit this non-live commit. This attempt saved no simulated fill or would-have-submitted action. Review account access with an administrator; logging in again does not restore revoked permissions. No broker order was sent.",
+      );
+    case "COMMIT_CONNECTION_UNAVAILABLE":
+      return guidance(
+        "OWNER_REVIEW",
+        "The saved financial account or the provider connection pinned to this engine was unavailable at commit. Review Connections and the engine's saved binding; do not re-enable an intentionally disabled connection. This attempt saved no simulated fill or would-have-submitted action, and no broker order was sent.",
+      );
     case "CIRCUIT_BREAKER_ACTIVE":
       return guidance(
         "OWNER_REVIEW",
