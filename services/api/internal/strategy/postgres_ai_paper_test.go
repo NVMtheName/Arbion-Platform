@@ -15,7 +15,7 @@ func TestValidAIPaperCommitComparesDecimalValuesNotFormatting(t *testing.T) {
 	state := string(AIMonitoring)
 	instance := Instance{
 		ID: "instance", UserID: "owner", AutomationMandateID: mandateID,
-		MandateVersion: mandateVersion, FinancialAccountID: "account",
+		MandateVersion: mandateVersion, FinancialAccountID: "account", CapitalBucketID: "bucket",
 		StrategyIdentifier: "ai_shadow", ExecutionMode: Paper,
 		CurrentState: AIMonitoring, StateVersion: 1, Status: "ACTIVE",
 	}
@@ -52,6 +52,38 @@ func TestValidAIPaperCommitComparesDecimalValuesNotFormatting(t *testing.T) {
 	}
 	if !validAIPaperCommit(instance, instance.StateVersion, decision, evaluation, fill, now) {
 		t.Fatal("semantically equal decimal representations were rejected")
+	}
+	for name, change := range map[string]func(*Instance, *risk.ProposedAction, *risk.RiskEvaluation){
+		"missing owner":    func(i *Instance, _ *risk.ProposedAction, _ *risk.RiskEvaluation) { i.UserID = "" },
+		"missing capital":  func(i *Instance, _ *risk.ProposedAction, _ *risk.RiskEvaluation) { i.CapitalBucketID = "" },
+		"missing instance": func(_ *Instance, a *risk.ProposedAction, _ *risk.RiskEvaluation) { a.StrategyInstanceID = nil },
+		"different instance": func(_ *Instance, a *risk.ProposedAction, _ *risk.RiskEvaluation) {
+			other := "other"
+			a.StrategyInstanceID = &other
+		},
+		"different state": func(_ *Instance, a *risk.ProposedAction, _ *risk.RiskEvaluation) {
+			other := "READY_FOR_PUT"
+			a.StrategyState = &other
+		},
+		"different strategy": func(_ *Instance, a *risk.ProposedAction, _ *risk.RiskEvaluation) {
+			other := "wheel"
+			a.StrategyIdentifier = &other
+		},
+		"different side":         func(_ *Instance, a *risk.ProposedAction, _ *risk.RiskEvaluation) { a.ActionType = risk.ActionSell },
+		"different action time":  func(_ *Instance, a *risk.ProposedAction, _ *risk.RiskEvaluation) { a.CreatedAt = now.Add(-time.Second) },
+		"different risk time":    func(_ *Instance, _ *risk.ProposedAction, e *risk.RiskEvaluation) { e.Timestamp = now.Add(-time.Second) },
+		"different risk owner":   func(_ *Instance, _ *risk.ProposedAction, e *risk.RiskEvaluation) { e.UserID = "other" },
+		"different risk account": func(_ *Instance, _ *risk.ProposedAction, e *risk.RiskEvaluation) { e.AccountID = "other" },
+		"live risk":              func(_ *Instance, _ *risk.ProposedAction, e *risk.RiskEvaluation) { e.PlatformExecutionAvailable = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			i, a, e, d := instance, action, evaluation, decision
+			change(&i, &a, &e)
+			d.ProposedAction = &a
+			if validAIPaperCommit(i, i.StateVersion, d, e, fill, now) {
+				t.Fatal("mismatched Paper authority accepted")
+			}
+		})
 	}
 
 	action.Notional = "101"

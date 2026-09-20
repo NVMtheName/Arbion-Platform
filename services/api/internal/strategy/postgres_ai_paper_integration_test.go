@@ -214,6 +214,8 @@ func TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected(t *testing.T)
 	staleDecision.ProposedAction = &staleAction
 	staleFill := fill
 	staleFill.SimulatedAt = now.Add(time.Minute)
+	staleAction.CreatedAt = staleFill.SimulatedAt
+	staleEvaluation.Timestamp = staleFill.SimulatedAt
 	staleFill.MarketObservedAt = now.Add(time.Minute - time.Second)
 	staleQuoteReference := *decision.QuoteReference
 	staleQuoteReference.ObservedAt = staleFill.MarketObservedAt
