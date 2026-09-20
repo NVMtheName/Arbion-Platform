@@ -794,8 +794,17 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 	if claimed.RowsAffected() != 1 {
 		return ErrDuplicate
 	}
-	if result.Status == SimulatedFilled || result.Status == WouldHaveSubmitted {
+	accepted := result.Status == SimulatedFilled || result.Status == WouldHaveSubmitted
+	var access nonLiveCommitAccess
+	if accepted {
 		if err = risk.LockCircuitBreakersForCommit(c, tx, instance.UserID, instance.FinancialAccountID, instance.AutomationMandateID); err != nil {
+			return err
+		}
+		expectedProvider := ""
+		if decision.QuoteReference != nil {
+			expectedProvider = decision.QuoteReference.Provider
+		}
+		if access, err = lockNonLiveCommitAccess(c, tx, instance, expectedProvider); err != nil {
 			return err
 		}
 	}
@@ -875,6 +884,11 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 	}
 	if err != nil {
 		return err
+	}
+	if accepted {
+		if err = access.checkTime(c, tx); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(c)
 }

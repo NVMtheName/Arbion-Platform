@@ -235,9 +235,8 @@ with event-claim foreign-key locks while serializing different ledger writers.
 
 This closes a specific pre-model-read/commit binding gap in the existing Paper
 path. It does not replace the deterministic risk evaluation, add a fresh market
-request, make every risk input transactionally current, or establish an atomic
-entitlement revocation protocol. Those remain separate execution design
-requirements. Stop coordination is added by the protocol below. The
+request, or make every risk input transactionally current. Stop and current-access
+coordination are added by the protocols below. The
 `executionsim` crash-recovery laboratory remains
 isolated and is not wired into the production scheduler by this change. There
 is no live execution adapter, broker request, or new route.
@@ -275,6 +274,44 @@ multi-scope administrative transaction must acquire its scope locks in the same
 global-to-automation order. The isolated PostgreSQL tests exercise both race
 orderings, all four stop scopes, explicit release and rollback, duplicate
 recovery, account isolation, canonical UUID identity, and stale-isolation refusal.
+
+### Current access at the non-live commit boundary
+
+After acquiring the stop-scope locks, accepted Paper and Shadow commits acquire
+shared row locks in owner → founder entitlement → financial account → sorted
+provider-connection order, before mandate, bucket, runtime, and ledger locks.
+They repeat the existing automation policy against current database state:
+active owner, active and currently valid founder access (administrative roles
+do not override product access), active owner-bound financial account, and
+active financial and pinned AI connections. The AI connection comes from the
+instance's immutable mandate version, never an unrelated newer draft. The
+financial provider must match the saved market reference when present.
+
+A revocation that wins its row lock is observed after the writer waits; when
+the writer wins, a conflicting update or deletion waits through commit. Shared
+owner/entitlement locks permit unrelated same-owner account commits. Normal
+account synchronization is assessed from its committed state, not transient
+unavailable rows inside its transaction. Existing sync/retirement writers lock
+accounts before connections; future multi-entity mutations must preserve this
+ordering. The guard reads status and identity only, never secrets or raw provider
+responses, and performs no external calls.
+
+Database `clock_timestamp()` checks entitlement start/end and any known provider
+authorization expiry after acquiring the locks and immediately before commit,
+including after a delayed ledger lock. Missing expiry is not fabricated. A
+renewable OAuth access-token expiry is not treated as authorization revocation.
+Browser sign-out and browser session lifetime are independent of this persisted
+automation authority. Rejected commits roll back all attempted effects and are
+recorded as `COMMIT_ACCESS_REVOKED` or `COMMIT_CONNECTION_UNAVAILABLE` SKIPPED runs,
+preserving unresolved failures; duplicates, abstentions, and denials retain their
+existing behavior.
+
+Current persisted access is authoritative, not a permanent revocation epoch:
+explicit re-enablement may permit a previously prepared decision that satisfies
+all other checks. The final time check is not a promise about authorization at
+an eventual external broker acknowledgement. This does not prove current broker
+scopes, credential generation, market freshness, quote entitlement, or a live
+dispatch protocol; those remain separate gates. No live path is added.
 
 ## Scalable AWS production topology
 
