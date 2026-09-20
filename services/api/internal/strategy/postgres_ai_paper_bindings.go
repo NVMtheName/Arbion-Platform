@@ -9,19 +9,26 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// lockAIPaperCommitBindings closes the gap between pre-model reads and the
-// Paper ledger commit. These row locks remain held through the entire commit.
+func lockAIPaperCommitBindings(ctx context.Context, tx pgx.Tx, instance Instance) (string, error) {
+	return lockAINonLiveCommitBindings(ctx, tx, instance, Paper)
+}
+
+// lockAINonLiveCommitBindings closes the gap between pre-model reads and an
+// accepted AI Paper or Shadow commit. Locks remain held through the commit.
 // Lock order is mandate, bucket, instance, reservation, then portfolio in the
 // caller. Initialization takes mandate before bucket; pause/finish take instance
 // before reservation. No provider call or AI request belongs in this transaction.
 // This is binding/lifecycle validation, not a replacement for the risk engine or
 // a new authorization boundary for live execution.
-func lockAIPaperCommitBindings(ctx context.Context, tx pgx.Tx, instance Instance) (string, error) {
+func lockAINonLiveCommitBindings(ctx context.Context, tx pgx.Tx, instance Instance, mode ExecutionMode) (string, error) {
+	if (mode != Paper && mode != Shadow) || instance.ExecutionMode != mode || instance.StrategyIdentifier != "ai_shadow" {
+		return "", ErrInvalid
+	}
 	var mandateValid bool
 	err := tx.QueryRow(ctx, `SELECT COALESCE(
 		m.status IN ('READY','DRAFT') AND m.current_version >= $3
 		AND v.snapshot->>'status'='READY'
-		AND v.snapshot->>'execution_mode'='PAPER'
+		AND v.snapshot->>'execution_mode'=$6
 		AND v.snapshot->>'automation_type'='AI_AUTONOMOUS'
 		AND v.snapshot->>'autonomy_level'='FULL_AUTONOMOUS'
 		AND v.snapshot->>'financial_account_id'=$4
@@ -30,7 +37,7 @@ func lockAIPaperCommitBindings(ctx context.Context, tx pgx.Tx, instance Instance
 		JOIN automation_mandate_versions v ON v.mandate_id=m.id AND v.version_number=$3
 		WHERE m.id=$1 AND m.user_id=$2 FOR SHARE OF m`,
 		instance.AutomationMandateID, instance.UserID, instance.MandateVersion,
-		instance.FinancialAccountID, instance.CapitalBucketID).Scan(&mandateValid)
+		instance.FinancialAccountID, instance.CapitalBucketID, mode).Scan(&mandateValid)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !mandateValid) {
 		return "", ErrEvaluationConfigurationChanged
 	}
@@ -64,10 +71,10 @@ func lockAIPaperCommitBindings(ctx context.Context, tx pgx.Tx, instance Instance
 	err = tx.QueryRow(ctx, `SELECT id::text FROM strategy_instances
 		WHERE id=$1 AND user_id=$2 AND automation_mandate_id=$3 AND mandate_version=$4
 		AND financial_account_id=$5 AND capital_bucket_id=$6 AND state_version=$7
-		AND strategy_identifier='ai_shadow' AND execution_mode='PAPER'
+		AND strategy_identifier='ai_shadow' AND execution_mode=$8
 		AND current_state='AI_MONITORING' AND status='ACTIVE' FOR NO KEY UPDATE`,
 		instance.ID, instance.UserID, instance.AutomationMandateID, instance.MandateVersion,
-		instance.FinancialAccountID, instance.CapitalBucketID, instance.StateVersion).Scan(&instanceID)
+		instance.FinancialAccountID, instance.CapitalBucketID, instance.StateVersion, mode).Scan(&instanceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrConflict
 	}
@@ -75,15 +82,15 @@ func lockAIPaperCommitBindings(ctx context.Context, tx pgx.Tx, instance Instance
 		return "", err
 	}
 
-	var amount string
+	var amount, basis string
 	var accountLimit *string
-	err = tx.QueryRow(ctx, `SELECT reservation_amount::text,account_allocation_limit::text
+	err = tx.QueryRow(ctx, `SELECT reservation_amount::text,account_allocation_limit::text,reservation_basis
 		FROM strategy_capital_reservations
 		WHERE strategy_instance_id=$1 AND user_id=$2 AND financial_account_id=$3
-		AND capital_bucket_id=$4 AND execution_mode='PAPER' AND currency='USD'
-		AND reservation_basis='PAPER_STARTING_CASH' AND released_at IS NULL
+		AND capital_bucket_id=$4 AND execution_mode=$5 AND currency='USD'
+		AND reservation_amount IS NOT NULL AND released_at IS NULL
 		AND release_reason IS NULL FOR SHARE`, instance.ID, instance.UserID,
-		instance.FinancialAccountID, instance.CapitalBucketID).Scan(&amount, &accountLimit)
+		instance.FinancialAccountID, instance.CapitalBucketID, mode).Scan(&amount, &accountLimit, &basis)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrCapitalReservation
 	}
@@ -92,6 +99,21 @@ func lockAIPaperCommitBindings(ctx context.Context, tx pgx.Tx, instance Instance
 	}
 	reserved, valid := new(big.Rat).SetString(amount)
 	if !valid || reserved.Sign() <= 0 || reserved.Cmp(capacity) > 0 {
+		return "", ErrCapitalReservation
+	}
+	expectedBasis := "PAPER_STARTING_CASH"
+	if mode == Shadow {
+		// Shadow's claim is the exact frozen bucket capacity, not hypothetical
+		// Paper starting cash and never a reservation of real broker funds.
+		expectedBasis = "BUCKET_FIXED_CAPACITY"
+		if bucket.AllocationType != "FIXED_AMOUNT" {
+			expectedBasis = "BUCKET_ABSOLUTE_LIMIT"
+		}
+		if reserved.Cmp(capacity) != 0 {
+			return "", ErrCapitalReservation
+		}
+	}
+	if basis != expectedBasis {
 		return "", ErrCapitalReservation
 	}
 	if bucket.AllocationType == "FIXED_AMOUNT" {
