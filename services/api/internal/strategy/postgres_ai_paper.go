@@ -57,7 +57,7 @@ func (s *PostgresStore) CommitAIPaperEvaluation(ctx context.Context, instance In
 		return err
 	}
 
-	tx, err := s.db.Begin(ctx)
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return err
 	}
@@ -71,6 +71,9 @@ func (s *PostgresStore) CommitAIPaperEvaluation(ctx context.Context, instance In
 		return ErrDuplicate
 	}
 
+	if err = risk.LockCircuitBreakersForCommit(ctx, tx, instance.UserID, instance.FinancialAccountID, instance.AutomationMandateID); err != nil {
+		return err
+	}
 	reservedCash, err := lockAIPaperCommitBindings(ctx, tx, instance)
 	if err != nil {
 		return err

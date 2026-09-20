@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { scheduleFailureGuidance } from "./schedule-failure-guidance";
 
 describe("scheduleFailureGuidance", () => {
+  it("explains a late stop without asking the owner to release it", () => {
+    expect(scheduleFailureGuidance("CIRCUIT_BREAKER_ACTIVE")).toMatchObject({
+      action: "OWNER_REVIEW",
+      message: expect.stringMatching(
+        /emergency stop.*no simulated fill.*intentional stop should remain engaged.*No broker order/i,
+      ),
+    });
+  });
   it.each([
     ["AI_PROVIDER_RATE_LIMITED", "AUTOMATIC_RETRY"],
     ["AI_PROVIDER_UNAVAILABLE", "AUTOMATIC_RETRY"],

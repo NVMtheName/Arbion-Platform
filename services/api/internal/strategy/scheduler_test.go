@@ -12,6 +12,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/automationnotification"
 	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/neural"
+	"github.com/arbion/platform/services/api/internal/risk"
 )
 
 type scheduleStoreFake struct {
@@ -291,8 +292,22 @@ func TestSchedulerTreatsCommittedDuplicateAsRecoveredSuccess(t *testing.T) {
 	}
 }
 
+func TestSchedulerTreatsCommitStopAsSkippedNotRecovery(t *testing.T) {
+	now := time.Date(2026, 9, 20, 20, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now)
+	run.Session = "CONTINUOUS"
+	run.ConsecutiveFailures = 3
+	store := &scheduleStoreFake{run: run}
+	scheduler := NewScheduler(store, &scheduledEvaluatorFake{err: risk.ErrCommitCircuitBreakerActive})
+	scheduler.now = func() time.Time { return now }
+	if _, err := scheduler.RunOnce(context.Background()); err != nil || store.completion.Status != "SKIPPED" || store.completion.ErrorCode != "CIRCUIT_BREAKER_ACTIVE" || store.completion.DuplicateRecovered || store.completion.ExecutionStatus != "" {
+		t.Fatalf("late stop misreported as failure or recovery: %#v %v", store.completion, err)
+	}
+}
+
 func TestScheduleErrorClassificationPreservesSafeEvaluationDiagnostics(t *testing.T) {
 	tests := map[string]error{
+		"CIRCUIT_BREAKER_ACTIVE":           risk.ErrCommitCircuitBreakerActive,
 		"STRATEGY_NOT_ACTIVE":              ErrEvaluationInactive,
 		"STRATEGY_CONFIGURATION_CHANGED":   ErrEvaluationConfigurationChanged,
 		"STRATEGY_PARAMETERS_INVALID":      ErrEvaluationParametersInvalid,

@@ -12,6 +12,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/automationnotification"
 	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/neural"
+	"github.com/arbion/platform/services/api/internal/risk"
 )
 
 const (
@@ -127,7 +128,7 @@ func (s *Scheduler) RunOnce(ctx context.Context) (bool, error) {
 					completion.AIDecision = outcome.AIDecision
 					completion.ExecutionStatus = outcome.Execution.Status
 				}
-			} else if errors.Is(err, aiconnection.ErrRateLimit) {
+			} else if errors.Is(err, aiconnection.ErrRateLimit) || errors.Is(err, risk.ErrCommitCircuitBreakerActive) {
 				completion.Status, completion.ErrorCode = "SKIPPED", classifyScheduleError(err)
 			} else {
 				completion.Status, completion.ErrorCode = "FAILED", classifyScheduleError(err)
@@ -216,6 +217,8 @@ func classifyScheduleError(err error) string {
 		return ""
 	}
 	switch {
+	case errors.Is(err, risk.ErrCommitCircuitBreakerActive):
+		return "CIRCUIT_BREAKER_ACTIVE"
 	case errors.Is(err, ErrForbidden):
 		return "FORBIDDEN"
 	case errors.Is(err, ErrNotFound):

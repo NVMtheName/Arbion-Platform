@@ -173,6 +173,9 @@ func TestPostgresAIPaperCommitBindings(t *testing.T) {
 		}
 		f.assertEmpty(t, ctx)
 	})
+	t.Run("atomic emergency stops", func(t *testing.T) {
+		testPaperCommitEmergencyStops(t, ctx, pool)
+	})
 	t.Run("concurrent different deliveries cannot double spend", func(t *testing.T) {
 		f := newPaperBindingFixture(t, ctx, pool)
 		other := f
@@ -228,7 +231,7 @@ func paperBindingUUID(t *testing.T, ctx context.Context, pool *pgxpool.Pool) str
 	return id
 }
 
-func newPaperBindingFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) paperBindingFixture {
+func newPaperBindingFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ownerIDs ...string) paperBindingFixture {
 	t.Helper()
 	u, financial, ai, account, bucket, mandate := paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool)
 	exec := func(query string, args ...any) {
@@ -237,8 +240,12 @@ func newPaperBindingFixture(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 			t.Fatal(err)
 		}
 	}
-	exec(`INSERT INTO users(id,email,normalized_email,display_name,email_verified_at) VALUES($1,$2,$2,'Paper binding test',now())`, u, u+"@example.com")
-	exec(`INSERT INTO user_entitlements(user_id,entitlement_key,source,billing_required) VALUES($1,'founder','bootstrap',false)`, u)
+	if len(ownerIDs) > 0 {
+		u = ownerIDs[0]
+	} else {
+		exec(`INSERT INTO users(id,email,normalized_email,display_name,email_verified_at) VALUES($1,$2,$2,'Paper binding test',now())`, u, u+"@example.com")
+		exec(`INSERT INTO user_entitlements(user_id,entitlement_key,source,billing_required) VALUES($1,'founder','bootstrap',false)`, u)
+	}
 	exec(`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES($1,$2,'financial','coinbase','Test source','active'),($3,$2,'ai','openai','Test model','active')`, financial, u, ai)
 	exec(`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES($1,$2,$3,'coinbase','fixture','Test account','crypto','USD','active','{}')`, account, u, financial)
 	exec(`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES($1,$2,$3,'Test budget','FIXED_AMOUNT',1000,'USD',0,'ACTIVE')`, bucket, u, account)
