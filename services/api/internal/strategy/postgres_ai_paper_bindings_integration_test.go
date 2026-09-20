@@ -179,6 +179,9 @@ func TestPostgresAIPaperCommitBindings(t *testing.T) {
 	t.Run("current commit access", func(t *testing.T) {
 		testNonLiveCommitAccess(t, ctx, pool)
 	})
+	t.Run("commit quote freshness", func(t *testing.T) {
+		testAICommitMarketTime(t, ctx, pool)
+	})
 	t.Run("concurrent different deliveries cannot double spend", func(t *testing.T) {
 		f := newPaperBindingFixture(t, ctx, pool)
 		other := f

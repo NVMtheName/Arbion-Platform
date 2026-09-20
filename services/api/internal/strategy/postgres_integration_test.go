@@ -501,7 +501,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	if err != nil || aiInstance.StrategyIdentifier != "ai_shadow" || aiInstance.ExecutionMode != Shadow {
 		t.Fatalf("AI shadow instance was not initialized safely: %#v %v", aiInstance, err)
 	}
-	aiEvaluationTime := time.Date(2026, 8, 25, 18, 0, 0, 0, time.UTC)
+	aiEvaluationTime := time.Now().UTC().Truncate(time.Microsecond)
 	if _, err = pool.Exec(ctx, `INSERT INTO portfolio_reconciliations(user_id,financial_account_id,provider_name,comparison_status,balances_status,positions_status,performance_status,realized_performance_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,observed_position_count,performance_position_count,change_count,changes,evidence_hash,observed_at) VALUES($1,$2,'schwab','MATCHED','READY','READY','UNAVAILABLE','UNAVAILABLE','CLEAR',true,false,0,0,0,'[]',decode(repeat('ab',32),'hex'),$3)`, userID, aiAccountID, aiEvaluationTime.Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -529,7 +529,7 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 			Symbol: "AAPL", Side: "SELL", Price: aiPrice, Basis: "BID",
 			Provider: "schwab", Feed: "schwab_market_data", Quality: "BROKER_REALTIME", ObservedAt: aiEvaluationTime,
 		},
-		Rationale: []byte(`{"decision":"PROPOSE","symbol":"AAPL","side":"SELL","ai_provider":"openai","model_id":"gpt-5.6-sol","profile":"deep","input_usage":30,"output_usage":45,"latency_ms":120,"quote_reference":{"symbol":"AAPL","side":"SELL","price":"2.0000000000","basis":"BID","provider":"schwab","feed":"schwab_market_data","quality":"BROKER_REALTIME","observed_at":"2026-08-25T18:00:00Z"}}`),
+		Rationale: []byte(`{"decision":"PROPOSE","symbol":"AAPL","side":"SELL","ai_provider":"openai","model_id":"gpt-5.6-sol","profile":"deep","input_usage":30,"output_usage":45,"latency_ms":120,"quote_reference":{"symbol":"AAPL","side":"SELL","price":"2.0000000000","basis":"BID","provider":"schwab","feed":"schwab_market_data","quality":"BROKER_REALTIME","observed_at":"` + aiEvaluationTime.Format(time.RFC3339Nano) + `"}}`),
 	}
 	aiResult := ExecutionResult{
 		Status: WouldHaveSubmitted, Price: &aiPrice, Notional: &aiNotional,

@@ -313,6 +313,27 @@ an eventual external broker acknowledgement. This does not prove current broker
 scopes, credential generation, market freshness, quote entitlement, or a live
 dispatch protocol; those remain separate gates. No live path is added.
 
+### AI quote timing at the final non-live save
+
+Accepted AI Paper and Shadow actions repeat the saved quote's timing check using
+database `clock_timestamp()` immediately before commit, after all row waits and
+the current-access check. The model-start/evaluation timestamp cannot extend a
+quote's permitted lifetime. Existing limits are unchanged: the Paper simulator's
+two-minute maximum age and five-second future tolerance remain stricter than
+the general Shadow quote contract's fifteen-minute age and one-minute future
+tolerance. These non-live limits are not a recommended live trading policy.
+
+An out-of-window quote rolls back the entire new event, risk, journal, execution,
+fill, and ledger update with `COMMIT_MARKET_DATA_STALE`. The scheduler records a
+failed cycle, does not immediately retry, and uses the next normal evaluation
+for new evidence. It does not replace the old quote, reprice the saved proposal,
+refresh a provider, rerun the model, or claim the cause of a delay. Denials,
+abstentions, and duplicate recovery remain unchanged. Original evidence times
+are retained, not rewritten as commit timestamps. This validates the selected
+AI execution reference only; it does not make every portfolio or risk input
+current, alter rules-based Wheel quotes, establish a live policy, or guarantee
+freshness at a future broker acknowledgement. No broker path is added.
+
 ## Scalable AWS production topology
 
 The long-term scalable production foundation retains the same modular-monolith-plus-Neural-Engine boundary. A public AWS ALB terminates ACM TLS and routes `/api/*` to private Go Fargate tasks and default traffic to private Next.js tasks. Python is private and discovered through AWS Cloud Map; token authentication remains mandatory. Private Multi-AZ RDS is durable truth and encrypted ElastiCache is ephemeral coordination/session infrastructure. Application tasks use private subnets with NAT egress for fixed provider adapters, while data subnets have no Internet route. ECR, Secrets Manager/KMS, CloudWatch, and GitHub OIDC supply image, secret, telemetry, and temporary deployment-identity boundaries. See [AWS deployment](AWS_DEPLOYMENT.md).

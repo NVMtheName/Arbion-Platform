@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { scheduleFailureGuidance } from "./schedule-failure-guidance";
 
 describe("scheduleFailureGuidance", () => {
+  it("uses the next normal cycle after a quote expires at commit", () => {
+    expect(scheduleFailureGuidance("COMMIT_MARKET_DATA_STALE")).toMatchObject({
+      action: "AUTOMATIC_RETRY",
+      message: expect.stringMatching(
+        /no broker order.*normal schedule.*do not rerun the old proposal or loosen/,
+      ),
+    });
+  });
   it("does not confuse revoked automation access with browser sign-in", () => {
     expect(scheduleFailureGuidance("COMMIT_ACCESS_REVOKED")).toMatchObject({
       action: "OWNER_REVIEW",
