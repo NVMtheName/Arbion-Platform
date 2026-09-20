@@ -68,6 +68,12 @@ describe("AIShadowEvaluationControls", () => {
       /hourly AI decision budget is currently used/i,
     ],
     ["AI_PROVIDER_RATE_LIMITED", /AI provider is temporarily rate limited/i],
+    ["COMMIT_MARKET_DATA_STALE", /do not rerun the old proposal or loosen/i],
+    ["COMMIT_ACCESS_REVOKED", /logging in again does not restore revoked/i],
+    [
+      "COMMIT_CONNECTION_UNAVAILABLE",
+      /do not re-enable an intentionally disabled connection/i,
+    ],
   ])("distinguishes the safe %s recovery path", async (code, message) => {
     vi.stubGlobal(
       "fetch",
@@ -94,6 +100,7 @@ describe("AIShadowEvaluationControls", () => {
     );
 
     expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(navigation.refresh).not.toHaveBeenCalled();
   });
 });
