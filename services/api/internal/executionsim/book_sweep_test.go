@@ -199,6 +199,24 @@ func TestBookSweepBoundariesAndStatelessDeterminism(t *testing.T) {
 	if err != nil || result.FilledQuantity != "0.0000000001" || result.TotalGrossNotional != "0.0000000040" {
 		t.Fatalf("smallest quantity boundary: %#v, %v", result, err)
 	}
+	input = bookSweepFixture()
+	input.Asks = []BookLevel{{"99999999999999999999.9999999999", "1"}}
+	input.LimitPrice, input.RemainingQuantity, input.FeeBasisPoints = input.Asks[0].Price, "1", 0
+	result, err = SweepBook(input)
+	if err != nil || result.TotalGrossNotional != input.Asks[0].Price {
+		t.Fatalf("largest exact amount boundary: %#v, %v", result, err)
+	}
+	// The synthetic replay clock is explicit; wall-clock time must not change
+	// whether an otherwise identical historical or future fixture can run.
+	for _, year := range []int{2000, 2099} {
+		input = bookSweepFixture()
+		input.EvaluatedAt = time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
+		input.ObservedAt = input.EvaluatedAt.Add(-24 * time.Hour)
+		input.MaxAge = 24 * time.Hour
+		if _, err := SweepBook(input); err != nil {
+			t.Fatalf("explicit replay clock for year %d was rejected: %v", year, err)
+		}
+	}
 }
 
 // Exhaustive bounded cases compare the sweep with a separate integer-quarter
