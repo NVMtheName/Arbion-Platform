@@ -256,6 +256,11 @@ func newPaperBindingFixture(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 // immutable history is never updated or its protections disabled.
 func newNonLiveBindingFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, mode ExecutionMode, snapshotOverride json.RawMessage, ownerIDs ...string) paperBindingFixture {
 	t.Helper()
+	return newNonLiveBindingFixtureWithBucket(t, ctx, pool, mode, snapshotOverride, nil, ownerIDs...)
+}
+
+func newNonLiveBindingFixtureWithBucket(t *testing.T, ctx context.Context, pool *pgxpool.Pool, mode ExecutionMode, snapshotOverride json.RawMessage, bucketOverride *automation.CapitalBucket, ownerIDs ...string) paperBindingFixture {
+	t.Helper()
 	u, financial, ai, account, bucket, mandate := paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool)
 	exec := func(query string, args ...any) {
 		t.Helper()
@@ -272,6 +277,9 @@ func newNonLiveBindingFixture(t *testing.T, ctx context.Context, pool *pgxpool.P
 	exec(`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES($1,$2,'financial','coinbase',$4,'active'),($3,$2,'ai','openai',$5,'active')`, financial, u, ai, "Test source "+financial, "Test model "+ai)
 	exec(`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES($1,$2,$3,'coinbase',$4,'Test account','crypto','USD','active','{}')`, account, u, financial, "fixture:"+account)
 	exec(`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES($1,$2,$3,'Test budget','FIXED_AMOUNT',1000,'USD',0,'ACTIVE')`, bucket, u, account)
+	if bucketOverride != nil {
+		exec(`UPDATE capital_buckets SET allocation_type=$2,allocation_value=$3,currency=$4,protected_amount=$5,allocation_limit=$6 WHERE id=$1`, bucket, bucketOverride.AllocationType, bucketOverride.AllocationValue, bucketOverride.Currency, bucketOverride.ProtectedAmount, bucketOverride.AllocationLimit)
+	}
 	exec(`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,ai_provider_connection_id,ai_model_id,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES($1,$2,$3,'AI_AUTONOMOUS',$4,'gpt-5.6-sol',$5,'FULL_AUTONOMOUS','PAPER','READY',1,'{"objective":"Simulation only.","max_proposal_notional":"100"}','{}','{"symbols":["BTC"]}','{"symbols":[]}',false,false,'{"enabled":false}',false)`, mandate, u, account, ai, bucket)
 	exec(`UPDATE automation_mandates SET execution_mode=$2 WHERE id=$1`, mandate, mode)
 	exec(`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'UI',to_jsonb(m) || $2::jsonb, '{}' FROM automation_mandates m WHERE id=$1`, mandate, snapshotOverride)

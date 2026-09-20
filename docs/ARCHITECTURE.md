@@ -241,6 +241,33 @@ coordination are added by the protocols below. The
 isolated and is not wired into the production scheduler by this change. There
 is no live execution adapter, broker request, or new route.
 
+### AI Shadow commit-time binding checks
+
+Accepted AI Shadow persistence now uses the same transactional binding helper as
+AI Paper: current owner-bound mandate (READY or a newer DRAFT), immutable READY
+version, exact account/bucket/mode/type/autonomy identity, ACTIVE AI_MONITORING
+runtime and state version, and active resolved same-instance capital claim.
+Locks remain mandate → bucket → instance (`NO KEY UPDATE`) → reservation, after
+the existing stop/access locks. A pause, disable or archive that wins first
+refuses the stale prepared action; a later control change waits until a winning
+commit finishes. An unrelated newer draft does not repin the approved instance.
+
+Shadow's reservation must equal exact frozen bucket capacity with the matching
+`BUCKET_FIXED_CAPACITY` or `BUCKET_ABSOLUTE_LIMIT` basis and account ceiling.
+Paper retains its separate `PAPER_STARTING_CASH` and portfolio checks. Existing
+database guards already freeze reserved capital policy and make reservation
+identity/amount immutable; this change neither relaxes those guards nor permits
+reallocation. Neither claim is a lock on real broker funds.
+
+All attempted event/risk/journal/execution/runtime writes roll back on refusal.
+Already committed duplicate events remain recoverable even after revocation;
+denials and abstentions retain their immutable non-accepted evidence. Isolated
+PostgreSQL tests reproduce the prior accepted-Shadow-after-revocation defect,
+exercise both actual race orderings, and verify capped percentage/fixed claims,
+account isolation and concurrent duplicates. This is not an atomic re-evaluation
+of every risk input, daily quota, reconciliation snapshot, or provider credential
+generation, and introduces no broker call, live path or weaker control.
+
 ### Atomic emergency-stop coordination for non-live commits
 
 Both accepted non-live writers (AI Paper spot fills and ordinary Paper/Shadow
@@ -352,8 +379,8 @@ SKIPPED result requiring owner review, not a successful recovery; unresolved
 failure streaks remain intact. Duplicate recovery, abstention and deterministic
 denial evidence remain unchanged. No old proposal is rerun and no window is
 automatically extended. This bounded check does not replace the existing Paper
-binding locks, extend them to every generic Shadow binding, revalidate all risk
-inputs, or authorize an eventual broker dispatch. No live path is added.
+binding locks or the shared AI Shadow binding checks described above, revalidate
+all risk inputs, or authorize an eventual broker dispatch. No live path is added.
 
 ## Scalable AWS production topology
 

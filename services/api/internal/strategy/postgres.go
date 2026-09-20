@@ -807,6 +807,11 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 		if access, err = lockNonLiveCommitAccess(c, tx, instance, expectedProvider); err != nil {
 			return err
 		}
+		if source == "AI" && instance.ExecutionMode == Shadow {
+			if _, err = lockAINonLiveCommitBindings(c, tx, instance, Shadow); err != nil {
+				return err
+			}
+		}
 	}
 	_, err = tx.Exec(c, `INSERT INTO risk_evaluations(id,user_id,financial_account_id,proposed_action_id,correlation_id,mandate_id,mandate_version,decision,approval_required,execution_mode,platform_execution_available,reason_codes,checks,evaluated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,$11,$12,$13)`, evaluation.ID, evaluation.UserID, evaluation.AccountID, action.ID, action.CorrelationID, action.MandateID, action.MandateVersion, evaluation.Decision, evaluation.ApprovalRequired, instance.ExecutionMode, reasonCodes, checks, evaluatedAt)
 	if err != nil {
