@@ -56,6 +56,9 @@ export function AIShadowEvaluationControls(props: Props) {
       if (
         code &&
         [
+          "COMMIT_ACTION_LIMIT_REACHED",
+          "COMMIT_ACTION_COOLDOWN_ACTIVE",
+          "COMMIT_ACTIVITY_UNAVAILABLE",
           "COMMIT_MARKET_DATA_STALE",
           "COMMIT_MANDATE_WINDOW_CLOSED",
           "COMMIT_ACCESS_REVOKED",

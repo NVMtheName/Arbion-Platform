@@ -55,6 +55,9 @@ func TestStrategyErrorReturnsSafeEvaluationDiagnostics(t *testing.T) {
 		status int
 		code   string
 	}{
+		{strategy.ErrCommitActionLimit, stdhttp.StatusConflict, "COMMIT_ACTION_LIMIT_REACHED"},
+		{strategy.ErrCommitActionCooldown, stdhttp.StatusConflict, "COMMIT_ACTION_COOLDOWN_ACTIVE"},
+		{strategy.ErrCommitActivityUnavailable, stdhttp.StatusConflict, "COMMIT_ACTIVITY_UNAVAILABLE"},
 		{risk.ErrCommitCircuitBreakerActive, stdhttp.StatusConflict, "CIRCUIT_BREAKER_ACTIVE"},
 		{strategy.ErrCommitAccessRevoked, stdhttp.StatusForbidden, "COMMIT_ACCESS_REVOKED"},
 		{strategy.ErrCommitMarketDataStale, stdhttp.StatusUnprocessableEntity, "COMMIT_MARKET_DATA_STALE"},

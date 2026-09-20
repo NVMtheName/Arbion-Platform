@@ -37,6 +37,17 @@ export function scheduleFailureGuidance(
 ): ScheduleFailureGuidance {
   const provider = financialProviderLabel(financialProvider);
   switch (code) {
+    case "COMMIT_ACTION_LIMIT_REACHED":
+    case "COMMIT_ACTION_COOLDOWN_ACTIVE":
+      return guidance(
+        "AUTOMATIC_RETRY",
+        "The final save check found that this engine's daily action quota or same-symbol, same-side cooldown did not permit the prepared action. This attempt saved no simulated fill or would-have-submitted action, and no broker order was sent. The next normal scheduled cycle will evaluate current limits; do not rerun the old proposal or increase limits to bypass this hold.",
+      );
+    case "COMMIT_ACTIVITY_UNAVAILABLE":
+      return guidance(
+        "OPERATOR_REVIEW",
+        "The final save check could not verify current action activity for the prepared evaluation's UTC day. This attempt saved no simulated fill or would-have-submitted action, and no broker order was sent. Review saved activity and timing evidence; do not replay the old proposal or weaken the limits.",
+      );
     case "COMMIT_MANDATE_WINDOW_CLOSED":
       return guidance(
         "OWNER_REVIEW",

@@ -155,6 +155,9 @@ func (s *PostgresStore) CommitAIPaperEvaluation(ctx context.Context, instance In
 	if err != nil {
 		return err
 	}
+	if err = checkAICommitActivity(ctx, tx, instance, action, evaluatedAt); err != nil {
+		return err
+	}
 	if err = access.checkTime(ctx, tx); err != nil {
 		return err
 	}

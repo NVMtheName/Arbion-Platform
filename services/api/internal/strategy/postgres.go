@@ -891,6 +891,11 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 		return err
 	}
 	if accepted {
+		if source == "AI" && instance.ExecutionMode == Shadow {
+			if err = checkAICommitActivity(c, tx, instance, action, evaluatedAt); err != nil {
+				return err
+			}
+		}
 		if err = access.checkTime(c, tx); err != nil {
 			return err
 		}
