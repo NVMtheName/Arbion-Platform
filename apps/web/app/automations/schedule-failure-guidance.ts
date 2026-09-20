@@ -37,6 +37,11 @@ export function scheduleFailureGuidance(
 ): ScheduleFailureGuidance {
   const provider = financialProviderLabel(financialProvider);
   switch (code) {
+    case "COMMIT_MARKET_DATA_STALE":
+      return guidance(
+        "AUTOMATIC_RETRY",
+        "The saved AI quote was outside the permitted time window at the final save check. This attempt saved no simulated fill or would-have-submitted action, and no broker order was sent. The normal schedule can obtain new evidence on its next cycle; do not rerun the old proposal or loosen the quote limits.",
+      );
     case "COMMIT_ACCESS_REVOKED":
       return guidance(
         "OWNER_REVIEW",

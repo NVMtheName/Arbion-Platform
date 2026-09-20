@@ -889,6 +889,11 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 		if err = access.checkTime(c, tx); err != nil {
 			return err
 		}
+		if source == "AI" {
+			if err = checkAICommitMarketTime(c, tx, decision.QuoteReference, instance.ExecutionMode); err != nil {
+				return err
+			}
+		}
 	}
 	return tx.Commit(c)
 }

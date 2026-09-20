@@ -217,6 +217,8 @@ func classifyScheduleError(err error) string {
 		return ""
 	}
 	switch {
+	case errors.Is(err, ErrCommitMarketDataStale):
+		return "COMMIT_MARKET_DATA_STALE"
 	case errors.Is(err, ErrCommitAccessRevoked):
 		return "COMMIT_ACCESS_REVOKED"
 	case errors.Is(err, ErrCommitConnectionUnavailable):

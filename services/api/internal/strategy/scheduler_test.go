@@ -313,6 +313,19 @@ func TestSchedulerTreatsCommitStopAsSkippedNotRecovery(t *testing.T) {
 	}
 }
 
+func TestSchedulerPreservesLateQuoteExpiryAsFailedCycle(t *testing.T) {
+	now := time.Date(2026, 9, 20, 21, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now)
+	run.Session = "CONTINUOUS"
+	store := &scheduleStoreFake{run: run}
+	evaluator := &scheduledEvaluatorFake{err: ErrCommitMarketDataStale}
+	scheduler := NewScheduler(store, evaluator)
+	scheduler.now = func() time.Time { return now }
+	if _, err := scheduler.RunOnce(context.Background()); err != nil || evaluator.calls != 1 || store.completion.Status != "FAILED" || store.completion.ErrorCode != "COMMIT_MARKET_DATA_STALE" || store.completion.DuplicateRecovered || store.completion.ExecutionStatus != "" {
+		t.Fatalf("late expiry retried or reported as success: %#v %v", store.completion, err)
+	}
+}
+
 func TestScheduleErrorClassificationPreservesSafeEvaluationDiagnostics(t *testing.T) {
 	tests := map[string]error{
 		"COMMIT_ACCESS_REVOKED":            ErrCommitAccessRevoked,

@@ -80,7 +80,7 @@ func TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected(t *testing.T)
 		t.Fatalf("AI PAPER instance was not initialized safely: %#v %v", instance, err)
 	}
 
-	now := time.Date(2026, 8, 28, 17, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	price := "100.0000000000"
 	state := string(AIMonitoring)
 	action := risk.ProposedAction{
@@ -102,7 +102,7 @@ func TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected(t *testing.T)
 			Symbol: "BTC", Side: "BUY", Price: price, Basis: "ASK",
 			Provider: "coinbase", Feed: "advanced_trade", Quality: "BROKER_REALTIME", ObservedAt: now.Add(-time.Second),
 		},
-		Rationale: json.RawMessage(`{"decision":"PROPOSE","symbol":"BTC","side":"BUY","ai_provider":"openai","model_id":"gpt-5.6-sol","profile":"deep","quote_reference":{"symbol":"BTC","side":"BUY","price":"100.0000000000","basis":"ASK","provider":"coinbase","feed":"advanced_trade","quality":"BROKER_REALTIME","observed_at":"2026-08-28T16:59:59Z"}}`),
+		Rationale: json.RawMessage(`{"decision":"PROPOSE","symbol":"BTC","side":"BUY","ai_provider":"openai","model_id":"gpt-5.6-sol","profile":"deep","quote_reference":{"symbol":"BTC","side":"BUY","price":"100.0000000000","basis":"ASK","provider":"coinbase","feed":"advanced_trade","quality":"BROKER_REALTIME","observed_at":"` + now.Add(-time.Second).Format(time.RFC3339Nano) + `"}}`),
 	}
 	fill := SimulateAIPaperSpotFill(
 		action, evaluation, "CRYPTO",

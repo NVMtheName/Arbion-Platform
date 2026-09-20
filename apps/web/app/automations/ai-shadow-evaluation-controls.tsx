@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { scheduleFailureGuidance } from "./schedule-failure-guidance";
 
 export type AIShadowParameters = {
   objective?: string;
@@ -52,6 +53,18 @@ export function AIShadowEvaluationControls(props: Props) {
     setBusy(false);
     if (!response.ok || !body.evaluation) {
       const code = body.error?.code;
+      if (
+        code &&
+        [
+          "COMMIT_MARKET_DATA_STALE",
+          "COMMIT_ACCESS_REVOKED",
+          "COMMIT_CONNECTION_UNAVAILABLE",
+          "CIRCUIT_BREAKER_ACTIVE",
+        ].includes(code)
+      ) {
+        setMessage(scheduleFailureGuidance(code).message);
+        return;
+      }
       setMessage(
         code === "AI_DECISION_BUDGET_EXHAUSTED"
           ? "Arbion's hourly AI decision budget is currently used. Wait for the window to reset; the schedule remains safe and no order was sent."
