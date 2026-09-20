@@ -212,6 +212,35 @@ PAPER portfolios are a distinct persistence domain. When an active or paused PAP
 
 AI PAPER spot execution uses a separate provider-independent simulation contract rather than the Wheel option adapter. The pure Go simulator accepts only an already risk-allowed AI BUY or SELL proposal, an isolated USD paper portfolio, and exact provider-derived market provenance. It applies bounded adverse slippage and fees with conservative fixed-decimal accounting, rejects stale or malformed evidence, insufficient simulated cash, margin, and short sales, and returns a record explicitly labeled `simulation_only` with no broker order identifier or execution route. Its dedicated PostgreSQL writer locks the isolated portfolio and atomically commits the risk evaluation, non-live execution evidence, AI Decision Journal entry, cash and spot-position projection, and immutable owner-bound fill ledger; any stale projection or failed constraint rolls the entire event back. A reviewed AI PAPER mandate can now run only through the same guarded non-live scheduler and deterministic risk path as Shadow. Its bounded recent-decision memory preserves exact `SIMULATED_FILLED` and `SIMULATED_REJECTED` dispositions under a closed schema, while its cash, positions, fills, and capital reservation remain isolated from the connected account. The account supplies normalized current market references only; no broker cash, holdings, preview, order identifier, or write method enters the Paper runtime.
 
+### AI Paper commit-time binding checks
+
+The existing AI Paper fill writer revalidates the persisted mandate, pinned
+immutable version, owner/account/bucket identity, active strategy state/version,
+and active `PAPER_STARTING_CASH` reservation inside the ledger transaction. It
+holds row locks in mandate → bucket → instance → reservation → portfolio order
+until commit. Current mandate pause, disable, or archive blocks a stale prepared
+fill; an unrelated newer draft does not replace the instance's approved pinned
+version. Reservation amount must exactly match portfolio starting cash and the
+frozen bucket policy; it does not claim real broker funds. Action and risk
+timestamps, strategy-instance/state identity, and BUY/SELL semantics must also
+match the simulated event before any write.
+
+Concurrent pause or mandate revocation that obtains its lock first is observed
+before persistence. When the fill transaction obtains its locks first, the
+control change waits for that transaction to finish. A refusal rolls back the
+event claim, risk, journal, execution, fill, and ledger projections together;
+an already committed event still returns the existing duplicate-safe result,
+including after revocation. The instance lock uses `NO KEY UPDATE` to coexist
+with event-claim foreign-key locks while serializing different ledger writers.
+
+This closes a specific pre-model-read/commit binding gap in the existing Paper
+path. It does not replace the deterministic risk evaluation, add a fresh market
+request, make every risk input transactionally current, or establish an atomic
+circuit-breaker/entitlement revocation protocol. Those remain separate execution
+design requirements. The `executionsim` crash-recovery laboratory remains
+isolated and is not wired into the production scheduler by this change. There
+is no live execution adapter, broker request, new route, or schema migration.
+
 ## Scalable AWS production topology
 
 The long-term scalable production foundation retains the same modular-monolith-plus-Neural-Engine boundary. A public AWS ALB terminates ACM TLS and routes `/api/*` to private Go Fargate tasks and default traffic to private Next.js tasks. Python is private and discovered through AWS Cloud Map; token authentication remains mandatory. Private Multi-AZ RDS is durable truth and encrypted ElastiCache is ephemeral coordination/session infrastructure. Application tasks use private subnets with NAT egress for fixed provider adapters, while data subnets have no Internet route. ECR, Secrets Manager/KMS, CloudWatch, and GitHub OIDC supply image, secret, telemetry, and temporary deployment-identity boundaries. See [AWS deployment](AWS_DEPLOYMENT.md).

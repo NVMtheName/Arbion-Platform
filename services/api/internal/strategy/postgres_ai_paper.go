@@ -71,12 +71,19 @@ func (s *PostgresStore) CommitAIPaperEvaluation(ctx context.Context, instance In
 		return ErrDuplicate
 	}
 
-	var portfolioID, storedCash string
-	if err = tx.QueryRow(ctx, `SELECT id::text,cash::text FROM paper_portfolios WHERE strategy_instance_id=$1 AND user_id=$2 FOR UPDATE`, instance.ID, instance.UserID).Scan(&portfolioID, &storedCash); err != nil {
+	reservedCash, err := lockAIPaperCommitBindings(ctx, tx, instance)
+	if err != nil {
+		return err
+	}
+	var portfolioID, storedCash, startingCash, currency string
+	if err = tx.QueryRow(ctx, `SELECT id::text,cash::text,starting_cash::text,currency FROM paper_portfolios WHERE strategy_instance_id=$1 AND user_id=$2 FOR UPDATE`, instance.ID, instance.UserID).Scan(&portfolioID, &storedCash, &startingCash, &currency); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInvalid
 		}
 		return err
+	}
+	if currency != "USD" || !sameAIPaperDecimal(startingCash, reservedCash) {
+		return ErrCapitalReservation
 	}
 	if !sameAIPaperDecimal(storedCash, fill.PreviousCash) {
 		return ErrConflict
@@ -145,7 +152,7 @@ func (s *PostgresStore) CommitAIPaperEvaluation(ctx context.Context, instance In
 }
 
 func validAIPaperCommit(instance Instance, expectedVersion int, decision Decision, evaluation risk.RiskEvaluation, fill AIPaperFill, evaluatedAt time.Time) bool {
-	if instance.StrategyIdentifier != "ai_shadow" || instance.ExecutionMode != Paper || instance.CurrentState != AIMonitoring || instance.Status != "ACTIVE" || expectedVersion < 1 || expectedVersion != instance.StateVersion || evaluatedAt.IsZero() {
+	if instance.ID == "" || instance.UserID == "" || instance.AutomationMandateID == "" || instance.FinancialAccountID == "" || instance.CapitalBucketID == "" || instance.MandateVersion < 1 || instance.StrategyIdentifier != "ai_shadow" || instance.ExecutionMode != Paper || instance.CurrentState != AIMonitoring || instance.Status != "ACTIVE" || expectedVersion < 1 || expectedVersion != instance.StateVersion || evaluatedAt.IsZero() {
 		return false
 	}
 	if decision.ProposedAction == nil || decision.Source != "AI" || (decision.InstrumentType != "EQUITY" && decision.InstrumentType != "CRYPTO") || decision.ProposedState != AIMonitoring || !json.Valid(decision.Rationale) || len(decision.Rationale) == 0 || decision.Rationale[0] != '{' {
@@ -158,7 +165,16 @@ func validAIPaperCommit(instance Instance, expectedVersion int, decision Decisio
 	if action.ID == "" || action.CorrelationID == "" || action.Source != risk.SourceAI || action.FinancialAccountID != instance.FinancialAccountID || action.MandateID == nil || *action.MandateID != instance.AutomationMandateID || action.MandateVersion == nil || *action.MandateVersion != instance.MandateVersion || action.Option != nil || action.RequiresMargin {
 		return false
 	}
+	if action.StrategyInstanceID == nil || *action.StrategyInstanceID != instance.ID || action.StrategyState == nil || *action.StrategyState != string(AIMonitoring) || (action.StrategyIdentifier != nil && *action.StrategyIdentifier != instance.StrategyIdentifier) || !action.CreatedAt.Equal(evaluatedAt) {
+		return false
+	}
+	if (action.Side != "BUY" || action.ActionType != risk.ActionBuy) && (action.Side != "SELL" || action.ActionType != risk.ActionSell) {
+		return false
+	}
 	if evaluation.ID == "" || evaluation.UserID != instance.UserID || evaluation.AccountID != instance.FinancialAccountID || evaluation.MandateID == nil || *evaluation.MandateID != instance.AutomationMandateID || evaluation.MandateVersion == nil || *evaluation.MandateVersion != instance.MandateVersion || evaluation.Decision != risk.Allow || evaluation.ApprovalRequired || evaluation.Mode != "PAPER" || evaluation.PlatformExecutionAvailable {
+		return false
+	}
+	if !evaluation.Timestamp.Equal(evaluatedAt) {
 		return false
 	}
 	if fill.Status != SimulatedFilled || !fill.SimulationOnly || fill.Reason != "paper_simulation_only_no_broker_order" || fill.Instrument != decision.InstrumentType || fill.Symbol != action.Instrument || fill.Side != action.Side || !sameAIPaperDecimal(fill.Quantity, action.Quantity) || !sameAIPaperDecimal(fill.RequestedNotional, action.Notional) || action.EstimatedPrice == nil || !sameAIPaperDecimal(fill.ReferencePrice, *action.EstimatedPrice) || !fill.SimulatedAt.Equal(evaluatedAt) {
