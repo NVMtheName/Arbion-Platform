@@ -12,6 +12,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/neural"
 	"github.com/arbion/platform/services/api/internal/platform/config"
+	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/arbion/platform/services/api/internal/strategy"
 )
 
@@ -54,6 +55,7 @@ func TestStrategyErrorReturnsSafeEvaluationDiagnostics(t *testing.T) {
 		status int
 		code   string
 	}{
+		{risk.ErrCommitCircuitBreakerActive, stdhttp.StatusConflict, "CIRCUIT_BREAKER_ACTIVE"},
 		{strategy.ErrEvaluationInactive, stdhttp.StatusConflict, "STRATEGY_NOT_ACTIVE"},
 		{strategy.ErrEvaluationConfigurationChanged, stdhttp.StatusConflict, "STRATEGY_CONFIGURATION_CHANGED"},
 		{strategy.ErrEvaluationParametersInvalid, stdhttp.StatusUnprocessableEntity, "STRATEGY_PARAMETERS_INVALID"},

@@ -37,6 +37,11 @@ export function scheduleFailureGuidance(
 ): ScheduleFailureGuidance {
   const provider = financialProviderLabel(financialProvider);
   switch (code) {
+    case "CIRCUIT_BREAKER_ACTIVE":
+      return guidance(
+        "OWNER_REVIEW",
+        "An emergency stop blocked this non-live commit. This attempt saved no simulated fill or would-have-submitted action. Review the active automation, account, user, or platform stop; an intentional stop should remain engaged. No broker order was sent.",
+      );
     case "AUTHORIZATION_FAILED":
     case "AUTHORIZATION_EXPIRED":
       return guidance(

@@ -236,10 +236,45 @@ with event-claim foreign-key locks while serializing different ledger writers.
 This closes a specific pre-model-read/commit binding gap in the existing Paper
 path. It does not replace the deterministic risk evaluation, add a fresh market
 request, make every risk input transactionally current, or establish an atomic
-circuit-breaker/entitlement revocation protocol. Those remain separate execution
-design requirements. The `executionsim` crash-recovery laboratory remains
+entitlement revocation protocol. Those remain separate execution design
+requirements. Stop coordination is added by the protocol below. The
+`executionsim` crash-recovery laboratory remains
 isolated and is not wired into the production scheduler by this change. There
-is no live execution adapter, broker request, new route, or schema migration.
+is no live execution adapter, broker request, or new route.
+
+### Atomic emergency-stop coordination for non-live commits
+
+Both accepted non-live writers (AI Paper spot fills and ordinary Paper/Shadow
+accepted actions) acquire transaction-scoped shared advisory locks in fixed
+GLOBAL → USER → ACCOUNT → AUTOMATION order before saving risk or execution
+evidence. Migration 47 installs one canonical UUID-based scope-key function and
+an exclusive-lock trigger for every breaker insert, update, and delete. It also
+prevents moving an existing breaker to another scope identity. This coordinates
+the first stop even when no OPEN row yet exists, without taking a table-wide
+lock or serializing unrelated accounts. All normal mutations still use their
+existing owner/superadmin authorization and step-up controls.
+
+The writer explicitly uses READ COMMITTED and checks OPEN breakers in a separate
+statement after acquiring all locks, so a stop committed while it waited is
+visible. The guard refuses other isolation modes. Locks remain through the
+ledger transaction: a stop that wins the scope lock blocks the attempted fill;
+a commit that wins first finishes before the stop is acknowledged. Stop success
+does not cancel an already committed fill, retract historical evidence, or
+cancel broker orders. The current OPEN state is authoritative; an explicitly
+released stop does not permanently revoke a previously prepared decision.
+
+An observed stop rolls back the entire attempted commit and records the closed
+`CIRCUIT_BREAKER_ACTIVE` scheduler code as SKIPPED, not a provider failure or
+successful recovery. Prior failure counts remain preserved. Existing denials,
+abstentions, and exact retries of committed events remain recordable without
+creating another fill. No provider/model call occurs inside these transactions,
+no risk limit changes, and this protocol grants no live execution authority.
+
+Use single-scope breaker mutations as the application does; any future
+multi-scope administrative transaction must acquire its scope locks in the same
+global-to-automation order. The isolated PostgreSQL tests exercise both race
+orderings, all four stop scopes, explicit release and rollback, duplicate
+recovery, account isolation, canonical UUID identity, and stale-isolation refusal.
 
 ## Scalable AWS production topology
 

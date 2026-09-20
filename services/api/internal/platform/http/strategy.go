@@ -12,6 +12,7 @@ import (
 	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/neural"
+	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/arbion/platform/services/api/internal/strategy"
 )
 
@@ -346,6 +347,8 @@ func (h *authHandler) decisionJournal(w stdhttp.ResponseWriter, r *stdhttp.Reque
 }
 func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 	switch {
+	case errors.Is(e, risk.ErrCommitCircuitBreakerActive):
+		writeError(w, 409, "CIRCUIT_BREAKER_ACTIVE", "An emergency stop blocked the non-live commit. No simulated fill or broker order was created by this attempt. Review the active stop before resuming.")
 	case errors.Is(e, strategy.ErrForbidden):
 		writeError(w, 403, "PERMISSION_DENIED", "Automation entitlement is required.")
 	case errors.Is(e, strategy.ErrEvaluationInactive):

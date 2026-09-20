@@ -781,7 +781,7 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 		return err
 	}
 
-	tx, err := s.db.Begin(c)
+	tx, err := s.db.BeginTx(c, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return err
 	}
@@ -793,6 +793,11 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 	}
 	if claimed.RowsAffected() != 1 {
 		return ErrDuplicate
+	}
+	if result.Status == SimulatedFilled || result.Status == WouldHaveSubmitted {
+		if err = risk.LockCircuitBreakersForCommit(c, tx, instance.UserID, instance.FinancialAccountID, instance.AutomationMandateID); err != nil {
+			return err
+		}
 	}
 	_, err = tx.Exec(c, `INSERT INTO risk_evaluations(id,user_id,financial_account_id,proposed_action_id,correlation_id,mandate_id,mandate_version,decision,approval_required,execution_mode,platform_execution_available,reason_codes,checks,evaluated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,$11,$12,$13)`, evaluation.ID, evaluation.UserID, evaluation.AccountID, action.ID, action.CorrelationID, action.MandateID, action.MandateVersion, evaluation.Decision, evaluation.ApprovalRequired, instance.ExecutionMode, reasonCodes, checks, evaluatedAt)
 	if err != nil {
