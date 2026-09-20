@@ -29,7 +29,14 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println(executionsim.Describe(s))
+		depth, err := executionsim.RunBookScenario(filepath.Join(directory, provider+"-depth.jsonl"), provider, time.Now().UTC())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Synthetic depth scenario failed closed:", err)
+			os.Exit(1)
+		}
+		fmt.Println("DEPTH SWEEP (fictional levels, no queue/latency/market-impact model):", executionsim.Describe(depth))
 	}
 	fmt.Println("Verified restart replay, no resend after unknown outcome, partial/cancel race, terminal quantity/gross/fee matching before claim release, duplicate fills and transfers, exact cash/quantity, and terminal rejection.")
+	fmt.Println("Verified depth-derived partial buys/sales, limit-price and known-depth stops, retained reservations, exact fees, duplicate-safe settlement and restart replay.")
 	fmt.Println("Synthetic journals retained at:", directory)
 }
