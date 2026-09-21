@@ -359,6 +359,31 @@ their existing paths. The dedicated AI Paper writer keeps its existing stricter
 fill/ledger contract. No historical evidence is rewritten, no provider/model
 call or manual retry is added, and live dispatch remains unavailable.
 
+### Stored engine identity at evaluation commit
+
+The generic Paper/Shadow writer, AI Paper fill writer, and AI abstention writer
+share a final optimistic runtime update that also matches the stored strategy
+identifier and definition version, execution mode, pinned mandate/version,
+financial account, and capital bucket. Caller-supplied labels cannot relabel an
+AI instance as a rules-based instance to skip AI-specific checks, or attribute
+denied/abstained evidence to another account or policy. An identity mismatch is
+a conflict and rolls back the event claim and all provisional evidence and
+ledger changes. No existing journal or execution history is rewritten.
+
+The check stays at the existing final update point rather than taking an early
+instance lock that could invert the mandate/bucket/instance lock order. At READ
+COMMITTED, PostgreSQL rechecks the identity predicates after a concurrent row
+update; the successful update holds the row lock through transaction completion.
+Exact already-committed deliveries remain duplicates, and valid rules-based
+Paper state transitions still increment their runtime version exactly once.
+
+This is defense-in-depth against inconsistent internal snapshots. Normal
+evaluation already loads an owner-scoped instance from storage; no externally
+reachable exploit or production incident is established. This is not a new
+authorization, risk evaluation, quote, model/provider call, or live dispatch
+path. Current authorization, immutable policy, capital, reconciliation, and
+quote guards remain independently required.
+
 ### Atomic emergency-stop coordination for non-live commits
 
 Both accepted non-live writers (AI Paper spot fills and ordinary Paper/Shadow

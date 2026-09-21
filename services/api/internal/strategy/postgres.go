@@ -871,26 +871,16 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 		return err
 	}
 
+	nextVersion, err := completeEvaluationInstance(c, tx, instance, expectedVersion, resultingState, stateChanged, evaluatedAt)
+	if err != nil {
+		return err
+	}
 	if stateChanged {
-		var nextVersion int
-		err = tx.QueryRow(c, `UPDATE strategy_instances SET current_state=$5,state_version=state_version+1,last_evaluated_at=$6,updated_at=$6 WHERE id=$1 AND user_id=$2 AND state_version=$3 AND current_state=$4 AND status='ACTIVE' RETURNING state_version`, instance.ID, instance.UserID, expectedVersion, instance.CurrentState, resultingState, evaluatedAt).Scan(&nextVersion)
-		if err == pgx.ErrNoRows {
-			return ErrConflict
-		}
-		if err != nil {
-			return err
-		}
 		transitionMetadata, marshalErr := json.Marshal(map[string]any{"event_id": action.CorrelationID, "mode": instance.ExecutionMode, "risk_decision": evaluation.Decision, "simulation": true})
 		if marshalErr != nil {
 			return marshalErr
 		}
 		_, err = tx.Exec(c, `INSERT INTO strategy_state_transitions(strategy_instance_id,previous_state,new_state,state_version,trigger,proposed_action_id,risk_evaluation_id,execution_record_id,metadata,occurred_at) VALUES($1,$2,$3,$4,'PAPER_SIMULATED_FILL',$5,$6,$7,$8,$9)`, instance.ID, instance.CurrentState, resultingState, nextVersion, action.ID, evaluation.ID, executionID, transitionMetadata, evaluatedAt)
-	} else {
-		var id string
-		err = tx.QueryRow(c, `UPDATE strategy_instances SET last_evaluated_at=$5,updated_at=$5 WHERE id=$1 AND user_id=$2 AND state_version=$3 AND current_state=$4 AND status='ACTIVE' RETURNING id::text`, instance.ID, instance.UserID, expectedVersion, instance.CurrentState, evaluatedAt).Scan(&id)
-		if err == pgx.ErrNoRows {
-			return ErrConflict
-		}
 	}
 	if err != nil {
 		return err
@@ -936,11 +926,7 @@ func (s *PostgresStore) CommitAIAbstention(c context.Context, instance Instance,
 	if err != nil {
 		return err
 	}
-	var id string
-	err = tx.QueryRow(c, `UPDATE strategy_instances SET last_evaluated_at=$4,updated_at=$4 WHERE id=$1 AND user_id=$2 AND state_version=$3 AND current_state='AI_MONITORING' AND status='ACTIVE' AND execution_mode=$5 RETURNING id::text`, instance.ID, instance.UserID, instance.StateVersion, evaluatedAt, instance.ExecutionMode).Scan(&id)
-	if err == pgx.ErrNoRows {
-		return ErrConflict
-	}
+	_, err = completeEvaluationInstance(c, tx, instance, instance.StateVersion, instance.CurrentState, false, evaluatedAt)
 	if err != nil {
 		return err
 	}

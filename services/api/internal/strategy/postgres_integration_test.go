@@ -245,6 +245,20 @@ func TestPostgresEvaluationCommitIsAtomicAndModeBound(t *testing.T) {
 	filledDecision := Decision{ProposedAction: &filledAction, ProposedState: PutProposed, CandidateCount: 1, Reason: "test", Rationale: []byte(`{"strategy":"wheel","candidate_count":1}`)}
 	price, premium := "1.2500000000", "125.0000000000"
 	filledResult := ExecutionResult{Status: SimulatedFilled, Price: &price, Notional: &premium, ExpectedState: ShortPutOpen}
+	mismatchedInstance := instance
+	mismatchedInstance.DefinitionVersion++
+	if err = store.CommitEvaluation(ctx, mismatchedInstance, instance.StateVersion, filledDecision, allowedEvaluation, filledResult, fillTime); !errors.Is(err, ErrConflict) {
+		t.Fatalf("rules Paper fill accepted a mismatched stored definition: %v", err)
+	}
+	assertCount(t, pool, `SELECT count(*) FROM risk_evaluations`, 1)
+	assertCount(t, pool, `SELECT count(*) FROM nonlive_execution_records`, 1)
+	assertCount(t, pool, `SELECT count(*) FROM decision_journal_entries`, 1)
+	assertCount(t, pool, `SELECT count(*) FROM strategy_evaluation_events WHERE status='COMMITTED'`, 1)
+	assertCount(t, pool, `SELECT count(*) FROM paper_positions`, 0)
+	assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions WHERE trigger='PAPER_SIMULATED_FILL'`, 0)
+	assertCount(t, pool, `SELECT count(*) FROM strategy_instances WHERE id='`+instance.ID+`' AND current_state='READY_FOR_PUT' AND state_version=1`, 1)
+	assertCount(t, pool, `SELECT count(*) FROM paper_portfolios WHERE strategy_instance_id='`+instance.ID+`' AND cash=20000 AND version=1`, 1)
+	// The exact event can still commit after the rejected attempt rolled back.
 	if err = store.CommitEvaluation(ctx, instance, instance.StateVersion, filledDecision, allowedEvaluation, filledResult, fillTime); err != nil {
 		t.Fatal(err)
 	}

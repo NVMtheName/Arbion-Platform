@@ -148,10 +148,7 @@ func (s *PostgresStore) CommitAIPaperEvaluation(ctx context.Context, instance In
 		return err
 	}
 
-	var updatedInstanceID string
-	if err = tx.QueryRow(ctx, `UPDATE strategy_instances SET last_evaluated_at=$4,updated_at=$4 WHERE id=$1 AND user_id=$2 AND state_version=$3 AND current_state='AI_MONITORING' AND status='ACTIVE' AND execution_mode='PAPER' RETURNING id::text`, instance.ID, instance.UserID, expectedVersion, evaluatedAt).Scan(&updatedInstanceID); errors.Is(err, pgx.ErrNoRows) {
-		return ErrConflict
-	}
+	_, err = completeEvaluationInstance(ctx, tx, instance, expectedVersion, instance.CurrentState, false, evaluatedAt)
 	if err != nil {
 		return err
 	}

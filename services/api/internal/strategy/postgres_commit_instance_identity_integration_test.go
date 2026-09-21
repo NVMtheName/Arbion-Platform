@@ -233,7 +233,13 @@ func waitForInstanceIdentityWaiters(t *testing.T, ctx context.Context, pool *pgx
 	defer cancel()
 	for {
 		var count int
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE $1::int=ANY(pg_blocking_pids(pid))`, int32(blocker)).Scan(&count); err != nil {
+		// A second UPDATE can queue behind the first tuple waiter, so include
+		// transitive dependencies rather than requiring both to name the gate.
+		if err := pool.QueryRow(ctx, `WITH RECURSIVE waiting(pid) AS (
+			SELECT pid FROM pg_stat_activity WHERE $1::int=ANY(pg_blocking_pids(pid))
+			UNION
+			SELECT a.pid FROM pg_stat_activity a JOIN waiting w ON w.pid=ANY(pg_blocking_pids(a.pid))
+		) SELECT count(*) FROM waiting`, int32(blocker)).Scan(&count); err != nil {
 			t.Fatal("concurrent deliveries did not reach the database lock", err)
 		}
 		if count == want {
