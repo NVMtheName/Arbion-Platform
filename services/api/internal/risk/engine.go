@@ -31,23 +31,7 @@ func reconciliationRule(c *EvaluationContext, action ProposedAction) RiskCheck {
 	if action.Source != SourceAI || c.Mandate == nil || c.Mandate.AutomationType != "AI_AUTONOMOUS" || c.Mandate.ExecutionMode != "SHADOW" {
 		return check(ReconciliationRequired, true, "The autonomous reconciliation gate does not apply.")
 	}
-	snapshot := c.Reconciliation
-	if snapshot == nil || snapshot.AccountID != action.FinancialAccountID || !snapshot.AutonomyEnforcementActive {
-		return check(ReconciliationRequired, false, "A current enforced broker reconciliation is required for autonomous proposals.")
-	}
-	if snapshot.ObservedAt.IsZero() || snapshot.ObservedAt.After(c.Now) || c.Now.Sub(snapshot.ObservedAt) > AutonomousReconciliationMaxAge {
-		return check(ReconciliationStale, false, "The latest enforced broker reconciliation is stale or invalid.")
-	}
-	if snapshot.ComparisonStatus == "INCOMPLETE" || snapshot.BalancesStatus != "READY" || snapshot.PositionsStatus != "READY" {
-		return check(ReconciliationIncomplete, false, "The latest broker reconciliation has incomplete balance or position coverage.")
-	}
-	if snapshot.ComparisonStatus == "DRIFT_DETECTED" || snapshot.AutonomySignal == "REVIEW_RECOMMENDED" || snapshot.BlockingChangeCount > 0 {
-		return check(ReconciliationDriftDetected, false, "Broker-reported position drift must be confirmed by a later matching snapshot.")
-	}
-	if snapshot.ComparisonStatus != "MATCHED" || snapshot.AutonomySignal != "CLEAR" || snapshot.BlocksNewActions {
-		return check(ReconciliationRequired, false, "Two matching complete broker snapshots are required for autonomous proposals.")
-	}
-	return check(ReconciliationRequired, true, "The latest enforced broker reconciliation is complete, matched, and current.")
+	return CheckAutonomousReconciliation(c.Reconciliation, action.FinancialAccountID, c.Now)
 }
 
 func repeatActionRule(c *EvaluationContext, action ProposedAction) RiskCheck {

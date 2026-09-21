@@ -191,6 +191,9 @@ func TestPostgresAIPaperCommitBindings(t *testing.T) {
 	t.Run("current commit activity", func(t *testing.T) {
 		testAICommitActivity(t, ctx, pool)
 	})
+	t.Run("current commit reconciliation", func(t *testing.T) {
+		testAICommitReconciliation(t, ctx, pool)
+	})
 	t.Run("concurrent different deliveries cannot double spend", func(t *testing.T) {
 		f := newPaperBindingFixture(t, ctx, pool)
 		other := f
@@ -264,6 +267,11 @@ func newNonLiveBindingFixture(t *testing.T, ctx context.Context, pool *pgxpool.P
 
 func newNonLiveBindingFixtureWithBucket(t *testing.T, ctx context.Context, pool *pgxpool.Pool, mode ExecutionMode, snapshotOverride json.RawMessage, bucketOverride *automation.CapitalBucket, ownerIDs ...string) paperBindingFixture {
 	t.Helper()
+	return newNonLiveBindingFixtureWithReconciliation(t, ctx, pool, mode, snapshotOverride, bucketOverride, true, ownerIDs...)
+}
+
+func newNonLiveBindingFixtureWithReconciliation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, mode ExecutionMode, snapshotOverride json.RawMessage, bucketOverride *automation.CapitalBucket, seedReconciliation bool, ownerIDs ...string) paperBindingFixture {
+	t.Helper()
 	u, financial, ai, account, bucket, mandate := paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool), paperBindingUUID(t, ctx, pool)
 	exec := func(query string, args ...any) {
 		t.Helper()
@@ -306,7 +314,13 @@ func newNonLiveBindingFixtureWithBucket(t *testing.T, ctx context.Context, pool 
 		t.Fatal("invalid test simulation", fill)
 	}
 	e.Mode = string(mode)
-	return paperBindingFixture{store: store, instance: i, decision: d, evaluation: e, fill: fill, now: now}
+	f := paperBindingFixture{store: store, instance: i, decision: d, evaluation: e, fill: fill, now: now}
+	if mode == Shadow && seedReconciliation {
+		if err := saveCommitReconciliation(ctx, pool, f, "MATCHED", now.Add(-time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return f
 }
 
 // Wait for an actual PostgreSQL lock dependency rather than assuming a worker

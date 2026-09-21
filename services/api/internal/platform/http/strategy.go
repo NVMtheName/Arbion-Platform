@@ -353,6 +353,8 @@ func (h *authHandler) strategyError(w stdhttp.ResponseWriter, e error) {
 		writeError(w, 409, "COMMIT_ACTION_COOLDOWN_ACTIVE", "An accepted action for the same symbol and side was inside the one-hour cooldown at the final non-live check. This attempt saved no simulated fill or would-have-submitted action and sent no broker order.")
 	case errors.Is(e, strategy.ErrCommitActivityUnavailable):
 		writeError(w, 409, "COMMIT_ACTIVITY_UNAVAILABLE", "Current action activity could not be verified for the prepared evaluation's UTC day. This attempt saved no simulated fill or would-have-submitted action and sent no broker order.")
+	case errors.Is(e, strategy.ErrCommitReconciliationUnavailable):
+		writeError(w, 409, "COMMIT_RECONCILIATION_UNAVAILABLE", "The latest enforced account reconciliation did not permit this prepared Shadow action at the final save check. No would-have-submitted action or broker order was created. Follow the existing reconciliation status; do not replay the old proposal or weaken the comparison rules.")
 	case errors.Is(e, strategy.ErrCommitMandateWindowClosed):
 		writeError(w, 422, "COMMIT_MANDATE_WINDOW_CLOSED", "The pinned AI mandate was outside its approved effective window at the final non-live commit check. This attempt saved no simulated fill or would-have-submitted action and sent no broker order.")
 	case errors.Is(e, strategy.ErrCommitMarketDataStale):

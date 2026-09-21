@@ -3,6 +3,16 @@ import { describe, expect, it } from "vitest";
 import { scheduleFailureGuidance } from "./schedule-failure-guidance";
 
 describe("scheduleFailureGuidance", () => {
+  it("preserves existing reconciliation rules without demanding routine cash approval", () => {
+    expect(
+      scheduleFailureGuidance("COMMIT_RECONCILIATION_UNAVAILABLE"),
+    ).toMatchObject({
+      action: "OWNER_REVIEW",
+      message: expect.stringMatching(
+        /Shadow action was not saved.*no broker order.*confirmations remain automatic.*Routine cash changes alone do not require approval.*Do not replay/,
+      ),
+    });
+  });
   it.each(["COMMIT_ACTION_LIMIT_REACHED", "COMMIT_ACTION_COOLDOWN_ACTIVE"])(
     "keeps %s on the normal schedule without bypassing the hold",
     (code) => {

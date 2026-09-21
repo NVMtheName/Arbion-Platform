@@ -219,6 +219,8 @@ func classifyScheduleError(err error) string {
 	switch {
 	case errors.Is(err, ErrCommitActionLimit):
 		return "COMMIT_ACTION_LIMIT_REACHED"
+	case errors.Is(err, ErrCommitReconciliationUnavailable):
+		return "COMMIT_RECONCILIATION_UNAVAILABLE"
 	case errors.Is(err, ErrCommitActionCooldown):
 		return "COMMIT_ACTION_COOLDOWN_ACTIVE"
 	case errors.Is(err, ErrCommitActivityUnavailable):

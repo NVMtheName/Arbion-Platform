@@ -895,6 +895,9 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 			if err = checkAICommitActivity(c, tx, instance, action, evaluatedAt); err != nil {
 				return err
 			}
+			if err = checkAICommitReconciliation(c, tx, instance, decision.QuoteReference.Provider); err != nil {
+				return err
+			}
 		}
 		if err = access.checkTime(c, tx); err != nil {
 			return err

@@ -16,8 +16,19 @@ func testAICommitMarketTime(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		f := newPaperBindingFixture(t, ctx, pool)
 		old := f.now.Add(-marketDataMaxAge - time.Minute)
 		setCommitMarketFixtureTime(t, &f, old, old)
-		if err := f.commit(ctx); !errors.Is(err, ErrCommitMarketDataStale) {
-			t.Fatal("Paper accepted old quote against old evaluation clock", err)
+		commitErr := f.commit(ctx)
+		var current time.Time
+		if err := pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&current); err != nil {
+			t.Fatal(err)
+		}
+		want := ErrCommitMarketDataStale
+		if !sameAICommitActivityDay(old, current) {
+			// Near UTC midnight, the older prepared evaluation hits the daily
+			// activity guard first. Both checks must still reject and roll back.
+			want = ErrCommitActivityUnavailable
+		}
+		if !errors.Is(commitErr, want) {
+			t.Fatal("Paper accepted old quote or missed the earlier UTC-day guard", commitErr)
 		}
 		f.assertEmpty(t, ctx)
 		err := f.store.CommitEvaluation(ctx, f.instance, f.instance.StateVersion, f.decision, f.evaluation, ExecutionResult{Status: WouldHaveSubmitted, ExpectedState: AIMonitoring}, f.now)

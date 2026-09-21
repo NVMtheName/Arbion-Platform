@@ -37,6 +37,11 @@ export function scheduleFailureGuidance(
 ): ScheduleFailureGuidance {
   const provider = financialProviderLabel(financialProvider);
   switch (code) {
+    case "COMMIT_RECONCILIATION_UNAVAILABLE":
+      return guidance(
+        "OWNER_REVIEW",
+        "The latest enforced account comparison was missing, stale, incomplete, or unresolved at the final save check. This prepared Shadow action was not saved and no broker order was sent. Check the existing reconciliation status: normal eligible confirmations remain automatic, while confirmed position drift still needs its existing review. Routine cash changes alone do not require approval. Do not replay the old proposal or weaken the comparison rules.",
+      );
     case "COMMIT_ACTION_LIMIT_REACHED":
     case "COMMIT_ACTION_COOLDOWN_ACTIVE":
       return guidance(
