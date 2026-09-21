@@ -439,6 +439,20 @@ recovery, account isolation, canonical UUID identity, and stale-isolation refusa
 
 ### Current access at the non-live commit boundary
 
+Non-live initialization also rechecks the existing active-owner/founder policy
+inside its transaction, rather than trusting the earlier request principal.
+It takes owner and founder shared row locks before connection lifecycle,
+account/provider, mandate, and capital-bucket locks. It checks the database wall
+clock after these waits and immediately before commit. A persisted revocation
+that wins is refused as forbidden with no runtime, reservation, portfolio,
+transition, or schedule; a later revocation waits through initialization.
+Founder expiry fixtures are not fabricated: the current schema requires a
+permanent comped founder grant, and the administrative service prohibits founder
+downgrade. Future grant start times and stored disabled/revoked states still
+fail closed. These are current-state defenses, not a new role or permission
+policy. Same-owner metadata writes may wait during setup contention. The
+independent accepted-action authority checks below remain necessary and unchanged.
+
 After acquiring the stop-scope locks, accepted Paper and Shadow commits acquire
 shared row locks in owner → founder entitlement → financial account → sorted
 provider-connection order, before mandate, bucket, runtime, and ledger locks.

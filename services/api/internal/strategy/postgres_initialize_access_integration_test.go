@@ -106,14 +106,10 @@ func testInitializeCurrentAccess(t *testing.T, parent context.Context, pool *pgx
 				f.assertArtifacts(t, 1)
 			})
 		}
-		t.Run(string(mode)+" future founder becomes current during owner lock wait", func(t *testing.T) {
+		t.Run(string(mode)+" founder grant effective after transaction start is current after wait", func(t *testing.T) {
 			ctx, start := initializeRaceWorkers(t, parent)
 			f := newInitializeConnectionFixture(t, ctx, pool, mode)
 			initialize := capturedFounderInitializer(f)
-			var startsAt time.Time
-			if err := pool.QueryRow(ctx, `UPDATE user_entitlements SET starts_at=clock_timestamp()+interval '2 seconds' WHERE user_id=$1 AND entitlement_key='founder' RETURNING starts_at`, f.userID).Scan(&startsAt); err != nil {
-				t.Fatal(err)
-			}
 			gate, err := pool.Begin(ctx)
 			if err != nil {
 				t.Fatal(err)
@@ -125,26 +121,16 @@ func testInitializeCurrentAccess(t *testing.T, parent context.Context, pool *pgx
 			initialized := start(func() error { return initialize(ctx) })
 			waitForPaperBindingLock(t, ctx, pool, gate.Conn().PgConn().PID())
 			initializerPID := resumeBlockedPID(t, ctx, pool, gate.Conn().PgConn().PID())
-			var startedBeforeGrant bool
-			if err = pool.QueryRow(ctx, `SELECT xact_start<$2 FROM pg_stat_activity WHERE pid=$1`, int32(initializerPID), startsAt).Scan(&startedBeforeGrant); err != nil || !startedBeforeGrant {
-				t.Fatal("fixture did not place transaction start before effective grant", err)
+			var transactionStartedAt, startsAt time.Time
+			if err = pool.QueryRow(ctx, `SELECT xact_start FROM pg_stat_activity WHERE pid=$1`, int32(initializerPID)).Scan(&transactionStartedAt); err != nil {
+				t.Fatal("could not observe blocked initialization transaction start", err)
 			}
 			// Permanent founder grants cannot have expires_at by schema. Do
 			// not weaken that constraint to fabricate an expiry fixture. A
-			// valid future starts_at proves the same post-wait wall-clock rule.
-			for {
-				var current bool
-				if err = pool.QueryRow(ctx, `SELECT clock_timestamp()>=$1`, startsAt).Scan(&current); err != nil {
-					t.Fatal(err)
-				}
-				if current {
-					break
-				}
-				select {
-				case <-ctx.Done():
-					t.Fatal(ctx.Err())
-				case <-time.After(10 * time.Millisecond):
-				}
+			// grant made effective after the observed transaction start proves
+			// the post-wait wall-clock rule without a scheduling-sensitive delay.
+			if err = gate.QueryRow(ctx, `UPDATE user_entitlements SET starts_at=clock_timestamp() WHERE user_id=$1 AND entitlement_key='founder' RETURNING starts_at`, f.userID).Scan(&startsAt); err != nil || !startsAt.After(transactionStartedAt) {
+				t.Fatal("fixture did not place effective grant after transaction start", err)
 			}
 			if err = gate.Commit(ctx); err != nil {
 				t.Fatal(err)

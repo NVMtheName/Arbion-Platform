@@ -64,6 +64,10 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 		return Instance{}, e
 	}
 	defer tx.Rollback(c)
+	var access nonLiveCommitAccess
+	if e = access.lockOwner(c, tx, u); e != nil {
+		return Instance{}, initializationAccessError(e)
+	}
 	if e = connectionguard.LockActive(c, tx, u, m.FinancialAccountID, m.AIProviderConnectionID); e != nil {
 		if errors.Is(e, connectionguard.ErrUnavailable) {
 			return Instance{}, ErrMandateStale
@@ -98,6 +102,9 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 	if e != nil {
 		return Instance{}, e
 	}
+	if e = access.checkTime(c, tx); e != nil {
+		return Instance{}, initializationAccessError(e)
+	}
 	identifier := "ai_shadow"
 	if m.StrategyIdentifier != nil {
 		identifier = *m.StrategyIdentifier
@@ -126,7 +133,17 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 			return i, e
 		}
 	}
+	if e = access.checkTime(c, tx); e != nil {
+		return Instance{}, initializationAccessError(e)
+	}
 	return i, tx.Commit(c)
+}
+
+func initializationAccessError(err error) error {
+	if errors.Is(err, ErrCommitAccessRevoked) {
+		return ErrForbidden
+	}
+	return err
 }
 
 func (s *PostgresStore) Pause(c context.Context, userID, instanceID string, expectedStateVersion int, pausedAt time.Time) (Instance, error) {

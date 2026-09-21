@@ -48,28 +48,12 @@ func lockNonLiveCommitAccess(ctx context.Context, tx pgx.Tx, instance Instance, 
 			return access, err
 		}
 	}
-	var status string
-	err := tx.QueryRow(ctx, `SELECT status FROM users WHERE id=$1 FOR SHARE`, instance.UserID).Scan(&status)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && status != "active") {
-		return access, ErrCommitAccessRevoked
-	}
-	if err != nil {
-		return access, err
-	}
-	// Missing authority fails closed; a concurrent new grant cannot authorize a
-	// decision that this transaction has already rejected. An existing grant is
-	// locked against both revocation and deletion, including direct SQL updates.
-	err = tx.QueryRow(ctx, `SELECT status,starts_at,expires_at FROM user_entitlements
-		WHERE user_id=$1 AND entitlement_key='founder' FOR SHARE`, instance.UserID).Scan(&status, &access.startsAt, &access.expiresAt)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && status != "active") {
-		return access, ErrCommitAccessRevoked
-	}
-	if err != nil {
+	if err := access.lockOwner(ctx, tx, instance.UserID); err != nil {
 		return access, err
 	}
 
-	var financialConnectionID, provider string
-	err = tx.QueryRow(ctx, `SELECT provider_connection_id::text,provider_name,status
+	var financialConnectionID, provider, status string
+	err := tx.QueryRow(ctx, `SELECT provider_connection_id::text,provider_name,status
 		FROM financial_accounts WHERE id=$1 AND user_id=$2 FOR SHARE`, instance.FinancialAccountID, instance.UserID).Scan(&financialConnectionID, &provider, &status)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (status != "active" || (expectedProvider != "" && provider != expectedProvider))) {
 		return access, ErrCommitConnectionUnavailable
@@ -104,6 +88,31 @@ func lockNonLiveCommitAccess(ctx context.Context, tx pgx.Tx, instance Instance, 
 		}
 	}
 	return access, access.checkTime(ctx, tx)
+}
+
+// lockOwner repeats the existing active-owner/founder policy without relying
+// on the caller's earlier principal. Initialization and accepted evaluations
+// take these shared locks before account/provider locks and retain them through
+// their transaction.
+// It deliberately does not grant access from role or other product tiers.
+func (access *nonLiveCommitAccess) lockOwner(ctx context.Context, tx pgx.Tx, userID string) error {
+	var status string
+	err := tx.QueryRow(ctx, `SELECT status FROM users WHERE id=$1 FOR SHARE`, userID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && status != "active") {
+		return ErrCommitAccessRevoked
+	}
+	if err != nil {
+		return err
+	}
+	// Missing authority fails closed; a concurrent new grant cannot authorize a
+	// decision that this transaction has already rejected. An existing grant is
+	// locked against both revocation and deletion, including direct SQL updates.
+	err = tx.QueryRow(ctx, `SELECT status,starts_at,expires_at FROM user_entitlements
+		WHERE user_id=$1 AND entitlement_key='founder' FOR SHARE`, userID).Scan(&status, &access.startsAt, &access.expiresAt)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && status != "active") {
+		return ErrCommitAccessRevoked
+	}
+	return err
 }
 
 // now() is the transaction start time in PostgreSQL; using it would extend an
