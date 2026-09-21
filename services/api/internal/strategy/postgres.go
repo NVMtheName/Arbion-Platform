@@ -164,12 +164,25 @@ func (s *PostgresStore) Pause(c context.Context, userID, instanceID string, expe
 }
 
 func (s *PostgresStore) Resume(c context.Context, userID, instanceID string, expectedStateVersion int, resumedAt time.Time) (Instance, error) {
-	tx, err := s.db.Begin(c)
+	tx, err := s.db.BeginTx(c, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return Instance{}, err
 	}
 	defer tx.Rollback(c)
 
+	// Serialize mandate revocation before taking the runtime lock, matching
+	// accepted commit's mandate -> instance order. Do not filter on readiness
+	// here: check it in a new statement after waiting for any mandate writer.
+	var lockedMandateID string
+	err = tx.QueryRow(c, `SELECT m.id::text FROM automation_mandates m
+		JOIN strategy_instances i ON i.automation_mandate_id=m.id AND i.user_id=m.user_id
+		WHERE i.id=$1 AND i.user_id=$2 FOR SHARE OF m`, instanceID, userID).Scan(&lockedMandateID)
+	if err == pgx.ErrNoRows {
+		return Instance{}, ErrNotFound
+	}
+	if err != nil {
+		return Instance{}, err
+	}
 	current, err := scanInstance(tx.QueryRow(c, `SELECT `+instanceColumns+` FROM strategy_instances WHERE id=$1 AND user_id=$2 FOR UPDATE`, instanceID, userID))
 	if err == pgx.ErrNoRows {
 		return Instance{}, ErrNotFound
@@ -177,7 +190,7 @@ func (s *PostgresStore) Resume(c context.Context, userID, instanceID string, exp
 	if err != nil {
 		return Instance{}, err
 	}
-	if current.StateVersion != expectedStateVersion || current.Status != "PAUSED" {
+	if current.AutomationMandateID != lockedMandateID || current.StateVersion != expectedStateVersion || current.Status != "PAUSED" {
 		return Instance{}, ErrConflict
 	}
 	var mandateReady bool

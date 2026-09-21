@@ -200,6 +200,9 @@ func TestPostgresAIPaperCommitBindings(t *testing.T) {
 	t.Run("stored commit instance identity", func(t *testing.T) {
 		testCommitInstanceIdentity(t, ctx, pool)
 	})
+	t.Run("Resume mandate serialization", func(t *testing.T) {
+		testResumeMandateSerialization(t, ctx, pool)
+	})
 	t.Run("concurrent different deliveries cannot double spend", func(t *testing.T) {
 		f := newPaperBindingFixture(t, ctx, pool)
 		other := f
