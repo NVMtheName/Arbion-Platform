@@ -206,6 +206,12 @@ func TestPostgresAIPaperCommitBindings(t *testing.T) {
 	t.Run("initialization connection serialization", func(t *testing.T) {
 		testInitializeConnectionSerialization(t, ctx, pool)
 	})
+	t.Run("connection UUID lifecycle serialization", func(t *testing.T) {
+		testConnectionUUIDLifecycleSerialization(t, ctx, pool)
+	})
+	t.Run("connection lock identity", func(t *testing.T) {
+		testConnectionLockIdentity(t, ctx, pool)
+	})
 	t.Run("connection guard policy", func(t *testing.T) {
 		testConnectionGuardPolicy(t, ctx, pool)
 	})

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/connectionguard"
 	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -282,9 +283,13 @@ func (s *PostgresStore) WithLock(ctx context.Context, id string, fn func() error
 		return e
 	}
 	defer c.Release()
-	if _, e = c.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1,0))`, id); e != nil {
+	key, e := connectionguard.CanonicalLockKey(ctx, c, id)
+	if e != nil {
 		return e
 	}
-	defer c.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtextextended($1,0))`, id)
+	if _, e = c.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1,0))`, key); e != nil {
+		return e
+	}
+	defer c.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtextextended($1,0))`, key)
 	return fn()
 }
