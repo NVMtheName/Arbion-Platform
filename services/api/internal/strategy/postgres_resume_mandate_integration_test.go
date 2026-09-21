@@ -158,6 +158,74 @@ func testResumeMandateSerialization(t *testing.T, ctx context.Context, pool *pgx
 		}
 		assertResumeCommittedOnce(t, ctx, f)
 	})
+	t.Run("stale evaluation Resume and queued revocation do not deadlock", func(t *testing.T) {
+		// Four transactions plus the lock inspector must have connections even
+		// on a two-core CI runner, whose default pool may allow only four.
+		config := pool.Config()
+		if config.MaxConns < 6 {
+			config.MaxConns = 6
+		}
+		probePool, err := pgxpool.NewWithConfig(ctx, config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer probePool.Close()
+		pool := probePool
+		f := newPausedResumeFixture(t, ctx, pool, Shadow, json.RawMessage(`{}`))
+		prepared := f
+		// A model result can return after Pause has advanced the runtime. It
+		// still carries the earlier active version and must be refused safely.
+		prepared.instance.StateVersion, prepared.instance.Status = 1, "ACTIVE"
+		gate, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer gate.Rollback(ctx)
+		if _, err = gate.Exec(ctx, `SELECT id FROM financial_accounts WHERE id=$1 FOR NO KEY UPDATE`, f.instance.FinancialAccountID); err != nil {
+			t.Fatal(err)
+		}
+		evaluated := make(chan error, 1)
+		go func() { evaluated <- commitShadowBindingFixture(ctx, prepared) }()
+		waitForPaperBindingLock(t, ctx, pool, gate.Conn().PgConn().PID())
+		evaluationPID := resumeBlockedPID(t, ctx, pool, gate.Conn().PgConn().PID())
+		// The evaluation's event claim now holds instance FK KEY SHARE. The
+		// Resume takes mandate SHARE, then waits for the runtime FOR UPDATE.
+		resumed := make(chan error, 1)
+		go func() {
+			_, err := f.store.Resume(ctx, f.instance.UserID, f.instance.ID, f.instance.StateVersion, f.now)
+			resumed <- err
+		}()
+		waitForPaperBindingLock(t, ctx, pool, evaluationPID)
+		resumePID := resumeBlockedPID(t, ctx, pool, evaluationPID)
+		disabled := make(chan error, 1)
+		go func() {
+			_, err := automation.NewPostgresStore(pool).Transition(ctx, f.instance.UserID, f.instance.AutomationMandateID, 1, "DISABLED", "UI")
+			disabled <- err
+		}()
+		blocked, earlyErr := waitForResumeLockOrCompletion(t, ctx, pool, resumePID, disabled)
+		if !blocked {
+			t.Error("queued revocation did not wait for the unfinished Resume", earlyErr)
+		}
+		// Releasing this gate forces the real evaluation to proceed to its
+		// mandate/runtime locks while the later mandate updater is queued.
+		if err = gate.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err = <-evaluated; !errors.Is(err, ErrConflict) {
+			t.Error("stale evaluation did not refuse cleanly without a database deadlock", err)
+		}
+		if err = <-resumed; err != nil {
+			t.Error("Resume was lost to lock inversion", err)
+		}
+		if blocked {
+			earlyErr = <-disabled
+		}
+		if earlyErr != nil {
+			t.Error("later mandate revocation failed", earlyErr)
+		}
+		assertResumeCommittedOnce(t, ctx, f)
+		assertCount(t, pool, `SELECT count(*) FROM automation_mandates WHERE id='`+f.instance.AutomationMandateID+`' AND status='DISABLED' AND current_version=2`, 1)
+	})
 }
 
 func newPausedResumeFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, mode ExecutionMode, snapshot json.RawMessage) paperBindingFixture {

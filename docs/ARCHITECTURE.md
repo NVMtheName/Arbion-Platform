@@ -384,6 +384,21 @@ authorization, risk evaluation, quote, model/provider call, or live dispatch
 path. Current authorization, immutable policy, capital, reconciliation, and
 quote guards remain independently required.
 
+### Resume serialization with mandate revocation
+
+Resuming a paused non-live engine also serializes its existing mandate-readiness
+check with revocation. It locks the owner-scoped stored mandate before the
+runtime, rereads pinned readiness under READ COMMITTED after any writer wait,
+and holds the mandate lock through the status change and immutable transition.
+If revocation wins, resume leaves the engine paused with no new transition. If
+resume wins, a later revocation waits until resume commits; future accepted
+evaluations still require current authorization and policy. The locked runtime
+must still reference the mandate that was locked, so a concurrent identity
+change cannot redirect the readiness check. A newer draft retains the already
+approved pinned version, as before. Pause, completion, reservation amounts,
+schedules, live-dispatch availability, and owner command permissions are not
+changed; this lifecycle check is not execution authority.
+
 ### Atomic emergency-stop coordination for non-live commits
 
 Both accepted non-live writers (AI Paper spot fills and ordinary Paper/Shadow
