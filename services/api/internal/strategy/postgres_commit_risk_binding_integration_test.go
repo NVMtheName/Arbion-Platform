@@ -20,6 +20,15 @@ func testAIShadowCommitRiskBinding(t *testing.T, ctx context.Context, pool *pgxp
 		mutate func(*paperBindingFixture)
 	}{
 		{"DENY verdict", func(f *paperBindingFixture) { f.evaluation.Decision = risk.Deny }},
+		{"AI instance relabeled STRATEGY cannot skip verdict guard", func(f *paperBindingFixture) {
+			f.decision.Source, f.decision.QuoteReference, f.evaluation.Decision = "STRATEGY", nil, risk.Deny
+		}},
+		{"AI instance with empty source cannot skip verdict guard", func(f *paperBindingFixture) {
+			f.decision.Source, f.decision.QuoteReference, f.evaluation.Decision = "", nil, risk.Deny
+		}},
+		{"AI decision cannot relabel its proposed action as UI", func(f *paperBindingFixture) {
+			f.decision.ProposedAction.Source = risk.SourceUI
+		}},
 		{"WARN approval-required verdict", func(f *paperBindingFixture) {
 			f.evaluation.Decision, f.evaluation.ApprovalRequired = risk.Warn, true
 		}},
@@ -48,16 +57,16 @@ func testAIShadowCommitRiskBinding(t *testing.T, ctx context.Context, pool *pgxp
 		t.Run(tc.name, func(t *testing.T) {
 			f := newNonLiveBindingFixture(t, ctx, pool, Shadow, json.RawMessage(`{}`))
 			tc.mutate(&f)
-			if err := commitShadowBindingFixture(ctx, f); err == nil {
-				t.Fatal("inconsistent risk verdict produced accepted Shadow evidence")
+			if err := commitShadowBindingFixture(ctx, f); !errors.Is(err, ErrInvalid) {
+				t.Fatal("expected inconsistent risk verdict to fail closed", err)
 			}
 			assertShadowRiskBindingEmpty(t, ctx, f)
 		})
 	}
 	t.Run("Shadow cannot persist a Paper simulated-fill disposition", func(t *testing.T) {
 		f := newNonLiveBindingFixture(t, ctx, pool, Shadow, json.RawMessage(`{}`))
-		if err := f.store.CommitEvaluation(ctx, f.instance, f.instance.StateVersion, f.decision, f.evaluation, ExecutionResult{Status: SimulatedFilled, ExpectedState: AIMonitoring}, f.now); err == nil {
-			t.Fatal("Shadow accepted a simulated-fill status without its Paper ledger")
+		if err := f.store.CommitEvaluation(ctx, f.instance, f.instance.StateVersion, f.decision, f.evaluation, ExecutionResult{Status: SimulatedFilled, ExpectedState: AIMonitoring}, f.now); !errors.Is(err, ErrInvalid) {
+			t.Fatal("expected Shadow simulated-fill mismatch to fail closed", err)
 		}
 		assertShadowRiskBindingEmpty(t, ctx, f)
 	})

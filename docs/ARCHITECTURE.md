@@ -337,6 +337,28 @@ a future broker acknowledgement. It neither proves Schwab authorization/quote
 entitlement nor connects a live dispatch path. The migration rollback requires
 rolling back application releases that rely on this protocol first.
 
+### Accepted AI Shadow risk-verdict binding
+
+The normal Shadow adapter already converts any non-ALLOW risk decision into
+denied evidence. The final accepted AI Shadow writer also checks that contract
+independently before taking control locks or saving evidence: exactly
+WOULD_HAVE_SUBMITTED, ALLOW, no pending approval, no platform-execution authority,
+SHADOW mode, matching owner/account and pinned mandate/version, and the same
+trusted evaluation instant. Persistence must not silently substitute its action
+or instance fields for a contradictory risk verdict.
+
+An AI engine also requires both AI decision and action source metadata; relabeling
+it as a rules-based strategy cannot bypass the AI-only persistence checks.
+
+This is defense-in-depth against inconsistent internal inputs, not evidence of
+an observed production incident or a new risk evaluation. A mismatch returns the
+existing INVALID classification and rolls back the attempted event claim, with
+no risk/journal/execution/runtime effect. Exact previously committed duplicates
+are recognized before this new guard; legitimate denials and abstentions retain
+their existing paths. The dedicated AI Paper writer keeps its existing stricter
+fill/ledger contract. No historical evidence is rewritten, no provider/model
+call or manual retry is added, and live dispatch remains unavailable.
+
 ### Atomic emergency-stop coordination for non-live commits
 
 Both accepted non-live writers (AI Paper spot fills and ordinary Paper/Shadow

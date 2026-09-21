@@ -745,7 +745,9 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 	if instrumentType == "" {
 		instrumentType = "OPTION"
 	}
-	if (source != "STRATEGY" && source != "AI") || (instrumentType != "OPTION" && instrumentType != "EQUITY" && instrumentType != "CRYPTO") || (source == "AI" && instance.StrategyIdentifier != "ai_shadow") {
+	if (source != "STRATEGY" && source != "AI") || (instrumentType != "OPTION" && instrumentType != "EQUITY" && instrumentType != "CRYPTO") ||
+		(source == "AI" && (instance.StrategyIdentifier != "ai_shadow" || action.Source != risk.SourceAI)) ||
+		(instance.StrategyIdentifier == "ai_shadow" && source != "AI") {
 		return ErrInvalid
 	}
 	if action.FinancialAccountID != instance.FinancialAccountID || evaluation.UserID != instance.UserID || evaluation.AccountID != instance.FinancialAccountID || action.MandateID == nil || *action.MandateID != instance.AutomationMandateID || action.MandateVersion == nil || *action.MandateVersion != instance.MandateVersion {
@@ -797,6 +799,9 @@ func (s *PostgresStore) CommitEvaluation(c context.Context, instance Instance, e
 	accepted := result.Status == SimulatedFilled || result.Status == WouldHaveSubmitted
 	var access nonLiveCommitAccess
 	if accepted {
+		if source == "AI" && instance.ExecutionMode == Shadow && !validAIShadowCommitRisk(instance, evaluation, result, evaluatedAt) {
+			return ErrInvalid
+		}
 		if err = risk.LockCircuitBreakersForCommit(c, tx, instance.UserID, instance.FinancialAccountID, instance.AutomationMandateID); err != nil {
 			return err
 		}
