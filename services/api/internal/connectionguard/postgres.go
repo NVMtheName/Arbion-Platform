@@ -46,6 +46,35 @@ func LockActive(ctx context.Context, tx pgx.Tx, userID, financialAccountID strin
 		previous = connectionID
 	}
 
+	// Ordinary account discovery and provider-status writes do not all take
+	// the connection lifecycle advisory lock. Keep their rows stable through
+	// the attachment commit as well. Account discovery/retirement writes the
+	// account before its provider, so use that same explicit order here rather
+	// than a joined locking query whose row-lock order is planner-dependent.
+	var lockedID string
+	if err := tx.QueryRow(ctx, `SELECT id::text FROM financial_accounts
+		WHERE id=$1 AND user_id=$2 AND provider_connection_id=$3 FOR SHARE`,
+		financialAccountID, userID, financialConnectionID).Scan(&lockedID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrUnavailable
+		}
+		return err
+	}
+	previous = ""
+	for _, connectionID := range connectionIDs {
+		if connectionID == previous {
+			continue
+		}
+		if err := tx.QueryRow(ctx, `SELECT id::text FROM provider_connections
+			WHERE id=$1 AND user_id=$2 FOR SHARE`, connectionID, userID).Scan(&lockedID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrUnavailable
+			}
+			return err
+		}
+		previous = connectionID
+	}
+
 	var financialActive bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1
