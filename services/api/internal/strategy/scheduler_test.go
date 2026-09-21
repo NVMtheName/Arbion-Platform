@@ -329,32 +329,47 @@ func TestSchedulerPreservesLateQuoteExpiryAsFailedCycle(t *testing.T) {
 	}
 }
 
+func TestSchedulerPreservesUnavailableCommitReconciliationAsFailure(t *testing.T) {
+	now := time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC)
+	run := scheduledRun(AIMonitoring, now)
+	run.Session = "CONTINUOUS"
+	run.ConsecutiveFailures = 3
+	store := &scheduleStoreFake{run: run}
+	evaluator := &scheduledEvaluatorFake{err: ErrCommitReconciliationUnavailable}
+	scheduler := NewScheduler(store, evaluator)
+	scheduler.now = func() time.Time { return now }
+	if _, err := scheduler.RunOnce(context.Background()); err != nil || evaluator.calls != 1 || store.completion.Status != "FAILED" || store.completion.ErrorCode != "COMMIT_RECONCILIATION_UNAVAILABLE" || store.completion.DuplicateRecovered || store.completion.ExecutionStatus != "" {
+		t.Fatalf("unavailable reconciliation was retried or reported as recovery: %#v %v", store.completion, err)
+	}
+}
+
 func TestScheduleErrorClassificationPreservesSafeEvaluationDiagnostics(t *testing.T) {
 	tests := map[string]error{
-		"COMMIT_ACTION_LIMIT_REACHED":      ErrCommitActionLimit,
-		"COMMIT_ACTION_COOLDOWN_ACTIVE":    ErrCommitActionCooldown,
-		"COMMIT_ACTIVITY_UNAVAILABLE":      ErrCommitActivityUnavailable,
-		"COMMIT_MANDATE_WINDOW_CLOSED":     ErrCommitMandateWindowClosed,
-		"COMMIT_ACCESS_REVOKED":            ErrCommitAccessRevoked,
-		"COMMIT_CONNECTION_UNAVAILABLE":    ErrCommitConnectionUnavailable,
-		"CIRCUIT_BREAKER_ACTIVE":           risk.ErrCommitCircuitBreakerActive,
-		"STRATEGY_NOT_ACTIVE":              ErrEvaluationInactive,
-		"STRATEGY_CONFIGURATION_CHANGED":   ErrEvaluationConfigurationChanged,
-		"STRATEGY_PARAMETERS_INVALID":      ErrEvaluationParametersInvalid,
-		"PAPER_STATE_UNAVAILABLE":          ErrEvaluationPaperStateUnavailable,
-		"MARKET_DATA_INVALID":              ErrEvaluationMarketDataInvalid,
-		"MARKET_DATA_STALE":                ErrEvaluationMarketDataStale,
-		"MARKET_DATA_DELAYED":              ErrEvaluationMarketDataDelayed,
-		"MARKET_DATA_REALTIME_UNCONFIRMED": ErrEvaluationMarketDataUnconfirmed,
-		"MARKET_DATA_NOT_REALTIME":         ErrEvaluationMarketDataNotRealtime,
-		"NO_ELIGIBLE_OPTION_CONTRACTS":     ErrEvaluationNoEligibleContracts,
-		"AI_DECISION_BUDGET_EXHAUSTED":     aiconnection.ErrRateLimit,
-		"AI_PROVIDER_RATE_LIMITED":         &neural.ProviderError{Code: neural.RateLimited},
-		"AI_REQUEST_INVALID":               &neural.ProviderError{Code: neural.InvalidRequest},
-		"AI_RESPONSE_INCOMPLETE":           &neural.ProviderError{Code: neural.ResponseIncomplete},
-		"AI_STRUCTURED_OUTPUT_MISSING":     &neural.ProviderError{Code: neural.StructuredOutputMissing},
-		"AI_STRUCTURED_OUTPUT_INVALID":     &neural.ProviderError{Code: neural.StructuredOutputInvalid},
-		"AI_DECISION_CONTRACT_INVALID":     &neural.ProviderError{Code: neural.DecisionContractInvalid},
+		"COMMIT_ACTION_LIMIT_REACHED":       ErrCommitActionLimit,
+		"COMMIT_ACTION_COOLDOWN_ACTIVE":     ErrCommitActionCooldown,
+		"COMMIT_ACTIVITY_UNAVAILABLE":       ErrCommitActivityUnavailable,
+		"COMMIT_RECONCILIATION_UNAVAILABLE": ErrCommitReconciliationUnavailable,
+		"COMMIT_MANDATE_WINDOW_CLOSED":      ErrCommitMandateWindowClosed,
+		"COMMIT_ACCESS_REVOKED":             ErrCommitAccessRevoked,
+		"COMMIT_CONNECTION_UNAVAILABLE":     ErrCommitConnectionUnavailable,
+		"CIRCUIT_BREAKER_ACTIVE":            risk.ErrCommitCircuitBreakerActive,
+		"STRATEGY_NOT_ACTIVE":               ErrEvaluationInactive,
+		"STRATEGY_CONFIGURATION_CHANGED":    ErrEvaluationConfigurationChanged,
+		"STRATEGY_PARAMETERS_INVALID":       ErrEvaluationParametersInvalid,
+		"PAPER_STATE_UNAVAILABLE":           ErrEvaluationPaperStateUnavailable,
+		"MARKET_DATA_INVALID":               ErrEvaluationMarketDataInvalid,
+		"MARKET_DATA_STALE":                 ErrEvaluationMarketDataStale,
+		"MARKET_DATA_DELAYED":               ErrEvaluationMarketDataDelayed,
+		"MARKET_DATA_REALTIME_UNCONFIRMED":  ErrEvaluationMarketDataUnconfirmed,
+		"MARKET_DATA_NOT_REALTIME":          ErrEvaluationMarketDataNotRealtime,
+		"NO_ELIGIBLE_OPTION_CONTRACTS":      ErrEvaluationNoEligibleContracts,
+		"AI_DECISION_BUDGET_EXHAUSTED":      aiconnection.ErrRateLimit,
+		"AI_PROVIDER_RATE_LIMITED":          &neural.ProviderError{Code: neural.RateLimited},
+		"AI_REQUEST_INVALID":                &neural.ProviderError{Code: neural.InvalidRequest},
+		"AI_RESPONSE_INCOMPLETE":            &neural.ProviderError{Code: neural.ResponseIncomplete},
+		"AI_STRUCTURED_OUTPUT_MISSING":      &neural.ProviderError{Code: neural.StructuredOutputMissing},
+		"AI_STRUCTURED_OUTPUT_INVALID":      &neural.ProviderError{Code: neural.StructuredOutputInvalid},
+		"AI_DECISION_CONTRACT_INVALID":      &neural.ProviderError{Code: neural.DecisionContractInvalid},
 	}
 	for want, err := range tests {
 		if got := classifyScheduleError(err); got != want {

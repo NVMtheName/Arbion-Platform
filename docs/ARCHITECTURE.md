@@ -267,8 +267,8 @@ denials and abstentions retain their immutable non-accepted evidence. Isolated
 PostgreSQL tests reproduce the prior accepted-Shadow-after-revocation defect,
 exercise both actual race orderings, and verify capped percentage/fixed claims,
 account isolation and concurrent duplicates. Daily quota/cooldown checks are
-described below. This is not an atomic re-evaluation of every risk input,
-reconciliation snapshot, or provider credential generation, and introduces no
+described below. This is not an atomic re-evaluation of every risk input
+or provider credential generation, and introduces no
 broker call, live path or weaker control.
 
 ### Current AI action activity at non-live commit
@@ -299,6 +299,43 @@ current evidence, but the old proposal is never retried automatically. Isolated
 tests cover distinct concurrent Shadow events, Paper rollback with current cash,
 denial/abstention counting, future history and cross-account isolation. This is
 not a revalidation of every remaining risk input or any live authority.
+
+### Current enforced reconciliation at accepted AI Shadow commit
+
+Accepted AI Shadow persistence checks the newest owner/account-scoped immutable
+reconciliation after its other write and lock waits, using database
+`clock_timestamp()`. It shares the existing evaluation policy: enforced,
+complete READY balances and positions, MATCHED/CLEAR with no blocking inventory
+change or action block, and an observation no more than 24 hours old and not in
+the future. Provider identity must match the saved execution reference. A
+changed reconciliation ID or routine nonblocking cash/performance change is not
+itself a reason to stop; a newer eligible match remains eligible. Existing
+confirmation/review rules and all thresholds are unchanged.
+
+Migration 48 serializes every reconciliation INSERT, including direct SQL,
+against the owner/provider-bound financial-account row with `NO KEY UPDATE`.
+Accepted commits already hold that row `FOR SHARE` through commit. The trigger
+locks before the existing reconciliation validation triggers. If reconciliation
+wins first, READ COMMITTED persistence sees that report after waiting and refuses
+an ineligible prepared action. If the accepted commit wins first, the report
+writer waits until it finishes. This prevents a newly published report from
+appearing between the final read and commit, without rewriting immutable reports
+or taking a table-wide lock. It deliberately does not reacquire the service's
+session-level advisory lock on a different pooled connection.
+
+Refusal rolls back every attempted event, risk, execution, journal and runtime
+write. `COMMIT_RECONCILIATION_UNAVAILABLE` records a failed scheduler result with
+credential-free guidance, not success or automatic recovery. Normal eligible
+confirmations remain automatic; confirmed position drift keeps its existing
+review. An old proposal is never replayed. Already committed exact duplicates,
+abstentions and deterministic denials retain their previous behavior. Paper's
+isolated simulated ledger does not acquire a new broker-reconciliation gate.
+
+This is current reconciliation eligibility, not a fresh model evaluation, quote
+request, full recomputation of sizing against broker holdings, or a guarantee at
+a future broker acknowledgement. It neither proves Schwab authorization/quote
+entitlement nor connects a live dispatch path. The migration rollback requires
+rolling back application releases that rely on this protocol first.
 
 ### Atomic emergency-stop coordination for non-live commits
 

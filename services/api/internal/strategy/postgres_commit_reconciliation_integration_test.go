@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/financial"
 	"github.com/arbion/platform/services/api/internal/financialconnection"
 	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -57,8 +58,8 @@ func testAICommitReconciliation(t *testing.T, ctx context.Context, pool *pgxpool
 			if err := saveCommitReconciliation(ctx, pool, f, status, f.now.Add(-30*time.Second)); err != nil {
 				t.Fatal(err)
 			}
-			if err := commitShadowBindingFixture(ctx, f); err == nil {
-				t.Fatal("accepted Shadow action after newer blocking reconciliation")
+			if err := commitShadowBindingFixture(ctx, f); !errors.Is(err, ErrCommitReconciliationUnavailable) {
+				t.Fatal("expected current reconciliation refusal", err)
 			}
 			assertReconciliationCommitEmpty(t, ctx, f)
 			assertCount(t, pool, `SELECT count(*) FROM portfolio_reconciliations WHERE financial_account_id='`+f.instance.FinancialAccountID+`'`, 2)
@@ -66,8 +67,8 @@ func testAICommitReconciliation(t *testing.T, ctx context.Context, pool *pgxpool
 	}
 	t.Run("missing current report rejects prepared Shadow action", func(t *testing.T) {
 		f := newNonLiveBindingFixtureWithReconciliation(t, ctx, pool, Shadow, json.RawMessage(`{}`), nil, false)
-		if err := commitShadowBindingFixture(ctx, f); err == nil {
-			t.Fatal("accepted Shadow action without enforced reconciliation")
+		if err := commitShadowBindingFixture(ctx, f); !errors.Is(err, ErrCommitReconciliationUnavailable) {
+			t.Fatal("expected missing reconciliation refusal", err)
 		}
 		assertReconciliationCommitEmpty(t, ctx, f)
 	})
@@ -86,8 +87,37 @@ func testAICommitReconciliation(t *testing.T, ctx context.Context, pool *pgxpool
 			if _, err := financialconnection.NewPostgresStore(pool).CreateReconciliation(ctx, f.instance.UserID, report, make([]byte, 32)); err != nil {
 				t.Fatal(err)
 			}
-			if err := commitShadowBindingFixture(ctx, f); err == nil {
-				t.Fatal("accepted Shadow action without current enforced evidence")
+			if err := commitShadowBindingFixture(ctx, f); !errors.Is(err, ErrCommitReconciliationUnavailable) {
+				t.Fatal("expected current enforced evidence refusal", err)
+			}
+			assertReconciliationCommitEmpty(t, ctx, f)
+		})
+	}
+	for _, identity := range []string{"provider", "owner", "account"} {
+		t.Run("reconciliation projection preserves "+identity+" binding", func(t *testing.T) {
+			f := newNonLiveBindingFixture(t, ctx, pool, Shadow, json.RawMessage(`{}`))
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			if _, err = lockNonLiveCommitAccess(ctx, tx, f.instance, "coinbase"); err != nil {
+				t.Fatal(err)
+			}
+			candidate, provider := f.instance, "coinbase"
+			switch identity {
+			case "provider":
+				provider = "schwab"
+			case "owner":
+				candidate.UserID = paperBindingUUID(t, ctx, pool)
+			case "account":
+				candidate.FinancialAccountID = paperBindingUUID(t, ctx, pool)
+			}
+			if err = checkAICommitReconciliation(ctx, tx, candidate, provider); !errors.Is(err, ErrCommitReconciliationUnavailable) {
+				t.Fatal("reconciliation escaped its expected identity", err)
+			}
+			if err = tx.Rollback(ctx); err != nil {
+				t.Fatal(err)
 			}
 			assertReconciliationCommitEmpty(t, ctx, f)
 		})
@@ -101,6 +131,37 @@ func testAICommitReconciliation(t *testing.T, ctx context.Context, pool *pgxpool
 			t.Fatal("benign latest matched snapshot blocked Shadow", err)
 		}
 		assertCount(t, pool, `SELECT count(*) FROM nonlive_execution_records WHERE strategy_instance_id='`+f.instance.ID+`' AND mode='SHADOW' AND status='WOULD_HAVE_SUBMITTED'`, 1)
+	})
+	t.Run("matched cash and performance movement does not require owner review", func(t *testing.T) {
+		f := newNonLiveBindingFixtureWithReconciliation(t, ctx, pool, Shadow, json.RawMessage(`{}`), nil, false)
+		store := financialconnection.NewPostgresStore(pool)
+		initial := commitReconciliationReport(f, "MATCHED", f.now.Add(-time.Minute))
+		initial.Balances = financial.Balances{Cash: &financial.Money{Amount: "1000", Currency: "USD"}}
+		initial.ObservedPositionCount, initial.PerformancePositionCount, initial.PerformanceStatus = 1, 1, "AVAILABLE"
+		initial.Positions = []financialconnection.ReconciliationPosition{{
+			Symbol: "BTC", InstrumentType: "CRYPTO", Direction: "long", Quantity: "1", PerformanceStatus: "AVAILABLE", PriceBasis: "synthetic-provider-mark",
+			AveragePrice: &financial.Money{Amount: "90", Currency: "USD"}, CurrentPrice: &financial.Money{Amount: "100", Currency: "USD"},
+			MarketValue: &financial.Money{Amount: "100", Currency: "USD"}, OpenProfitLoss: &financial.Money{Amount: "10", Currency: "USD"},
+		}}
+		prior, err := store.CreateReconciliation(ctx, f.instance.UserID, initial, make([]byte, 32))
+		if err != nil {
+			t.Fatal(err)
+		}
+		latest := initial
+		latest.PreviousReconciliationID, latest.ObservedAt = &prior.ID, f.now.Add(-30*time.Second)
+		latest.Balances = financial.Balances{Cash: &financial.Money{Amount: "1200", Currency: "USD"}}
+		latest.Positions = append([]financialconnection.ReconciliationPosition(nil), initial.Positions...)
+		latest.Positions[0].CurrentPrice = &financial.Money{Amount: "125", Currency: "USD"}
+		latest.Positions[0].MarketValue = &financial.Money{Amount: "125", Currency: "USD"}
+		latest.Positions[0].OpenProfitLoss = &financial.Money{Amount: "35", Currency: "USD"}
+		if _, err = store.CreateReconciliation(ctx, f.instance.UserID, latest, make([]byte, 32)); err != nil {
+			t.Fatal(err)
+		}
+		if err = commitShadowBindingFixture(ctx, f); err != nil {
+			t.Fatal("nonblocking cash and mark changes interrupted Shadow", err)
+		}
+		assertCount(t, pool, `SELECT count(*) FROM nonlive_execution_records WHERE strategy_instance_id='`+f.instance.ID+`' AND mode='SHADOW' AND status='WOULD_HAVE_SUBMITTED'`, 1)
+		assertCount(t, pool, `SELECT count(*) FROM portfolio_reconciliations WHERE financial_account_id='`+f.instance.FinancialAccountID+`' AND comparison_status='MATCHED' AND NOT blocks_new_actions`, 2)
 	})
 	t.Run("reconciliation writer wins account lock", func(t *testing.T) {
 		f := newNonLiveBindingFixture(t, ctx, pool, Shadow, json.RawMessage(`{}`))
@@ -121,10 +182,48 @@ func testAICommitReconciliation(t *testing.T, ctx context.Context, pool *pgxpool
 		if err = tx.Commit(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if err = <-result; err == nil {
-			t.Fatal("prepared Shadow action ignored report committed during lock wait")
+		if err = <-result; !errors.Is(err, ErrCommitReconciliationUnavailable) {
+			t.Fatal("expected report committed during lock wait to refuse action", err)
 		}
 		assertReconciliationCommitEmpty(t, ctx, f)
+	})
+	t.Run("accepted Shadow commit finishes before later reconciliation writer", func(t *testing.T) {
+		f := newNonLiveBindingFixture(t, ctx, pool, Shadow, json.RawMessage(`{}`))
+		gate, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer gate.Rollback(ctx)
+		if _, err = gate.Exec(ctx, `SELECT id FROM strategy_instances WHERE id=$1 FOR NO KEY UPDATE`, f.instance.ID); err != nil {
+			t.Fatal(err)
+		}
+		committed := make(chan error, 1)
+		go func() { committed <- commitShadowBindingFixture(ctx, f) }()
+		waitForPaperBindingLock(t, ctx, pool, gate.Conn().PgConn().PID())
+		var commitPID uint32
+		if err = pool.QueryRow(ctx, `SELECT pid FROM pg_stat_activity WHERE $1::int=ANY(pg_blocking_pids(pid))`, int32(gate.Conn().PgConn().PID())).Scan(&commitPID); err != nil {
+			t.Fatal(err)
+		}
+		saved := make(chan error, 1)
+		go func() { saved <- saveCommitReconciliation(ctx, pool, f, "INCOMPLETE", f.now.Add(-30*time.Second)) }()
+		// The production commit holds its account SHARE lock before runtime.
+		// The real store INSERT must wait there; FK KEY SHARE alone is not enough.
+		waitForPaperBindingLock(t, ctx, pool, commitPID)
+		if err = gate.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err = <-committed; err != nil {
+			t.Fatal("winning Shadow commit failed", err)
+		}
+		if err = <-saved; err != nil {
+			t.Fatal("later reconciliation writer failed", err)
+		}
+		assertCount(t, pool, `SELECT count(*) FROM nonlive_execution_records WHERE strategy_instance_id='`+f.instance.ID+`' AND mode='SHADOW' AND status='WOULD_HAVE_SUBMITTED'`, 1)
+		assertCount(t, pool, `SELECT count(*) FROM portfolio_reconciliations WHERE financial_account_id='`+f.instance.FinancialAccountID+`'`, 2)
+		latest, err := financialconnection.NewPostgresStore(pool).LatestReconciliation(ctx, f.instance.UserID, f.instance.FinancialAccountID)
+		if err != nil || latest.ComparisonStatus != "INCOMPLETE" || !latest.BlocksNewActions {
+			t.Fatal("later immutable report was lost", latest.ComparisonStatus, err)
+		}
 	})
 	t.Run("another account reconciliation does not interrupt this account", func(t *testing.T) {
 		blocked := newNonLiveBindingFixture(t, ctx, pool, Shadow, json.RawMessage(`{}`))
@@ -132,8 +231,8 @@ func testAICommitReconciliation(t *testing.T, ctx context.Context, pool *pgxpool
 		if err := saveCommitReconciliation(ctx, pool, blocked, "DRIFT_DETECTED", blocked.now.Add(-30*time.Second)); err != nil {
 			t.Fatal(err)
 		}
-		if err := commitShadowBindingFixture(ctx, blocked); err == nil {
-			t.Fatal("blocked account accepted a prepared action")
+		if err := commitShadowBindingFixture(ctx, blocked); !errors.Is(err, ErrCommitReconciliationUnavailable) {
+			t.Fatal("expected account-scoped reconciliation refusal", err)
 		}
 		assertReconciliationCommitEmpty(t, ctx, blocked)
 		if err := commitShadowBindingFixture(ctx, active); err != nil {
