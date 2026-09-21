@@ -194,6 +194,9 @@ func TestPostgresAIPaperCommitBindings(t *testing.T) {
 	t.Run("current commit reconciliation", func(t *testing.T) {
 		testAICommitReconciliation(t, ctx, pool)
 	})
+	t.Run("accepted Shadow risk binding", func(t *testing.T) {
+		testAIShadowCommitRiskBinding(t, ctx, pool)
+	})
 	t.Run("concurrent different deliveries cannot double spend", func(t *testing.T) {
 		f := newPaperBindingFixture(t, ctx, pool)
 		other := f
