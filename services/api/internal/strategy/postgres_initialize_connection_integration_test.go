@@ -149,7 +149,9 @@ func testInitializeConnectionSerialization(t *testing.T, parent context.Context,
 						_, err := financialconnection.NewPostgresStore(pool).SetStatus(ctx, f.userID, f.financialID, "error", nil)
 						return err
 					}
-					_, err := aiconnection.NewPostgresStore(pool, aiconnection.DefaultRegistry()).SetStatus(ctx, f.userID, f.aiID, "disabled")
+					// Enabling an AI connection records pending verification via
+					// this writer without the disable-path advisory lock.
+					_, err := aiconnection.NewPostgresStore(pool, aiconnection.DefaultRegistry()).SetStatus(ctx, f.userID, f.aiID, "pending")
 					return err
 				})
 				blocked, disableErr := waitForResumeLockOrCompletion(t, ctx, pool, initializerPID, disabled)
@@ -207,13 +209,16 @@ func newInitializeConnectionFixture(t *testing.T, ctx context.Context, pool *pgx
 	}
 	exec(`INSERT INTO users(id,email,normalized_email,display_name,email_verified_at) VALUES($1,$2,$2,'Initialization serialization test',now())`, f.userID, f.userID+"@example.com")
 	exec(`INSERT INTO user_entitlements(user_id,entitlement_key,source,billing_required) VALUES($1,'founder','bootstrap',false)`, f.userID)
-	exec(`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES($1,$2,'financial','coinbase',$4,'active'),($3,$2,'ai','openai',$5,'active')`, f.financialID, f.userID, f.aiID, "Test source "+f.financialID, "Test model "+f.aiID)
+	// Schwab discovery can return several accounts on one connection. Coinbase
+	// discovery intentionally returns one portfolio, so do not invent a second
+	// Coinbase portfolio to establish this ordinary multi-account refresh race.
+	exec(`INSERT INTO provider_connections(id,user_id,provider_category,provider_name,display_name,status) VALUES($1,$2,'financial','schwab',$4,'active'),($3,$2,'ai','openai',$5,'active')`, f.financialID, f.userID, f.aiID, "Test source "+f.financialID, "Test model "+f.aiID)
 	for _, id := range []string{f.accountID, f.siblingID} {
-		exec(`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES($1,$2,$3,'coinbase',$4,'Synthetic account','crypto','USD','active','{}')`, id, f.userID, f.financialID, "fixture:"+id)
+		exec(`INSERT INTO financial_accounts(id,user_id,provider_connection_id,provider_name,provider_account_id,display_name,account_type,base_currency,status,capabilities) VALUES($1,$2,$3,'schwab',$4,'Synthetic account','brokerage','USD','active','{}')`, id, f.userID, f.financialID, "fixture:"+id)
 	}
 	exec(`INSERT INTO capital_buckets(id,user_id,financial_account_id,name,allocation_type,allocation_value,currency,protected_amount,status) VALUES($1,$2,$3,'Test budget','FIXED_AMOUNT',1000,'USD',0,'ACTIVE')`, f.bucketID, f.userID, f.accountID)
-	schedule := json.RawMessage(`{"enabled":true,"interval_minutes":60,"session":"CONTINUOUS"}`)
-	exec(`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,ai_provider_connection_id,ai_model_id,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES($1,$2,$3,'AI_AUTONOMOUS',$4,'gpt-5.6-sol',$5,'FULL_AUTONOMOUS',$6,'READY',1,'{"objective":"Simulation only.","max_proposal_notional":"100"}','{}','{"symbols":["BTC"]}','{"symbols":[]}',false,false,$7,false)`, mandateID, f.userID, f.accountID, f.aiID, f.bucketID, mode, schedule)
+	schedule := json.RawMessage(`{"enabled":true,"interval_minutes":60,"session":"US_EQUITIES_REGULAR"}`)
+	exec(`INSERT INTO automation_mandates(id,user_id,financial_account_id,automation_type,ai_provider_connection_id,ai_model_id,capital_bucket_id,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,margin_allowed,options_allowed,schedule_conditions,capability_unverified) VALUES($1,$2,$3,'AI_AUTONOMOUS',$4,'gpt-5.6-sol',$5,'FULL_AUTONOMOUS',$6,'READY',1,'{"objective":"Simulation only.","max_proposal_notional":"100"}','{}','{"symbols":["SPY"]}','{"symbols":[]}',false,false,$7,false)`, mandateID, f.userID, f.accountID, f.aiID, f.bucketID, mode, schedule)
 	exec(`INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary) SELECT id,1,user_id,'UI',to_jsonb(m),'{}' FROM automation_mandates m WHERE id=$1`, mandateID)
 	f.mandate = automation.Mandate{ID: mandateID, UserID: f.userID, FinancialAccountID: f.accountID, CapitalBucketID: f.bucketID, AIProviderConnectionID: &f.aiID, AutomationType: "AI_AUTONOMOUS", ExecutionMode: string(mode), Status: "READY", CurrentVersion: 1, ScheduleConditions: schedule}
 	return f
@@ -231,7 +236,7 @@ func (f initializeConnectionFixture) syncAccounts(ctx context.Context, retainTar
 	}
 	accounts := make([]financial.FinancialAccount, 0, len(ids))
 	for _, id := range ids {
-		accounts = append(accounts, financial.FinancialAccount{Provider: "coinbase", ProviderAccountID: "fixture:" + id, DisplayName: "Synthetic refreshed account", AccountType: "crypto", BaseCurrency: "USD", Capabilities: financial.Capabilities{}})
+		accounts = append(accounts, financial.FinancialAccount{Provider: "schwab", ProviderAccountID: "fixture:" + id, DisplayName: "Synthetic refreshed account", AccountType: "brokerage", BaseCurrency: "USD", Capabilities: financial.Capabilities{}})
 	}
 	return financialconnection.NewPostgresStore(f.pool).SyncAccounts(ctx, f.userID, f.financialID, accounts)
 }
@@ -247,7 +252,7 @@ func initializeUnavailableStatus(category string) string {
 	if category == "financial" {
 		return "error"
 	}
-	return "disabled"
+	return "pending"
 }
 
 func (f initializeConnectionFixture) assertDisabledProvider(t *testing.T, category string) {
@@ -302,6 +307,6 @@ func (f initializeConnectionFixture) assertArtifacts(t *testing.T, want int) {
 		assertCount(t, f.pool, `SELECT count(*) FROM paper_portfolios`+owner+` AND strategy_instance_id IN (`+instances+`) AND currency='USD' AND starting_cash=1000 AND cash=1000 AND version=1`, 1)
 	}
 	assertCount(t, f.pool, `SELECT count(*) FROM strategy_capital_reservations`+owner+` AND strategy_instance_id IN (`+instances+`) AND financial_account_id='`+f.accountID+`' AND capital_bucket_id='`+f.bucketID+`' AND execution_mode='`+f.mandate.ExecutionMode+`' AND reservation_amount=1000 AND currency='USD' AND reservation_basis='`+basis+`' AND released_at IS NULL`, 1)
-	assertCount(t, f.pool, `SELECT count(*) FROM nonlive_strategy_schedules`+owner+` AND strategy_instance_id IN (`+instances+`) AND mandate_id='`+f.mandate.ID+`' AND mandate_version=1 AND interval_minutes=60 AND session='CONTINUOUS' AND next_run_at>created_at AND last_status IS NULL AND consecutive_failures=0`, 1)
+	assertCount(t, f.pool, `SELECT count(*) FROM nonlive_strategy_schedules`+owner+` AND strategy_instance_id IN (`+instances+`) AND mandate_id='`+f.mandate.ID+`' AND mandate_version=1 AND interval_minutes=60 AND session='US_EQUITIES_REGULAR' AND next_run_at>created_at AND last_status IS NULL AND consecutive_failures=0`, 1)
 	assertCount(t, f.pool, `SELECT count(*) FROM strategy_state_transitions WHERE strategy_instance_id IN (`+instances+`) AND trigger='INITIALIZED' AND state_version=1 AND previous_state='AI_MONITORING' AND new_state='AI_MONITORING'`, 1)
 }
