@@ -203,6 +203,9 @@ func TestPostgresAIPaperCommitBindings(t *testing.T) {
 	t.Run("Resume mandate serialization", func(t *testing.T) {
 		testResumeMandateSerialization(t, ctx, pool)
 	})
+	t.Run("Resume current owner access", func(t *testing.T) {
+		testResumeCurrentAccess(t, ctx, pool)
+	})
 	t.Run("initialization connection serialization", func(t *testing.T) {
 		testInitializeConnectionSerialization(t, ctx, pool)
 	})
