@@ -32,7 +32,11 @@ func LockActive(ctx context.Context, tx pgx.Tx, userID, financialAccountID strin
 		if *aiConnectionID == "" {
 			return ErrUnavailable
 		}
-		connectionIDs = append(connectionIDs, *aiConnectionID)
+		canonical, err := CanonicalLockKey(ctx, tx, *aiConnectionID)
+		if err != nil {
+			return err
+		}
+		connectionIDs = append(connectionIDs, canonical)
 	}
 	sort.Strings(connectionIDs)
 	previous := ""

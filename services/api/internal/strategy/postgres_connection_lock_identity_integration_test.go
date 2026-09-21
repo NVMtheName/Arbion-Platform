@@ -100,6 +100,7 @@ func testConnectionLockIdentity(t *testing.T, parent context.Context, pool *pgxp
 					t.Fatal("callback outcome was not preserved", err, callbacks)
 				}
 				assertConnectionIdentityReleased(t, parent, probe, "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")
+				assertConnectionIdentityReleased(t, parent, probe, "{A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11}")
 			})
 		}
 	}

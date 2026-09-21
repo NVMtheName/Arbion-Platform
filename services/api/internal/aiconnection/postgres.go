@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/arbion/platform/services/api/internal/connectionguard"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -27,7 +28,11 @@ func (s *PostgresStore) WithLock(ctx context.Context, id string, fn func() error
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, id); err != nil {
+	key, err := connectionguard.CanonicalLockKey(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, key); err != nil {
 		return err
 	}
 	if err = fn(); err != nil {
