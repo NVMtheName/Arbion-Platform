@@ -204,7 +204,14 @@ func validAIPaperCommit(instance Instance, expectedVersion int, decision Decisio
 			return false
 		}
 	}
-	return true
+	// Balanced cash deltas alone cannot prove the fill's economic amount.
+	// Recheck the simulator's exact product and side-conservative storage
+	// rounding before claiming an event or changing any ledger state.
+	quantity, _ := new(big.Rat).SetString(fill.Quantity)
+	price, _ := new(big.Rat).SetString(fill.FillPrice)
+	gross, _ := new(big.Rat).SetString(fill.GrossNotional)
+	expectedGross := quantizeAIPaper(new(big.Rat).Mul(quantity, price), fill.Side == "BUY")
+	return gross.Cmp(expectedGross) == 0
 }
 
 func sameAIPaperDecimal(left, right string) bool {
