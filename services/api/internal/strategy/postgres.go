@@ -66,7 +66,7 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 	defer tx.Rollback(c)
 	var access nonLiveCommitAccess
 	if e = access.lockOwner(c, tx, u); e != nil {
-		return Instance{}, initializationAccessError(e)
+		return Instance{}, lifecycleAccessError(e)
 	}
 	if e = connectionguard.LockActive(c, tx, u, m.FinancialAccountID, m.AIProviderConnectionID); e != nil {
 		if errors.Is(e, connectionguard.ErrUnavailable) {
@@ -103,7 +103,7 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 		return Instance{}, e
 	}
 	if e = access.checkTime(c, tx); e != nil {
-		return Instance{}, initializationAccessError(e)
+		return Instance{}, lifecycleAccessError(e)
 	}
 	identifier := "ai_shadow"
 	if m.StrategyIdentifier != nil {
@@ -134,12 +134,12 @@ func (s *PostgresStore) Initialize(c context.Context, u string, m automation.Man
 		}
 	}
 	if e = access.checkTime(c, tx); e != nil {
-		return Instance{}, initializationAccessError(e)
+		return Instance{}, lifecycleAccessError(e)
 	}
 	return i, tx.Commit(c)
 }
 
-func initializationAccessError(err error) error {
+func lifecycleAccessError(err error) error {
 	if errors.Is(err, ErrCommitAccessRevoked) {
 		return ErrForbidden
 	}
@@ -186,6 +186,10 @@ func (s *PostgresStore) Resume(c context.Context, userID, instanceID string, exp
 		return Instance{}, err
 	}
 	defer tx.Rollback(c)
+	var access nonLiveCommitAccess
+	if err = access.lockOwner(c, tx, userID); err != nil {
+		return Instance{}, lifecycleAccessError(err)
+	}
 
 	// Serialize mandate revocation before taking the runtime lock, matching
 	// accepted commit's mandate -> instance order. Do not filter on readiness
@@ -226,6 +230,9 @@ func (s *PostgresStore) Resume(c context.Context, userID, instanceID string, exp
 	if !mandateReady {
 		return Instance{}, ErrMandateStale
 	}
+	if err = access.checkTime(c, tx); err != nil {
+		return Instance{}, lifecycleAccessError(err)
+	}
 	resumed, err := scanInstance(tx.QueryRow(c, `UPDATE strategy_instances
 		SET status='ACTIVE',state_version=state_version+1,paused_at=NULL,updated_at=$4
 		WHERE id=$1 AND user_id=$2 AND state_version=$3 AND status='PAUSED'
@@ -239,6 +246,9 @@ func (s *PostgresStore) Resume(c context.Context, userID, instanceID string, exp
 	metadata, _ := json.Marshal(map[string]any{"previous_status": "PAUSED", "new_status": "ACTIVE"})
 	if _, err = tx.Exec(c, `INSERT INTO strategy_state_transitions(strategy_instance_id,previous_state,new_state,state_version,trigger,metadata) VALUES($1,$2,$2,$3,'RESUMED',$4)`, resumed.ID, current.CurrentState, resumed.StateVersion, metadata); err != nil {
 		return Instance{}, err
+	}
+	if err = access.checkTime(c, tx); err != nil {
+		return Instance{}, lifecycleAccessError(err)
 	}
 	return resumed, tx.Commit(c)
 }
