@@ -453,6 +453,18 @@ fail closed. These are current-state defenses, not a new role or permission
 policy. Same-owner metadata writes may wait during setup contention. The
 independent accepted-action authority checks below remain necessary and unchanged.
 
+Resuming a paused non-live engine uses the same current owner/founder locks
+before its existing mandate-share and runtime-update locks. It retains the
+exact immutable READY mandate/account/capital/mode binding, including the
+existing allowance for a newer draft. Database wall-clock checks after lock
+waits and before commit prevent captured request authority from reactivating
+an engine after access is removed. An access refusal maps to the existing
+forbidden response and leaves runtime state, timestamps, capital, ledger, and
+transition history unchanged. A winning resume commits before a later
+revocation; independent scheduler and accepted-action guards still govern any
+later evaluation. Pause, finish, provider-state policy, schedule behavior, and
+live availability are unchanged.
+
 After acquiring the stop-scope locks, accepted Paper and Shadow commits acquire
 shared row locks in owner → founder entitlement → financial account → sorted
 provider-connection order, before mandate, bucket, runtime, and ledger locks.

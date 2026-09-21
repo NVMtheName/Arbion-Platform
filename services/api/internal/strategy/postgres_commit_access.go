@@ -91,9 +91,9 @@ func lockNonLiveCommitAccess(ctx context.Context, tx pgx.Tx, instance Instance, 
 }
 
 // lockOwner repeats the existing active-owner/founder policy without relying
-// on the caller's earlier principal. Initialization and accepted evaluations
-// take these shared locks before account/provider locks and retain them through
-// their transaction.
+// on the caller's earlier principal. Initialization, resume, and accepted
+// evaluations take these shared locks before account/provider or mandate locks
+// and retain them through their transaction.
 // It deliberately does not grant access from role or other product tiers.
 func (access *nonLiveCommitAccess) lockOwner(ctx context.Context, tx pgx.Tx, userID string) error {
 	var status string
