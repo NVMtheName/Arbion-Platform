@@ -15,6 +15,63 @@ import (
 // database. Table gates stop a writer at a known statement; observed database
 // dependencies, not arbitrary delays, determine which writer won its lock.
 func testResumeMandateSerialization(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	for _, mode := range []ExecutionMode{Paper, Shadow} {
+		t.Run(string(mode)+" rebind during initial mandate wait preserves account and capital isolation", func(t *testing.T) {
+			f := newPausedResumeFixture(t, ctx, pool, mode, json.RawMessage(`{}`))
+			other := newNonLiveBindingFixture(t, ctx, pool, mode, json.RawMessage(`{}`), f.instance.UserID)
+			// The active mandate/version uniqueness constraint remains intact.
+			// Finish the empty target normally so its valid immutable mandate
+			// can be referenced without inventing an invalid foreign key or
+			// disabling a constraint. Its claim remains immutable and released.
+			finished, err := other.store.Finish(ctx, other.instance.UserID, other.instance.ID, other.instance.StateVersion, other.now)
+			if err != nil || finished.Status != "COMPLETED" {
+				t.Fatal("could not complete isolated target fixture", err)
+			}
+			if other.instance.UserID != f.instance.UserID || other.instance.FinancialAccountID == f.instance.FinancialAccountID || other.instance.CapitalBucketID == f.instance.CapitalBucketID {
+				t.Fatal("rebind fixture does not distinguish same-owner account and capital identities")
+			}
+			gate, err := pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer gate.Rollback(ctx)
+			if _, err = gate.Exec(ctx, `SELECT id FROM automation_mandates WHERE id=$1 FOR UPDATE`, f.instance.AutomationMandateID); err != nil {
+				t.Fatal(err)
+			}
+			resumed := make(chan error, 1)
+			go func() {
+				_, err := f.store.Resume(ctx, f.instance.UserID, f.instance.ID, f.instance.StateVersion, f.now)
+				resumed <- err
+			}()
+			waitForPaperBindingLock(t, ctx, pool, gate.Conn().PgConn().PID())
+			// Only a synthetic stored-identity writer is used here; there is no
+			// owner-facing rebind command. The initial Resume query locks the
+			// original mandate, not this runtime row. Preserve state/version so
+			// the exact locked-mandate comparison is the required refusal.
+			changed, err := pool.Exec(ctx, `UPDATE strategy_instances SET automation_mandate_id=$2,mandate_version=$3,financial_account_id=$4,capital_bucket_id=$5 WHERE id=$1 AND user_id=$6 AND status='PAUSED' AND state_version=2`,
+				f.instance.ID, other.instance.AutomationMandateID, other.instance.MandateVersion, other.instance.FinancialAccountID, other.instance.CapitalBucketID, f.instance.UserID)
+			if err != nil || changed.RowsAffected() != 1 {
+				t.Fatal("constraint-valid synthetic rebind did not commit", err)
+			}
+			if err = gate.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err = <-resumed; !errors.Is(err, ErrConflict) {
+				t.Fatal("Resume used an identity whose mandate it never locked", err)
+			}
+			assertResumeUnchanged(t, ctx, f)
+			other.assertEmpty(t, ctx)
+			assertCount(t, pool, `SELECT count(*) FROM strategy_instances WHERE id='`+f.instance.ID+`' AND user_id='`+f.instance.UserID+`' AND automation_mandate_id='`+other.instance.AutomationMandateID+`' AND mandate_version=1 AND financial_account_id='`+other.instance.FinancialAccountID+`' AND capital_bucket_id='`+other.instance.CapitalBucketID+`' AND execution_mode='`+string(mode)+`' AND status='PAUSED' AND state_version=2`, 1)
+			assertCount(t, pool, `SELECT count(*) FROM strategy_capital_reservations WHERE strategy_instance_id='`+f.instance.ID+`' AND user_id='`+f.instance.UserID+`' AND financial_account_id='`+f.instance.FinancialAccountID+`' AND capital_bucket_id='`+f.instance.CapitalBucketID+`' AND execution_mode='`+string(mode)+`' AND reservation_amount=1000 AND released_at IS NULL`, 1)
+			assertCount(t, pool, `SELECT count(*) FROM strategy_capital_reservations WHERE strategy_instance_id='`+other.instance.ID+`' AND user_id='`+other.instance.UserID+`' AND financial_account_id='`+other.instance.FinancialAccountID+`' AND capital_bucket_id='`+other.instance.CapitalBucketID+`' AND execution_mode='`+string(mode)+`' AND reservation_amount=1000 AND released_at IS NOT NULL AND release_reason='COMPLETED'`, 1)
+			assertCount(t, pool, `SELECT count(*) FROM strategy_instances WHERE id='`+other.instance.ID+`' AND status='COMPLETED' AND state_version=2 AND automation_mandate_id='`+other.instance.AutomationMandateID+`' AND financial_account_id='`+other.instance.FinancialAccountID+`' AND capital_bucket_id='`+other.instance.CapitalBucketID+`'`, 1)
+			assertCount(t, pool, `SELECT count(*) FROM strategy_state_transitions WHERE strategy_instance_id='`+other.instance.ID+`'`, 2)
+			assertCount(t, pool, `SELECT count(*) FROM automation_mandate_versions WHERE mandate_id IN ('`+f.instance.AutomationMandateID+`','`+other.instance.AutomationMandateID+`')`, 2)
+			if mode == Paper {
+				assertCount(t, pool, `SELECT count(*) FROM paper_portfolios WHERE strategy_instance_id IN ('`+f.instance.ID+`','`+other.instance.ID+`') AND starting_cash=1000 AND cash=1000 AND version=1`, 2)
+			}
+		})
+	}
 	t.Run("mandate disable owns lock first and Resume refuses after waiting", func(t *testing.T) {
 		f := newPausedResumeFixture(t, ctx, pool, Shadow, json.RawMessage(`{}`))
 		gate, err := pool.Begin(ctx)
