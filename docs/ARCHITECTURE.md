@@ -218,6 +218,17 @@ PAPER portfolios are a distinct persistence domain. When an active or paused PAP
 
 AI PAPER spot execution uses a separate provider-independent simulation contract rather than the Wheel option adapter. The pure Go simulator accepts only an already risk-allowed AI BUY or SELL proposal, an isolated USD paper portfolio, and exact provider-derived market provenance. It applies bounded adverse slippage and fees with conservative fixed-decimal accounting, rejects stale or malformed evidence, insufficient simulated cash, margin, and short sales, and returns a record explicitly labeled `simulation_only` with no broker order identifier or execution route. Its dedicated PostgreSQL writer locks the isolated portfolio and atomically commits the risk evaluation, non-live execution evidence, AI Decision Journal entry, cash and spot-position projection, and immutable owner-bound fill ledger; any stale projection or failed constraint rolls the entire event back. A reviewed AI PAPER mandate can now run only through the same guarded non-live scheduler and deterministic risk path as Shadow. Its bounded recent-decision memory preserves exact `SIMULATED_FILLED` and `SIMULATED_REJECTED` dispositions under a closed schema, while its cash, positions, fills, and capital reservation remain isolated from the connected account. The account supplies normalized current market references only; no broker cash, holdings, preview, order identifier, or write method enters the Paper runtime.
 
+The Paper writer independently recomputes gross notional from exact quantity
+times fill price before starting a transaction. It requires the existing
+simulator's ten-place conservative rounding: upward for BUY and downward for
+SELL. Internally balanced cash deltas cannot substitute for this product check;
+even a one-quantum wrong-direction amount is refused. Numerically equivalent
+decimal formatting remains valid. Rejection claims no event and changes no
+ledger or history, so a corrected same-event delivery can still be evaluated.
+This invariant does not infer configured fee/slippage rates or rewrite earlier
+fills; those policies and the independent authority/risk/quote controls remain
+unchanged.
+
 ### AI Paper commit-time binding checks
 
 The existing AI Paper fill writer revalidates the persisted mandate, pinned
