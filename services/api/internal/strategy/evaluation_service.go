@@ -517,12 +517,18 @@ func (s *EvaluationService) evaluateAIAutonomous(ctx context.Context, principal 
 		return EvaluationOutcome{}, err
 	}
 	quantityDivisor := new(big.Rat).Set(priceRat)
+	quantityBudget := new(big.Rat).Set(notionalRat)
 	if instance.ExecutionMode == Paper && decision.Side == "BUY" {
 		slippage := new(big.Rat).Add(big.NewRat(1, 1), new(big.Rat).SetFrac64(aiPaperSlippageBasisPoints, aiPaperBasisPointDenominator))
 		fee := new(big.Rat).Add(big.NewRat(1, 1), new(big.Rat).SetFrac64(aiPaperFeeBasisPoints, aiPaperBasisPointDenominator))
-		quantityDivisor.Mul(quantityDivisor, new(big.Rat).Mul(slippage, fee))
+		// Match the simulator's independent ten-place upward fill-price
+		// rounding and downward fee-inclusive gross budget. This keeps the
+		// final gross plus fee within the model's authorized notional even
+		// when each simulator component rounds conservatively.
+		quantityDivisor = quantizeAIPaper(new(big.Rat).Mul(priceRat, slippage), true)
+		quantityBudget = quantizeAIPaper(new(big.Rat).Quo(quantizeAIPaper(quantityBudget, false), fee), false)
 	}
-	quantity := floorRat(new(big.Rat).Quo(notionalRat, quantityDivisor), 10)
+	quantity := floorRat(new(big.Rat).Quo(quantityBudget, quantityDivisor), 10)
 	if quantity == "0.0000000000" {
 		return EvaluationOutcome{}, ErrInvalid
 	}
