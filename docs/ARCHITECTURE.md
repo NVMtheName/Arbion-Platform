@@ -229,6 +229,16 @@ This invariant does not infer configured fee/slippage rates or rewrite earlier
 fills; those policies and the independent authority/risk/quote controls remain
 unchanged.
 
+Before submitting an AI Paper BUY proposal to deterministic risk, the service
+sizes its quantity against the simulator's upward-rounded fill price and a
+downward-rounded fee-inclusive gross budget. Both budgets use the same ten-place
+decimal grid as the simulator, so its separately rounded gross and fee cannot
+push the final debit above the original proposal. The proposal and reserve
+limits are not expanded or given a tolerance. A budget too small to fund one
+quantity quantum is refused; Shadow and SELL sizing and the simulator's general
+reference-notional contract remain unchanged. Existing fill history is never
+rewritten by a sizing-policy correction.
+
 ### AI Paper commit-time binding checks
 
 The existing AI Paper fill writer revalidates the persisted mandate, pinned
