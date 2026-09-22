@@ -1,17 +1,19 @@
 # External Control Verification
 
-| Field | Value |
-| --- | --- |
-| Document owner | Security and Compliance Owner |
-| Version | 0.3 |
-| Verification status | AUTHENTICATED_EVIDENCE_NOT_YET_COLLECTED |
-| Review cadence | Quarterly and after material configuration change |
+| Field               | Value                                             |
+| ------------------- | ------------------------------------------------- |
+| Document owner      | Security and Compliance Owner                     |
+| Version             | 0.4                                               |
+| Verification status | PARTIAL_AUTHENTICATED_EVIDENCE_REVIEW_REQUIRED    |
+| Review cadence      | Quarterly and after material configuration change |
 
 This checklist separates repository control design from settings that exist only in GitHub, AWS, the production host, and provider consoles. A checked-in workflow or Terraform resource is not proof that the corresponding external control is enabled or operating.
 
-## Current constraint
+## Dated checkpoint and remaining constraints
 
-The readiness review could not authenticate to GitHub or AWS. The configured GitHub CLI credential is invalid and the `arbion-admin` AWS SSO session is expired. No external setting is marked effective on that basis. Reauthenticate both CLIs, run the read-only collector described below, remediate every failed or unavailable item, and retain the reviewed output in the restricted evidence repository.
+The initial review was blocked by invalid GitHub credentials and an expired AWS session. Authentication was restored and restricted evidence collected by 2026-09-10 UTC. GitHub vulnerability alerts, automated security fixes, secret scanning, and push protection were enabled and checked; host and backup evidence was collected. Main-branch protection and independent deployment review still require remediation, and the checked AWS inventory returned no CloudTrail trails, Config recorders, GuardDuty detectors, or account analyzers. These are dated, partial observations, not a continuing authentication claim or overall control approval. Recollect before activation, retain exact source digests/reviewer conclusions outside Git, and treat unavailable controls as exceptions.
+
+The [standalone Lightsail security plan](LIGHTSAIL_SECURITY_ACTIVATION_PLAN.md) is a not-applied candidate for the AWS gaps. It must not be confused with the larger ECS/Fargate target infrastructure or counted as activated controls. Independent reviewer selection, spending/retention decisions, and verified notification delivery remain open.
 
 Public repository metadata observed during the review indicated that the repository is public and that web commit signoff is disabled. Public visibility is not itself a SOC 2 failure, but it raises the importance of secret scanning, push protection, protected changes, and rapid credential revocation. Authenticated evidence must establish the current state before the observation period begins.
 

@@ -94,8 +94,8 @@ grep -q 'internal checksum consistency only' "$arbion_root/scripts/verify-soc2-e
   fail "external evidence review-draft generator is missing or not executable"
 grep -q 'REVIEW_DRAFT_NOT_OPERATING_EVIDENCE' "$arbion_root/scripts/review-soc2-external-evidence.py" ||
   fail "external evidence review draft must disclose its non-authoritative status"
-grep -q 'AUTHENTICATED_EVIDENCE_NOT_YET_COLLECTED' "$arbion_root/docs/compliance/EXTERNAL_CONTROL_VERIFICATION.md" ||
-  fail "external control status must fail closed until authenticated evidence is retained"
+grep -Eq '^\|[[:blank:]]*Verification status[[:blank:]]*\|[[:blank:]]*(AUTHENTICATED_EVIDENCE_NOT_YET_COLLECTED|PARTIAL_AUTHENTICATED_EVIDENCE_REVIEW_REQUIRED)[[:blank:]]*\|$' "$arbion_root/docs/compliance/EXTERNAL_CONTROL_VERIFICATION.md" ||
+  fail "external control status must remain unverified or pending independent evidence review"
 
 while IFS= read -r workflow_file; do
   while IFS= read -r uses_line; do

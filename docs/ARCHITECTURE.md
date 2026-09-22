@@ -10,6 +10,10 @@ The current implementation remains a modular monolith plus one dedicated AI serv
 
 ## System model
 
+### Standalone production security infrastructure
+
+The proposed `infrastructure/terraform/environments/lightsail-security` root isolates account auditing/security resources from the ECS/Fargate target design and the running Lightsail application. Its distinct encrypted backend key, dedicated new security-notification topic, explicit account/retention inputs, bounded Config classes, disabled optional GuardDuty features, and plan-only CI tests do not manage compute, network, database, DNS, existing backup storage, or existing operational alerts. The shared audit module preserves target-design defaults/resource addresses. This root is not applied or connected to an apply workflow; reviewing its plan is not operating evidence. Budget, retention, identity/policy scope, destination, backend ownership, and independent review must be resolved before activation. See the [standalone security plan](compliance/LIGHTSAIL_SECURITY_ACTIVATION_PLAN.md). Neither infrastructure root may manage the same audit resources concurrently.
+
 ```text
 ┌───────────────────────────────────────────────────────────────┐
 │ Experience layer: Next.js / React / TypeScript               │
