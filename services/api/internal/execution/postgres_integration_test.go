@@ -48,18 +48,19 @@ func (tx lostCommitTx) Commit(ctx context.Context) error {
 	return errors.New("fixture lost commit acknowledgement")
 }
 
-func TestPostgresDispatchIsDurableScopedAndSingleAttempt(t *testing.T) {
+func setupExecutionTest(t *testing.T) (context.Context, *pgxpool.Pool) {
+	t.Helper()
 	url := os.Getenv("STRATEGY_TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("STRATEGY_TEST_DATABASE_URL is not set")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
+	t.Cleanup(cancel)
 	db, err := sql.Open("pgx", url)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	goose.SetBaseFS(migrations.Files)
 	if err = goose.SetDialect("postgres"); err != nil {
 		t.Fatal(err)
@@ -71,28 +72,37 @@ func TestPostgresDispatchIsDurableScopedAndSingleAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
-	store := NewPostgresStore(pool)
-	newFixture := func() Request {
-		t.Helper()
-		r := requestFixture()
-		if err := pool.QueryRow(ctx, `INSERT INTO users(external_id) VALUES($1) RETURNING id::text`, fmt.Sprintf("dispatch-test-%d", time.Now().UnixNano())).Scan(&r.OwnerID); err != nil {
-			t.Fatal(err)
-		}
-		if err := pool.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status) VALUES($1,'financial','coinbase','Dispatch fixture','active') RETURNING id::text`, r.OwnerID).Scan(&r.ConnectionID); err != nil {
-			t.Fatal(err)
-		}
-		if err := pool.QueryRow(ctx, `INSERT INTO financial_accounts(user_id,provider_connection_id,provider_name,provider_account_id,display_name,base_currency,status) VALUES($1,$2,'coinbase',$3,'Dispatch fixture','USD','active') RETURNING id::text`, r.OwnerID, r.ConnectionID, "fixture:"+r.ConnectionID).Scan(&r.AccountID); err != nil {
-			t.Fatal(err)
-		}
-		if err := pool.QueryRow(ctx, `INSERT INTO capital_buckets(user_id,financial_account_id,name,allocation_type,allocation_value,currency,status) VALUES($1,$2,'Dispatch fixture','FIXED_AMOUNT',100,'USD','ACTIVE') RETURNING id::text`, r.OwnerID, r.AccountID).Scan(&r.CapitalBucketID); err != nil {
-			t.Fatal(err)
-		}
-		if err := pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&r.ClientOrderID); err != nil {
-			t.Fatal(err)
-		}
-		return r
+	t.Cleanup(pool.Close)
+	return ctx, pool
+}
+
+func newExecutionFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) Request {
+	t.Helper()
+	r := requestFixture()
+	if err := pool.QueryRow(ctx, `INSERT INTO users(external_id) VALUES($1) RETURNING id::text`, fmt.Sprintf("dispatch-test-%d", time.Now().UnixNano())).Scan(&r.OwnerID); err != nil {
+		t.Fatal(err)
 	}
+	if err := pool.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status) VALUES($1,'financial','coinbase','Dispatch fixture','active') RETURNING id::text`, r.OwnerID).Scan(&r.ConnectionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO financial_accounts(user_id,provider_connection_id,provider_name,provider_account_id,display_name,base_currency,status) VALUES($1,$2,'coinbase',$3,'Dispatch fixture','USD','active') RETURNING id::text`, r.OwnerID, r.ConnectionID, "fixture:"+r.ConnectionID).Scan(&r.AccountID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO capital_buckets(user_id,financial_account_id,name,allocation_type,allocation_value,currency,status) VALUES($1,$2,'Dispatch fixture','FIXED_AMOUNT',100,'USD','ACTIVE') RETURNING id::text`, r.OwnerID, r.AccountID).Scan(&r.CapitalBucketID); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&r.ClientOrderID); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestPostgresDispatchIsDurableScopedAndSingleAttempt(t *testing.T) {
+	ctx, pool := setupExecutionTest(t)
+	url := os.Getenv("STRATEGY_TEST_DATABASE_URL")
+	store := NewPostgresStore(pool)
+	newFixture := func() Request { return newExecutionFixture(t, ctx, pool) }
+	var err error
 	prepare := func(r Request) Order {
 		t.Helper()
 		o, err := store.Prepare(ctx, r)

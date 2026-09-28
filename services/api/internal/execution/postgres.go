@@ -57,7 +57,8 @@ func (s *PostgresStore) Prepare(ctx context.Context, r Request) (Order, error) {
 // Claim commits at most one attempt per order and one unresolved account hold.
 // Only the winning call gets an Attempt with nil error. On ANY error the caller
 // must not send. A commit error may mean the attempt exists: recover by ReadAttempt.
-// No expiry, lease timeout, or restart deletes the hold or permits another claim.
+// Only exact terminal reconciliation releases the account slot. An order's
+// attempt itself is permanent and cannot be claimed again after settlement.
 func (s *PostgresStore) Claim(ctx context.Context, ownerID, orderID string, authority Authority) (Attempt, error) {
 	if authority == nil {
 		return Attempt{}, ErrNotAuthorized
@@ -88,7 +89,13 @@ func (s *PostgresStore) Claim(ctx context.Context, ownerID, orderID string, auth
 	if exists {
 		return Attempt{}, ErrAlreadyAttempted
 	}
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM execution_dispatch_attempts WHERE financial_account_id=$1)`, account).Scan(&exists); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM execution_reconciliation_blocks WHERE financial_account_id=$1)`, account).Scan(&exists); err != nil {
+		return Attempt{}, err
+	}
+	if exists {
+		return Attempt{}, ErrReconciliationBlocked
+	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM execution_account_holds WHERE financial_account_id=$1)`, account).Scan(&exists); err != nil {
 		return Attempt{}, err
 	}
 	if exists {
