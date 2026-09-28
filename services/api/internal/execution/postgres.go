@@ -59,6 +59,7 @@ func (s *PostgresStore) Prepare(ctx context.Context, r Request) (Order, error) {
 // must not send. A commit error may mean the attempt exists: recover by ReadAttempt.
 // Only exact terminal reconciliation releases the account slot. An order's
 // attempt itself is permanent and cannot be claimed again after settlement.
+// A separate capital reservation survives terminal order reconciliation.
 func (s *PostgresStore) Claim(ctx context.Context, ownerID, orderID string, authority Authority) (Attempt, error) {
 	if authority == nil {
 		return Attempt{}, ErrNotAuthorized
@@ -75,10 +76,11 @@ func (s *PostgresStore) Claim(ctx context.Context, ownerID, orderID string, auth
 	if err != nil {
 		return Attempt{}, err
 	}
-	// Serialize competing orders on the same real account. The authority must
-	// acquire/recheck its remaining controls under this transaction too.
-	var account string
-	err = tx.QueryRow(ctx, `SELECT id::text FROM financial_accounts WHERE id=$1 AND user_id=$2 FOR UPDATE`, order.Request.AccountID, ownerID).Scan(&account)
+	// Acquire owner/entitlement locks BEFORE the account to match existing
+	// control-plane writers, then serialize current connection/bucket/stops.
+	account := order.Request.AccountID
+	var generation int64
+	err = tx.QueryRow(ctx, `SELECT lock_execution_claim_controls($1)`, orderID).Scan(&generation)
 	if err != nil {
 		return Attempt{}, mapError(err)
 	}
@@ -101,6 +103,12 @@ func (s *PostgresStore) Claim(ctx context.Context, ownerID, orderID string, auth
 	if exists {
 		return Attempt{}, ErrAccountHeld
 	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM execution_capital_reservations WHERE financial_account_id=$1)`, account).Scan(&exists); err != nil {
+		return Attempt{}, err
+	}
+	if exists {
+		return Attempt{}, ErrCapitalHeld
+	}
 	var now time.Time
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return Attempt{}, err
@@ -113,7 +121,7 @@ func (s *PostgresStore) Claim(ctx context.Context, ownerID, orderID string, auth
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return Attempt{}, err
 	}
-	if !validUUID(approval.ID) || approval.RequestDigest != order.RequestDigest || approval.CredentialGeneration <= 0 ||
+	if !validUUID(approval.ID) || approval.RequestDigest != order.RequestDigest || approval.CredentialGeneration != generation ||
 		!approval.ExpiresAt.After(now) || approval.ExpiresAt.After(now.Add(time.Minute)) {
 		return Attempt{}, ErrNotAuthorized
 	}
@@ -215,6 +223,12 @@ func mapError(err error) error {
 	}
 	var e *pgconn.PgError
 	if errors.As(err, &e) {
+		switch e.ConstraintName {
+		case "execution_current_controls":
+			return ErrNotAuthorized
+		case "execution_capital_held":
+			return ErrCapitalHeld
+		}
 		switch e.Code {
 		case "23505":
 			return ErrConflict

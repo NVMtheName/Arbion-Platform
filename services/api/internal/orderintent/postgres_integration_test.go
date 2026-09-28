@@ -174,4 +174,5 @@ func TestPostgresOrderIntentIsIdempotentOwnerScopedImmutableAndNonExecuting(t *t
 	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM order_intent_reviews WHERE order_intent_id=$1),(SELECT count(*) FROM order_intent_events WHERE order_intent_id=$1),(SELECT count(*) FROM capital_reservations WHERE order_intent_id=$1),(SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('provider_orders','order_execution_attempts'))`, created.ID).Scan(&reviews, &events, &reservationCount, &attempts); err != nil || reviews != 1 || events != 2 || reservationCount != 1 || attempts != 0 {
 		t.Fatalf("unexpected evidence or execution tables: reviews=%d events=%d reservations=%d attempts=%d err=%v", reviews, events, reservationCount, attempts, err)
 	}
+	testExecutionCapitalFence(t, ctx, pool, input, connectionID)
 }

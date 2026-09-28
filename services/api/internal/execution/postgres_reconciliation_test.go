@@ -133,7 +133,7 @@ func TestPostgresFillReconciliation(t *testing.T) {
 					t.Fatal("evidence mutated")
 				}
 			}
-			// A new order may claim the freed slot, but only through authority again.
+			// Terminal order proof frees the slot, but not the capital fence.
 			r := o.Request
 			if err = pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&r.ClientOrderID); err != nil {
 				t.Fatal(err)
@@ -145,18 +145,18 @@ func TestPostgresFillReconciliation(t *testing.T) {
 			if _, err = store.Claim(ctx, r.OwnerID, next.ID, nil); !errors.Is(err, ErrNotAuthorized) {
 				t.Fatal(err)
 			}
-			if _, err = store.Claim(ctx, r.OwnerID, next.ID, fixtureAuthority); err != nil {
-				t.Fatal("settled slot not reusable", err)
+			if _, err = store.Claim(ctx, r.OwnerID, next.ID, fixtureAuthority); !errors.Is(err, ErrCapitalHeld) {
+				t.Fatal("order terminal incorrectly freed account capital", err)
 			}
 			// A correction to the old order blocks the whole account, including the
-			// newly claimed order. It cannot quietly change totals or free capacity.
+			// next prepared order. It cannot quietly change totals or free capacity.
 			conflict := f1
 			conflict.FeeUSD = "0.23"
 			if err = store.RecordFill(ctx, conflict); !errors.Is(err, ErrReconciliationBlocked) {
 				t.Fatal(err)
 			}
 			x, err = store.ReadReconciliation(ctx, r.OwnerID, next.ID)
-			if err != nil || !x.AccountBlocked || !x.AccountHeld {
+			if err != nil || !x.AccountBlocked || x.AccountHeld {
 				t.Fatalf("correction failed to stop account: %#v %v", x, err)
 			}
 		})

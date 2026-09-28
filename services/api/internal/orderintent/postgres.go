@@ -282,7 +282,7 @@ func (store *PostgresStore) Create(ctx context.Context, input draft) (Intent, []
 		_, err = transaction.Exec(ctx, `INSERT INTO capital_reservations(user_id,financial_account_id,capital_bucket_id,order_intent_id,source_type,resource_type,resource_asset,quantity,reserved_at,expires_at,created_at) VALUES($1,$2,$3,$4,'ORDER_INTENT',$5,$6,$7,$8,$9,$10)`, input.UserID, input.FinancialAccountID, input.CapitalBucketID, intentID, input.CapitalReservation.ResourceType, input.CapitalReservation.Asset, input.CapitalReservation.Quantity, input.CapitalReservation.ReservedAt, input.CapitalReservation.ExpiresAt, input.CreatedAt)
 		if err != nil {
 			var postgresError *pgconn.PgError
-			if errors.As(err, &postgresError) && strings.Contains(postgresError.Message, "capital reservation snapshot") {
+			if errors.As(err, &postgresError) && (strings.Contains(postgresError.Message, "capital reservation snapshot") || postgresError.ConstraintName == "execution_capital_held") {
 				return Intent{}, nil, ErrReservationConflict
 			}
 			return Intent{}, nil, err

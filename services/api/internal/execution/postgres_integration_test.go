@@ -82,6 +82,9 @@ func newExecutionFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) 
 	if err := pool.QueryRow(ctx, `INSERT INTO users(external_id) VALUES($1) RETURNING id::text`, fmt.Sprintf("dispatch-test-%d", time.Now().UnixNano())).Scan(&r.OwnerID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO user_entitlements(user_id,entitlement_key) VALUES($1,'founder')`, r.OwnerID); err != nil {
+		t.Fatal(err)
+	}
 	if err := pool.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status) VALUES($1,'financial','coinbase','Dispatch fixture','active') RETURNING id::text`, r.OwnerID).Scan(&r.ConnectionID); err != nil {
 		t.Fatal(err)
 	}

@@ -22,6 +22,7 @@ var (
 	ErrNotAuthorized    = errors.New("current execution authorization unavailable")
 	ErrAlreadyAttempted = errors.New("submission already claimed; reconcile, never resend")
 	ErrAccountHeld      = errors.New("account has an unresolved submission")
+	ErrCapitalHeld      = errors.New("account capital remains reserved pending reconciliation")
 	ErrCommitUnknown    = errors.New("execution commit outcome unknown; recover, never dispatch")
 	uuidPattern         = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	productPattern      = regexp.MustCompile(`^[A-Z][A-Z0-9]{0,15}-USD$`)
@@ -63,8 +64,11 @@ type Authorization struct {
 	ExpiresAt            time.Time
 }
 
-// Authority must lock and verify current live approval, account/capital,
-// credentials, risk, product/quote evidence, and breakers in this transaction.
+// Claim holds current owner, entitlement, account, connection, bucket and scoped
+// breaker controls before invoking Authority. Authority must additionally lock
+// and verify exact live approval, available cash/inventory, credential scope,
+// risk, product/quote evidence and any mandate-specific controls. The persistent
+// reservation created by Claim is a hold, not proof that capital was available.
 // Denial aborts the claim. Implementations must not perform any broker write.
 // A later sender must also serialize revocation through the send boundary;
 // a committed attempt is NOT sufficient authority to send indefinitely.
