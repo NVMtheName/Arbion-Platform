@@ -40,9 +40,9 @@ func TestPostgresFillReconciliation(t *testing.T) {
 		}
 		b := BrokerIdentity{r.OwnerID, o.ID, r.AccountID, r.ConnectionID, r.ClientOrderID, brokerID, r.ProductID, r.Side}
 		now := time.Now().UTC()
-		f1 := Fill{b, "first", "0.0004", "60000", "24", "0.24", a.ClaimedAt.Add(time.Microsecond), now}
-		f2 := Fill{b, "second", "0.0006", "60000", "36", "0.36", a.ClaimedAt.Add(2900 * time.Nanosecond), now}
-		return o, f1, f2, TerminalReport{b, "FILLED", true, 2, "0.001", "60", "0.6", now, now}
+		f1 := Fill{b, "first", "0.0004", "60000", "24", "0.24", a.ClaimedAt.Add(time.Microsecond), now, nil}
+		f2 := Fill{b, "second", "0.0006", "60000", "36", "0.36", a.ClaimedAt.Add(2900 * time.Nanosecond), now, nil}
+		return o, f1, f2, TerminalReport{b, "FILLED", true, 2, "0.001", "60", "0.6", now, now, ""}
 	}
 	assertHeld := func(o Order, want bool) {
 		t.Helper()

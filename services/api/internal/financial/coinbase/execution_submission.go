@@ -60,21 +60,32 @@ type executionHistoryPage struct {
 }
 
 type executionOrderDetail struct {
-	Order *struct {
-		executionOrderIdentity
-		RetailPortfolioID          *string         `json:"retail_portfolio_id"`
-		ProductType                *string         `json:"product_type"`
-		OrderType                  *string         `json:"order_type"`
-		TimeInForce                *string         `json:"time_in_force"`
-		CreatedTime                *time.Time      `json:"created_time"`
-		SizeInQuote                *bool           `json:"size_in_quote"`
-		SizeInclusiveOfFees        *bool           `json:"size_inclusive_of_fees"`
-		IsLiquidation              *bool           `json:"is_liquidation"`
-		OrderConfiguration         json.RawMessage `json:"order_configuration"`
-		AttachedOrderConfiguration json.RawMessage `json:"attached_order_configuration"`
-		Leverage                   json.RawMessage `json:"leverage"`
-		MarginType                 *string         `json:"margin_type"`
-	} `json:"order"`
+	Order              *executionDetailedOrder `json:"order"`
+	ProofTokenRequired *bool                   `json:"proof_token_required"`
+}
+
+type executionDetailedOrder struct {
+	executionOrderIdentity
+	RetailPortfolioID          *string                  `json:"retail_portfolio_id"`
+	ProductType                *string                  `json:"product_type"`
+	OrderType                  *string                  `json:"order_type"`
+	TimeInForce                *string                  `json:"time_in_force"`
+	CreatedTime                *time.Time               `json:"created_time"`
+	SizeInQuote                *bool                    `json:"size_in_quote"`
+	SizeInclusiveOfFees        *bool                    `json:"size_inclusive_of_fees"`
+	IsLiquidation              *bool                    `json:"is_liquidation"`
+	OrderConfiguration         json.RawMessage          `json:"order_configuration"`
+	AttachedOrderConfiguration json.RawMessage          `json:"attached_order_configuration"`
+	Leverage                   json.RawMessage          `json:"leverage"`
+	MarginType                 *string                  `json:"margin_type"`
+	Status                     *string                  `json:"status"`
+	NumberOfFills              *string                  `json:"number_of_fills"`
+	FilledSize                 *executionEvidenceAmount `json:"filled_size"`
+	FilledValue                *executionEvidenceAmount `json:"filled_value"`
+	TotalFees                  *executionEvidenceAmount `json:"total_fees"`
+	PendingCancel              *bool                    `json:"pending_cancel"`
+	Settled                    *bool                    `json:"settled"`
+	LastFillTime               *string                  `json:"last_fill_time"`
 }
 
 // isolatedClient gives each operation a private, standard transport. Every
@@ -253,22 +264,27 @@ func (a *ExecutionAdapter) LookupSubmission(ctx context.Context, credentials *fi
 	if err := c.submissionRequest(ctx, key, http.MethodGet, executionHistoryPath+id, nil, &detail); err != nil {
 		return fail(err)
 	}
+	ack, ok := exactExecutionDetail(detail, s, attempt, id, c.now().UTC())
+	if !ok || ctx.Err() != nil {
+		return fail(invalidExecutionResponse())
+	}
+	return ack, nil
+}
+
+func exactExecutionDetail(detail executionOrderDetail, s execution.ConfirmedSubmission, attempt execution.Attempt, id string, now time.Time) (execution.SubmissionAcknowledgement, bool) {
 	o := detail.Order
-	if o == nil || o.RetailPortfolioID == nil || *o.RetailPortfolioID != s.PortfolioID ||
+	if (detail.ProofTokenRequired != nil && *detail.ProofTokenRequired) || o == nil || o.RetailPortfolioID == nil || *o.RetailPortfolioID != s.PortfolioID ||
 		o.ProductType == nil || *o.ProductType != "SPOT" || o.OrderType == nil || *o.OrderType != "LIMIT" ||
 		o.TimeInForce == nil || *o.TimeInForce != "IMMEDIATE_OR_CANCEL" || o.CreatedTime == nil ||
-		o.CreatedTime.Before(attempt.ClaimedAt) || o.CreatedTime.After(c.now().UTC()) ||
+		o.CreatedTime.Before(attempt.ClaimedAt) || o.CreatedTime.After(now) ||
 		!requiredExecutionBools(o.SizeInQuote, o.SizeInclusiveOfFees) || *o.SizeInQuote || *o.SizeInclusiveOfFees ||
 		(o.IsLiquidation != nil && *o.IsLiquidation) || !emptyExecutionField(o.AttachedOrderConfiguration) ||
 		!optionalExecutionDecimal(o.Leverage, "1") || (o.MarginType != nil && *o.MarginType != "") ||
 		!exactExecutionConfiguration(o.OrderConfiguration, s.Order.Request) {
-		return fail(invalidExecutionResponse())
+		return execution.SubmissionAcknowledgement{}, false
 	}
 	ack, ok := exactExecutionIdentity(o.executionOrderIdentity, s.Order.Request)
-	if !ok || ack.ProviderOrderID != id || ctx.Err() != nil {
-		return fail(invalidExecutionResponse())
-	}
-	return ack, nil
+	return ack, ok && ack.ProviderOrderID == id
 }
 
 func (c *Client) findExecutionOrder(ctx context.Context, key *financial.Credentials, s execution.ConfirmedSubmission) (string, error) {
@@ -359,7 +375,7 @@ func (c *Client) submissionRequest(ctx context.Context, key *financial.Credentia
 		if u.Path != "/api/v3/brokerage/orders" || u.RawQuery != "" || input == nil {
 			return invalidExecutionResponse()
 		}
-	} else if method != http.MethodGet || input != nil || (u.Path != executionHistoryPath+"batch" &&
+	} else if method != http.MethodGet || input != nil || (u.Path != executionHistoryPath+"batch" && u.Path != executionHistoryPath+"fills" &&
 		!executionUUID(strings.TrimPrefix(u.Path, executionHistoryPath))) || !strings.HasPrefix(u.Path, executionHistoryPath) {
 		return invalidExecutionResponse()
 	}

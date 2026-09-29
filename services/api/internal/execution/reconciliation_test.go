@@ -12,8 +12,8 @@ func reconciliationFixture() (Order, Attempt, Fill, TerminalReport, time.Time) {
 	a := Attempt{ClaimedAt: now.Add(-time.Second), ProviderOrderID: "77777777-7777-4777-8777-777777777777"}
 	r := o.Request
 	b := BrokerIdentity{r.OwnerID, o.ID, r.AccountID, r.ConnectionID, r.ClientOrderID, a.ProviderOrderID, r.ProductID, r.Side}
-	f := Fill{b, "trade-1", "0.0004", "60000", "24", "0.24", now.Add(-500 * time.Millisecond), now}
-	t := TerminalReport{b, "CANCELLED", true, 1, "0.0004", "24", "0.24", now, now}
+	f := Fill{b, "trade-1", "0.0004", "60000", "24", "0.24", now.Add(-500 * time.Millisecond), now, nil}
+	t := TerminalReport{b, "CANCELLED", true, 1, "0.0004", "24", "0.24", now, now, ""}
 	return o, a, f, t, now
 }
 

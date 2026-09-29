@@ -82,6 +82,18 @@ func (s *PostgresStore) RecordFill(ctx context.Context, f Fill) error {
 		return err
 	}
 	defer rollback(tx)
+	if err = s.recordFill(ctx, tx, f); err != nil && !errors.Is(err, ErrReconciliationBlocked) {
+		return err
+	}
+	if commitErr := tx.Commit(ctx); commitErr != nil {
+		return ErrCommitUnknown
+	}
+	return err
+}
+
+// Used by the collection coordinator under its current-access transaction.
+// A proven conflict stages quarantine; the caller owns the final commit guard.
+func (s *PostgresStore) recordFill(ctx context.Context, tx pgx.Tx, f Fill) error {
 	o, a, now, err := reconciliationLock(ctx, tx, f.BrokerIdentity)
 	if err != nil {
 		return err
@@ -97,9 +109,6 @@ func (s *PostgresStore) RecordFill(ctx context.Context, f Fill) error {
 		var saved Fill
 		if json.Unmarshal(body, &saved) != nil || !sameFill(saved, f) {
 			return s.block(ctx, tx, o, "FILL_CONFLICT", input)
-		}
-		if err = tx.Commit(ctx); err != nil {
-			return ErrCommitUnknown
 		}
 		return nil
 	}
@@ -133,9 +142,6 @@ func (s *PostgresStore) RecordFill(ctx context.Context, f Fill) error {
 	if err != nil {
 		return mapError(err)
 	}
-	if err = tx.Commit(ctx); err != nil {
-		return ErrCommitUnknown
-	}
 	return nil
 }
 
@@ -148,6 +154,16 @@ func (s *PostgresStore) ReconcileTerminal(ctx context.Context, t TerminalReport)
 		return err
 	}
 	defer rollback(tx)
+	if err = s.reconcileTerminal(ctx, tx, t); err != nil && !errors.Is(err, ErrReconciliationBlocked) {
+		return err
+	}
+	if commitErr := tx.Commit(ctx); commitErr != nil {
+		return ErrCommitUnknown
+	}
+	return err
+}
+
+func (s *PostgresStore) reconcileTerminal(ctx context.Context, tx pgx.Tx, t TerminalReport) error {
 	o, a, now, err := reconciliationLock(ctx, tx, t.BrokerIdentity)
 	if err != nil {
 		return err
@@ -170,9 +186,6 @@ func (s *PostgresStore) ReconcileTerminal(ctx context.Context, t TerminalReport)
 		if json.Unmarshal(body, &saved) != nil || !sameTerminal(saved, t) {
 			return s.block(ctx, tx, o, "TERMINAL_CONFLICT", input)
 		}
-		if err = tx.Commit(ctx); err != nil {
-			return ErrCommitUnknown
-		}
 		return nil
 	}
 	totals, latest, err := readTotals(ctx, tx, o.ID)
@@ -190,9 +203,6 @@ func (s *PostgresStore) ReconcileTerminal(ctx context.Context, t TerminalReport)
 		return mapError(err)
 	}
 	// The schema validates totals and deletes this order's hold in the same tx.
-	if err = tx.Commit(ctx); err != nil {
-		return ErrCommitUnknown
-	}
 	return nil
 }
 
@@ -257,8 +267,7 @@ func (s *PostgresStore) block(ctx context.Context, tx pgx.Tx, o Order, reason st
 	if err != nil {
 		return mapError(err)
 	}
-	if err = tx.Commit(ctx); err != nil {
-		return ErrCommitUnknown
-	}
+	// Caller commits only after any required current-access recheck. Legacy
+	// single-evidence entry points also commit this durable quarantine.
 	return ErrReconciliationBlocked
 }

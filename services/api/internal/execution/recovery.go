@@ -133,9 +133,17 @@ func (s *PostgresStore) loadRecoveryContext(ctx context.Context, ownerID, orderI
 // No allocation, approval, reconciliation or stop locks: these are read access
 // checks only. Require READ COMMITTED and check expiry after all lock waits.
 func lockRecoveryAccess(ctx context.Context, tx pgx.Tx, o Order, portfolio string) (int64, error) {
+	return lockEvidenceAccess(ctx, tx, o, portfolio, false)
+}
+
+func lockEvidenceAccess(ctx context.Context, tx pgx.Tx, o Order, portfolio string, writeAccount bool) (int64, error) {
 	var isolation, ignored string
 	if err := tx.QueryRow(ctx, `SHOW transaction_isolation`).Scan(&isolation); err != nil || isolation != "read committed" {
 		return 0, ErrNotAuthorized
+	}
+	accountLock := `SELECT id::text FROM financial_accounts WHERE id=$1 AND user_id=$2 FOR SHARE`
+	if writeAccount {
+		accountLock = `SELECT id::text FROM financial_accounts WHERE id=$1 AND user_id=$2 FOR UPDATE`
 	}
 	queries := []struct {
 		sql  string
@@ -143,7 +151,7 @@ func lockRecoveryAccess(ctx context.Context, tx pgx.Tx, o Order, portfolio strin
 	}{
 		{`SELECT id::text FROM users WHERE id=$1 FOR SHARE`, []any{o.Request.OwnerID}},
 		{`SELECT id::text FROM user_entitlements WHERE user_id=$1 AND entitlement_key='founder' FOR SHARE`, []any{o.Request.OwnerID}},
-		{`SELECT id::text FROM financial_accounts WHERE id=$1 AND user_id=$2 FOR SHARE`, []any{o.Request.AccountID, o.Request.OwnerID}},
+		{accountLock, []any{o.Request.AccountID, o.Request.OwnerID}},
 		{`SELECT id::text FROM provider_connections WHERE id=$1 AND user_id=$2 FOR SHARE`, []any{o.Request.ConnectionID, o.Request.OwnerID}},
 	}
 	for _, q := range queries {

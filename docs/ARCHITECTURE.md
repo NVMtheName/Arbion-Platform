@@ -611,9 +611,31 @@ remain mandatory, and access is checked again before storing correlation.
 An absent/incomplete result stays UNKNOWN. Strictly reported rejection codes are
 immutable distinct evidence, not a fabricated broker ID or settlement. Conflicting
 acknowledgement/rejection receipts serialize and fail closed at the database.
+
+The unwired reconciliation coordinator uses the recovered broker identity for
+bounded GET-only order/fill collection. A complete traversal (at most ten pages
+of 100 fills) must match both surrounding order snapshots, exact fill count,
+base quantity, gross value, fees and latest fill time. Partial fills remain
+nonterminal facts. Unknown, malformed, duplicate, inconsistent or changing
+evidence cannot settle. Quote-sized fills require an exact finite base conversion;
+source entry/trade identities, units and sequence/trade times are immutable.
+USD fee denomination follows the quote-asset rule in
+[Coinbase Trading Rules section 1.91](https://www.coinbase.com/legal/trading_rules),
+not an assumed currency in the general historical display projection. Coinbase
+does not provide a general completion timestamp here: terminal receipts label
+their first verified observation time explicitly and never invent one. Exact
+replays, including reverse-order polling receipts, retain the original receipt.
+
+Collection occurs outside database locks. Current owner/account/connection
+access and the material credential generation are rechecked under account-first
+serialization before saving the whole validated collection and again before
+commit, including quarantine paths. A verified terminal releases only the
+submission slot, never reserved capital; conflicts durably quarantine the
+account while incomplete scans leave state unchanged. The existing execution
+ledger remains the sole source of immutable fills and terminal facts.
 No HTTP route, scheduler dispatch, capital-release writer or autonomous
-live-mandate authority is wired. Complete broker status/fill/cancel handling,
-account settlement and dedicated runtime security review remain required before
+live-mandate authority is wired. Account cash/position settlement, unresolved
+order cancellation and dedicated runtime security review remain required before
 a separately approved pilot. All adapter proofs use synthetic local HTTP, not
 real orders or live compatibility/strategy-profitability evidence. See
 [execution engine](EXECUTION_ENGINE.md).

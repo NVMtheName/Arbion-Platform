@@ -30,13 +30,24 @@ type BrokerIdentity struct {
 
 type Fill struct {
 	BrokerIdentity
-	TradeID      string
-	BaseQuantity string
-	PriceUSD     string
-	GrossUSD     string
-	FeeUSD       string
-	TradedAt     time.Time
-	ObservedAt   time.Time
+	TradeID          string
+	BaseQuantity     string
+	PriceUSD         string
+	GrossUSD         string
+	FeeUSD           string
+	TradedAt         time.Time
+	ObservedAt       time.Time
+	ProviderEvidence *FillProviderEvidence `json:",omitempty"`
+}
+
+// FillProviderEvidence preserves the source units and provider identities of
+// this narrow Coinbase adapter without changing historical display evidence.
+type FillProviderEvidence struct {
+	EntryID                       string
+	SequenceAt                    time.Time
+	Size                          string
+	SizeInQuote                   bool
+	FeeCurrency, FeeCurrencyBasis string
 }
 
 // TerminalReport is a normalized final broker order plus a completed fill
@@ -52,6 +63,10 @@ type TerminalReport struct {
 	FeeUSD        string
 	CompletedAt   time.Time
 	ObservedAt    time.Time
+	// Empty means a provider-supplied completion time (legacy exact reports).
+	// OBSERVED_TERMINAL_STATUS means CompletedAt is the first verified final
+	// observation, not an invented exchange cancellation/completion timestamp.
+	CompletionTimeBasis string `json:",omitempty"`
 }
 
 type Totals struct {
@@ -113,13 +128,36 @@ func normalizeFill(o Order, a Attempt, f Fill, now time.Time) (Fill, error) {
 	f.FeeUSD = canonical(fee)
 	f.TradedAt = f.TradedAt.UTC()
 	f.ObservedAt = f.ObservedAt.UTC()
+	if e := f.ProviderEvidence; e != nil {
+		if !tradeIDPattern.MatchString(e.EntryID) || e.SequenceAt.IsZero() || e.SequenceAt.After(f.ObservedAt) || e.FeeCurrency != "USD" || e.FeeCurrencyBasis != "COINBASE_ADVANCED_QUOTE_ASSET_1_91" {
+			return Fill{}, ErrInvalid
+		}
+		size, ok := amount(e.Size)
+		want := q
+		if e.SizeInQuote {
+			want = g
+		}
+		if !ok || size.Cmp(want) != 0 {
+			return Fill{}, ErrInvalid
+		}
+		copy := *e
+		copy.Size, copy.SequenceAt = canonical(size), e.SequenceAt.UTC()
+		f.ProviderEvidence = &copy
+	}
 	return f, nil
 }
 
 func sameFill(a, b Fill) bool {
 	// Polling time is delivery metadata, not a second economic fill identity.
 	return a.BrokerIdentity == b.BrokerIdentity && a.TradeID == b.TradeID && a.BaseQuantity == b.BaseQuantity && a.PriceUSD == b.PriceUSD &&
-		a.GrossUSD == b.GrossUSD && a.FeeUSD == b.FeeUSD && a.TradedAt.Equal(b.TradedAt)
+		a.GrossUSD == b.GrossUSD && a.FeeUSD == b.FeeUSD && a.TradedAt.Equal(b.TradedAt) && sameFillProviderEvidence(a.ProviderEvidence, b.ProviderEvidence)
+}
+
+func sameFillProviderEvidence(a, b *FillProviderEvidence) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.EntryID == b.EntryID && a.SequenceAt.Equal(b.SequenceAt) && a.Size == b.Size && a.SizeInQuote == b.SizeInQuote && a.FeeCurrency == b.FeeCurrency && a.FeeCurrencyBasis == b.FeeCurrencyBasis
 }
 
 func withinBounds(r Request, t Totals) bool {
@@ -146,6 +184,9 @@ func withinBounds(r Request, t Totals) bool {
 
 func normalizeTerminal(o Order, a Attempt, t TerminalReport, now time.Time) (TerminalReport, error) {
 	if !identityMatches(o, a, t.BrokerIdentity) || t.CompletedAt.Before(a.ClaimedAt) || t.ObservedAt.Before(t.CompletedAt) || t.ObservedAt.After(now) {
+		return TerminalReport{}, ErrInvalid
+	}
+	if t.CompletionTimeBasis != "" && (t.CompletionTimeBasis != "OBSERVED_TERMINAL_STATUS" || !t.CompletedAt.Equal(t.ObservedAt)) {
 		return TerminalReport{}, ErrInvalid
 	}
 	switch t.Status {
@@ -179,5 +220,8 @@ func normalizeTerminal(o Order, a Attempt, t TerminalReport, now time.Time) (Ter
 
 func sameTerminal(a, b TerminalReport) bool {
 	return a.BrokerIdentity == b.BrokerIdentity && a.Status == b.Status && a.CompleteFills == b.CompleteFills && a.FillCount == b.FillCount &&
-		a.BaseQuantity == b.BaseQuantity && a.GrossUSD == b.GrossUSD && a.FeeUSD == b.FeeUSD && a.CompletedAt.Equal(b.CompletedAt)
+		a.BaseQuantity == b.BaseQuantity && a.GrossUSD == b.GrossUSD && a.FeeUSD == b.FeeUSD && a.CompletionTimeBasis == b.CompletionTimeBasis &&
+		// Poll completion order is not an economic fact. Identical observations
+		// may arrive out of order; preserve the first saved receipt unchanged.
+		(a.CompletedAt.Equal(b.CompletedAt) || a.CompletionTimeBasis == "OBSERVED_TERMINAL_STATUS")
 }
