@@ -27,7 +27,7 @@ type VerifiedPreflight struct {
 // evidence, account isolation and actual View+Trade/no-Transfer key permissions,
 // plus complete fresh available balances/inventory. This method is DB-only on
 // the passed transaction; provider reads happen BEFORE claiming, not under locks.
-// No production implementation exists yet. Nil fails closed; a cached trade
+// SavedPreflightVerifier validates private persisted evidence. Nil fails closed; a cached trade
 // capability, proposal preview or successful risk decision is not a substitute.
 type PreflightVerifier interface {
 	VerifyDispatchPreflight(context.Context, pgx.Tx, Order, int64) (VerifiedPreflight, error)
@@ -108,7 +108,10 @@ func (a *OwnerAuthority) AuthorizeDispatch(ctx context.Context, tx pgx.Tx, o Ord
 	if !validPreflight(proof, o, generation, reconciliationID, now) {
 		return Authorization{}, ErrNotAuthorized
 	}
-	if !proof.ObservedAt.Equal(rec.ObservedAt) {
+	// Provider reads and saved reconciliation have distinct observation times.
+	// Both must be fresh and their complete funding facts must agree exactly;
+	// never relabel a prior snapshot with the newer provider-read timestamp.
+	if rec.ObservedAt.Before(o.CreatedAt) || rec.ObservedAt.After(now) || now.Sub(rec.ObservedAt) > 30*time.Second {
 		return Authorization{}, ErrNotAuthorized
 	}
 	if err = matchFundingReconciliation(ctx, tx, o, proof); err != nil {

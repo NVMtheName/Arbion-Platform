@@ -578,10 +578,15 @@ checks fresh exact available cash/inventory against complete reconciliation;
 and runs unchanged deterministic risk before atomically recording authorization
 and the attempt. Credential replacement advances the financial generation.
 
-The mandatory provider preflight verifier is not implemented. It must validate
-saved exact provider permissions, account, product, preview and quote evidence on
-the claim transaction; network reads occur before locks. Synthetic tests do not
-certify provider compatibility. No HTTP route, scheduler dispatch, financial
+The private Coinbase preflight collector performs only scoped reads and an
+exact non-executing price-bounded IOC preview. It checks actual key permissions,
+complete isolated-account funding, product rules and timestamped quotes, with
+strict bounded parsing and redirects disabled. A server-only capture service
+binds vault retrieval/provider collection to the stored credential generation,
+then saves immutable evidence under current-control locks. The saved verifier
+checks a pinned evidence ID and matching fresh complete reconciliation entirely
+on the claim transaction; no provider calls occur under those locks. Synthetic
+tests do not certify provider compatibility. No HTTP route, scheduler dispatch, financial
 provider writer, capital-release writer or autonomous live-mandate authority is
 wired. A revocation-safe actual send boundary, settlement and dedicated security
 review remain required before a separately approved pilot. See
