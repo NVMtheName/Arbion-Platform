@@ -372,7 +372,7 @@ func (c *Client) submissionRequest(ctx context.Context, key *financial.Credentia
 		return invalidExecutionResponse()
 	}
 	if method == http.MethodPost {
-		if u.Path != "/api/v3/brokerage/orders" || u.RawQuery != "" || input == nil {
+		if (u.Path != "/api/v3/brokerage/orders" && u.Path != executionCancellationPath) || u.RawQuery != "" || input == nil {
 			return invalidExecutionResponse()
 		}
 	} else if method != http.MethodGet || input != nil || (u.Path != executionHistoryPath+"batch" && u.Path != executionHistoryPath+"fills" &&

@@ -654,9 +654,25 @@ No broker holdings are mutated and no generic reconciliation, risk, stop or
 approval control is cleared. Every later order still requires its own current
 authority and fresh funding/reconciliation evidence.
 
+A separate unwired cancellation coordinator durably claims one operation for
+the original known broker order before its synchronous bounded callback. Only
+the winning invocation may call the provider; restart, timeout and ambiguous
+commit cannot renew or retry that attempt. Current owner/account/connection
+access, portfolio and credential generation are checked again under the same
+ordered locks immediately before admission. The original five-second deadline
+and current access expiry include database-response delay. Old order approval,
+stop state and reconciliation quarantine do not prevent risk-reducing cancellation.
+The private adapter checks fresh View/Trade/no-Transfer portfolio permissions
+and exact unresolved order terms, then issues at most one singleton cancellation
+request without retry, redirect, replacement or a new preview. A saved result
+is only ACCEPTED, NOT_ACCEPTED or UNKNOWN operation evidence. None releases a
+hold or proves no further fills; existing complete final-fill reconciliation
+and exact account settlement remain mandatory. Database-session loss is not
+broker fencing, and a lost response requires reconciliation, not blind retry.
+
 No HTTP route, scheduler dispatch, capital-release writer or autonomous
-live-mandate authority is runtime-wired. Unresolved order cancellation and
-dedicated runtime security review remain required before
+live-mandate authority is runtime-wired. Dedicated runtime security review
+remains required before
 a separately approved pilot. All adapter proofs use synthetic local HTTP, not
 real orders or live compatibility/strategy-profitability evidence. See
 [execution engine](EXECUTION_ENGINE.md).
