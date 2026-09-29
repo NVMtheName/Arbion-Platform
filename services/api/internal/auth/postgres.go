@@ -142,6 +142,19 @@ func (s *PostgresStore) AdvanceTOTPStep(ctx context.Context, userID string, step
 	return tag.RowsAffected() == 1, err
 }
 
+// AdvanceExecutionTOTPStep keeps execution step-up bound to the exact enabled
+// factor verified by the service. A concurrent disable/re-enrollment or secret
+// replacement fails closed rather than consuming a step on a different factor.
+func (s *PostgresStore) AdvanceExecutionTOTPStep(ctx context.Context, userID string, expected TOTPFactor, step int64, now time.Time) (bool, error) {
+	if expected.EnabledAt == nil || expected.EnabledAt.After(now) || len(expected.SecretCiphertext) == 0 {
+		return false, nil
+	}
+	tag, err := s.db.Exec(ctx, `UPDATE auth_totp_factors SET last_used_step=$2,updated_at=$3
+		WHERE user_id=$1 AND last_used_step<$2 AND secret_ciphertext=$4 AND enabled_at=$5`,
+		userID, step, now, expected.SecretCiphertext, *expected.EnabledAt)
+	return tag.RowsAffected() == 1, err
+}
+
 func (s *PostgresStore) ConsumeRecoveryCode(ctx context.Context, userID string, codeHash []byte, now time.Time) (bool, error) {
 	tag, err := s.db.Exec(ctx, `UPDATE auth_mfa_recovery_codes SET used_at=$3 WHERE user_id=$1 AND code_hash=$2 AND used_at IS NULL`, userID, codeHash, now)
 	return tag.RowsAffected() == 1, err

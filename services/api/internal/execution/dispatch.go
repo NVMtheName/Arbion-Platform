@@ -56,7 +56,8 @@ type Order struct {
 }
 
 // Authorization must originate in the control plane, not a model, preview
-// review, or caller-supplied boolean. This package has no production Authority.
+// review, or caller-supplied boolean. OwnerAuthority is implemented but remains
+// unwired and denies without the separately reviewed provider preflight verifier.
 type Authorization struct {
 	ID                   string
 	RequestDigest        string

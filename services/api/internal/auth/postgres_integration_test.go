@@ -112,6 +112,52 @@ func TestPostgresTOTPMFALifecycle(t *testing.T) {
 	if advanced, err := store.AdvanceTOTPStep(ctx, user.ID, 101, now.Add(2*time.Second)); err != nil || !advanced {
 		t.Fatalf("new TOTP step did not advance: %v %v", advanced, err)
 	}
+	t.Run("execution step is bound to the exact enabled factor", func(t *testing.T) {
+		exact, err := store.TOTPFactor(ctx, user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		verifiedAt := now.Add(2 * time.Second)
+		if advanced, err := store.AdvanceExecutionTOTPStep(ctx, user.ID, exact, 102, verifiedAt); err != nil || !advanced {
+			t.Fatalf("exact execution factor did not advance: %v %v", advanced, err)
+		}
+		if advanced, err := store.AdvanceExecutionTOTPStep(ctx, user.ID, exact, 102, verifiedAt); err != nil || advanced {
+			t.Fatalf("execution TOTP replay was accepted: %v %v", advanced, err)
+		}
+		// Simulate replacement after the verifier read the opaque factor. The
+		// old verified ciphertext must not advance the replacement, even when
+		// its enrollment timestamp and unused step would otherwise match.
+		replacement := bytes.Clone(ciphertext)
+		replacement[0] = 1
+		if _, err = pool.Exec(ctx, `UPDATE auth_totp_factors SET secret_ciphertext=$2 WHERE user_id=$1`, user.ID, replacement); err != nil {
+			t.Fatal(err)
+		}
+		if advanced, err := store.AdvanceExecutionTOTPStep(ctx, user.ID, exact, 103, verifiedAt); err != nil || advanced {
+			t.Fatalf("stale ciphertext advanced replacement factor: %v %v", advanced, err)
+		}
+		exact, err = store.TOTPFactor(ctx, user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if advanced, err := store.AdvanceExecutionTOTPStep(ctx, user.ID, exact, 103, verifiedAt); err != nil || !advanced {
+			t.Fatalf("fresh replacement ciphertext did not advance: %v %v", advanced, err)
+		}
+		// The same encrypted bytes are still insufficient if the factor was
+		// re-enrolled: both identities must match in the atomic UPDATE.
+		if _, err = pool.Exec(ctx, `UPDATE auth_totp_factors SET enabled_at=enabled_at+interval '1 microsecond' WHERE user_id=$1`, user.ID); err != nil {
+			t.Fatal(err)
+		}
+		if advanced, err := store.AdvanceExecutionTOTPStep(ctx, user.ID, exact, 104, verifiedAt); err != nil || advanced {
+			t.Fatalf("stale enrollment advanced replacement factor: %v %v", advanced, err)
+		}
+		exact, err = store.TOTPFactor(ctx, user.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if advanced, err := store.AdvanceExecutionTOTPStep(ctx, user.ID, exact, 104, verifiedAt); err != nil || !advanced {
+			t.Fatalf("fresh enrollment did not advance: %v %v", advanced, err)
+		}
+	})
 	if consumed, err := store.ConsumeRecoveryCode(ctx, user.ID, firstHash[:], now.Add(3*time.Second)); err != nil || !consumed {
 		t.Fatalf("recovery code was not consumed: %v %v", consumed, err)
 	}

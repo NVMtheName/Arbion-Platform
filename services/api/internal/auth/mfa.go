@@ -309,6 +309,20 @@ func (s *Service) VerifyOrderIntentStepUp(ctx context.Context, userID, code stri
 	return s.verifyTOTPOnlyStepUp(ctx, userID, code, "order_intent")
 }
 
+// VerifyExecutionStepUp is a distinct, one-use TOTP purpose for exact owner
+// execution approval. No route currently exposes it; preview reviews cannot
+// be reused as execution approval and recovery codes are not accepted.
+func (s *Service) VerifyExecutionStepUp(ctx context.Context, userID, code string) (string, time.Time, error) {
+	return s.verifyTOTPOnlyStepUp(ctx, userID, code, "execution_approval")
+}
+
+// executionMFAStore atomically consumes a step only for the exact factor whose
+// encrypted secret was verified. Execution must never fall back to the generic
+// user-only advance if a factor is replaced between its read and this write.
+type executionMFAStore interface {
+	AdvanceExecutionTOTPStep(context.Context, string, TOTPFactor, int64, time.Time) (bool, error)
+}
+
 // VerifySafetyControlStepUp consumes one fresh authenticator step before a
 // privileged safety control is released. Engaging a stop never requires this
 // step, so an operator can always fail closed quickly.
@@ -334,6 +348,14 @@ func (s *Service) verifyTOTPOnlyStepUp(ctx context.Context, userID, code, purpos
 	if s.mfaStore == nil || s.mfaProtector == nil || userID == "" {
 		return "", time.Time{}, ErrMFAUnavailable
 	}
+	var executionStore executionMFAStore
+	if purpose == "execution_approval" {
+		var ok bool
+		executionStore, ok = s.mfaStore.(executionMFAStore)
+		if !ok {
+			return "", time.Time{}, ErrMFAUnavailable
+		}
+	}
 	allowed, err := s.limiter.Allow(ctx, purpose+"_step_up:"+userID, 8, 10*time.Minute)
 	if err != nil {
 		return "", time.Time{}, err
@@ -351,7 +373,15 @@ func (s *Service) verifyTOTPOnlyStepUp(ctx context.Context, userID, code, purpos
 		_ = s.audit.Record(ctx, &userID, "auth."+purpose+"_step_up_failed", map[string]any{"outcome": "rejected"})
 		return "", time.Time{}, ErrInvalidMFACode
 	}
-	advanced, err := s.mfaStore.AdvanceTOTPStep(ctx, userID, step, now)
+	var advanced bool
+	if executionStore != nil {
+		if factor.EnabledAt.After(now) {
+			return "", time.Time{}, ErrInvalidMFACode
+		}
+		advanced, err = executionStore.AdvanceExecutionTOTPStep(ctx, userID, factor, step, now)
+	} else {
+		advanced, err = s.mfaStore.AdvanceTOTPStep(ctx, userID, step, now)
+	}
 	if err != nil {
 		return "", time.Time{}, err
 	}

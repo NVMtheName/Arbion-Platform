@@ -566,6 +566,27 @@ automatically extended. This bounded check does not replace the existing Paper
 binding locks or the shared AI Shadow binding checks described above, revalidate
 all risk inputs, or authorize an eventual broker dispatch. No live path is added.
 
+### Unwired personal execution authority
+
+The approved Coinbase-only implementation keeps exact execution requests, owner
+confirmations, authorization evidence, durable attempts, capital holds and fills
+inside the Go execution domain. Owner confirmation is separate from permanently
+non-executable proposal reviews and uses exact-factor one-use TOTP, a short-lived
+order digest/key-generation binding and append-only revocation. Claim serializes
+current access, account, credential, bucket, approval, factor and stop controls;
+checks fresh exact available cash/inventory against complete reconciliation;
+and runs unchanged deterministic risk before atomically recording authorization
+and the attempt. Credential replacement advances the financial generation.
+
+The mandatory provider preflight verifier is not implemented. It must validate
+saved exact provider permissions, account, product, preview and quote evidence on
+the claim transaction; network reads occur before locks. Synthetic tests do not
+certify provider compatibility. No HTTP route, scheduler dispatch, financial
+provider writer, capital-release writer or autonomous live-mandate authority is
+wired. A revocation-safe actual send boundary, settlement and dedicated security
+review remain required before a separately approved pilot. See
+[execution engine](EXECUTION_ENGINE.md).
+
 ## Scalable AWS production topology
 
 The long-term scalable production foundation retains the same modular-monolith-plus-Neural-Engine boundary. A public AWS ALB terminates ACM TLS and routes `/api/*` to private Go Fargate tasks and default traffic to private Next.js tasks. Python is private and discovered through AWS Cloud Map; token authentication remains mandatory. Private Multi-AZ RDS is durable truth and encrypted ElastiCache is ephemeral coordination/session infrastructure. Application tasks use private subnets with NAT egress for fixed provider adapters, while data subnets have no Internet route. ECR, Secrets Manager/KMS, CloudWatch, and GitHub OIDC supply image, secret, telemetry, and temporary deployment-identity boundaries. See [AWS deployment](AWS_DEPLOYMENT.md).
