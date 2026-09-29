@@ -92,7 +92,7 @@ func (s *PostgresStore) SettleBrokerAccount(ctx context.Context, ownerID, orderI
 	}
 	r := sub.Order.Request
 	_, err = tx.Exec(ctx, `INSERT INTO execution_account_settlements(order_id,owner_id,financial_account_id,provider_connection_id,capital_bucket_id,provider_order_id,credential_generation,portfolio_id,terminal_status,fill_count,base_quantity,gross_usd,fee_usd,opening_cash_usd,opening_base,closing_cash_usd,closing_base,started_at,observed_at,evidence)
-	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`, orderID, ownerID, r.AccountID, r.ConnectionID, r.CapitalBucketID, a.ProviderOrderID, materialGeneration, sub.PortfolioID, terminal.Status, terminal.FillCount, terminal.BaseQuantity, terminal.GrossUSD, terminal.FeeUSD, sub.Preflight.CashUSD, sub.Preflight.TotalBase, e.CashUSD, e.TotalBase, e.StartedAt.Round(time.Microsecond), e.CompletedAt.Round(time.Microsecond), body)
+	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,($18::jsonb->>'StartedAt')::timestamptz,($18::jsonb->>'CompletedAt')::timestamptz,$18)`, orderID, ownerID, r.AccountID, r.ConnectionID, r.CapitalBucketID, a.ProviderOrderID, materialGeneration, sub.PortfolioID, terminal.Status, terminal.FillCount, terminal.BaseQuantity, terminal.GrossUSD, terminal.FeeUSD, sub.Preflight.CashUSD, sub.Preflight.TotalBase, e.CashUSD, e.TotalBase, body)
 	if err != nil {
 		return AccountSettlement{}, mapError(err)
 	}

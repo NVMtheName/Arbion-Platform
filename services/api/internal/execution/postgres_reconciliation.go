@@ -137,8 +137,11 @@ func (s *PostgresStore) recordFill(ctx context.Context, tx pgx.Tx, f Fill) error
 		return s.block(ctx, tx, o, "FILL_LIMIT_BREACH", input)
 	}
 	body, _ = json.Marshal(f)
+	// Use the database's projection of the exact payload timestamps. Go's
+	// half-microsecond rounding can differ from PostgreSQL's timestamp parser.
+	// Original nanoseconds remain immutable in the payload.
 	_, err = tx.Exec(ctx, `INSERT INTO execution_fills(order_id,owner_id,financial_account_id,provider_order_id,trade_id,base_quantity,price_usd,gross_usd,fee_usd,traded_at,observed_at,payload)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, o.ID, f.OwnerID, f.AccountID, f.ProviderOrderID, f.TradeID, f.BaseQuantity, f.PriceUSD, f.GrossUSD, f.FeeUSD, f.TradedAt.Round(time.Microsecond), f.ObservedAt.Round(time.Microsecond), body)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,($10::jsonb->>'TradedAt')::timestamptz,($10::jsonb->>'ObservedAt')::timestamptz,$10)`, o.ID, f.OwnerID, f.AccountID, f.ProviderOrderID, f.TradeID, f.BaseQuantity, f.PriceUSD, f.GrossUSD, f.FeeUSD, body)
 	if err != nil {
 		return mapError(err)
 	}
@@ -146,8 +149,8 @@ func (s *PostgresStore) recordFill(ctx context.Context, tx pgx.Tx, f Fill) error
 }
 
 // ReconcileTerminal releases only the submission slot, not financial capital.
-// Durable capital and account cash/position reconciliation are separate future
-// gates. Incomplete pagination or unmatched totals leave the slot held.
+// Capital release requires the separate exact account-settlement gate.
+// Incomplete pagination or unmatched totals leave the slot held.
 func (s *PostgresStore) ReconcileTerminal(ctx context.Context, t TerminalReport) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -198,7 +201,7 @@ func (s *PostgresStore) reconcileTerminal(ctx context.Context, tx pgx.Tx, t Term
 	}
 	body, _ = json.Marshal(t)
 	_, err = tx.Exec(ctx, `INSERT INTO execution_order_terminals(order_id,owner_id,financial_account_id,provider_order_id,status,fill_count,base_quantity,gross_usd,fee_usd,completed_at,observed_at,payload)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, o.ID, t.OwnerID, t.AccountID, t.ProviderOrderID, t.Status, t.FillCount, t.BaseQuantity, t.GrossUSD, t.FeeUSD, t.CompletedAt.Round(time.Microsecond), t.ObservedAt.Round(time.Microsecond), body)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,($10::jsonb->>'CompletedAt')::timestamptz,($10::jsonb->>'ObservedAt')::timestamptz,$10)`, o.ID, t.OwnerID, t.AccountID, t.ProviderOrderID, t.Status, t.FillCount, t.BaseQuantity, t.GrossUSD, t.FeeUSD, body)
 	if err != nil {
 		return mapError(err)
 	}

@@ -360,3 +360,35 @@ func TestPostgresSettlementExpiryRollsBackReceiptAndRelease(t *testing.T) {
 		})
 	}
 }
+
+func TestPostgresSettlementPreservesHalfMicrosecondEvidence(t *testing.T) {
+	ctx, pool := setupExecutionTest(t)
+	f, e := newSettlementFixture(t, ctx, pool, "BUY", "partial")
+	origin := nextSettlementPrecisionOrigin(t, ctx, pool)
+	e.StartedAt, e.CompletedAt = origin.Add(500*time.Nanosecond), origin.Add(1500*time.Nanosecond)
+	e.Observation.StartedAt, e.Observation.ObservedAt = e.StartedAt, e.CompletedAt
+	for i := range e.Observation.Fills {
+		e.Observation.Fills[i].ObservedAt = e.CompletedAt
+	}
+	s := NewPostgresStore(pool)
+	receipt, err := s.SettleBrokerAccount(ctx, f.order.Request.OwnerID, f.order.ID, f.vault, savedSettlement(e))
+	if err != nil {
+		t.Fatal("half-microsecond account settlement", err)
+	}
+	assertSettlementReceipt(t, ctx, pool, f, e, receipt)
+	var columnsMatch bool
+	var started, completed string
+	err = pool.QueryRow(ctx, `SELECT started_at=(evidence->>'StartedAt')::timestamptz
+	 AND observed_at=(evidence->>'CompletedAt')::timestamptz,evidence->>'StartedAt',evidence->>'CompletedAt'
+	 FROM execution_account_settlements WHERE order_id=$1`, f.order.ID).Scan(&columnsMatch, &started, &completed)
+	if err != nil || !columnsMatch || started != e.StartedAt.Format(time.RFC3339Nano) || completed != e.CompletedAt.Format(time.RFC3339Nano) {
+		t.Fatal("settlement columns diverged from exact nanosecond evidence", err, columnsMatch, started, completed)
+	}
+	replay, err := NewPostgresStore(pool).SettleBrokerAccount(ctx, f.order.Request.OwnerID, f.order.ID, f.vault, settlementProviderFunc(func(context.Context, *financial.Credentials, ConfirmedSubmission, Attempt) (AccountSettlementEvidence, error) {
+		t.Error("exact committed settlement was recollected")
+		return AccountSettlementEvidence{}, ErrInvalid
+	}))
+	if err != nil || !reflect.DeepEqual(replay, receipt) {
+		t.Fatal("precision settlement replay changed receipt", err, replay)
+	}
+}

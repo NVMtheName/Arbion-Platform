@@ -274,6 +274,69 @@ func TestPostgresFillReconciliation(t *testing.T) {
 	})
 }
 
+func TestPostgresReconciliationPreservesHalfMicrosecondEvidence(t *testing.T) {
+	ctx, pool := setupExecutionTest(t)
+	// The two conversion rules are observably different; this is not a test
+	// that merely replaces one equivalent representation with another.
+	fixed := time.Date(2026, time.September, 29, 12, 0, 0, 500, time.UTC)
+	var differs bool
+	if err := pool.QueryRow(ctx, `SELECT $1::timestamptz IS DISTINCT FROM ($2::text)::timestamptz`, fixed.Round(time.Microsecond), fixed.Format(time.RFC3339Nano)).Scan(&differs); err != nil || !differs {
+		t.Fatal("fixture did not expose independent Go/PostgreSQL rounding", err, differs)
+	}
+	for name, offset := range map[string]time.Duration{"500ns": 500 * time.Nanosecond, "1500ns": 1500 * time.Nanosecond} {
+		t.Run(name, func(t *testing.T) {
+			f, b := newPostgresObservationFixture(t, ctx, pool)
+			origin := nextSettlementPrecisionOrigin(t, ctx, pool)
+			exact := origin.Add(offset)
+			fill := b.Fills[0]
+			fill.TradedAt, fill.ObservedAt = exact, exact
+			terminal := TerminalReport{BrokerIdentity: b.BrokerIdentity, Status: "FILLED", CompleteFills: true, FillCount: 1,
+				BaseQuantity: fill.BaseQuantity, GrossUSD: fill.GrossUSD, FeeUSD: fill.FeeUSD, CompletedAt: exact, ObservedAt: exact}
+			s := NewPostgresStore(pool)
+			for i := 0; i < 2; i++ {
+				if err := s.RecordFill(ctx, fill); err != nil {
+					t.Fatal("half-microsecond fill persistence/replay", err)
+				}
+				if err := s.ReconcileTerminal(ctx, terminal); err != nil {
+					t.Fatal("half-microsecond terminal persistence/replay", err)
+				}
+			}
+			var columnsMatch bool
+			var traded, observed, completed, terminalObserved string
+			err := pool.QueryRow(ctx, `SELECT f.traded_at=(f.payload->>'TradedAt')::timestamptz
+			 AND f.observed_at=(f.payload->>'ObservedAt')::timestamptz
+			 AND t.completed_at=(t.payload->>'CompletedAt')::timestamptz
+			 AND t.observed_at=(t.payload->>'ObservedAt')::timestamptz,
+			 f.payload->>'TradedAt',f.payload->>'ObservedAt',t.payload->>'CompletedAt',t.payload->>'ObservedAt'
+			 FROM execution_fills f JOIN execution_order_terminals t ON t.order_id=f.order_id WHERE f.order_id=$1`, f.order.ID).
+				Scan(&columnsMatch, &traded, &observed, &completed, &terminalObserved)
+			want := exact.Format(time.RFC3339Nano)
+			if err != nil || !columnsMatch || traded != want || observed != want || completed != want || terminalObserved != want {
+				t.Fatal("relational timestamp disagreed with immutable exact evidence", err, columnsMatch, traded, observed, completed, terminalObserved)
+			}
+			recovered, err := NewPostgresStore(pool).ReadReconciliation(ctx, f.order.Request.OwnerID, f.order.ID)
+			if err != nil || recovered.FillCount != 1 || recovered.TerminalStatus != "FILLED" || recovered.AccountHeld || recovered.AccountBlocked {
+				t.Fatal("precision replay changed lifecycle outcome", err, recovered)
+			}
+		})
+	}
+}
+
+// A whole-second origin makes the half-microsecond boundary deterministic,
+// independent of binary rounding at an arbitrary fractional-second base. The
+// database wait is bounded below one second and ensures evidence is not future.
+func nextSettlementPrecisionOrigin(t *testing.T, ctx context.Context, pool *pgxpool.Pool) time.Time {
+	t.Helper()
+	var origin time.Time
+	if err := pool.QueryRow(ctx, `SELECT date_trunc('second',clock_timestamp())+interval '1 second'`).Scan(&origin); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `SELECT pg_sleep(GREATEST(0,extract(epoch FROM $1::timestamptz-clock_timestamp()))::double precision)`, origin.Add(2*time.Microsecond)); err != nil {
+		t.Fatal(err)
+	}
+	return origin.UTC()
+}
+
 func TestPostgresReconciliationRecoveryChild(t *testing.T) {
 	fixture := os.Getenv("ARBION_RECONCILIATION_RECOVERY_FIXTURE")
 	if fixture == "" {
