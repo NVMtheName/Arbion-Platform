@@ -224,6 +224,8 @@ func mapError(err error) error {
 	var e *pgconn.PgError
 	if errors.As(err, &e) {
 		switch e.ConstraintName {
+		case "execution_receipt_conflict":
+			return ErrConflict
 		case "execution_current_controls":
 			return ErrNotAuthorized
 		case "execution_capital_held":

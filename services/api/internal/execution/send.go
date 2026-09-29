@@ -19,6 +19,7 @@ var ErrSubmissionUnknown = errors.New("submission outcome unknown; reconcile, ne
 type ConfirmedSubmission struct {
 	Order                  Order
 	PortfolioID, PreviewID string
+	Preflight              ProviderPreflight
 }
 
 // SubmissionAcknowledgement is correlation only, never a fill or settlement.
@@ -26,11 +27,12 @@ type SubmissionAcknowledgement struct {
 	ProviderOrderID, ClientOrderID, ProductID, Side string
 }
 
-// ConfirmedOrderSender has no production implementation or runtime caller.
-// A future reviewed adapter must honor ctx synchronously, use ONLY these exact
+// ConfirmedOrderSender has no runtime caller. An adapter must honor ctx
+// synchronously, use ONLY these exact
 // credentials/terms, disable redirects and all retries, and attempt at most one
 // request. It must not spawn a background send or reload credentials. An error
-// is indeterminate, including a provider rejection without a confirmed order ID.
+// is indeterminate except a strictly parsed SubmissionRejectedError. Neither
+// outcome releases capital or permits a retry.
 type ConfirmedOrderSender interface {
 	SubmitOnce(context.Context, *financial.Credentials, ConfirmedSubmission) (SubmissionAcknowledgement, error)
 }
@@ -108,6 +110,18 @@ func (s *PostgresStore) SendConfirmed(ctx context.Context, ownerID, orderID, evi
 	// Never detach this call into a goroutine: returning on a timeout while it
 	// continues would release the revocation locks before the sender stops.
 	ack, sendErr := sender.SubmitOnce(sendCtx, &cr, submission)
+	var rejected *SubmissionRejectedError
+	if errors.As(sendErr, &rejected) && rejected != nil && validRejectionCode(rejected.Code) && sendCtx.Err() == nil && ack == (SubmissionAcknowledgement{}) {
+		receiptCtx, cancelReceipt := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelReceipt()
+		if _, err = tx.Exec(receiptCtx, `INSERT INTO execution_submission_rejections(order_id,owner_id,error_code) VALUES($1,$2,$3)`, orderID, ownerID, rejected.Code); err != nil {
+			return a, ErrSubmissionUnknown
+		}
+		if err = tx.Commit(receiptCtx); err != nil {
+			return a, ErrSubmissionUnknown
+		}
+		return a, ErrSubmissionRejected
+	}
 	if sendErr != nil || sendCtx.Err() != nil || !validSubmissionAcknowledgement(ack, o) {
 		return a, ErrSubmissionUnknown // Do not leak provider bodies or key data.
 	}
@@ -205,7 +219,7 @@ func validateSendAuthorization(ctx context.Context, tx pgx.Tx, a Attempt, checke
 	if !deadline.After(time.Now()) || ctx.Err() != nil {
 		return ConfirmedSubmission{}, time.Time{}, ErrNotAuthorized
 	}
-	return ConfirmedSubmission{Order: o, PortfolioID: portfolio, PreviewID: p.PreviewID}, deadline, nil
+	return ConfirmedSubmission{Order: o, PortfolioID: portfolio, PreviewID: p.PreviewID, Preflight: p}, deadline, nil
 }
 
 func sameSendPreflight(a, b VerifiedPreflight) bool {

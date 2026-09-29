@@ -591,16 +591,31 @@ tests do not certify provider compatibility.
 An unwired one-shot send coordinator now loads version-bound credentials outside
 locks, commits the durable attempt, then reacquires current controls and verifies
 the exact approval, factor, funding, own holds and pinned evidence before a
-synchronous mock sender can run. Only the successful claimant invocation can
+synchronous bounded sender can run. Only the successful claimant invocation can
 enter this boundary; recovery cannot resend. Locks order local revocation against
 send admission, and an absolute monotonic deadline conservatively charges all
 database-response delay against the remaining evidence/access lifetime. Unknown
 outcomes retain both holds. Database-session loss can release locks during an
 in-flight network operation: this is not broker-side fencing or cancel-on-revoke.
-No HTTP route, scheduler dispatch, concrete financial-provider writer,
-capital-release writer or autonomous live-mandate authority is wired. The
-concrete transport/recovery path, settlement and dedicated runtime security
-review remain required before a separately approved pilot. See
+The separate, unwired Coinbase execution adapter accepts only the exact saved
+spot USD `sor_limit_ioc` terms, client UUID and preview. It rechecks scoped key
+permissions, complete funding and unresolved orders before one POST. Its private
+fresh HTTP/1 transport disables connection reuse, redirects and retries; the
+existing runtime read/preview client acquires no submission capability.
+
+Lost-response recovery uses only bounded history/detail GETs and the original
+client identity. It cannot claim, preview, submit or release either hold. Saved
+approval expiry/revocation and stops do not prevent recovery reads; current
+owner/account/connection access, permissioned portfolio and versioned credentials
+remain mandatory, and access is checked again before storing correlation.
+An absent/incomplete result stays UNKNOWN. Strictly reported rejection codes are
+immutable distinct evidence, not a fabricated broker ID or settlement. Conflicting
+acknowledgement/rejection receipts serialize and fail closed at the database.
+No HTTP route, scheduler dispatch, capital-release writer or autonomous
+live-mandate authority is wired. Complete broker status/fill/cancel handling,
+account settlement and dedicated runtime security review remain required before
+a separately approved pilot. All adapter proofs use synthetic local HTTP, not
+real orders or live compatibility/strategy-profitability evidence. See
 [execution engine](EXECUTION_ENGINE.md).
 
 ## Scalable AWS production topology
