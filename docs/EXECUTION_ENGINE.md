@@ -131,9 +131,53 @@ The private Coinbase adapter requires fresh View/Trade/no-Transfer portfolio per
 
 Complete GET-only final status/fill reconciliation must still match exact saved identities, quantities, gross and fees before releasing the submission slot. Separate account settlement then reconciles the original pinned opening cash/base against saved fills and USD fees plus two matching complete zero-hold account reads. Stable observations are not broker-atomic snapshots. Only an exact immutable settlement receipt can release internal capital once; unexplained changes retain the reservation. Original nanosecond evidence stays intact; relational timestamp columns use the database's own cast of that evidence. Neither operation changes real holdings or clears generic risk, reconciliation, stop or approval controls.
 
+### Bounded security review of the inert slice
+
+The assembled implementation at `d429462` received separate read-only reviews of
+the execution store/authorization boundary and Coinbase adapter/credential/transport
+boundary, plus a runtime reachability and stop-control review. No actionable
+high/medium defect was found within that scope. This approves the inert component
+boundary only, not authenticated runtime integration, real provider compatibility
+or live activation. Existing proofs were inspected rather than rerun as an audit.
+
+- `postgres_send_test.go` covers claim-to-send revocation, synchronous callback
+  locking, monotonic deadline expiry and database-session loss. The additional
+  `postgres_send_stop_test.go` specifically covers the first GLOBAL/USER/ACCOUNT
+  stop after claim, a GLOBAL stop waiting on the admitted callback's actual
+  advisory lock, and cancellation after that stop without releasing either hold.
+- `postgres_recovery_test.go`, `postgres_cancellation_test.go` and
+  `postgres_settlement_test.go` cover current scoped access, changed credentials,
+  ambiguous commits, duplicate/restart behavior and receipt-only capital release.
+  Coinbase synthetic integration covers the full cancel/fill race through exact
+  account settlement; transport tests cover lost responses, timeout, redirects,
+  disabled retries, wrong scope/terms and malformed evidence.
+- `cmd/api/main.go` still constructs only the read/preview `Client`, not the
+  `ExecutionAdapter` or execution coordinators. Existing financial interfaces
+  contain no submit/cancel capability. Browser and model inputs cannot supply
+  execution authority or obtain financial credentials through these interfaces.
+
+Required integration constraints remain explicit: construct the runtime client
+only from the fixed Coinbase HTTPS destination and trusted standard TLS/transport
+configuration; do not accept owner/model-provided base URLs, proxy/dial hooks or
+TLS settings. The adapter's isolated transport prevents replay but is not itself
+a destination/TLS-policy boundary. Database locks cannot retract an in-flight
+broker request after session loss. Stable account reads are not a broker-atomic
+snapshot or protection against independent portfolio mutation.
+
+An operational completion gap also remains: a saved provider-reported submission
+rejection has no broker order ID, `loadRecoveryContext` returns
+`ErrSubmissionRejected`, and terminal/account settlement requires a known broker
+order. Its account and capital holds therefore remain indefinitely, as do unknown
+attempts for which no positive broker identity can be recovered. This is
+conservative containment, not successful lifecycle completion. Before the pilot,
+the owner workflow needs a separately reviewed resolution policy/path for these
+states; a rejection, empty history scan, expired attempt or owner acknowledgement
+alone must never unlock capital or authorize resubmission. No remediation writer
+or activation permission is implied by this review.
+
 ## Remaining execution work
 
-The narrow durable dispatch, owner authority, Coinbase preflight/submit/recovery/status/fill/cancel adapters and exact account settlement above are implemented but not runtime-wired. Still required: consolidated fault acceptance, dedicated runtime architecture/security approval of transport, revocation and cancellation/kill-switch coordination, and the separately approved bounded pilot through authenticated owner controls. Unattended execution additionally requires reviewed live-mandate authority; confirm-each approval cannot grant it. No broker-write job or live runtime exists. The existing `order_intents`, proposal reviews, and expiring preview reservations must not be promoted into execution authority. The [private fill observation store](PRIVATE_FILL_EVIDENCE.md) remains read-only history, not dispatch-bound settlement. Options, replacement orders, multi-leg execution, and other brokers are outside the personal pilot.
+The narrow durable dispatch, owner authority, Coinbase preflight/submit/recovery/status/fill/cancel adapters and exact account settlement above are implemented but not runtime-wired. The bounded inert-component review above is complete; final fault acceptance and authenticated owner-control/runtime integration still require their own evidence and approval. Resolve the rejected/unknown-attempt operational gate without weakening containment before the separately authorized pilot. Unattended execution additionally requires reviewed live-mandate authority; confirm-each approval cannot grant it. No broker-write job or live runtime exists. The existing `order_intents`, proposal reviews, and expiring preview reservations must not be promoted into execution authority. The [private fill observation store](PRIVATE_FILL_EVIDENCE.md) remains read-only history, not dispatch-bound settlement. Options, replacement orders, multi-leg execution, and other brokers are outside the personal pilot.
 
 The separate [offline lifecycle laboratory](SIMULATION_LIFECYCLE.md) implements executable fixture state transitions and durable local replay for testing these mechanics now. Its fictional attempts, fills, and cash movements never enter production accounts or the Paper/Shadow scheduler. The fixture configuration is not risk approval, the synthetic provider labels do not certify broker compatibility, and passing the scenarios does not satisfy the live-execution approval gates.
 
