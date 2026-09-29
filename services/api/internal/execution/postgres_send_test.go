@@ -266,7 +266,7 @@ func TestPostgresSendConfirmedCommitResponseLoss(t *testing.T) {
 
 func TestPostgresSendConfirmedRechecksClaimToSendGap(t *testing.T) {
 	ctx, pool := setupExecutionTest(t)
-	for _, name := range []string{"approval revoked", "credential replaced", "MFA replaced", "reconciliation blocked"} {
+	for _, name := range []string{"approval revoked", "entitlement revoked", "credential replaced", "MFA replaced", "reconciliation blocked"} {
 		t.Run(name, func(t *testing.T) {
 			f := newSendFixture(t, ctx, pool, "BUY")
 			r := f.order.Request
@@ -279,6 +279,9 @@ func TestPostgresSendConfirmedRechecksClaimToSendGap(t *testing.T) {
 				switch name {
 				case "approval revoked":
 					return NewPostgresStore(pool).RevokeOwnerApproval(c, r.OwnerID, f.order.ID)
+				case "entitlement revoked":
+					_, err := pool.Exec(c, `UPDATE user_entitlements SET status='revoked' WHERE user_id=$1 AND entitlement_key='founder'`, r.OwnerID)
+					return err
 				case "credential replaced":
 					_, err := pool.Exec(c, `UPDATE provider_connections SET encrypted_credential_payload=decode(repeat('88',32),'hex') WHERE id=$1`, r.ConnectionID)
 					return err
@@ -387,41 +390,35 @@ func TestPostgresSendConfirmedSerializesRevocationDuringCallback(t *testing.T) {
 	assertSendCannotRetry(t, ctx, pool, f)
 }
 
-func TestPostgresSendConfirmedExpiryBoundsCallbackAndKeepsUnknown(t *testing.T) {
+func TestPostgresSendConfirmedConnectionExpiryBoundsCallbackAndKeepsUnknown(t *testing.T) {
 	ctx, pool := setupExecutionTest(t)
-	for _, name := range []string{"entitlement", "connection"} {
-		t.Run(name, func(t *testing.T) {
-			f := newSendFixture(t, ctx, pool, "BUY")
-			db := &sendBoundaryDB{Database: pool, beforeBegin: func(c context.Context, n int) error {
-				if n != 3 {
-					return nil
-				}
-				statement := `UPDATE user_entitlements SET expires_at=clock_timestamp()+interval '2 seconds' WHERE user_id=$1`
-				if name == "connection" {
-					statement = `UPDATE provider_connections SET authorization_expires_at=clock_timestamp()+interval '2 seconds' WHERE user_id=$1`
-				}
-				_, err := pool.Exec(c, statement, f.order.Request.OwnerID)
-				return err
-			}}
-			called, bounded, timedOut := false, false, false
-			sender := sendFunc(func(c context.Context, _ *financial.Credentials, _ ConfirmedSubmission) (SubmissionAcknowledgement, error) {
-				called = true
-				deadline, ok := c.Deadline()
-				bounded = ok && time.Until(deadline) > 0 && time.Until(deadline) <= 2*time.Second
-				<-c.Done()
-				timedOut = errors.Is(c.Err(), context.DeadlineExceeded)
-				// Even a syntactically valid acknowledgement is indeterminate
-				// when returned after the synchronously observed deadline.
-				return f.ack, nil
-			})
-			a, err := NewPostgresStore(db).SendConfirmed(ctx, f.order.Request.OwnerID, f.order.ID, f.evidence, f.vault, sender)
-			if err != ErrSubmissionUnknown || !called || !bounded || !timedOut || a.OrderID != f.order.ID {
-				t.Fatal("expiring authority did not bound callback", err, called, bounded, timedOut, a)
-			}
-			assertSendHeld(t, ctx, pool, f.order, "")
-			assertSendCannotRetry(t, ctx, pool, f)
-		})
+	// Founder entitlement is permanent by schema; connection authorization is
+	// the independently expiring access window supported by this pilot.
+	f := newSendFixture(t, ctx, pool, "BUY")
+	db := &sendBoundaryDB{Database: pool, beforeBegin: func(c context.Context, n int) error {
+		if n != 3 {
+			return nil
+		}
+		_, err := pool.Exec(c, `UPDATE provider_connections SET authorization_expires_at=clock_timestamp()+interval '2 seconds' WHERE id=$1`, f.order.Request.ConnectionID)
+		return err
+	}}
+	called, bounded, timedOut := false, false, false
+	sender := sendFunc(func(c context.Context, _ *financial.Credentials, _ ConfirmedSubmission) (SubmissionAcknowledgement, error) {
+		called = true
+		deadline, ok := c.Deadline()
+		bounded = ok && time.Until(deadline) > 0 && time.Until(deadline) <= 2*time.Second
+		<-c.Done()
+		timedOut = errors.Is(c.Err(), context.DeadlineExceeded)
+		// Even a syntactically valid acknowledgement is indeterminate
+		// when returned after the synchronously observed deadline.
+		return f.ack, nil
+	})
+	a, err := NewPostgresStore(db).SendConfirmed(ctx, f.order.Request.OwnerID, f.order.ID, f.evidence, f.vault, sender)
+	if err != ErrSubmissionUnknown || !called || !bounded || !timedOut || a.OrderID != f.order.ID {
+		t.Fatal("expiring authority did not bound callback", err, called, bounded, timedOut, a)
 	}
+	assertSendHeld(t, ctx, pool, f.order, "")
+	assertSendCannotRetry(t, ctx, pool, f)
 }
 
 type sendDelayedClockTx struct {
@@ -448,7 +445,7 @@ func (r sendDelayedClockRow) Scan(dest ...any) error {
 		return err
 	}
 	*r.observed = true
-	end, now := *(dest[1].(**time.Time)), *(dest[3].(*time.Time))
+	end, now := *(dest[2].(**time.Time)), *(dest[3].(*time.Time))
 	if end == nil || !end.After(now) {
 		return errors.New("fixture expected positive final authority window")
 	}
@@ -472,7 +469,7 @@ func TestPostgresSendConfirmedDelayedFinalClockCannotExtendAuthority(t *testing.
 		if n != 3 {
 			return nil
 		}
-		_, err := pool.Exec(c, `UPDATE user_entitlements SET expires_at=clock_timestamp()+interval '2 seconds' WHERE user_id=$1`, f.order.Request.OwnerID)
+		_, err := pool.Exec(c, `UPDATE provider_connections SET authorization_expires_at=clock_timestamp()+interval '2 seconds' WHERE id=$1`, f.order.Request.ConnectionID)
 		return err
 	}, wrap: func(n int, tx pgx.Tx) pgx.Tx {
 		if n == 3 {
