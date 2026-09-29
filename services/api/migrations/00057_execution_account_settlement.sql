@@ -82,7 +82,7 @@ CREATE FUNCTION execution_settlement_fill_matches(candidate jsonb, saved jsonb, 
     AND (candidate->>'FeeUSD')::numeric=(saved->>'FeeUSD')::numeric
     AND candidate->'ObservedAt'=observed
     AND jsonb_typeof(candidate->'ProviderEvidence')='object'
-    AND candidate->'ProviderEvidence'-'Size'=saved->'ProviderEvidence'-'Size'
+    AND ((candidate->'ProviderEvidence')-'Size')=((saved->'ProviderEvidence')-'Size')
     AND (candidate->'ProviderEvidence'->>'Size')::numeric=(saved->'ProviderEvidence'->>'Size')::numeric,
     false)
 $$;
