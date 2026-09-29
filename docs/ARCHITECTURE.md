@@ -206,7 +206,7 @@ A separate canonical review artifact accepts only the exact independently verifi
 
 A pure safety-evidence gap inventory consumes the complete independently verified comparison-review chain and enumerates the seven required proof categories in canonical order. It preserves exact before/after evidence, sources, digests, observation times, assessment reason codes, and saved review disposition. A category is marked `NEWLY_UNAVAILABLE`, `STILL_UNAVAILABLE`, or `RESOLVED` only from its explicit typed reason code; otherwise the inventory reports exact evidence as `UNCHANGED` or `CHANGED` without inferring cause, quality, or readiness. The inventory is domain-separated and tamper-evident, rejects a non-comparable report pair without fabricating categories, and has no persistence, route, provider, broker, scheduler, or execution surface. An independent verification report reconstructs the full inventory through a separately defined canonical projection, checks every category, count, review binding, and claimed digest, and adds its own domain-separated report digest. Structurally exact current gaps remain an explicit `CURRENT_EVIDENCE_UNAVAILABLE` closed result; mismatches never verify. A final canonical review artifact accepts only that exact independently verified report, preserves every digest, category, count, and time conclusion, and maps it exclusively to `NO_GAPS` or `OWNER_REVIEW_REQUIRED`; any other rejected or inconsistent result is refused. A separate remediation-requirements matrix accepts only that canonical review and its complete exact chain: `NO_GAPS` emits no rows, while `OWNER_REVIEW_REQUIRED` emits only the current unavailable categories in canonical order with the required evidence source, saved reason codes, typed responsible boundary, and contract-defined safe evidence follow-up. Its own domain-separated digest binds every upstream digest, time, count, and requirement, and any changed category, order, mapping, input, or authority-bearing value fails closed. An independent matrix-verification report duplicates neither the matrix mapping nor its canonical encoder: it separately reconstructs all seven category/source/boundary/follow-up expectations, reports claimed and recomputed rows and digests, and rejects every mismatch while treating verified missing-evidence requirements as review evidence rather than readiness. A canonical owner-review artifact accepts only that exact independently verified report and maps it exclusively to `NO_REMEDIATION_REQUIRED` or `EVIDENCE_REMEDIATION_REVIEW_REQUIRED`, preserving the complete ordered requirements and verified matrix/report digests without treating structural integrity as readiness or completion. A second independent report then reconstructs both allowed conclusions, the exact owner action, counts, ordered requirements, and matrix, upstream-report, and artifact digests without calling that review artifact's compiler, verifier, conclusion mapper, or digest helper. The report, review artifacts, matrix, and matrix-verification reports grant no execution authority and likewise have no production caller or runtime surface.
 
-The approved personal Coinbase pilot now has an inert durable submission and order-reconciliation foundation in `internal/execution` (see [Execution Engine](EXECUTION_ENGINE.md)). It stores immutable scoped requests, one-shot transactionally claimed attempts, private broker acknowledgements and exact fills. Final reports release the account's active submission slot only after complete fill counts/quantity/gross/fees match; corrections or late new fills durably block the account. This does not settle account cash/positions or release financial capital. Exact owner authority and a mock-tested one-shot send coordinator are implemented, but there is no production caller, concrete broker writer, or runtime switch. Missing authority denies; a lost commit response never yields a dispatch receipt; restart cannot reclaim an existing attempt. This is execution implementation work, separate from the evidence-only `internal/liveexecution` package. Live activation and actual orders remain unapproved.
+The approved personal Coinbase pilot now has an inert durable submission and order-reconciliation foundation in `internal/execution` (see [Execution Engine](EXECUTION_ENGINE.md)). It stores immutable scoped requests, one-shot transactionally claimed attempts, private broker acknowledgements and exact fills. Final reports release the account's active submission slot only after complete fill counts/quantity/gross/fees match; corrections or late new fills durably block the account. A separate exact account-settlement receipt is required to release internal reserved capital. Exact owner authority, the one-shot coordinator and a concrete Coinbase adapter are implemented but runtime-unwired. Missing authority denies; a lost commit response never yields a dispatch receipt; restart cannot reclaim an existing attempt. This is execution implementation work, separate from the evidence-only `internal/liveexecution` package. Live activation and actual orders remain unapproved.
 
 ## Deterministic non-live automation implementation
 
@@ -633,9 +633,30 @@ commit, including quarantine paths. A verified terminal releases only the
 submission slot, never reserved capital; conflicts durably quarantine the
 account while incomplete scans leave state unchanged. The existing execution
 ledger remains the sole source of immutable fills and terminal facts.
+
+A separate unwired account-settlement coordinator accounts for opening cash and
+base inventory using the original pinned preflight, exact saved terminal/fill
+identities and USD fees. BUY subtracts gross plus fees and adds filled base;
+SELL adds gross minus fees and subtracts filled base. The GET-only Coinbase
+collector requires a fresh complete terminal observation, empty unresolved-order
+scans and two matching complete account reads with no broker holds. These are
+observations of stability, not an atomic broker revision. Unexplained deposits,
+withdrawals, balance changes, incomplete scans and mismatched trades fail closed.
+
+Current access and credential generation are checked after collection under
+ordered account locks and again before commit. The receipt and one-way internal
+capital release commit together; a default-deferred database guard rechecks at
+commit. That guard is not a privilege boundary against SQL callers forcing its
+constraint immediate. Original reservation terms remain immutable; only active
+reservations exclude a new claim. Concurrent retries or a lost commit response
+recover one historical receipt without another account read or another release.
+No broker holdings are mutated and no generic reconciliation, risk, stop or
+approval control is cleared. Every later order still requires its own current
+authority and fresh funding/reconciliation evidence.
+
 No HTTP route, scheduler dispatch, capital-release writer or autonomous
-live-mandate authority is wired. Account cash/position settlement, unresolved
-order cancellation and dedicated runtime security review remain required before
+live-mandate authority is runtime-wired. Unresolved order cancellation and
+dedicated runtime security review remain required before
 a separately approved pilot. All adapter proofs use synthetic local HTTP, not
 real orders or live compatibility/strategy-profitability evidence. See
 [execution engine](EXECUTION_ENGINE.md).

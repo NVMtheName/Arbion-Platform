@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -37,10 +38,11 @@ func TestPostgresCoinbasePartialFillTerminalAndRestartReconciliation(t *testing.
 	}
 	submission := execution.ConfirmedSubmission{Order: order, PortfolioID: r.AccountID}
 	identityJSON := strings.ReplaceAll(submissionIdentityJSON(submission), submissionTestProviderID, providerID)
-	var posts, previews, detailReads, fillReads atomic.Int32
+	var posts, previews, detailReads, fillReads, requests atomic.Int32
 	var acceptedAt atomic.Int64
 	// 0: first OPEN partial; 1: incomplete pagination; 2: changing bracket;
-	// 3: complete stable CANCELLED after a second partial fill.
+	// 3: complete stable CANCELLED after a second partial fill;
+	// 4: matching settled cash and position inventory, still no broker writes.
 	var phase atomic.Int32
 	fill := func(number int) map[string]any {
 		stamp := time.Unix(0, acceptedAt.Load()).UTC().Add(time.Duration(number-1) * time.Microsecond).Format(time.RFC3339Nano)
@@ -52,6 +54,7 @@ func TestPostgresCoinbasePartialFillTerminalAndRestartReconciliation(t *testing.
 			"trade_time": stamp, "sequence_timestamp": stamp, "price": "30000.00", "size": "0.0004", "commission": "0.04", "size_in_quote": false}
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests.Add(1)
 		verifyJWT(t, req, key, req.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		path := req.URL.Path
@@ -136,6 +139,10 @@ func TestPostgresCoinbasePartialFillTerminalAndRestartReconciliation(t *testing.
 			http.NotFound(w, req)
 			return
 		}
+		if phase.Load() == 4 && req.URL.Path == "/api/v3/brokerage/accounts" {
+			body = strings.ReplaceAll(body, "1000.10", "976.02")
+			body = strings.ReplaceAll(body, "1.00000001", "1.00080001")
+		}
 		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(server.Close)
@@ -203,6 +210,38 @@ func TestPostgresCoinbasePartialFillTerminalAndRestartReconciliation(t *testing.
 	if posts.Load() != 1 || previews.Load() != 1 || fillReads.Load() != 9 {
 		t.Fatal("reconciliation wrote, refreshed preview, or did not traverse fills", posts.Load(), previews.Load(), fillReads.Load())
 	}
+	// Matching final order fills are necessary but do not themselves prove
+	// account balances. Only the separate complete zero-hold inventory proof
+	// may record settlement and release the original internal capital fence.
+	before, err := store.ReadCapitalReservation(ctx, r.OwnerID, order.ID)
+	if err != nil || before.ReleasedAt != nil {
+		t.Fatal("capital released before account settlement", err)
+	}
+	phase.Store(4)
+	settlement, err := store.SettleBrokerAccount(ctx, r.OwnerID, order.ID, vault, adapter)
+	if err != nil || settlement.OrderID != order.ID || settlement.ProviderOrderID != providerID || settlement.PortfolioID != r.AccountID || settlement.TerminalStatus != "CANCELLED" || settlement.Totals != terminal.Totals || settlement.OpeningCashUSD != "1000.1" || settlement.OpeningBase != "1.00000001" || settlement.ClosingCashUSD != "976.02" || settlement.ClosingBase != "1.00080001" {
+		t.Fatal("complete synthetic account proof did not settle exactly", err, settlement)
+	}
+	after, err := store.ReadCapitalReservation(ctx, r.OwnerID, order.ID)
+	if err != nil || after.ReleasedAt == nil || !after.ReleasedAt.Equal(settlement.RecordedAt) {
+		t.Fatal("settlement receipt did not release its exact reservation", err, after)
+	}
+	after.ReleasedAt = nil
+	if !reflect.DeepEqual(after, before) {
+		t.Fatal("settlement erased or changed original reservation history")
+	}
+	var receipts int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM execution_account_settlements WHERE order_id=$1`, order.ID).Scan(&receipts); err != nil || receipts != 1 {
+		t.Fatal("settlement did not persist one immutable receipt", err, receipts)
+	}
+	readsBeforeReplay := requests.Load()
+	replayedSettlement, err := execution.NewPostgresStore(pool).SettleBrokerAccount(ctx, r.OwnerID, order.ID, vault, adapter)
+	if err != nil || !reflect.DeepEqual(replayedSettlement, settlement) || requests.Load() != readsBeforeReplay {
+		t.Fatal("restart reapplied settlement or reread provider", err)
+	}
+	if posts.Load() != 1 || previews.Load() != 1 {
+		t.Fatal("account settlement submitted or refreshed a preview")
+	}
 }
 
 func assertCoinbaseReconciliation(t *testing.T, got execution.Reconciliation, count int64, base, gross, fee, status string, held bool) {
@@ -220,7 +259,7 @@ func assertCoinbaseReconciliationState(t *testing.T, ctx context.Context, pool *
 		t.Fatal("saved reconciliation changed", err, got)
 	}
 	reservation, err := store.ReadCapitalReservation(ctx, order.Request.OwnerID, order.ID)
-	if err != nil || reservation.ResourceType != "CASH" || reservation.Asset != "USD" || compareDecimal(financial.Decimal(reservation.Quantity), financial.Decimal(order.Request.MaximumDebitUSD)) != 0 {
+	if err != nil || reservation.ReleasedAt != nil || reservation.ResourceType != "CASH" || reservation.Asset != "USD" || compareDecimal(financial.Decimal(reservation.Quantity), financial.Decimal(order.Request.MaximumDebitUSD)) != 0 {
 		t.Fatal("order reconciliation released or changed reserved cash", err, reservation)
 	}
 	var terminals, exactEvidence int

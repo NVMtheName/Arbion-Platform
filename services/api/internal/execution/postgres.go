@@ -103,7 +103,7 @@ func (s *PostgresStore) Claim(ctx context.Context, ownerID, orderID string, auth
 	if exists {
 		return Attempt{}, ErrAccountHeld
 	}
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM execution_capital_reservations WHERE financial_account_id=$1)`, account).Scan(&exists); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM execution_capital_reservations WHERE financial_account_id=$1 AND released_at IS NULL)`, account).Scan(&exists); err != nil {
 		return Attempt{}, err
 	}
 	if exists {

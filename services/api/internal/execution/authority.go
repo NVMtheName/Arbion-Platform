@@ -153,7 +153,7 @@ func (a *OwnerAuthority) check(ctx context.Context, tx pgx.Tx, o Order, claimed 
 	}
 	var competing bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM capital_reservations WHERE financial_account_id=$1 AND expires_at>$2)
-		OR EXISTS(SELECT 1 FROM execution_capital_reservations WHERE financial_account_id=$1 AND (NOT $3::boolean OR order_id<>$4))
+		OR EXISTS(SELECT 1 FROM execution_capital_reservations WHERE financial_account_id=$1 AND released_at IS NULL AND (NOT $3::boolean OR order_id<>$4))
 		OR EXISTS(SELECT 1 FROM strategy_capital_reservations WHERE financial_account_id=$1 AND execution_mode<>'PAPER' AND released_at IS NULL)`, o.Request.AccountID, now, claimed, o.ID).Scan(&competing)
 	if err != nil {
 		return checkedOwnerAuthority{}, err
@@ -198,7 +198,7 @@ func checkClaimedOwnerHolds(ctx context.Context, tx pgx.Tx, o Order) error {
 		EXISTS(SELECT 1 FROM execution_account_holds WHERE financial_account_id=$1 AND order_id=$2 AND owner_id=$3),
 		EXISTS(SELECT 1 FROM execution_capital_reservations r
 		  JOIN execution_dispatch_attempts a ON a.order_id=r.order_id AND a.owner_id=r.owner_id AND a.financial_account_id=r.financial_account_id
-		  WHERE r.financial_account_id=$1 AND r.order_id=$2 AND r.owner_id=$3 AND r.capital_bucket_id=$4
+		  WHERE r.financial_account_id=$1 AND r.order_id=$2 AND r.owner_id=$3 AND r.capital_bucket_id=$4 AND r.released_at IS NULL
 		    AND r.resource_type=$5 AND r.resource_asset=$6 AND r.quantity=$7::numeric AND r.reserved_at=a.claimed_at)`,
 		o.Request.AccountID, o.ID, o.Request.OwnerID, o.Request.CapitalBucketID, resourceType, asset, quantity).Scan(&blocked, &observed, &held, &reserved)
 	if err != nil {
