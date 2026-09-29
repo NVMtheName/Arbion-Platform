@@ -293,12 +293,15 @@ type settlementExpiryTx struct {
 
 func (tx settlementExpiryTx) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
 	insert := strings.HasPrefix(query, "INSERT INTO execution_account_settlements")
-	if insert && tx.stage == "immediate application recheck" {
+	tag, err := tx.Tx.Exec(ctx, query, args...)
+	// First stage the receipt and its AFTER-trigger release in the normal
+	// deferred mode. Force the queued commit guard now, before waiting, so
+	// the application recheck still has to reject subsequently expired access.
+	if err == nil && insert && tx.stage == "immediate application recheck" {
 		if _, err := tx.Tx.Exec(ctx, `SET CONSTRAINTS execution_account_settlement_commit IMMEDIATE`); err != nil {
-			return pgconn.CommandTag{}, err
+			return tag, err
 		}
 	}
-	tag, err := tx.Tx.Exec(ctx, query, args...)
 	if err == nil && insert && tx.stage != "deferred commit recheck" {
 		err = tx.waitForExpiry(ctx)
 	}
