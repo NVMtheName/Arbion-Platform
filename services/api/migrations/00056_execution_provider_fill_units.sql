@@ -25,7 +25,7 @@ BEGIN
       OR (e->>'SequenceAt') IS NULL OR (e->>'SequenceAt')::timestamptz<='0001-01-01'::timestamptz
       OR (e->>'SequenceAt')::timestamptz>NEW.observed_at
       OR (e->>'Size') IS NULL OR (e->>'Size') !~ '^(0|[1-9][0-9]{0,35})(\.[0-9]{1,36})?$'
-      OR (e->>'Size')::numeric IS DISTINCT FROM CASE WHEN (e->>'SizeInQuote')::boolean THEN NEW.gross_usd ELSE NEW.base_quantity END
+      OR (e->>'Size')::numeric IS DISTINCT FROM (CASE WHEN (e->>'SizeInQuote')::boolean THEN NEW.gross_usd ELSE NEW.base_quantity END)
       OR e->>'FeeCurrency' IS DISTINCT FROM 'USD'
       OR e->>'FeeCurrencyBasis' IS DISTINCT FROM 'COINBASE_ADVANCED_QUOTE_ASSET_1_91' THEN
       RAISE EXCEPTION 'execution fill source units mismatch' USING ERRCODE='23514';
