@@ -698,6 +698,16 @@ Uncertain/rejected submissions stay held; cancellation, terminal order history
 and cash/position settlement remain distinct facts. Session authentication is
 request-entry access, not a guarantee that logout retracts an admitted send.
 
+The personal owner workspace now consumes that contract through a strict,
+same-origin, no-retry browser client. It is an unmounted component, with no page,
+navigation entry or proxy activation. Exact immutable terms, explicit MFA and
+send/cancel confirmations, saved-state recovery and accounting use the existing
+commands; the browser never grants authority. Local uncertain-attempt latches,
+permanent scope-change invalidation and stale-response fencing prevent the UI
+from reopening a write after an ambiguous result. Server duplicate guards remain
+authoritative across sessions. No polling or browser persistence of MFA/evidence
+is introduced.
+
 No owner execution HTTP route, scheduler dispatch, capital-release writer or autonomous
 live-mandate authority is runtime-wired. Dedicated runtime security review
 remains required before

@@ -247,9 +247,38 @@ or unresolved-capital-release command is supplied. These states require operator
 review, not a second order. This is safe containment, not guaranteed resolution
 of a broker-entered rejection or a crash before positive proof.
 
+### Personal owner screen (unmounted)
+
+`apps/web/app/personal-execution/owner-execution.tsx` implements the narrow owner
+workspace over this same command contract. It has no page, navigation entry,
+proxy registration, activation switch or automatic request on mount. Its fixed
+display scope is not authority. The command client uses only the same-origin
+endpoint, rejects redirects and malformed/private response fields, binds saved
+identities and immutable terms, and never retries or polls. Errors use local
+messages, not raw provider or server text. Neither MFA nor evidence is persisted
+in browser storage.
+
+Preparation freezes exact terms and the request key so a lost response can
+recover the same preparation. Approval requires the saved digest and dedicated
+MFA, which is cleared before awaiting the request. Preflight and explicit
+send-once confirmation are separate actions; captured evidence is not a promise
+of current authorization. Any command or refresh clears the captured evidence.
+Send/cancel attempts stay locally latched after errors and stale saved reads;
+the server's permanent attempt record remains authoritative across browsers and
+restarts. No reset or automatic replacement order is offered. Returning owners
+can explicitly load the original order ID, recover or reconcile; uncertainty is
+not a retry instruction. Dependency/scope changes permanently invalidate that
+workspace instance, and late responses cannot restore it.
+
+All reviewed amounts remain exact strings. Saved fill evidence and accounting
+are behind accessible disclosure. Acknowledgement, cancellation, final order
+history and cash/position settlement remain distinct. The account quarantine
+warning remains visible. The workspace uses existing surface colors and a
+single-column small-screen layout. No result claims profitable trading.
+
 ## Remaining execution work
 
-The narrow durable dispatch, owner authority, Coinbase preflight/submit/recovery/status/fill/cancel adapters, exact account settlement, and authenticated owner command service/transport above are implemented but not runtime-wired. The bounded inert-component review above is complete; the actual owner screen and final runtime composition still require their own acceptance evidence and security approval. Resolve the rejected/unknown-attempt operational gate without weakening containment before the separately authorized pilot. Unattended execution additionally requires reviewed live-mandate authority; confirm-each approval cannot grant it. No broker-write job or live runtime exists. The existing `order_intents`, proposal reviews, and expiring preview reservations must not be promoted into execution authority. The [private fill observation store](PRIVATE_FILL_EVIDENCE.md) remains read-only history, not dispatch-bound settlement. Options, replacement orders, multi-leg execution, and other brokers are outside the personal pilot.
+The narrow durable dispatch, owner authority, Coinbase preflight/submit/recovery/status/fill/cancel adapters, exact account settlement, authenticated owner command service/transport and owner screen above are implemented but not runtime-wired. Final trusted runtime composition and mounting still require acceptance evidence and security approval. Resolve the rejected/unknown-attempt operational gate without weakening containment before the separately authorized pilot. Unattended execution additionally requires reviewed live-mandate authority; confirm-each approval cannot grant it. No broker-write job or live runtime exists. The existing `order_intents`, proposal reviews, and expiring preview reservations must not be promoted into execution authority. The [private fill observation store](PRIVATE_FILL_EVIDENCE.md) remains read-only history, not dispatch-bound settlement. Options, replacement orders, multi-leg execution, and other brokers are outside the personal pilot.
 
 The separate [offline lifecycle laboratory](SIMULATION_LIFECYCLE.md) implements executable fixture state transitions and durable local replay for testing these mechanics now. Its fictional attempts, fills, and cash movements never enter production accounts or the Paper/Shadow scheduler. The fixture configuration is not risk approval, the synthetic provider labels do not certify broker compatibility, and passing the scenarios does not satisfy the live-execution approval gates.
 
