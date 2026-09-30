@@ -78,6 +78,24 @@ func setupCoinbaseExecutionIntegration(t *testing.T) (context.Context, *pgxpool.
 
 func prepareCoinbaseExecutionIntegration(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (execution.Order, int64) {
 	t.Helper()
+	r := newCoinbaseExecutionIntegrationRequest(t, ctx, pool)
+	store := execution.NewPostgresStore(pool)
+	order, err := store.Prepare(ctx, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval, err := store.ApproveOrder(ctx, authorization.Principal{UserID: r.OwnerID, Entitlement: authorization.EntitlementFounder}, order.ID, order.RequestDigest, "synthetic-only", integrationExecutionStepUp{pool})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedCoinbaseExecutionIntegrationReconciliation(t, ctx, pool, r)
+	return order, approval.CredentialGeneration
+}
+
+// Infrastructure only: callers may prepare and approve through the owner
+// workflow instead of bypassing that boundary in an integration fixture.
+func newCoinbaseExecutionIntegrationRequest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) execution.Request {
+	t.Helper()
 	r := execution.Request{ProductID: "BTC-USD", Side: "BUY", BaseSize: "0.0010", LimitPrice: "30000.00", FeeAllowanceUSD: "0.10", MaximumDebitUSD: "30.10"}
 	if err := pool.QueryRow(ctx, `INSERT INTO users(external_id) VALUES($1) RETURNING id::text`, fmt.Sprintf("coinbase-send-integration-%d", time.Now().UnixNano())).Scan(&r.OwnerID); err != nil {
 		t.Fatal(err)
@@ -100,22 +118,18 @@ func prepareCoinbaseExecutionIntegration(t *testing.T, ctx context.Context, pool
 	if err := pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&r.ClientOrderID); err != nil {
 		t.Fatal(err)
 	}
-	store := execution.NewPostgresStore(pool)
-	order, err := store.Prepare(ctx, r)
-	if err != nil {
-		t.Fatal(err)
-	}
 	// Only fabricated encrypted bytes and the local synthetic step-up verifier
 	// are used. No production credential or authentication service is accessed.
-	if _, err = pool.Exec(ctx, `INSERT INTO auth_totp_factors(user_id,secret_ciphertext,enabled_at) VALUES($1,decode(repeat('22',32),'hex'),clock_timestamp()-interval '1 minute')`, r.OwnerID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO auth_totp_factors(user_id,secret_ciphertext,enabled_at) VALUES($1,decode(repeat('22',32),'hex'),clock_timestamp()-interval '1 minute')`, r.OwnerID); err != nil {
 		t.Fatal(err)
 	}
-	approval, err := store.ApproveOrder(ctx, authorization.Principal{UserID: r.OwnerID, Entitlement: authorization.EntitlementFounder}, order.ID, order.RequestDigest, "synthetic-only", integrationExecutionStepUp{pool})
-	if err != nil {
-		t.Fatal(err)
-	}
+	return r
+}
+
+func seedCoinbaseExecutionIntegrationReconciliation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, r execution.Request) {
+	t.Helper()
 	var reconciliation string
-	err = pool.QueryRow(ctx, `INSERT INTO portfolio_reconciliations(user_id,financial_account_id,provider_name,comparison_status,balances_status,positions_status,performance_status,realized_performance_status,autonomy_signal,observed_position_count,performance_position_count,change_count,evidence_hash,observed_at,cash_amount,cash_currency,available_cash_amount,available_cash_currency)
+	err := pool.QueryRow(ctx, `INSERT INTO portfolio_reconciliations(user_id,financial_account_id,provider_name,comparison_status,balances_status,positions_status,performance_status,realized_performance_status,autonomy_signal,observed_position_count,performance_position_count,change_count,evidence_hash,observed_at,cash_amount,cash_currency,available_cash_amount,available_cash_currency)
 	 VALUES($1,$2,'coinbase','MATCHED','READY','READY','UNAVAILABLE','UNAVAILABLE','CLEAR',1,0,0,decode(repeat('33',32),'hex'),clock_timestamp(),1000.10,'USD',1000.10,'USD') RETURNING id::text`, r.OwnerID, r.AccountID).Scan(&reconciliation)
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +137,6 @@ func prepareCoinbaseExecutionIntegration(t *testing.T, ctx context.Context, pool
 	if _, err = pool.Exec(ctx, `INSERT INTO portfolio_reconciliation_positions(reconciliation_id,user_id,financial_account_id,symbol,instrument_type,direction,quantity,available_quantity,performance_status) VALUES($1,$2,$3,'BTC','CRYPTO','long',1.00000001,1.00000001,'UNAVAILABLE')`, reconciliation, r.OwnerID, r.AccountID); err != nil {
 		t.Fatal(err)
 	}
-	return order, approval.CredentialGeneration
 }
 
 // This is the public control-plane path with the real Coinbase adapter and a

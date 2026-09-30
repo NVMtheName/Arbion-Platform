@@ -207,9 +207,49 @@ local no-send closure above handles only positively known pre-callback failures,
 not these broker-entered or crash-unknown cases. No generic remediation writer or
 activation permission is implied by this review.
 
+### Personal owner command workflow (unmounted)
+
+`OwnerWorkflow` composes the existing services, not a second execution engine.
+Trusted server composition supplies one fixed owner, account, connection,
+allocation and spot USD pair, with no defaults or user/model overrides. Every
+order command and read reloads and compares all scope fields. Fresh current
+founder access is checked at entry; existing transactional controls remain the
+authority at each financial boundary. Dedicated execution TOTP confirms the
+exact request digest. The principal is session-derived, never a JSON field.
+
+`NewOwnerExecutionHandler` is not mounted by the application. Its future surface
+is `/api/personal-execution/orders`: POST prepares exact bounded terms with an
+owner request key; GET `/{id}` reads only saved status; POST subcommands are
+`approve`, `revoke`, `preflight`, `send`, `recover`, `reconcile`, `cancel`, and
+`settle`. Commands require an approved Origin and one strict object of at most
+4 KiB; no-payload operations require `{}`. Responses are no-store, including
+authentication and error responses. Unknown authority/provider fields are denied.
+Raw provider messages, credential versions/material and provider correlation
+never appear in the DTO or sanitized errors. Preflight returns only an opaque
+saved evidence ID and the order projection; it never returns provider preview
+authority. Send still verifies that saved evidence against the exact order.
+
+The request key derives one private owner-bound client UUID so a lost preparation
+response can recover the same immutable order. Changed exact terms conflict.
+The workflow never retries a command or mints replacement identities after an
+attempt. No-send or unknown-resolution errors take precedence over generic
+denials when reporting joined errors. A failed response directs the owner to
+read saved state; it is never an instruction to resend.
+
+Status is one database snapshot, not authorization. `APPROVED` only reports saved
+unrevoked/unexpired confirmation. `BROKER_ACKNOWLEDGED` is not a fill;
+`AWAITING_ACCOUNT_SETTLEMENT` is not released capital; a cancellation result is
+not finality. `SETTLED` requires the exact saved accounting and release receipt;
+`NOT_SENT` requires the private no-send receipt. Rejected and unknown submissions
+remain visibly held, including after restart. Inconsistent evidence is
+`UNAVAILABLE`, and account quarantine remains explicit. No reset, force-complete
+or unresolved-capital-release command is supplied. These states require operator
+review, not a second order. This is safe containment, not guaranteed resolution
+of a broker-entered rejection or a crash before positive proof.
+
 ## Remaining execution work
 
-The narrow durable dispatch, owner authority, Coinbase preflight/submit/recovery/status/fill/cancel adapters and exact account settlement above are implemented but not runtime-wired. The bounded inert-component review above is complete; final fault acceptance and authenticated owner-control/runtime integration still require their own evidence and approval. Resolve the rejected/unknown-attempt operational gate without weakening containment before the separately authorized pilot. Unattended execution additionally requires reviewed live-mandate authority; confirm-each approval cannot grant it. No broker-write job or live runtime exists. The existing `order_intents`, proposal reviews, and expiring preview reservations must not be promoted into execution authority. The [private fill observation store](PRIVATE_FILL_EVIDENCE.md) remains read-only history, not dispatch-bound settlement. Options, replacement orders, multi-leg execution, and other brokers are outside the personal pilot.
+The narrow durable dispatch, owner authority, Coinbase preflight/submit/recovery/status/fill/cancel adapters, exact account settlement, and authenticated owner command service/transport above are implemented but not runtime-wired. The bounded inert-component review above is complete; the actual owner screen and final runtime composition still require their own acceptance evidence and security approval. Resolve the rejected/unknown-attempt operational gate without weakening containment before the separately authorized pilot. Unattended execution additionally requires reviewed live-mandate authority; confirm-each approval cannot grant it. No broker-write job or live runtime exists. The existing `order_intents`, proposal reviews, and expiring preview reservations must not be promoted into execution authority. The [private fill observation store](PRIVATE_FILL_EVIDENCE.md) remains read-only history, not dispatch-bound settlement. Options, replacement orders, multi-leg execution, and other brokers are outside the personal pilot.
 
 The separate [offline lifecycle laboratory](SIMULATION_LIFECYCLE.md) implements executable fixture state transitions and durable local replay for testing these mechanics now. Its fictional attempts, fills, and cash movements never enter production accounts or the Paper/Shadow scheduler. The fixture configuration is not risk approval, the synthetic provider labels do not certify broker compatibility, and passing the scenarios does not satisfy the live-execution approval gates.
 

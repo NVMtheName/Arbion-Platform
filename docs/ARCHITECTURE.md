@@ -683,7 +683,22 @@ The trusted coordinator is the source of the no-callback fact, not absence of
 broker data or an adversarial-SQL proof. A crash before proof, lost claim commit,
 failed cleanup or any entered-adapter outcome retains uncertainty and holds.
 
-No HTTP route, scheduler dispatch, capital-release writer or autonomous
+An unmounted personal-owner HTTP handler now composes the existing execution
+services through a fixed server-selected owner/account/connection/allocation/USD
+pair scope. Session identity is never accepted from a command body. Every saved
+order must match the entire scope; each operation reuses its original financial
+authority and duplicate guards. Fresh execution TOTP confirms exact terms. The
+handler requires approved-origin POSTs for commands, strict bounded JSON, and
+no-store responses, including errors. It exposes only an explicit safe status
+projection from one database snapshot, never credentials or provider correlation.
+An owner idempotency key maps to one private, domain-separated client identity;
+changed terms conflict rather than creating a second attempt. There is no
+automatic command retry, preview replacement, generic unlock or activation API.
+Uncertain/rejected submissions stay held; cancellation, terminal order history
+and cash/position settlement remain distinct facts. Session authentication is
+request-entry access, not a guarantee that logout retracts an admitted send.
+
+No owner execution HTTP route, scheduler dispatch, capital-release writer or autonomous
 live-mandate authority is runtime-wired. Dedicated runtime security review
 remains required before
 a separately approved pilot. All adapter proofs use synthetic local HTTP, not
