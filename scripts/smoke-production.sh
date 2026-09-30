@@ -20,7 +20,7 @@ curl --fail --silent --show-error --max-time 10 "$base/icon.svg" >/dev/null
 journal_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 10 "$base/api/decision-journal")"
 [[ "$journal_status" == "401" ]] || { echo "Decision Journal endpoint is not protected" >&2; exit 1; }
 
-for private_path in /api/accounts /api/connections/financial /api/accounts/00000000-0000-0000-0000-000000000000/balances; do
+for private_path in /api/accounts /api/connections/financial /api/accounts/00000000-0000-0000-0000-000000000000/balances /api/personal-execution/context /api/personal-execution/orders; do
   private_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 10 "$base$private_path")"
   [[ "$private_status" == "401" ]] || { echo "Private financial endpoint is not protected." >&2; exit 1; }
 done

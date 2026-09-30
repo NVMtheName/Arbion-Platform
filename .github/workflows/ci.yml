@@ -80,11 +80,16 @@ jobs:
       - run: go test -race ./internal/strategy -run TestPostgresAIPaperFillIsAtomicImmutableAndBrokerDisconnected -count=1
       - run: go test -race ./internal/strategy -run TestPostgresAIPaperCommitBindings -count=1 -timeout=2m
       - run: go test -race ./internal/strategy -run TestPostgresCapitalReservationsAllowOnlyExactAggregateSharing -count=1
-      - run: go test -race ./internal/auth -run TestPostgresSecurityActivityIsOwnerScopedFilteredAndAppendOnly -count=1
+      - run: go test -race ./internal/auth -run 'TestPostgres(SecurityActivityIsOwnerScopedFilteredAndAppendOnly|TOTPMFALifecycle)$' -count=1
       - run: go test -race ./internal/marketintelligence -run TestPostgresHealthHistoryAggregatesAndPrunesSafeOutcomes -count=1
       - run: go test -race ./internal/marketintelligence -run TestPostgresWatchlistIsOwnerScopedUniqueAndHardBounded -count=1
       - run: go test -race ./internal/orderintent -run TestPostgresOrderIntentIsIdempotentOwnerScopedImmutableAndNonExecuting -count=1
+      - name: Durable dispatch concurrency, unknown commit, and process recovery
+        run: go test -race ./internal/execution -run TestPostgres -count=1 -timeout=3m
+      - name: Coinbase submission and lost-acknowledgement recovery (local HTTP broker only)
+        run: go test -race ./internal/financial/coinbase -run TestPostgres -count=1 -timeout=2m
       - run: go test -race ./internal/financialconnection -run TestPostgresConnectionLifecycleIsAccountScoped -count=1
+      - run: go test -race ./internal/credential -run TestPostgresFinancial -count=1
       - run: go test -race ./internal/financialconnection -run TestPostgresPrivateFillEvidenceIsImmutableScopedAndDuplicateSafe -count=1
       - run: go test -race ./internal/aiconnection -run TestPostgresAIConnectionDependenciesTrackPreferencesMandatesAndPinnedRuntime -count=1
       - run: go test -race ./internal/risk -run TestPostgresGlobalBreakerIsDurableExclusiveAndSuperadminBound -count=1

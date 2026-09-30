@@ -79,9 +79,206 @@ Before a Coinbase `Create Order` adapter may exist, the following must be implem
 
 The AI-facing tool set may eventually include structured proposal and preview tools. It must not contain an unrestricted `place_order` tool. An AI proposal enters the same durable Order Intent and deterministic control path as a UI ticket and cannot satisfy its own approval requirement.
 
-## Deferred decisions
+## Approved personal pilot implementation — durable dispatch foundation
 
-No live-order, dispatch-attempt, broker-write, or live settlement-reconciliation table/interface/job exists. The implemented `order_intents`, preview/product-evidence, proposal-review, short-lived capital-reservation, and event tables deliberately cannot represent provider submission or execution approval. The separate [private fill observation store](PRIVATE_FILL_EVIDENCE.md) retains account-scoped hashed Coinbase entry/trade/order references from existing authorized history reads, but never binds them to Arbion dispatch, derives settlement, or grants authority. Canonical live order/leg schemas, durable execution reservations, execution-to-provider mapping, webhook/poll strategy, cancellation/replacement semantics, correction handling, multi-leg guarantees, and live retry protocols require the approval gates above.
+On September 28, 2026 the owner approved the proposed Coinbase-only architecture/security scope for implementation, not live activation or broker orders. The scope is one owner, an isolated portfolio, one spot USD pair, price-bounded IOC limits, and one unresolved order at a time. Capital limits and actual activation remain separate explicit decisions. Existing proposal-review approvals remain permanently non-executable.
+
+`internal/execution` now persists immutable execution requests separately from non-executable preview intents. Exact account, connection, owner, bucket, client UUID, order terms, and all-in BUY debit bounds are digest-bound; identity reuse with changed terms fails. Composite foreign keys and insertion guards preserve owner/account/provider attribution.
+
+The PostgreSQL claim boundary locks the account, requires an injected transaction-scoped current-authority evaluator, rechecks authorization expiry using database wall time after all waits, and atomically records one attempt. The initial confirm-each `OwnerAuthority` and saved provider preflight verifier are implemented but remain unwired; missing authority or verifier denies. There is at most one attempt per order and one unresolved attempt per account. A commit error returns no dispatch receipt, even if the database actually committed. A new worker/process recovers the persisted record but never acquires a second send claim.
+
+Broker acknowledgements are private immutable correlation only, not fills or settlement. Unknown outcomes and acknowledged orders retain the account's active submission slot. Immutable attempts are permanent; migration50 replaces permanent account uniqueness with a guarded active slot, seeded from existing attempts and claimed atomically on every new attempt. A terminal order can never be submitted again, even after its account slot is released. Preparing an order does not reserve capital. Migration51 atomically reserves the exact maximum all-in BUY debit or SELL base quantity with every attempt; no expiry, acknowledgement, or terminal report releases that capital.
+
+The private reconciliation boundary now records exact dispatch-bound base quantities, USD prices, gross values and fees, deduplicated by order/trade identity. Equivalent decimal spellings and later polling times do not create new fills; changed economic facts conflict. Price, quantity, fee allowance, all-in BUY debit and nonnegative SELL proceeds are checked exactly. Unknown/malformed, future, pre-attempt, over-limit, conflicting, or late new fills fail closed. Out-of-order arrival of valid fills is allowed; completeness is not inferred from delivery order.
+
+Only a final FILLED/CANCELLED/REJECTED/EXPIRED report with explicit complete fill pagination, exact saved count/quantity/gross/fee totals, and consistent timestamps may release that order's submission slot. Incomplete or unmatched terminal reports retain the slot and can be retried after the missing fills arrive. FILLED requires the full requested quantity; REJECTED requires zero fills. This is order-level reconciliation, **not cash/position reconciliation or release of financial capital**. The future provider adapter must establish actual broker attribution, fee units, fill completeness and final status; the existing bounded history reader is not sufficient evidence.
+
+Conflicting corrections and new fills arriving after a final report durably block the entire account, even when a newer order already holds its slot. No automatic correction, unblock, reset, replacement, or liquidation path exists. Rejected observations are retained in bounded private records (oversized payloads retain only the account stop). No accepted historical fill is rewritten. The final receipt and slot release are atomic; a lost commit response is recovered by replay/read without double settlement. SQL guards independently serialize same-account mutations, bind payloads to relational facts, preserve immutable fills/receipts/blocks, and reject slot deletion without a matching terminal receipt. Late evidence cannot undo a network request already in flight; the future sender must check blocks at its final send boundary.
+
+Claim now locks current owner/founder entitlement before account, connection and fixed-USD bucket controls, validates the current credential generation, and serializes GLOBAL/USER/ACCOUNT stops using the existing shared scope locks. The SQL insertion guard repeats validation after the authority callback with database wall time. A distinct capital fence persists after order-level reconciliation and conservatively prevents another order on that account until cash/position reconciliation is implemented. Active manual previews and non-Paper strategy allocations exclude a claim; reciprocal guards prevent new competing reservations. Paper money remains separate. A shared fence-row write rejects stale SERIALIZABLE snapshots after advisory waits. Claims require READ COMMITTED snapshots. These guards do not establish available broker cash/inventory, credential permissions, live approval or deterministic risk clearance.
+
+### Exact owner authorization and available funding
+
+The first controlled-order authority uses a separate immutable `EXACT_ORDER_CONFIRM_EACH` approval, never a proposal review or an autonomous mandate grant. A distinct execution step-up consumes a one-use TOTP against the exact enrolled factor; recovery codes and a legacy store without atomic factor comparison cannot satisfy it. Approval binds the immutable order digest, owner and current financial credential generation, lasts at most five minutes, and can be revoked through an append-only record. Claim locks the approval and factor so revocation or factor removal cannot race past claim commit. Financial credential payload/reference changes now advance the generation exactly once, independently of the credential writer; staged replacements and metadata do not invalidate active material.
+
+`OwnerAuthority` requires a private provider preflight verifier on the same transaction. It checks proof freshness (at most 30 seconds), exact account/connection/order/key generation, and the latest enforced MATCHED/CLEAR reconciliation. USD cash and available cash, complete single-pair inventory and available quantity must match that reconciliation exactly; totals or buying power cannot replace available funds. Reconciliation child inserts serialize with the account lock, so incomplete or changing inventory fails closed. Competing financial reservations deny. The unchanged deterministic Risk Engine must independently return ALLOW with manual approval still required and platform execution still unavailable. The short-lived authorization records exact preflight and risk evidence and can commit only with its matching durable attempt.
+
+This package is not connected to HTTP, the scheduler, AI, or production runtime. Tests use synthetic preflight evidence and mocked provider responses. A successful claim is only the durable pre-send record, not permission to send outside the one-shot coordinator below. Exact account settlement can release internal capital only through its separate unwired coordinator; no autonomous live-mandate authority exists.
+
+### Private Coinbase preflight adapter
+
+The Coinbase collector uses fresh key permissions (View and Trade, explicitly no Transfer), complete portfolio-scoped account pagination, product restrictions/increments/size bounds, a timestamped product book, and an exact price-bounded `sor_limit_ioc` preview. Its only POST is the non-executing preview endpoint. No submit/cancel method is added to the existing financial read interface. The key's permissioned portfolio must match the saved account; supplying a portfolio ID in a preview is not proof of key scope. Nonzero foreign assets, external holds, incomplete responses, missing safety fields, duplicate JSON keys, changed preview size, fee overruns, redirects, pagination loops and stale quotes fail closed. Unknown zero-balance assets cannot contribute cash or inventory. No market-order fallback exists.
+
+The server-only capture service retrieves the encrypted financial key and reads providers outside transactions. A versioned vault read returns the generation from the same database snapshot as the encrypted material; old repeatable-read material cannot be relabeled with a newer control-store generation. It checks that version before provider reads and under save locks; a replacement during collection invalidates the result. Legacy unversioned vault reads cannot satisfy this boundary. Migration54 persists immutable private order/digest/account/key-bound evidence. `SavedPreflightVerifier` pins one exact evidence ID and revalidates it using only the claim transaction, with no HTTP client or vault. Provider-read and reconciliation timestamps remain distinct: both must be at most 30 seconds old, the quote at most 10 seconds old, and complete funding facts must agree exactly. A newer reconciliation requires new evidence. No snapshot is relabeled as fresh, and no drift is auto-cleared.
+
+These tests establish local/mock contract behavior, not live provider compatibility. Preview estimates are not settlement; the pilot's conservative preview-consistency rules must be confirmed with authenticated read/preview evidence before activation. The eventual sender still needs current open-order/account checks, exact private preview correlation and a revocation-safe send boundary. Provider and preview IDs stay private. Reference: Coinbase [preview](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/orders/preview-orders), [product](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/products/get-product), and [product book](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/products/get-product-book) contracts.
+
+### One-shot send admission (unwired)
+
+`SendConfirmed` loads the exact credential material and its generation outside authorization locks, then calls the real owner authority with a pinned saved preflight. Only this invocation's successful durable claim can reach the final send transaction. No API accepts a recovered attempt as send authority, and no callback receives a refreshed preview or replacement client identity. A lost claim commit response prevents the callback entirely. A crash before any network activity still leaves an unresolved attempt, intentionally requiring reconciliation rather than retry.
+
+The final transaction reuses the current-control lock order, additionally locks the exact attempt, and revalidates owner approval/revocation, MFA enrollment, credentials, stops, account/bucket state, complete funding and deterministic risk. Only its own exact capital reservation is excluded from competing reservations; both own holds must remain, and any existing acknowledgement, fill, terminal or account block denies. The immutable authorization's exact preflight, reconciliation, generation and expiry must match. A final database wall-clock/control check bounds a monotonic local deadline by the original authorization, current evidence/approval, entitlement/connection expiry and a five-second maximum. The entire final-query round trip counts against that budget; scheduling delay cannot renew it.
+
+The separate Coinbase execution adapter is synchronous, honors cancellation, attempts at most one exact price-bounded IOC submission, and disables redirects, transport/application retries and credential reloads. A valid acknowledgement saves only exact client/product/side/provider-order correlation, never a fill or capital release. Callback errors (including unclassified rejection), timeout, malformed correlation and ambiguous acknowledgement commit leave the durable attempt and both holds intact. GET-only recovery can discover exact correlation but never resubmit. Strict provider-reported rejection is immutable evidence separate from unknown outcomes, not a fabricated broker order or release.
+
+Revocation committed before final locks prevents admission. Revocation arriving after admission waits for the bounded callback and cannot retract an in-flight order. **Losing the database session can release those locks while the network request continues.** This provides local serialization and durable no-resend protection, not strict broker-side fencing or guaranteed cancellation. The dedicated runtime security review must explicitly resolve the concrete transport's failure semantics, unknown-outcome lookup and cancellation coordination before activation; mocks do not certify them.
+
+### Once-only cancellation and exact settlement (unwired)
+
+`CancelBrokerOrder` claims one immutable cancellation attempt for the original known broker order. Only the invocation that successfully commits a new claim may enter the final provider boundary. It rechecks current scoped owner/account/connection access and credential generation under ordered locks, bounds the original five-second window by current access expiry, and charges all final database-response delay. Expired/revoked order approvals, stops and reconciliation blocks do not prevent a risk-reducing cancel; disabled owner/account/connection access still does. A terminal order is not a cancellation target. No replacement, resubmission or automatic retry follows a lost response or process crash.
+
+The private Coinbase adapter requires fresh View/Trade/no-Transfer portfolio permissions and a matching unresolved order detail before a singleton `batch_cancel` request. It uses the existing isolated no-retry HTTP/1 transport. Coinbase describes this operation as initiating cancel requests in its [official SDK](https://github.com/coinbase/coinbase-advanced-py/blob/master/coinbase/rest/orders.py); an accepted response is not terminal evidence. Immutable ACCEPTED/NOT_ACCEPTED/UNKNOWN receipts never release the submission slot or reserved capital. Restart reads the same receipt, or UNKNOWN if none committed, without another cancellation request.
+
+Complete GET-only final status/fill reconciliation must still match exact saved identities, quantities, gross and fees before releasing the submission slot. Separate account settlement then reconciles the original pinned opening cash/base against saved fills and USD fees plus two matching complete zero-hold account reads. Stable observations are not broker-atomic snapshots. In this broker-entered path, only an exact immutable settlement receipt can release internal capital once; unexplained changes retain the reservation. Original nanosecond evidence stays intact; relational timestamp columns use the database's own cast of that evidence. Neither operation changes real holdings or clears generic risk, reconciliation, stop or approval controls.
+
+### Proven local no-send closure (unwired)
+
+When a positively committed claim fails before its synchronous sender is ever
+entered, only that winning `SendConfirmed` invocation may record a local
+`SENDER_NOT_ENTERED` receipt. The helper must return normally with a failure and
+complete transaction cleanup first. Entry is marked immediately before calling
+the adapter, not inferred from its return value. Panic/crash does not return to
+the receipt writer. This is a private control-flow fact, never an owner-provided
+flag or an unlock/retry API.
+
+The immutable receipt binds the exact original owner/order/account/allocation,
+authorization, request digest, credential generation and claim time. The database
+serializes account/capital fences and the original attempt; contradictory broker
+receipts, fills, terminals, cancellation or settlement deny closure. Its one
+transaction releases only the original submission slot and internal reservation,
+preserving reservation history, every stop/quarantine and the permanent original
+attempt. Later broker facts cannot contradict the closure. No fake terminal,
+zero-fill settlement or broker balance update is produced. A subsequent order
+still needs entirely fresh current authority, reconciliation, funds and evidence.
+
+This factual cleanup can finish after caller cancellation or permission loss;
+it does not renew those permissions. A lost closure-commit response is unknown
+until the exact saved receipt is read. `ReadNoSendResolution` is owner-scoped and
+never writes, retrieves credentials or calls a provider. No receipt means no
+proof, not permission to reconstruct it. A lost claim commit, crash before proof,
+failed transaction cleanup, or any entered sender (including adapter prechecks,
+provider rejection or timeout) retains the conservative unresolved path. The
+coordinator is trusted to report its control flow; SQL bindings are not a proof
+against privileged code fabricating a receipt.
+
+### Bounded security review of the inert slice
+
+The assembled implementation at `d429462` received separate read-only reviews of
+the execution store/authorization boundary and Coinbase adapter/credential/transport
+boundary, plus a runtime reachability and stop-control review. No actionable
+high/medium defect was found within that scope. This approves the inert component
+boundary only, not authenticated runtime integration, real provider compatibility
+or live activation. Existing proofs were inspected rather than rerun as an audit.
+
+- `postgres_send_test.go` covers claim-to-send revocation, synchronous callback
+  locking, monotonic deadline expiry and database-session loss. The additional
+  `postgres_send_stop_test.go` specifically covers the first GLOBAL/USER/ACCOUNT
+  stop after claim, a GLOBAL stop waiting on the admitted callback's actual
+  advisory lock, and cancellation after that stop without releasing either hold.
+- `postgres_recovery_test.go`, `postgres_cancellation_test.go` and
+  `postgres_settlement_test.go` cover current scoped access, changed credentials,
+  ambiguous commits, duplicate/restart behavior and receipt-only capital release.
+  Coinbase synthetic integration covers the full cancel/fill race through exact
+  account settlement; transport tests cover lost responses, timeout, redirects,
+  disabled retries, wrong scope/terms and malformed evidence.
+- `cmd/api/main.go` still constructs only the read/preview `Client`, not the
+  `ExecutionAdapter` or execution coordinators. Existing financial interfaces
+  contain no submit/cancel capability. Browser and model inputs cannot supply
+  execution authority or obtain financial credentials through these interfaces.
+
+Required integration constraints remain explicit: construct the runtime client
+only from the fixed Coinbase HTTPS destination and trusted standard TLS/transport
+configuration; do not accept owner/model-provided base URLs, proxy/dial hooks or
+TLS settings. The adapter's isolated transport prevents replay but is not itself
+a destination/TLS-policy boundary. Database locks cannot retract an in-flight
+broker request after session loss. Stable account reads are not a broker-atomic
+snapshot or protection against independent portfolio mutation.
+
+An operational completion gap also remains: a saved provider-reported submission
+rejection has no broker order ID, `loadRecoveryContext` returns
+`ErrSubmissionRejected`, and terminal/account settlement requires a known broker
+order. Its account and capital holds therefore remain indefinitely, as do unknown
+attempts for which no positive broker identity can be recovered. This is
+conservative containment, not successful lifecycle completion. Before the pilot,
+the owner workflow needs a separately reviewed resolution policy/path for these
+states; a rejection, empty history scan, expired attempt or owner acknowledgement
+alone must never unlock capital or authorize resubmission. The subsequent private
+local no-send closure above handles only positively known pre-callback failures,
+not these broker-entered or crash-unknown cases. No generic remediation writer or
+activation permission is implied by this review.
+
+### Personal owner command workflow (unmounted)
+
+`OwnerWorkflow` composes the existing services, not a second execution engine.
+Trusted server composition supplies one fixed owner, account, connection,
+allocation and spot USD pair, with no defaults or user/model overrides. Every
+order command and read reloads and compares all scope fields. Fresh current
+founder access is checked at entry; existing transactional controls remain the
+authority at each financial boundary. Dedicated execution TOTP confirms the
+exact request digest. The principal is session-derived, never a JSON field.
+
+`NewOwnerExecutionHandler` is not mounted by the application. Its future surface
+is `/api/personal-execution/orders`: POST prepares exact bounded terms with an
+owner request key; GET `/{id}` reads only saved status; POST subcommands are
+`approve`, `revoke`, `preflight`, `send`, `recover`, `reconcile`, `cancel`, and
+`settle`. Commands require an approved Origin and one strict object of at most
+4 KiB; no-payload operations require `{}`. Responses are no-store, including
+authentication and error responses. Unknown authority/provider fields are denied.
+Raw provider messages, credential versions/material and provider correlation
+never appear in the DTO or sanitized errors. Preflight returns only an opaque
+saved evidence ID and the order projection; it never returns provider preview
+authority. Send still verifies that saved evidence against the exact order.
+
+The request key derives one private owner-bound client UUID so a lost preparation
+response can recover the same immutable order. Changed exact terms conflict.
+The workflow never retries a command or mints replacement identities after an
+attempt. No-send or unknown-resolution errors take precedence over generic
+denials when reporting joined errors. A failed response directs the owner to
+read saved state; it is never an instruction to resend.
+
+Status is one database snapshot, not authorization. `APPROVED` only reports saved
+unrevoked/unexpired confirmation. `BROKER_ACKNOWLEDGED` is not a fill;
+`AWAITING_ACCOUNT_SETTLEMENT` is not released capital; a cancellation result is
+not finality. `SETTLED` requires the exact saved accounting and release receipt;
+`NOT_SENT` requires the private no-send receipt. Rejected and unknown submissions
+remain visibly held, including after restart. Inconsistent evidence is
+`UNAVAILABLE`, and account quarantine remains explicit. No reset, force-complete
+or unresolved-capital-release command is supplied. These states require operator
+review, not a second order. This is safe containment, not guaranteed resolution
+of a broker-entered rejection or a crash before positive proof.
+
+### Personal owner screen (unmounted)
+
+`apps/web/app/personal-execution/owner-execution.tsx` implements the narrow owner
+workspace over this same command contract. It has no page, navigation entry,
+proxy registration, activation switch or automatic request on mount. Its fixed
+display scope is not authority. The command client uses only the same-origin
+endpoint, rejects redirects and malformed/private response fields, binds saved
+identities and immutable terms, and never retries or polls. Errors use local
+messages, not raw provider or server text. Neither MFA nor evidence is persisted
+in browser storage.
+
+Preparation freezes exact terms and the request key so a lost response can
+recover the same preparation. Approval requires the saved digest and dedicated
+MFA, which is cleared before awaiting the request. Preflight and explicit
+send-once confirmation are separate actions; captured evidence is not a promise
+of current authorization. Any command or refresh clears the captured evidence.
+Send/cancel attempts stay locally latched after errors and stale saved reads;
+the server's permanent attempt record remains authoritative across browsers and
+restarts. No reset or automatic replacement order is offered. Returning owners
+can explicitly load the original order ID, recover or reconcile; uncertainty is
+not a retry instruction. Dependency/scope changes permanently invalidate that
+workspace instance, and late responses cannot restore it.
+
+All reviewed amounts remain exact strings. Saved fill evidence and accounting
+are behind accessible disclosure. Acknowledgement, cancellation, final order
+history and cash/position settlement remain distinct. The account quarantine
+warning remains visible. The workspace uses existing surface colors and a
+single-column small-screen layout. No result claims profitable trading.
+
+## Remaining execution work
+
+The narrow durable dispatch, owner authority, Coinbase preflight/submit/recovery/status/fill/cancel adapters, exact account settlement, authenticated owner command service/transport and owner screen above are implemented but not runtime-wired. Final trusted runtime composition and mounting still require acceptance evidence and security approval. Resolve the rejected/unknown-attempt operational gate without weakening containment before the separately authorized pilot. Unattended execution additionally requires reviewed live-mandate authority; confirm-each approval cannot grant it. No broker-write job or live runtime exists. The existing `order_intents`, proposal reviews, and expiring preview reservations must not be promoted into execution authority. The [private fill observation store](PRIVATE_FILL_EVIDENCE.md) remains read-only history, not dispatch-bound settlement. Options, replacement orders, multi-leg execution, and other brokers are outside the personal pilot.
 
 The separate [offline lifecycle laboratory](SIMULATION_LIFECYCLE.md) implements executable fixture state transitions and durable local replay for testing these mechanics now. Its fictional attempts, fills, and cash movements never enter production accounts or the Paper/Shadow scheduler. The fixture configuration is not risk approval, the synthetic provider labels do not certify broker compatibility, and passing the scenarios does not satisfy the live-execution approval gates.
 

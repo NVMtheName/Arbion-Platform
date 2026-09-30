@@ -206,6 +206,8 @@ A separate canonical review artifact accepts only the exact independently verifi
 
 A pure safety-evidence gap inventory consumes the complete independently verified comparison-review chain and enumerates the seven required proof categories in canonical order. It preserves exact before/after evidence, sources, digests, observation times, assessment reason codes, and saved review disposition. A category is marked `NEWLY_UNAVAILABLE`, `STILL_UNAVAILABLE`, or `RESOLVED` only from its explicit typed reason code; otherwise the inventory reports exact evidence as `UNCHANGED` or `CHANGED` without inferring cause, quality, or readiness. The inventory is domain-separated and tamper-evident, rejects a non-comparable report pair without fabricating categories, and has no persistence, route, provider, broker, scheduler, or execution surface. An independent verification report reconstructs the full inventory through a separately defined canonical projection, checks every category, count, review binding, and claimed digest, and adds its own domain-separated report digest. Structurally exact current gaps remain an explicit `CURRENT_EVIDENCE_UNAVAILABLE` closed result; mismatches never verify. A final canonical review artifact accepts only that exact independently verified report, preserves every digest, category, count, and time conclusion, and maps it exclusively to `NO_GAPS` or `OWNER_REVIEW_REQUIRED`; any other rejected or inconsistent result is refused. A separate remediation-requirements matrix accepts only that canonical review and its complete exact chain: `NO_GAPS` emits no rows, while `OWNER_REVIEW_REQUIRED` emits only the current unavailable categories in canonical order with the required evidence source, saved reason codes, typed responsible boundary, and contract-defined safe evidence follow-up. Its own domain-separated digest binds every upstream digest, time, count, and requirement, and any changed category, order, mapping, input, or authority-bearing value fails closed. An independent matrix-verification report duplicates neither the matrix mapping nor its canonical encoder: it separately reconstructs all seven category/source/boundary/follow-up expectations, reports claimed and recomputed rows and digests, and rejects every mismatch while treating verified missing-evidence requirements as review evidence rather than readiness. A canonical owner-review artifact accepts only that exact independently verified report and maps it exclusively to `NO_REMEDIATION_REQUIRED` or `EVIDENCE_REMEDIATION_REVIEW_REQUIRED`, preserving the complete ordered requirements and verified matrix/report digests without treating structural integrity as readiness or completion. A second independent report then reconstructs both allowed conclusions, the exact owner action, counts, ordered requirements, and matrix, upstream-report, and artifact digests without calling that review artifact's compiler, verifier, conclusion mapper, or digest helper. The report, review artifacts, matrix, and matrix-verification reports grant no execution authority and likewise have no production caller or runtime surface.
 
+The approved personal Coinbase pilot now has an inert durable submission and order-reconciliation foundation in `internal/execution` (see [Execution Engine](EXECUTION_ENGINE.md)). It stores immutable scoped requests, one-shot transactionally claimed attempts, private broker acknowledgements and exact fills. Final reports release the account's active submission slot only after complete fill counts/quantity/gross/fees match; corrections or late new fills durably block the account. A separate exact account-settlement receipt is required to release internal reserved capital. Exact owner authority, the one-shot coordinator and a concrete Coinbase adapter are implemented but runtime-unwired. Missing authority denies; a lost commit response never yields a dispatch receipt; restart cannot reclaim an existing attempt. This is execution implementation work, separate from the evidence-only `internal/liveexecution` package. Live activation and actual orders remain unapproved.
+
 ## Deterministic non-live automation implementation
 
 Scheduler recovery requires a `SUCCEEDED` evaluation, including duplicate-safe recovery of an already committed event. `SKIPPED` session, lifecycle, and AI-budget waits preserve the unresolved failure count rather than clearing it; they remain distinct from new failures. The current counter and new immutable run are committed atomically under the claimed lease. Existing run history is never rewritten. Owner recovery and SLO projections also retain an unresolved failure found in their bounded saved history even when a legacy skip reset the counter, and never use a skipped cycle as evidence of recovery. This changes neither scheduling authority nor risk, quote, reconciliation, or execution requirements.
@@ -563,6 +565,172 @@ denial evidence remain unchanged. No old proposal is rerun and no window is
 automatically extended. This bounded check does not replace the existing Paper
 binding locks or the shared AI Shadow binding checks described above, revalidate
 all risk inputs, or authorize an eventual broker dispatch. No live path is added.
+
+### Unwired personal execution authority
+
+The approved Coinbase-only implementation keeps exact execution requests, owner
+confirmations, authorization evidence, durable attempts, capital holds and fills
+inside the Go execution domain. Owner confirmation is separate from permanently
+non-executable proposal reviews and uses exact-factor one-use TOTP, a short-lived
+order digest/key-generation binding and append-only revocation. Claim serializes
+current access, account, credential, bucket, approval, factor and stop controls;
+checks fresh exact available cash/inventory against complete reconciliation;
+and runs unchanged deterministic risk before atomically recording authorization
+and the attempt. Credential replacement advances the financial generation.
+
+The private Coinbase preflight collector performs only scoped reads and an
+exact non-executing price-bounded IOC preview. It checks actual key permissions,
+complete isolated-account funding, product rules and timestamped quotes, with
+strict bounded parsing and redirects disabled. A server-only capture service
+binds vault retrieval/provider collection to the stored credential generation,
+then saves immutable evidence under current-control locks. The saved verifier
+checks a pinned evidence ID and matching fresh complete reconciliation entirely
+on the claim transaction; no provider calls occur under those locks. Synthetic
+tests do not certify provider compatibility.
+
+An unwired one-shot send coordinator now loads version-bound credentials outside
+locks, commits the durable attempt, then reacquires current controls and verifies
+the exact approval, factor, funding, own holds and pinned evidence before a
+synchronous bounded sender can run. Only the successful claimant invocation can
+enter this boundary; recovery cannot resend. Locks order local revocation against
+send admission, and an absolute monotonic deadline conservatively charges all
+database-response delay against the remaining evidence/access lifetime. Unknown
+outcomes retain both holds. Database-session loss can release locks during an
+in-flight network operation: this is not broker-side fencing or cancel-on-revoke.
+The separate, unwired Coinbase execution adapter accepts only the exact saved
+spot USD `sor_limit_ioc` terms, client UUID and preview. It rechecks scoped key
+permissions, complete funding and unresolved orders before one POST. Its private
+fresh HTTP/1 transport disables connection reuse, redirects and retries; the
+existing runtime read/preview client acquires no submission capability.
+
+Lost-response recovery uses only bounded history/detail GETs and the original
+client identity. It cannot claim, preview, submit or release either hold. Saved
+approval expiry/revocation and stops do not prevent recovery reads; current
+owner/account/connection access, permissioned portfolio and versioned credentials
+remain mandatory, and access is checked again before storing correlation.
+An absent/incomplete result stays UNKNOWN. Strictly reported rejection codes are
+immutable distinct evidence, not a fabricated broker ID or settlement. Conflicting
+acknowledgement/rejection receipts serialize and fail closed at the database.
+
+The unwired reconciliation coordinator uses the recovered broker identity for
+bounded GET-only order/fill collection. A complete traversal (at most ten pages
+of 100 fills) must match both surrounding order snapshots, exact fill count,
+base quantity, gross value, fees and latest fill time. Partial fills remain
+nonterminal facts. Unknown, malformed, duplicate, inconsistent or changing
+evidence cannot settle. Quote-sized fills require an exact finite base conversion;
+source entry/trade identities, units and sequence/trade times are immutable.
+USD fee denomination follows the quote-asset rule in
+[Coinbase Trading Rules section 1.91](https://www.coinbase.com/legal/trading_rules),
+not an assumed currency in the general historical display projection. Coinbase
+does not provide a general completion timestamp here: terminal receipts label
+their first verified observation time explicitly and never invent one. Exact
+replays, including reverse-order polling receipts, retain the original receipt.
+
+Collection occurs outside database locks. Current owner/account/connection
+access and the material credential generation are rechecked under account-first
+serialization before saving the whole validated collection and again before
+commit, including quarantine paths. A verified terminal releases only the
+submission slot, never reserved capital; conflicts durably quarantine the
+account while incomplete scans leave state unchanged. The existing execution
+ledger remains the sole source of immutable fills and terminal facts.
+
+A separate unwired account-settlement coordinator accounts for opening cash and
+base inventory using the original pinned preflight, exact saved terminal/fill
+identities and USD fees. BUY subtracts gross plus fees and adds filled base;
+SELL adds gross minus fees and subtracts filled base. The GET-only Coinbase
+collector requires a fresh complete terminal observation, empty unresolved-order
+scans and two matching complete account reads with no broker holds. These are
+observations of stability, not an atomic broker revision. Unexplained deposits,
+withdrawals, balance changes, incomplete scans and mismatched trades fail closed.
+
+Current access and credential generation are checked after collection under
+ordered account locks and again before commit. The receipt and one-way internal
+capital release commit together; a default-deferred database guard rechecks at
+commit. That guard is not a privilege boundary against SQL callers forcing its
+constraint immediate. Original reservation terms remain immutable; only active
+reservations exclude a new claim. Concurrent retries or a lost commit response
+recover one historical receipt without another account read or another release.
+No broker holdings are mutated and no generic reconciliation, risk, stop or
+approval control is cleared. Every later order still requires its own current
+authority and fresh funding/reconciliation evidence.
+
+A separate unwired cancellation coordinator durably claims one operation for
+the original known broker order before its synchronous bounded callback. Only
+the winning invocation may call the provider; restart, timeout and ambiguous
+commit cannot renew or retry that attempt. Current owner/account/connection
+access, portfolio and credential generation are checked again under the same
+ordered locks immediately before admission. The original five-second deadline
+and current access expiry include database-response delay. Old order approval,
+stop state and reconciliation quarantine do not prevent risk-reducing cancellation.
+The private adapter checks fresh View/Trade/no-Transfer portfolio permissions
+and exact unresolved order terms, then issues at most one singleton cancellation
+request without retry, redirect, replacement or a new preview. A saved result
+is only ACCEPTED, NOT_ACCEPTED or UNKNOWN operation evidence. None releases a
+hold or proves no further fills; existing complete final-fill reconciliation
+and exact account settlement remain mandatory. Database-session loss is not
+broker fencing, and a lost response requires reconciliation, not blind retry.
+
+Pre-callback failures have a separate local no-send outcome. Only the original
+invocation that positively committed its dispatch claim can record this fact,
+after its synchronous helper returns without entering the sender and confirms
+transaction cleanup. Its immutable, exactly bound receipt atomically closes
+the original submission slot and internal capital reservation. Both reservation
+terms and the original attempt remain immutable; that order can never be sent
+again. Reciprocal guards exclude later broker receipts/evidence. This does not
+clear stops, quarantine or approval controls and creates no broker terminal,
+fill or account settlement. Receipt recovery is read-only and owner-scoped.
+The trusted coordinator is the source of the no-callback fact, not absence of
+broker data or an adversarial-SQL proof. A crash before proof, lost claim commit,
+failed cleanup or any entered-adapter outcome retains uncertainty and holds.
+
+A personal-owner HTTP handler composes the existing execution
+services through a fixed server-selected owner/account/connection/allocation/USD
+pair scope. Session identity is never accepted from a command body. Every saved
+order must match the entire scope; each operation reuses its original financial
+authority and duplicate guards. Fresh execution TOTP confirms exact terms. The
+handler requires approved-origin POSTs for commands, strict bounded JSON, and
+no-store responses, including errors. It exposes only an explicit safe status
+projection from one database snapshot, never credentials or provider correlation.
+An owner idempotency key maps to one private, domain-separated client identity;
+changed terms conflict rather than creating a second attempt. There is no
+automatic command retry, preview replacement, generic unlock or activation API.
+Uncertain/rejected submissions stay held; cancellation, terminal order history
+and cash/position settlement remain distinct facts. Session authentication is
+request-entry access, not a guarantee that logout retracts an admitted send.
+
+The personal owner workspace consumes that contract through a strict,
+same-origin, no-retry browser client. Its authenticated page and proxy are now
+mounted, but production supplies a **nil workflow**: context reports unavailable
+and every command is unavailable after authentication. No navigation expansion,
+activation setting or selected pilot scope is added. Exact immutable terms, explicit MFA and
+send/cancel confirmations, saved-state recovery and accounting use the existing
+commands; the browser never grants authority. Local uncertain-attempt latches,
+permanent scope-change invalidation and stale-response fencing prevent the UI
+from reopening a write after an ambiguous result. Server duplicate guards remain
+authoritative across sessions. No polling or browser persistence of MFA/evidence
+is introduced. Authenticated context binds the entire fixed scope and the
+current session instance through a domain-separated hash of the random session
+cookie. The hash is not a bearer credential; the HttpOnly cookie is authenticated
+on every request. All order commands and reads require the matching header.
+Replacing even the same owner's session invalidates old screens. Page/session
+teardown permanently invalidates the client and ignores late responses; hidden
+or restored pages require deliberate reopening rather than automatic work.
+
+The separate concrete production composition accepts only the execution store,
+fixed scope, auth service and encrypted vault. It owns a fresh transport to
+`https://api.coinbase.com` with normal certificate/hostname verification,
+TLS 1.2 minimum, HTTP/1 only, bounded timeouts, no proxy, no redirects and no
+connection reuse. It never inherits a mutable default or caller-supplied
+transport. Construction and context rendering perform no credential/provider
+I/O. Existing injectable clients remain for synthetic tests and unrelated
+read/preview use; production startup does not call the execution factory.
+
+No sender, scheduler dispatch, capital-release writer or autonomous live-mandate
+authority is connected to production. Inert runtime composition receives a
+bounded security review; actual pilot selection and activation remain separately
+required. All adapter proofs use synthetic local HTTP/TLS, not
+real orders or live compatibility/strategy-profitability evidence. See
+[execution engine](EXECUTION_ENGINE.md).
 
 ## Scalable AWS production topology
 

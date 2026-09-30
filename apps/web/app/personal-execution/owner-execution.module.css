@@ -1,0 +1,112 @@
+.workspace {
+  display: grid;
+  gap: 1.5rem;
+  min-width: 0;
+  max-width: 70rem;
+  padding: clamp(1rem, 3vw, 2rem);
+  border: 1px solid var(--surface-border, #29364a);
+  border-radius: 1rem;
+  background: var(--surface-raised, #101923);
+  color: var(--surface-text, #edf2f7);
+}
+
+.workspace header,
+.workspace form,
+.saved,
+.actions,
+.details {
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.workspace h2,
+.workspace h3,
+.workspace p {
+  margin: 0;
+}
+.workspace p {
+  line-height: 1.6;
+}
+.workspace label {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.workspace input,
+.workspace select,
+.workspace button {
+  min-height: 2.75rem;
+  min-width: 0;
+  max-width: 100%;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.8rem;
+}
+.workspace button {
+  width: fit-content;
+  cursor: pointer;
+}
+.workspace button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.workspace :focus-visible {
+  outline: 3px solid #7dd3fc;
+  outline-offset: 3px;
+}
+.workspace .confirm {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.confirm input {
+  flex: 0 0 1.25rem;
+}
+.notice {
+  padding: 0.8rem;
+  border-left: 3px solid #e2b668;
+  background: #e2b6680a;
+}
+.fields,
+.facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.fields {
+  padding: 1rem;
+  border: 1px solid var(--surface-border, #29364a);
+}
+.facts {
+  margin: 0;
+}
+.facts div {
+  min-width: 0;
+}
+.facts dt {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+.facts dd {
+  margin: 0.35rem 0 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.details summary {
+  cursor: pointer;
+  min-height: 2.75rem;
+  padding: 0.65rem 0;
+}
+@media (max-width: 40rem) {
+  .fields,
+  .facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace button {
+    width: 100%;
+  }
+}

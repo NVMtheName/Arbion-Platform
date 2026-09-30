@@ -65,6 +65,13 @@ func (f *fakeMFAStore) AdvanceTOTPStep(_ context.Context, _ string, step int64, 
 	return true, nil
 }
 
+func (f *fakeMFAStore) AdvanceExecutionTOTPStep(ctx context.Context, userID string, expected TOTPFactor, step int64, now time.Time) (bool, error) {
+	if expected.EnabledAt == nil || f.factor.EnabledAt == nil || !expected.EnabledAt.Equal(*f.factor.EnabledAt) || !bytes.Equal(expected.SecretCiphertext, f.factor.SecretCiphertext) {
+		return false, nil
+	}
+	return f.AdvanceTOTPStep(ctx, userID, step, now)
+}
+
 func (f *fakeMFAStore) ConsumeRecoveryCode(_ context.Context, _ string, hash []byte, _ time.Time) (bool, error) {
 	key := hex.EncodeToString(hash)
 	used, found := f.recovery[key]
