@@ -92,12 +92,12 @@ func assertSendHeld(t *testing.T, ctx context.Context, pool *pgxpool.Pool, o Ord
 	if o.Request.Side == "SELL" {
 		kind, asset, quantity = "ASSET", strings.TrimSuffix(o.Request.ProductID, "-USD"), o.Request.BaseSize
 	}
-	if err != nil || hold.OrderID != o.ID || hold.AccountID != o.Request.AccountID || hold.CapitalBucketID != o.Request.CapitalBucketID || hold.ResourceType != kind || hold.Asset != asset || !sameAmount(hold.Quantity, quantity) {
+	if err != nil || hold.ReleasedAt != nil || hold.OrderID != o.ID || hold.AccountID != o.Request.AccountID || hold.CapitalBucketID != o.Request.CapitalBucketID || hold.ResourceType != kind || hold.Asset != asset || !sameAmount(hold.Quantity, quantity) {
 		t.Fatalf("send changed exact capital hold: %#v %v", hold, err)
 	}
-	var fills, terminals int
-	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM execution_fills WHERE order_id=$1),(SELECT count(*) FROM execution_order_terminals WHERE order_id=$1)`, o.ID).Scan(&fills, &terminals); err != nil || fills != 0 || terminals != 0 {
-		t.Fatal("send manufactured settlement", err, fills, terminals)
+	var fills, terminals, noSend int
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM execution_fills WHERE order_id=$1),(SELECT count(*) FROM execution_order_terminals WHERE order_id=$1),(SELECT count(*) FROM execution_no_send_resolutions WHERE order_id=$1)`, o.ID).Scan(&fills, &terminals, &noSend); err != nil || fills != 0 || terminals != 0 || noSend != 0 {
+		t.Fatal("send manufactured settlement or no-send evidence", err, fills, terminals, noSend)
 	}
 	return a
 }
@@ -303,11 +303,16 @@ func TestPostgresSendConfirmedRechecksClaimToSendGap(t *testing.T) {
 			if name == "reconciliation blocked" {
 				want = ErrReconciliationBlocked
 			}
-			if !errors.Is(err, want) || called || !mutated || a.OrderID != f.order.ID {
+			if !errors.Is(err, want) || !errors.Is(err, ErrSubmissionNotSent) || called || !mutated || a.OrderID != f.order.ID {
 				t.Fatal("stale Claim authority reached sender", err, called, mutated, a)
 			}
-			assertSendHeld(t, ctx, pool, f.order, "")
-			assertSendCannotRetry(t, ctx, pool, f)
+			assertNoSendClosed(t, ctx, pool, f)
+			if name == "reconciliation blocked" {
+				reconciled, err := NewPostgresStore(pool).ReadReconciliation(ctx, r.OwnerID, f.order.ID)
+				if err != nil || !reconciled.AccountBlocked || reconciled.AccountHeld {
+					t.Fatal("no-send closure cleared account quarantine", err, reconciled)
+				}
+			}
 		})
 	}
 }
@@ -482,11 +487,10 @@ func TestPostgresSendConfirmedDelayedFinalClockCannotExtendAuthority(t *testing.
 		return f.ack, nil
 	})
 	a, err := NewPostgresStore(db).SendConfirmed(ctx, f.order.Request.OwnerID, f.order.ID, f.evidence, f.vault, sender)
-	if !errors.Is(err, ErrNotAuthorized) || called || !observed || a.OrderID != f.order.ID {
+	if !errors.Is(err, ErrNotAuthorized) || !errors.Is(err, ErrSubmissionNotSent) || called || !observed || a.OrderID != f.order.ID {
 		t.Fatal("delayed clock response extended authority", err, called, observed, a)
 	}
-	assertSendHeld(t, ctx, pool, f.order, "")
-	assertSendCannotRetry(t, ctx, pool, f)
+	assertNoSendClosed(t, ctx, pool, f)
 }
 
 func TestPostgresSendConfirmedDatabaseSessionLossNeverResends(t *testing.T) {

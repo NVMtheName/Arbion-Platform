@@ -7,7 +7,8 @@ import (
 
 // CapitalReservation is a durable accounting fence, not a broker balance or
 // live approval. A final order alone does not release it; only exact account
-// settlement can set ReleasedAt. Original reservation terms remain immutable.
+// settlement or a private coordinator's proven no-send receipt can set
+// ReleasedAt. Original reservation terms remain immutable.
 type CapitalReservation struct {
 	OrderID, AccountID, CapitalBucketID string
 	ResourceType, Asset, Quantity       string

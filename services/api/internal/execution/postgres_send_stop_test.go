@@ -62,11 +62,14 @@ func TestPostgresSendConfirmedFirstStopAfterClaimDeniesCallback(t *testing.T) {
 				called = true
 				return f.ack, nil
 			}))
-			if !errors.Is(err, ErrNotAuthorized) || !stopped || called || a.OrderID != f.order.ID {
+			if !errors.Is(err, ErrNotAuthorized) || !errors.Is(err, ErrSubmissionNotSent) || !stopped || called || a.OrderID != f.order.ID {
 				t.Fatal("committed stop crossed the final send boundary", err, stopped, called, a)
 			}
-			assertSendHeld(t, ctx, pool, f.order, "")
-			assertSendCannotRetry(t, ctx, pool, f)
+			assertNoSendClosed(t, ctx, pool, f)
+			var remainsOpen bool
+			if err = pool.QueryRow(ctx, `SELECT state='OPEN' FROM risk_circuit_breakers WHERE id=$1`, id).Scan(&remainsOpen); err != nil || !remainsOpen {
+				t.Fatal("no-send resolution cleared the stop", err)
+			}
 		})
 	}
 }

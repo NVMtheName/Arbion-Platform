@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/credential"
@@ -89,6 +90,11 @@ func (s *PostgresStore) RecoverSubmission(ctx context.Context, ownerID, orderID 
 }
 
 func (s *PostgresStore) loadRecoveryContext(ctx context.Context, ownerID, orderID string) (ConfirmedSubmission, Attempt, int64, error) {
+	if _, err := s.ReadNoSendResolution(ctx, ownerID, orderID); err == nil {
+		return ConfirmedSubmission{}, Attempt{}, 0, ErrSubmissionNotSent
+	} else if !errors.Is(err, ErrNotFound) {
+		return ConfirmedSubmission{}, Attempt{}, 0, err
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return ConfirmedSubmission{}, Attempt{}, 0, err

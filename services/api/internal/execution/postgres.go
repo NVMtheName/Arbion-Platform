@@ -57,7 +57,7 @@ func (s *PostgresStore) Prepare(ctx context.Context, r Request) (Order, error) {
 // Claim commits at most one attempt per order and one unresolved account hold.
 // Only the winning call gets an Attempt with nil error. On ANY error the caller
 // must not send. A commit error may mean the attempt exists: recover by ReadAttempt.
-// Only exact terminal reconciliation releases the account slot. An order's
+// Exact terminal reconciliation or proven local no-send closure releases the slot. An order's
 // attempt itself is permanent and cannot be claimed again after settlement.
 // A separate capital reservation survives terminal order reconciliation.
 func (s *PostgresStore) Claim(ctx context.Context, ownerID, orderID string, authority Authority) (Attempt, error) {
@@ -174,7 +174,8 @@ func (s *PostgresStore) RecordAcknowledgement(ctx context.Context, ownerID, orde
 }
 
 // ReadAttempt is recovery-only: returning a record never grants a send claim.
-// Empty ProviderOrderID means unresolved, not permission to retry submission.
+// Empty ProviderOrderID never permits retry. ReadNoSendResolution separately
+// distinguishes proven local closure from an unresolved broker outcome.
 func (s *PostgresStore) ReadAttempt(ctx context.Context, ownerID, orderID string) (Attempt, error) {
 	if !validUUID(ownerID) || !validUUID(orderID) {
 		return Attempt{}, ErrInvalid

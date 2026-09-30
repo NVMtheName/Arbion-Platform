@@ -670,6 +670,19 @@ hold or proves no further fills; existing complete final-fill reconciliation
 and exact account settlement remain mandatory. Database-session loss is not
 broker fencing, and a lost response requires reconciliation, not blind retry.
 
+Pre-callback failures have a separate local no-send outcome. Only the original
+invocation that positively committed its dispatch claim can record this fact,
+after its synchronous helper returns without entering the sender and confirms
+transaction cleanup. Its immutable, exactly bound receipt atomically closes
+the original submission slot and internal capital reservation. Both reservation
+terms and the original attempt remain immutable; that order can never be sent
+again. Reciprocal guards exclude later broker receipts/evidence. This does not
+clear stops, quarantine or approval controls and creates no broker terminal,
+fill or account settlement. Receipt recovery is read-only and owner-scoped.
+The trusted coordinator is the source of the no-callback fact, not absence of
+broker data or an adversarial-SQL proof. A crash before proof, lost claim commit,
+failed cleanup or any entered-adapter outcome retains uncertainty and holds.
+
 No HTTP route, scheduler dispatch, capital-release writer or autonomous
 live-mandate authority is runtime-wired. Dedicated runtime security review
 remains required before

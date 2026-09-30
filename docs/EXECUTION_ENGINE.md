@@ -129,7 +129,37 @@ Revocation committed before final locks prevents admission. Revocation arriving 
 
 The private Coinbase adapter requires fresh View/Trade/no-Transfer portfolio permissions and a matching unresolved order detail before a singleton `batch_cancel` request. It uses the existing isolated no-retry HTTP/1 transport. Coinbase describes this operation as initiating cancel requests in its [official SDK](https://github.com/coinbase/coinbase-advanced-py/blob/master/coinbase/rest/orders.py); an accepted response is not terminal evidence. Immutable ACCEPTED/NOT_ACCEPTED/UNKNOWN receipts never release the submission slot or reserved capital. Restart reads the same receipt, or UNKNOWN if none committed, without another cancellation request.
 
-Complete GET-only final status/fill reconciliation must still match exact saved identities, quantities, gross and fees before releasing the submission slot. Separate account settlement then reconciles the original pinned opening cash/base against saved fills and USD fees plus two matching complete zero-hold account reads. Stable observations are not broker-atomic snapshots. Only an exact immutable settlement receipt can release internal capital once; unexplained changes retain the reservation. Original nanosecond evidence stays intact; relational timestamp columns use the database's own cast of that evidence. Neither operation changes real holdings or clears generic risk, reconciliation, stop or approval controls.
+Complete GET-only final status/fill reconciliation must still match exact saved identities, quantities, gross and fees before releasing the submission slot. Separate account settlement then reconciles the original pinned opening cash/base against saved fills and USD fees plus two matching complete zero-hold account reads. Stable observations are not broker-atomic snapshots. In this broker-entered path, only an exact immutable settlement receipt can release internal capital once; unexplained changes retain the reservation. Original nanosecond evidence stays intact; relational timestamp columns use the database's own cast of that evidence. Neither operation changes real holdings or clears generic risk, reconciliation, stop or approval controls.
+
+### Proven local no-send closure (unwired)
+
+When a positively committed claim fails before its synchronous sender is ever
+entered, only that winning `SendConfirmed` invocation may record a local
+`SENDER_NOT_ENTERED` receipt. The helper must return normally with a failure and
+complete transaction cleanup first. Entry is marked immediately before calling
+the adapter, not inferred from its return value. Panic/crash does not return to
+the receipt writer. This is a private control-flow fact, never an owner-provided
+flag or an unlock/retry API.
+
+The immutable receipt binds the exact original owner/order/account/allocation,
+authorization, request digest, credential generation and claim time. The database
+serializes account/capital fences and the original attempt; contradictory broker
+receipts, fills, terminals, cancellation or settlement deny closure. Its one
+transaction releases only the original submission slot and internal reservation,
+preserving reservation history, every stop/quarantine and the permanent original
+attempt. Later broker facts cannot contradict the closure. No fake terminal,
+zero-fill settlement or broker balance update is produced. A subsequent order
+still needs entirely fresh current authority, reconciliation, funds and evidence.
+
+This factual cleanup can finish after caller cancellation or permission loss;
+it does not renew those permissions. A lost closure-commit response is unknown
+until the exact saved receipt is read. `ReadNoSendResolution` is owner-scoped and
+never writes, retrieves credentials or calls a provider. No receipt means no
+proof, not permission to reconstruct it. A lost claim commit, crash before proof,
+failed transaction cleanup, or any entered sender (including adapter prechecks,
+provider rejection or timeout) retains the conservative unresolved path. The
+coordinator is trusted to report its control flow; SQL bindings are not a proof
+against privileged code fabricating a receipt.
 
 ### Bounded security review of the inert slice
 
@@ -172,8 +202,10 @@ attempts for which no positive broker identity can be recovered. This is
 conservative containment, not successful lifecycle completion. Before the pilot,
 the owner workflow needs a separately reviewed resolution policy/path for these
 states; a rejection, empty history scan, expired attempt or owner acknowledgement
-alone must never unlock capital or authorize resubmission. No remediation writer
-or activation permission is implied by this review.
+alone must never unlock capital or authorize resubmission. The subsequent private
+local no-send closure above handles only positively known pre-callback failures,
+not these broker-entered or crash-unknown cases. No generic remediation writer or
+activation permission is implied by this review.
 
 ## Remaining execution work
 

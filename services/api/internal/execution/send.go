@@ -40,7 +40,8 @@ type ConfirmedOrderSender interface {
 // SendConfirmed is deliberately unwired. Only the invocation that commits a new
 // Claim can enter the send boundary. It accepts neither a recovered Attempt nor
 // an injectable Authority. Any later invocation must fail at Claim, even after
-// a crash before sending. There is no retry, refreshed evidence, or hold release.
+// a crash before sending. There is no retry or refreshed evidence. Only this
+// winning invocation can prove a pre-callback failure and close its own holds.
 //
 // Revocations committed before final lock acquisition deny the send. Once those
 // locks are held, revocations wait for the synchronous bounded callback. This is
@@ -72,14 +73,44 @@ func (s *PostgresStore) SendConfirmed(ctx context.Context, ownerID, orderID, evi
 	if err != nil {
 		return Attempt{}, err // Commit ambiguity never reaches the sender.
 	}
+	boundary := sendBoundaryState{}
+	result, err := s.sendClaimed(ctx, o, a, portfolio, materialGeneration, &cr, authority, sender, &boundary)
+	if err == nil || boundary.entered {
+		return result, err
+	}
+	// Only this fresh-claim invocation knows that the synchronous callback was
+	// never entered. A restarted process cannot reconstruct this fact. Cleanup
+	// must finish before a separate transaction can release the original holds.
+	if !boundary.cleanupComplete || s.recordNoSendResolution(o, a) != nil {
+		return result, errors.Join(err, ErrNoSendResolutionUnknown)
+	}
+	return result, errors.Join(err, ErrSubmissionNotSent)
+}
+
+// Private process-local evidence, never supplied by a caller or adapter.
+// Panic/crash does not return to the only receipt writer in SendConfirmed.
+type sendBoundaryState struct {
+	entered, cleanupComplete bool
+}
+
+func (s *PostgresStore) sendClaimed(ctx context.Context, o Order, a Attempt, portfolio string, materialGeneration int64, cr *financial.Credentials, authority *OwnerAuthority, sender ConfirmedOrderSender, boundary *sendBoundaryState) (Attempt, error) {
 	if a.CredentialGeneration != materialGeneration {
+		boundary.cleanupComplete = true // No final transaction was opened.
 		return a, ErrNotAuthorized
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
+		boundary.cleanupComplete = true // No transaction or callback was entered.
 		return a, err
 	}
-	defer rollback(tx)
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := tx.Rollback(cleanup)
+		boundary.cleanupComplete = err == nil || errors.Is(err, pgx.ErrTxClosed)
+	}()
+	orderID, ownerID := o.ID, o.Request.OwnerID
+	var generation int64
 	if err = tx.QueryRow(ctx, `SELECT lock_execution_claim_controls($1)`, orderID).Scan(&generation); err != nil {
 		return a, mapError(err)
 	}
@@ -109,7 +140,8 @@ func (s *PostgresStore) SendConfirmed(ctx context.Context, ownerID, orderID, evi
 	}
 	// Never detach this call into a goroutine: returning on a timeout while it
 	// continues would release the revocation locks before the sender stops.
-	ack, sendErr := sender.SubmitOnce(sendCtx, &cr, submission)
+	boundary.entered = true // Every adapter outcome from here is potentially sent.
+	ack, sendErr := sender.SubmitOnce(sendCtx, cr, submission)
 	var rejected *SubmissionRejectedError
 	if errors.As(sendErr, &rejected) && rejected != nil && validRejectionCode(rejected.Code) && sendCtx.Err() == nil && ack == (SubmissionAcknowledgement{}) {
 		receiptCtx, cancelReceipt := context.WithTimeout(context.Background(), 5*time.Second)
