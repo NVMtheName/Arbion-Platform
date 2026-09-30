@@ -3,9 +3,13 @@ package http
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	stdhttp "net/http"
+	"strings"
 
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/authorization"
@@ -16,6 +20,7 @@ import (
 // This interface is private to the transport. Production construction accepts
 // only the owner workflow, never an injectable authorizer, sender or provider.
 type ownerExecutionController interface {
+	Presentation(context.Context, authorization.Principal) (execution.OwnerPresentation, error)
 	Prepare(context.Context, authorization.Principal, execution.OwnerPrepareCommand) (execution.OwnerOrder, error)
 	Get(context.Context, authorization.Principal, string) (execution.OwnerOrder, error)
 	Approve(context.Context, authorization.Principal, string, execution.OwnerApproveCommand) (execution.OwnerOrder, error)
@@ -28,14 +33,35 @@ type ownerExecutionController interface {
 	Settle(context.Context, authorization.Principal, string) (execution.OwnerOrder, error)
 }
 
-// NewOwnerExecutionHandler is deliberately unmounted. Calling this constructor
-// does not register routes on the application or activate a broker workflow.
+// Construction does not activate a workflow. The production composition mounts
+// this with nil until a separately approved, fixed owner scope is supplied.
 func NewOwnerExecutionHandler(cfg config.Auth, service *auth.Service, workflow *execution.OwnerWorkflow) stdhttp.Handler {
 	var controller ownerExecutionController
 	if workflow != nil {
 		controller = workflow
 	}
 	return newOwnerExecutionHandler(cfg, service, controller)
+}
+
+// WithOwnerExecution reserves only this route namespace. A nil workflow is the
+// production default: authenticated context is unavailable and no command runs.
+func WithOwnerExecution(base stdhttp.Handler, cfg config.Config, service *auth.Service, workflow *execution.OwnerWorkflow) stdhttp.Handler {
+	owner := NewOwnerExecutionHandler(cfg.Auth, service, workflow)
+	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.URL.Path == "/api/personal-execution" || strings.HasPrefix(r.URL.Path, "/api/personal-execution/") {
+			owner.ServeHTTP(w, r)
+			return
+		}
+		base.ServeHTTP(w, r)
+	})
+}
+
+// Not a bearer credential: each request still authenticates the original
+// HttpOnly session cookie. Binding it to the fixed scope rejects a stale screen
+// after session replacement (even for the same user) or server scope changes.
+func ownerExecutionBinding(session, scope string) string {
+	digest := sha256.Sum256([]byte("arbion-owner-session-v1\x00" + session + "\x00" + scope))
+	return fmt.Sprintf("%x", digest)
 }
 
 func newOwnerExecutionHandler(cfg config.Auth, service *auth.Service, workflow ownerExecutionController) stdhttp.Handler {
@@ -117,12 +143,44 @@ func newOwnerExecutionHandler(cfg config.Auth, service *auth.Service, workflow o
 			respond(w, order, err)
 		}))
 	}
-	protected := h.require(mux)
+	protected := h.require(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		isContext := r.URL.Path == "/api/personal-execution/context"
+		if isContext && r.Method != stdhttp.MethodGet {
+			w.Header().Set("Allow", stdhttp.MethodGet)
+			writeError(w, stdhttp.StatusMethodNotAllowed, "method_not_allowed", "Request method is not allowed.")
+			return
+		}
+		if workflow == nil {
+			if isContext {
+				writeJSON(w, stdhttp.StatusOK, map[string]bool{"available": false})
+			} else {
+				ownerExecutionError(w, nil)
+			}
+			return
+		}
+		view, err := workflow.Presentation(r.Context(), principal(r))
+		if err != nil {
+			ownerExecutionError(w, err)
+			return
+		}
+		cookie, _ := r.Cookie(cfg.SessionCookie) // require already authenticated it.
+		binding := ownerExecutionBinding(cookie.Value, view.ScopeID)
+		if isContext {
+			writeJSON(w, stdhttp.StatusOK, map[string]any{"available": true, "product_id": view.ProductID, "account_label": view.AccountLabel, "session_binding": binding})
+			return
+		}
+		headers := r.Header.Values("X-Arbion-Execution-Session")
+		if len(headers) != 1 || subtle.ConstantTimeCompare([]byte(headers[0]), []byte(binding)) != 1 {
+			writeError(w, stdhttp.StatusUnauthorized, "execution_session_changed", "Reopen execution in the current session. Do not repeat a send or cancellation.")
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}))
 	return securityHeaders(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		// Set this outside authentication so cookies, denials and malformed routes
 		// cannot accidentally become cacheable private execution responses.
 		w.Header().Set("Cache-Control", "no-store")
-		if service == nil || workflow == nil {
+		if service == nil {
 			ownerExecutionError(w, nil)
 			return
 		}

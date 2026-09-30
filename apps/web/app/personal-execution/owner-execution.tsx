@@ -61,8 +61,8 @@ function sameTerms(
   );
 }
 
-// Deliberately unmounted: no page, navigation entry, proxy or runtime switch.
-// The future trusted host supplies display scope and the reviewed command client.
+// The authenticated, default-disconnected host supplies fixed display scope and
+// the session-bound command client. No page or prop activates execution.
 // Neither these props nor a saved status grant execution authority.
 export function OwnerExecutionWorkspace({
   productID,

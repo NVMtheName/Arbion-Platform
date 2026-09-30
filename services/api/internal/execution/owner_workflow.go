@@ -9,7 +9,7 @@ import (
 )
 
 // OwnerScope is selected by trusted server composition, never HTTP/model input.
-// No runtime constructs this workflow. Supplying a scope is not pilot activation
+// Production startup leaves this disconnected. Supplying a scope is not pilot activation
 // or a substitute for the existing transactionally current financial controls.
 type OwnerScope struct {
 	OwnerID, AccountID, ConnectionID, CapitalBucketID, ProductID string
@@ -32,6 +32,21 @@ type OwnerWorkflow struct {
 	store *PostgresStore
 	scope OwnerScope
 	deps  OwnerWorkflowDependencies
+}
+
+// OwnerPresentation is server-derived display context, not execution authority.
+// ScopeID is an opaque fingerprint; it contains no credentials or broker IDs.
+type OwnerPresentation struct {
+	ProductID, AccountLabel, ScopeID string
+}
+
+func (w *OwnerWorkflow) Presentation(ctx context.Context, p authorization.Principal) (OwnerPresentation, error) {
+	if err := w.checkOwner(ctx, p); err != nil {
+		return OwnerPresentation{}, err
+	}
+	s := w.scope
+	digest := sha256.Sum256([]byte("arbion-owner-scope-v1\x00" + s.OwnerID + "\x00" + s.AccountID + "\x00" + s.ConnectionID + "\x00" + s.CapitalBucketID + "\x00" + s.ProductID))
+	return OwnerPresentation{ProductID: s.ProductID, AccountLabel: "Dedicated Coinbase portfolio", ScopeID: fmt.Sprintf("%x", digest)}, nil
 }
 
 func NewOwnerWorkflow(store *PostgresStore, scope OwnerScope, deps OwnerWorkflowDependencies) (*OwnerWorkflow, error) {

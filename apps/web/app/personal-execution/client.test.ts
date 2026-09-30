@@ -9,6 +9,7 @@ import {
 const id = "11111111-1111-4111-8111-111111111111";
 const evidence = "22222222-2222-4222-8222-222222222222";
 const base = "/api/personal-execution/orders";
+const binding = "b".repeat(64);
 const fixture = (): OwnerOrder => ({
   id,
   request_digest: "a".repeat(64),
@@ -50,6 +51,68 @@ afterEach(() => {
 });
 
 describe("fixed owner execution client", () => {
+  it.each([401, 403])(
+    "permanently closes on HTTP %s even with an invalid body",
+    async (status) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(new Response("not json", { status }));
+      vi.stubGlobal("fetch", fetch);
+      const closed = vi.fn();
+      const client = createOwnerExecutionClient(binding, closed);
+      await expect(client.get(id)).rejects.toMatchObject({
+        code: "execution_session_changed",
+      });
+      await expect(
+        client.send(id, { evidence_id: evidence }),
+      ).rejects.toMatchObject({ code: "execution_session_changed" });
+      expect(closed).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("rejects missing or malformed session bindings before I/O", () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    for (const value of [
+      undefined,
+      "",
+      "A".repeat(64),
+      "a".repeat(63),
+      "a".repeat(65),
+      "cookie",
+    ]) {
+      expect(() => createOwnerExecutionClient(value as string)).toThrow();
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("aborts pending work and rejects late success after invalidation", async () => {
+    let resolve!: (response: Response) => void;
+    const fetch = vi.fn<
+      (path: string, options: RequestInit) => Promise<Response>
+    >(
+      () =>
+        new Promise<Response>((done) => {
+          resolve = done;
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const client = createOwnerExecutionClient(binding);
+    const pending = client.get(id);
+    const result = expect(pending).rejects.toMatchObject({
+      code: "execution_session_changed",
+    });
+    client.invalidate();
+    expect(fetch.mock.calls[0][1].signal?.aborted).toBe(true);
+    resolve(response({ order: fixture() }));
+    await result;
+    await expect(client.get(id)).rejects.toMatchObject({
+      code: "execution_session_changed",
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("sends every exact command once to the fixed same-origin path", async () => {
     const fetch = vi.fn(async (path: string) =>
       response(
@@ -59,7 +122,7 @@ describe("fixed owner execution client", () => {
       ),
     );
     vi.stubGlobal("fetch", fetch);
-    const client = createOwnerExecutionClient();
+    const client = createOwnerExecutionClient(binding);
     const approval = {
       expected_digest: fixture().request_digest,
       mfa_code: "123456",
@@ -102,6 +165,7 @@ describe("fixed owner execution client", () => {
         signal: expect.any(AbortSignal),
         headers: {
           Accept: "application/json",
+          "X-Arbion-Execution-Session": binding,
           ...(body ? { "Content-Type": "application/json" } : {}),
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
@@ -118,7 +182,7 @@ describe("fixed owner execution client", () => {
   it("rejects widened commands and path injection before any request", async () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
-    const client = createOwnerExecutionClient();
+    const client = createOwnerExecutionClient(binding);
     await expect(
       client.prepare({ ...prepare, owner_id: "other" } as PrepareCommand),
     ).rejects.toMatchObject({ code: "INVALID_COMMAND" });
@@ -144,7 +208,7 @@ describe("fixed owner execution client", () => {
         .fn()
         .mockRejectedValue(new Error("private API key and provider body"));
       vi.stubGlobal("fetch", fetch);
-      const client = createOwnerExecutionClient();
+      const client = createOwnerExecutionClient(binding);
       const promise =
         action === "send"
           ? client.send(id, { evidence_id: evidence })
@@ -168,7 +232,7 @@ describe("fixed owner execution client", () => {
         ),
     );
     vi.stubGlobal("fetch", fetch);
-    const pending = createOwnerExecutionClient().send(id, {
+    const pending = createOwnerExecutionClient(binding).send(id, {
       evidence_id: evidence,
     });
     const assertion = expect(pending).rejects.toMatchObject({
@@ -196,7 +260,7 @@ describe("fixed owner execution client", () => {
           ),
         );
       vi.stubGlobal("fetch", fetch);
-      const error = await createOwnerExecutionClient()
+      const error = await createOwnerExecutionClient(binding)
         .send(id, { evidence_id: evidence })
         .catch((e: unknown) => e);
       expect(error).toBeInstanceOf(ExecutionClientError);
@@ -234,9 +298,9 @@ describe("fixed owner execution client", () => {
         .fn()
         .mockResolvedValue(new Response(raw, { status: 200 }));
       vi.stubGlobal("fetch", fetch);
-      await expect(createOwnerExecutionClient().get(id)).rejects.toBeInstanceOf(
-        ExecutionClientError,
-      );
+      await expect(
+        createOwnerExecutionClient(binding).get(id),
+      ).rejects.toBeInstanceOf(ExecutionClientError);
       expect(fetch).toHaveBeenCalledTimes(1);
     }
   });
@@ -255,7 +319,7 @@ describe("fixed owner execution client", () => {
           response({ order: { ...fixture(), ...changed } }),
         );
       vi.stubGlobal("fetch", fetch);
-      const client = createOwnerExecutionClient();
+      const client = createOwnerExecutionClient(binding);
       await client.get(id);
       await expect(client.recover(id)).rejects.toMatchObject({
         code: "INVALID_RESPONSE",
@@ -267,13 +331,16 @@ describe("fixed owner execution client", () => {
       vi.fn().mockImplementation(async () => response({ order: fixture() })),
     );
     await expect(
-      createOwnerExecutionClient().approve(id, {
+      createOwnerExecutionClient(binding).approve(id, {
         expected_digest: "b".repeat(64),
         mfa_code: "123456",
       }),
     ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
     await expect(
-      createOwnerExecutionClient().prepare({ ...prepare, base_size: "0.002" }),
+      createOwnerExecutionClient(binding).prepare({
+        ...prepare,
+        base_size: "0.002",
+      }),
     ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
@@ -285,16 +352,16 @@ describe("fixed owner execution client", () => {
     ]) {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(envelope)));
       await expect(
-        createOwnerExecutionClient().preflight(id),
+        createOwnerExecutionClient(binding).preflight(id),
       ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
     }
     const redirected = response({ order: fixture() });
     Object.defineProperty(redirected, "redirected", { value: true });
     const fetch = vi.fn().mockResolvedValue(redirected);
     vi.stubGlobal("fetch", fetch);
-    await expect(createOwnerExecutionClient().cancel(id)).rejects.toMatchObject(
-      { code: "INVALID_RESPONSE" },
-    );
+    await expect(
+      createOwnerExecutionClient(binding).cancel(id),
+    ).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

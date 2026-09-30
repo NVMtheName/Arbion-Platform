@@ -35,6 +35,16 @@ type ownerExecutionFake struct {
 	command   any
 	calls     int
 	err       error
+	scopeID   string
+	viewErr   error
+}
+
+func (f *ownerExecutionFake) Presentation(context.Context, authorization.Principal) (execution.OwnerPresentation, error) {
+	scope := f.scopeID
+	if scope == "" {
+		scope = "fixed-test-scope"
+	}
+	return execution.OwnerPresentation{ProductID: "BTC-USD", AccountLabel: "Dedicated Coinbase portfolio", ScopeID: scope}, f.viewErr
 }
 
 func (f *ownerExecutionFake) record(action string, p authorization.Principal, id string, command any) (execution.OwnerOrder, error) {
@@ -96,6 +106,7 @@ func ownerExecutionRequest(h stdhttp.Handler, cookie *stdhttp.Cookie, method, pa
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	if cookie != nil {
 		r.AddCookie(cookie)
+		r.Header.Set("X-Arbion-Execution-Session", ownerExecutionBinding(cookie.Value, "fixed-test-scope"))
 	}
 	if origin != "" {
 		r.Header.Set("Origin", origin)

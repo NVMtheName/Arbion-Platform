@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { notifyExecutionLogout } from "../../personal-execution/session-events";
 
 type ErrorBody = { error?: { message?: string } };
 type MFAStatus = { enabled: boolean; recovery_codes_remaining: number };
@@ -70,6 +71,7 @@ export function SecurityControls({
   }
 
   function returnToLogin() {
+    notifyExecutionLogout();
     router.replace("/login");
     router.refresh();
   }
@@ -105,6 +107,7 @@ export function SecurityControls({
   }
 
   async function logoutEverywhere() {
+    notifyExecutionLogout();
     clearMessages();
     setBusy("all-sessions");
     const response = await fetch("/api/auth/logout-all", { method: "POST" });

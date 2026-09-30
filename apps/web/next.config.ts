@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
+        source: "/api/personal-execution/:path*",
+        destination: `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/personal-execution/:path*`,
+      },
+      {
         source: "/api/auth/:path*",
         destination: `${process.env.API_BASE_URL ?? "http://localhost:8080"}/api/auth/:path*`,
       },

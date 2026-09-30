@@ -683,7 +683,7 @@ The trusted coordinator is the source of the no-callback fact, not absence of
 broker data or an adversarial-SQL proof. A crash before proof, lost claim commit,
 failed cleanup or any entered-adapter outcome retains uncertainty and holds.
 
-An unmounted personal-owner HTTP handler now composes the existing execution
+A personal-owner HTTP handler composes the existing execution
 services through a fixed server-selected owner/account/connection/allocation/USD
 pair scope. Session identity is never accepted from a command body. Every saved
 order must match the entire scope; each operation reuses its original financial
@@ -698,20 +698,37 @@ Uncertain/rejected submissions stay held; cancellation, terminal order history
 and cash/position settlement remain distinct facts. Session authentication is
 request-entry access, not a guarantee that logout retracts an admitted send.
 
-The personal owner workspace now consumes that contract through a strict,
-same-origin, no-retry browser client. It is an unmounted component, with no page,
-navigation entry or proxy activation. Exact immutable terms, explicit MFA and
+The personal owner workspace consumes that contract through a strict,
+same-origin, no-retry browser client. Its authenticated page and proxy are now
+mounted, but production supplies a **nil workflow**: context reports unavailable
+and every command is unavailable after authentication. No navigation expansion,
+activation setting or selected pilot scope is added. Exact immutable terms, explicit MFA and
 send/cancel confirmations, saved-state recovery and accounting use the existing
 commands; the browser never grants authority. Local uncertain-attempt latches,
 permanent scope-change invalidation and stale-response fencing prevent the UI
 from reopening a write after an ambiguous result. Server duplicate guards remain
 authoritative across sessions. No polling or browser persistence of MFA/evidence
-is introduced.
+is introduced. Authenticated context binds the entire fixed scope and the
+current session instance through a domain-separated hash of the random session
+cookie. The hash is not a bearer credential; the HttpOnly cookie is authenticated
+on every request. All order commands and reads require the matching header.
+Replacing even the same owner's session invalidates old screens. Page/session
+teardown permanently invalidates the client and ignores late responses; hidden
+or restored pages require deliberate reopening rather than automatic work.
 
-No owner execution HTTP route, scheduler dispatch, capital-release writer or autonomous
-live-mandate authority is runtime-wired. Dedicated runtime security review
-remains required before
-a separately approved pilot. All adapter proofs use synthetic local HTTP, not
+The separate concrete production composition accepts only the execution store,
+fixed scope, auth service and encrypted vault. It owns a fresh transport to
+`https://api.coinbase.com` with normal certificate/hostname verification,
+TLS 1.2 minimum, HTTP/1 only, bounded timeouts, no proxy, no redirects and no
+connection reuse. It never inherits a mutable default or caller-supplied
+transport. Construction and context rendering perform no credential/provider
+I/O. Existing injectable clients remain for synthetic tests and unrelated
+read/preview use; production startup does not call the execution factory.
+
+No sender, scheduler dispatch, capital-release writer or autonomous live-mandate
+authority is connected to production. Inert runtime composition receives a
+bounded security review; actual pilot selection and activation remain separately
+required. All adapter proofs use synthetic local HTTP/TLS, not
 real orders or live compatibility/strategy-profitability evidence. See
 [execution engine](EXECUTION_ENGINE.md).
 

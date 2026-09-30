@@ -55,6 +55,8 @@ const messages = {
   OWNER_EXECUTION_UNAVAILABLE:
     "Execution is unavailable. Read saved status before further action; do not repeat a send or cancellation.",
   unauthenticated: "Sign in again to read saved order status.",
+  execution_session_changed:
+    "This execution session has closed. Reopen the page and read saved status; do not repeat an order.",
   csrf_rejected:
     "The request origin was rejected. Nothing is authorized by this response.",
   invalid_request: "The execution request was rejected as invalid.",
@@ -77,7 +79,9 @@ const limit = 32 * 1024;
 
 // Bound the entire response, including ignored/error bodies. No raw body or
 // server message is returned to the screen, logs, storage or an Error cause.
-async function responseJSON(response: Response): Promise<unknown> {
+export async function executionResponseJSON(
+  response: Response,
+): Promise<unknown> {
   if (!response.body) throw new ExecutionClientError("INVALID_RESPONSE");
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -127,7 +131,24 @@ async function responseJSON(response: Response): Promise<unknown> {
 
 // There is deliberately no base-URL option, injected authorizer, retry loop,
 // polling, preview refresh or persistent browser credential/evidence storage.
-export function createOwnerExecutionClient(): OwnerExecutionClient {
+export function createOwnerExecutionClient(
+  sessionBinding: string,
+  onSessionInvalidated: () => void = () => undefined,
+): OwnerExecutionClient & { invalidate(): void } {
+  if (
+    typeof sessionBinding !== "string" ||
+    !/^[0-9a-f]{64}$/.test(sessionBinding)
+  )
+    throw new ExecutionClientError("INVALID_COMMAND");
+  let invalidated = false;
+  const pending = new Set<AbortController>();
+  function invalidate() {
+    if (invalidated) return;
+    invalidated = true;
+    bindings.clear();
+    for (const request of pending) request.abort();
+    onSessionInvalidated();
+  }
   const bindings = new Map<string, string>();
   function bind(order: OwnerOrder, expected?: string): OwnerOrder {
     if (expected && order.id !== expected)
@@ -163,11 +184,14 @@ export function createOwnerExecutionClient(): OwnerExecutionClient {
     id?: string,
     body?: object,
   ): Promise<unknown> {
+    if (invalidated)
+      throw new ExecutionClientError("execution_session_changed");
     if (id !== undefined && !isExecutionID(id))
       throw new ExecutionClientError("INVALID_COMMAND");
     const path =
       id === undefined ? base : `${base}/${id}${action ? `/${action}` : ""}`;
     const abort = new AbortController();
+    pending.add(abort);
     const timer = setTimeout(() => abort.abort(), 45_000);
     try {
       const response = await fetch(path, {
@@ -178,13 +202,22 @@ export function createOwnerExecutionClient(): OwnerExecutionClient {
         signal: abort.signal,
         headers: {
           Accept: "application/json",
+          "X-Arbion-Execution-Session": sessionBinding,
           ...(body ? { "Content-Type": "application/json" } : {}),
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
+      if (response.status === 401 || response.status === 403) {
+        void response.body?.cancel().catch(() => undefined);
+        invalidate();
+      }
+      if (invalidated)
+        throw new ExecutionClientError("execution_session_changed");
       if (response.redirected || response.type === "opaqueredirect")
         throw new ExecutionClientError("INVALID_RESPONSE");
-      const raw = await responseJSON(response);
+      const raw = await executionResponseJSON(response);
+      if (invalidated)
+        throw new ExecutionClientError("execution_session_changed");
       if (!response.ok) {
         const envelope = executionObject(raw, ["error"]);
         const error = executionObject(envelope.error, ["code", "message"]);
@@ -200,10 +233,13 @@ export function createOwnerExecutionClient(): OwnerExecutionClient {
         throw new ExecutionClientError("INVALID_RESPONSE");
       return raw;
     } catch (error) {
+      if (invalidated)
+        throw new ExecutionClientError("execution_session_changed");
       if (error instanceof ExecutionClientError) throw error;
       throw new ExecutionClientError("EXECUTION_OUTCOME_UNKNOWN");
     } finally {
       clearTimeout(timer);
+      pending.delete(abort);
     }
   }
   async function order(
@@ -219,6 +255,7 @@ export function createOwnerExecutionClient(): OwnerExecutionClient {
     }
   }
   return {
+    invalidate,
     async prepare(input) {
       const c = command(parsePrepareCommand, input);
       const o = await order("", undefined, c);

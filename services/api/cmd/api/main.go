@@ -124,6 +124,9 @@ func main() {
 
 	applicationHandler := platformhttp.NewFullApplicationHandlerWithEvaluationMarketsOrderIntentsAndPlatformOperations(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies, evaluations, breakers, markets, orderIntents, platformOperations)
 	applicationHandler = platformhttp.WithOwnerAttention(applicationHandler, cfg, authService, ownerAttention)
+	// Explicitly disconnected. No configuration flag or startup code constructs
+	// a sender; selecting and activating the owner's pilot requires approval.
+	applicationHandler = platformhttp.WithOwnerExecution(applicationHandler, cfg, authService, nil)
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           applicationHandler,
