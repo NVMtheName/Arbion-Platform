@@ -60,16 +60,15 @@ func ownerScopeFor(r Request) OwnerScope {
 
 func ownerCommands(w *OwnerWorkflow, p authorization.Principal, id string) map[string]func(context.Context) error {
 	return map[string]func(context.Context) error{
-		"presentation": func(c context.Context) error { _, e := w.Presentation(c, p); return e },
-		"get":          func(c context.Context) error { _, e := w.Get(c, p, id); return e },
-		"approve":      func(c context.Context) error { _, e := w.Approve(c, p, id, OwnerApproveCommand{}); return e },
-		"revoke":       func(c context.Context) error { _, e := w.Revoke(c, p, id); return e },
-		"preflight":    func(c context.Context) error { _, e := w.Capture(c, p, id); return e },
-		"send":         func(c context.Context) error { _, e := w.Send(c, p, id, OwnerSendCommand{}); return e },
-		"recover":      func(c context.Context) error { _, e := w.Recover(c, p, id); return e },
-		"reconcile":    func(c context.Context) error { _, e := w.Reconcile(c, p, id); return e },
-		"cancel":       func(c context.Context) error { _, e := w.Cancel(c, p, id); return e },
-		"settle":       func(c context.Context) error { _, e := w.Settle(c, p, id); return e },
+		"get":       func(c context.Context) error { _, e := w.Get(c, p, id); return e },
+		"approve":   func(c context.Context) error { _, e := w.Approve(c, p, id, OwnerApproveCommand{}); return e },
+		"revoke":    func(c context.Context) error { _, e := w.Revoke(c, p, id); return e },
+		"preflight": func(c context.Context) error { _, e := w.Capture(c, p, id); return e },
+		"send":      func(c context.Context) error { _, e := w.Send(c, p, id, OwnerSendCommand{}); return e },
+		"recover":   func(c context.Context) error { _, e := w.Recover(c, p, id); return e },
+		"reconcile": func(c context.Context) error { _, e := w.Reconcile(c, p, id); return e },
+		"cancel":    func(c context.Context) error { _, e := w.Cancel(c, p, id); return e },
+		"settle":    func(c context.Context) error { _, e := w.Settle(c, p, id); return e },
 	}
 }
 
@@ -133,6 +132,7 @@ func TestOwnerWorkflowRejectsForeignPrincipalBeforeAnyDependency(t *testing.T) {
 	}
 	for _, p := range []authorization.Principal{{}, {UserID: r.AccountID, Entitlement: authorization.EntitlementFounder}, {UserID: r.OwnerID}} {
 		commands := ownerCommands(w, p, r.ClientOrderID)
+		commands["presentation"] = func(c context.Context) error { _, e := w.Presentation(c, p); return e }
 		commands["prepare"] = func(c context.Context) error { _, e := w.Prepare(c, p, OwnerPrepareCommand{}); return e }
 		for name, command := range commands {
 			t.Run(name, func(t *testing.T) {

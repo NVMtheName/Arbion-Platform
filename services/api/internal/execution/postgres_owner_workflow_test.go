@@ -38,6 +38,11 @@ func TestPostgresOwnerWorkflowBindsEveryFixedScopeField(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE user_entitlements SET status='revoked' WHERE user_id=$1 AND entitlement_key='founder'`, f.principal.UserID); err != nil {
 		t.Fatal(err)
 	}
+	// Presentation has no order ID: test its owner-access boundary separately
+	// from the order-specific scope assertions above.
+	if view, err := w.Presentation(ctx, f.principal); !errors.Is(err, ErrNotAuthorized) || view != (OwnerPresentation{}) {
+		t.Fatal("stale founder received presentation", err)
+	}
 	for command, run := range ownerCommands(w, f.principal, f.order.ID) {
 		if err := run(ctx); !errors.Is(err, ErrNotAuthorized) {
 			t.Fatal("stale founder principal admitted", command, err)
