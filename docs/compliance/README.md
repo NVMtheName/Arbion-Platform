@@ -1,12 +1,12 @@
 # Arbion SOC 2 Readiness Program
 
-| Field | Value |
-| --- | --- |
-| Document owner | Security and Compliance Owner |
-| Version | 0.1 |
-| Approval status | PENDING_MANAGEMENT_APPROVAL |
-| Review cadence | At least annually and after material system or regulatory change |
-| Classification | Public control description; never store sensitive audit evidence here |
+| Field           | Value                                                                 |
+| --------------- | --------------------------------------------------------------------- |
+| Document owner  | Security and Compliance Owner                                         |
+| Version         | 0.1                                                                   |
+| Approval status | PENDING_MANAGEMENT_APPROVAL                                           |
+| Review cadence  | At least annually and after material system or regulatory change      |
+| Classification  | Public control description; never store sensitive audit evidence here |
 
 This directory contains Arbion's auditable control baseline. It is a readiness program, not a representation that Arbion has completed an independent SOC 2 examination or received a SOC 2 report.
 
@@ -26,6 +26,7 @@ Processing Integrity and Privacy require a documented scope decision with the in
 - [System description](SYSTEM_DESCRIPTION.md)
 - [Evidence collection runbook](EVIDENCE_RUNBOOK.md)
 - [External control verification](EXTERNAL_CONTROL_VERIFICATION.md)
+- [Standalone Lightsail security activation plan — not applied](LIGHTSAIL_SECURITY_ACTIVATION_PLAN.md)
 - [Operating evidence workbook](OPERATING_EVIDENCE_WORKBOOK.md)
 - [Information security policy](INFORMATION_SECURITY_POLICY.md)
 - [Access control policy](ACCESS_CONTROL_POLICY.md)
