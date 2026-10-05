@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -94,7 +95,7 @@ func TestPostgresRecoveryRetainsIdentityAfterRevocationAndStops(t *testing.T) {
 	}
 	f.vault.generation++
 	lookup := lookupFunc(func(_ context.Context, cr *financial.Credentials, sub ConfirmedSubmission, a Attempt) (SubmissionAcknowledgement, error) {
-		if sub.Order.Request != f.order.Request || sub.PreviewID != f.preflight.PreviewID || sub.PortfolioID != cr.PortfolioID || a.CredentialGeneration != f.approval.CredentialGeneration {
+		if !reflect.DeepEqual(sub.Order.Request, f.order.Request) || sub.PreviewID != f.preflight.PreviewID || sub.PortfolioID != cr.PortfolioID || a.CredentialGeneration != f.approval.CredentialGeneration {
 			return SubmissionAcknowledgement{}, ErrConflict
 		}
 		return f.ack, nil

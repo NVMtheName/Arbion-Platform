@@ -55,7 +55,8 @@ func (ownerNoDatabase) QueryRow(context.Context, string, ...any) pgx.Row {
 }
 
 func ownerScopeFor(r Request) OwnerScope {
-	return OwnerScope{r.OwnerID, r.AccountID, r.ConnectionID, r.CapitalBucketID, r.ProductID}
+	return OwnerScope{OwnerID: r.OwnerID, AccountID: r.AccountID, ConnectionID: r.ConnectionID,
+		CapitalBucketID: r.CapitalBucketID, ProductID: r.ProductID, PilotLimits: *r.PilotLimits}
 }
 
 func ownerCommands(w *OwnerWorkflow, p authorization.Principal, id string) map[string]func(context.Context) error {
@@ -110,6 +111,8 @@ func TestOwnerPresentationBindsEveryScopeFieldWithoutFinancialIO(t *testing.T) {
 		func(s *OwnerScope) { s.ConnectionID = r.ClientOrderID },
 		func(s *OwnerScope) { s.CapitalBucketID = r.ClientOrderID },
 		func(s *OwnerScope) { s.ProductID = "ETH-USD" },
+		func(s *OwnerScope) { s.PilotLimits.MaximumOrderUSD = "10" },
+		func(s *OwnerScope) { s.PilotLimits.ExpiresAt = s.PilotLimits.ExpiresAt.Add(-time.Hour) },
 	} {
 		changed := scope
 		mutate(&changed)

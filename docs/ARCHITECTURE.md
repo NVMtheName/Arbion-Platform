@@ -698,6 +698,23 @@ Uncertain/rejected submissions stay held; cancellation, terminal order history
 and cash/position settlement remain distinct facts. Session authentication is
 request-entry access, not a guarantee that logout retracts an admitted send.
 
+Each new owner-confirmed order also pins explicit server-selected `PilotLimits`
+in its immutable request and approval digest: an exact USD cap and an absolute
+UTC expiry. BUY caps maximum debit including fees; SELL caps submitted
+limit-price notional plus fees, not realized proceeds from price improvement.
+There are no default limits. Approval, preflight, claim, deferred claim commit
+and final send admission enforce these terms using database wall time; the
+bounded send deadline cannot exceed pilot expiry. Changed configured limits
+invalidate the session scope and deny unattempted actions. Existing history,
+exact preparation replay, recovery, revocation, cancellation and settlement
+remain available after expiry; expiry never releases uncertainty or capital.
+Historical omitted limits preserve their original digest but cannot authorize
+new admission. These are pinned one-order terms, not a reusable autonomous
+mandate or cross-process policy-revocation mechanism. Explicit existing stops
+and revocations remain necessary; daily-loss and other autonomous pilot controls
+still require their separate implementation and approval. No actual limits,
+account or pair are configured by this change.
+
 The personal owner workspace consumes that contract through a strict,
 same-origin, no-retry browser client. Its authenticated page and proxy are now
 mounted, but production supplies a **nil workflow**: context reports unavailable

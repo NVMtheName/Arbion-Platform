@@ -49,6 +49,7 @@ func TestProductionOwnerWorkflowCompositionHasNoIOAndRejectsMissingDependencies(
 	scope := execution.OwnerScope{
 		OwnerID: "10000000-0000-4000-8000-000000000001", AccountID: "20000000-0000-4000-8000-000000000001",
 		ConnectionID: "30000000-0000-4000-8000-000000000001", CapitalBucketID: "40000000-0000-4000-8000-000000000001", ProductID: "BTC-USD",
+		PilotLimits: execution.OwnerPilotLimits{MaximumOrderUSD: "100", ExpiresAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)},
 	}
 	if workflow, err := NewProductionOwnerWorkflow(store, scope, stepUp, vault); err != nil || workflow == nil {
 		t.Fatalf("inert concrete composition failed: %v", err)

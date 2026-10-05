@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func requestFixture() Request {
 	return Request{OwnerID: "11111111-1111-4111-8111-111111111111", AccountID: "22222222-2222-4222-8222-222222222222",
 		ConnectionID: "33333333-3333-4333-8333-333333333333", CapitalBucketID: "44444444-4444-4444-8444-444444444444",
 		ClientOrderID: "55555555-5555-4555-8555-555555555555", ProductID: "BTC-USD", Side: "BUY", BaseSize: "0.001",
-		LimitPrice: "60000", FeeAllowanceUSD: "0.60", MaximumDebitUSD: "60.60"}
+		LimitPrice: "60000", FeeAllowanceUSD: "0.60", MaximumDebitUSD: "60.60",
+		PilotLimits: &OwnerPilotLimits{MaximumOrderUSD: "100000000", ExpiresAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)}}
 }
 
 func TestRequestBindsExactBoundedSpotTerms(t *testing.T) {

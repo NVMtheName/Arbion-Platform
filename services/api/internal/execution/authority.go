@@ -132,6 +132,10 @@ func (a *OwnerAuthority) check(ctx context.Context, tx pgx.Tx, o Order, claimed 
 	if err != nil {
 		return checkedOwnerAuthority{}, err
 	}
+	pilotExpiry, err := checkPilotLimits(ctx, tx, o.ID)
+	if err != nil {
+		return checkedOwnerAuthority{}, err
+	}
 	var now time.Time
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return checkedOwnerAuthority{}, err
@@ -166,7 +170,7 @@ func (a *OwnerAuthority) check(ctx context.Context, tx pgx.Tx, o Order, claimed 
 		return checkedOwnerAuthority{}, ErrNotAuthorized
 	}
 	until := now.Add(30 * time.Second)
-	for _, limit := range []time.Time{expiry, proof.ExpiresAt} {
+	for _, limit := range []time.Time{expiry, proof.ExpiresAt, pilotExpiry} {
 		if limit.Before(until) {
 			until = limit
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,9 +26,9 @@ type sendFixture struct {
 	ack       SubmissionAcknowledgement
 }
 
-func newSendFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, side string) sendFixture {
+func newSendFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, side string, limits ...OwnerPilotLimits) sendFixture {
 	t.Helper()
-	f, p := newSavedPreflightFixture(t, ctx, pool, side)
+	f, p := newSavedPreflightFixture(t, ctx, pool, side, limits...)
 	id, err := NewPostgresStore(pool).savePreflight(ctx, f.order, f.approval.CredentialGeneration, p.PortfolioID, p)
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +131,7 @@ func TestPostgresSendConfirmedExactOrderAndAcknowledgement(t *testing.T) {
 				if cr.APIKeyName != "synthetic-send-key" || cr.APIPrivateKey != "synthetic-send-private-key-not-a-real-key" || cr.PortfolioID != f.preflight.PortfolioID {
 					return SubmissionAcknowledgement{}, errors.New("wrong synthetic credentials")
 				}
-				if submission.Order.ID != f.order.ID || submission.Order.Request != f.order.Request || submission.Order.RequestDigest != f.order.RequestDigest || !submission.Order.CreatedAt.Equal(f.order.CreatedAt) || submission.PortfolioID != f.preflight.PortfolioID || submission.PreviewID != f.preflight.PreviewID {
+				if submission.Order.ID != f.order.ID || !reflect.DeepEqual(submission.Order.Request, f.order.Request) || submission.Order.RequestDigest != f.order.RequestDigest || !submission.Order.CreatedAt.Equal(f.order.CreatedAt) || submission.PortfolioID != f.preflight.PortfolioID || submission.PreviewID != f.preflight.PreviewID {
 					return SubmissionAcknowledgement{}, errors.New("changed exact LIMIT_IOC submission")
 				}
 				deadline, ok := c.Deadline()
@@ -433,7 +434,8 @@ type sendDelayedClockTx struct {
 
 func (tx sendDelayedClockTx) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 	row := tx.Tx.QueryRow(ctx, query, args...)
-	if strings.Contains(query, "e.expires_at,c.authorization_expires_at,clock_timestamp()") {
+	if strings.Contains(query, "e.expires_at,c.authorization_expires_at,check_execution_pilot_limits(o.id),clock_timestamp()") ||
+		strings.Contains(query, "e.expires_at,c.authorization_expires_at,clock_timestamp()") {
 		return sendDelayedClockRow{Row: row, ctx: ctx, observed: tx.observed}
 	}
 	return row
@@ -450,7 +452,9 @@ func (r sendDelayedClockRow) Scan(dest ...any) error {
 		return err
 	}
 	*r.observed = true
-	end, now := *(dest[2].(**time.Time)), *(dest[3].(*time.Time))
+	// Submission has an additional pilot deadline; cancellation intentionally
+	// does not. Both final-clock queries place database wall time last.
+	end, now := *(dest[2].(**time.Time)), *(dest[len(dest)-1].(*time.Time))
 	if end == nil || !end.After(now) {
 		return errors.New("fixture expected positive final authority window")
 	}

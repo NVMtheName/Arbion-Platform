@@ -27,7 +27,8 @@ func (s *PostgresStore) ApproveOrder(ctx context.Context, p authorization.Princi
 		return OwnerApproval{}, ErrNotAuthorized
 	}
 	var saved string
-	if err := s.db.QueryRow(ctx, `SELECT request_digest FROM execution_orders WHERE id=$1 AND owner_id=$2`, orderID, p.UserID).Scan(&saved); err != nil {
+	var pilotExpiry time.Time
+	if err := s.db.QueryRow(ctx, `SELECT request_digest,check_execution_pilot_limits(id) FROM execution_orders WHERE id=$1 AND owner_id=$2`, orderID, p.UserID).Scan(&saved, &pilotExpiry); err != nil {
 		return OwnerApproval{}, mapError(err)
 	}
 	if saved != expectedDigest {
@@ -54,15 +55,22 @@ func (s *PostgresStore) ApproveOrder(ctx context.Context, p authorization.Princi
 	if err = tx.QueryRow(ctx, `SELECT enabled_at FROM auth_totp_factors WHERE user_id=$1 FOR SHARE`, p.UserID).Scan(&enabled); err != nil {
 		return OwnerApproval{}, ErrNotAuthorized
 	}
+	if pilotExpiry, err = checkPilotLimits(ctx, tx, orderID); err != nil {
+		return OwnerApproval{}, err
+	}
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return OwnerApproval{}, err
 	}
 	if enabled == nil || verified.After(now) || now.Sub(verified) > 10*time.Second {
 		return OwnerApproval{}, ErrNotAuthorized
 	}
+	until := now.Add(5 * time.Minute)
+	if pilotExpiry.Before(until) {
+		until = pilotExpiry
+	}
 	var a OwnerApproval
 	err = tx.QueryRow(ctx, `INSERT INTO execution_owner_approvals(order_id,owner_id,request_digest,credential_generation,mfa_method,mfa_verified_at,mfa_enabled_at,approved_at,expires_at)
-		VALUES($1,$2,$3,$4,'totp',$5,$6,$7,$8) RETURNING id::text,order_id::text,request_digest,credential_generation,approved_at,expires_at`, orderID, p.UserID, saved, generation, verified, *enabled, now, now.Add(5*time.Minute)).Scan(&a.ID, &a.OrderID, &a.RequestDigest, &a.CredentialGeneration, &a.ApprovedAt, &a.ExpiresAt)
+		VALUES($1,$2,$3,$4,'totp',$5,$6,$7,$8) RETURNING id::text,order_id::text,request_digest,credential_generation,approved_at,expires_at`, orderID, p.UserID, saved, generation, verified, *enabled, now, until).Scan(&a.ID, &a.OrderID, &a.RequestDigest, &a.CredentialGeneration, &a.ApprovedAt, &a.ExpiresAt)
 	if err != nil {
 		return OwnerApproval{}, mapError(err)
 	}

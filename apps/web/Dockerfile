@@ -1,6 +1,7 @@
 FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY tooling/next-eslint-glob ./tooling/next-eslint-glob
 RUN npm ci
 
 FROM dependencies AS builder

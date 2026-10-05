@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/arbion/platform/services/api/internal/execution"
 	"github.com/jackc/pgx/v5"
@@ -24,7 +25,8 @@ func testExecutionCapitalFence(t *testing.T, ctx context.Context, pool *pgxpool.
 		if err := pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&client); err != nil {
 			t.Fatal(err)
 		}
-		o, err := execution.NewPostgresStore(pool).Prepare(ctx, execution.Request{OwnerID: input.UserID, AccountID: account, ConnectionID: connectionID, CapitalBucketID: bucket, ClientOrderID: client, ProductID: "BTC-USD", Side: "BUY", BaseSize: "0.001", LimitPrice: "60000", FeeAllowanceUSD: "0.60", MaximumDebitUSD: "60.60"})
+		o, err := execution.NewPostgresStore(pool).Prepare(ctx, execution.Request{OwnerID: input.UserID, AccountID: account, ConnectionID: connectionID, CapitalBucketID: bucket, ClientOrderID: client, ProductID: "BTC-USD", Side: "BUY", BaseSize: "0.001", LimitPrice: "60000", FeeAllowanceUSD: "0.60", MaximumDebitUSD: "60.60",
+			PilotLimits: &execution.OwnerPilotLimits{MaximumOrderUSD: "60.60", ExpiresAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)}})
 		if err != nil {
 			t.Fatal(err)
 		}

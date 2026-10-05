@@ -96,7 +96,8 @@ func prepareCoinbaseExecutionIntegration(t *testing.T, ctx context.Context, pool
 // workflow instead of bypassing that boundary in an integration fixture.
 func newCoinbaseExecutionIntegrationRequest(t *testing.T, ctx context.Context, pool *pgxpool.Pool) execution.Request {
 	t.Helper()
-	r := execution.Request{ProductID: "BTC-USD", Side: "BUY", BaseSize: "0.0010", LimitPrice: "30000.00", FeeAllowanceUSD: "0.10", MaximumDebitUSD: "30.10"}
+	r := execution.Request{ProductID: "BTC-USD", Side: "BUY", BaseSize: "0.0010", LimitPrice: "30000.00", FeeAllowanceUSD: "0.10", MaximumDebitUSD: "30.10",
+		PilotLimits: &execution.OwnerPilotLimits{MaximumOrderUSD: "100000000", ExpiresAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)}}
 	if err := pool.QueryRow(ctx, `INSERT INTO users(external_id) VALUES($1) RETURNING id::text`, fmt.Sprintf("coinbase-send-integration-%d", time.Now().UnixNano())).Scan(&r.OwnerID); err != nil {
 		t.Fatal(err)
 	}

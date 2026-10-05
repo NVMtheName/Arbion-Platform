@@ -41,6 +41,9 @@ func (s *PostgresStore) CapturePreflight(ctx context.Context, ownerID, orderID s
 	if err = tx.QueryRow(ctx, `SELECT lock_execution_claim_controls($1)`, orderID).Scan(&generation); err != nil {
 		return "", mapError(err)
 	}
+	if _, err = checkPilotLimits(ctx, tx, orderID); err != nil {
+		return "", err
+	}
 	portfolio, err := executionPortfolio(ctx, tx, o)
 	if err != nil {
 		return "", err
@@ -116,6 +119,9 @@ func (s *PostgresStore) savePreflight(ctx context.Context, o Order, generation i
 	var current int64
 	if err = tx.QueryRow(ctx, `SELECT lock_execution_claim_controls($1)`, o.ID).Scan(&current); err != nil {
 		return "", mapError(err)
+	}
+	if _, err = checkPilotLimits(ctx, tx, o.ID); err != nil {
+		return "", err
 	}
 	bound, err := executionPortfolio(ctx, tx, o)
 	if err != nil || bound != portfolio || current != generation {

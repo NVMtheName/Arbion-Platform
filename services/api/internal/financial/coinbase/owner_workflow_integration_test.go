@@ -154,7 +154,7 @@ func TestPostgresCoinbaseOwnerWorkflowCancellationSettlementAndRestart(t *testin
 		t.Fatal(err)
 	}
 	adapter := NewExecutionAdapter(client)
-	scope := execution.OwnerScope{OwnerID: r.OwnerID, AccountID: r.AccountID, ConnectionID: r.ConnectionID, CapitalBucketID: r.CapitalBucketID, ProductID: r.ProductID}
+	scope := execution.OwnerScope{OwnerID: r.OwnerID, AccountID: r.AccountID, ConnectionID: r.ConnectionID, CapitalBucketID: r.CapitalBucketID, ProductID: r.ProductID, PilotLimits: *r.PilotLimits}
 	deps := execution.OwnerWorkflowDependencies{StepUp: integrationExecutionStepUp{pool}, Vault: vault, Preflight: client, Sender: adapter, Lookup: adapter, Observation: adapter, Cancellation: adapter, Settlement: adapter}
 	restart := func() *ownerWorkflowHTTP {
 		t.Helper()

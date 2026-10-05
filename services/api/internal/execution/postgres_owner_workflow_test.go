@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/arbion/platform/services/api/internal/financial"
 )
@@ -82,6 +83,40 @@ func TestPostgresOwnerWorkflowPrepareReplayAndLostResponse(t *testing.T) {
 	var count int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM execution_orders WHERE client_order_id=$1`, ownerClientID(r.OwnerID, c.RequestKey)).Scan(&count); err != nil || count != 1 {
 		t.Fatal("lost prepare response duplicated durable order", err, count)
+	}
+}
+
+func TestPostgresOwnerWorkflowChangedLimitsDenyAdmissionButPreserveHistory(t *testing.T) {
+	ctx, pool := setupExecutionTest(t)
+	f := newSendFixture(t, ctx, pool, "BUY")
+	for name, change := range map[string]func(*OwnerScope){
+		"spending cap": func(s *OwnerScope) { s.PilotLimits.MaximumOrderUSD = "10" },
+		"expiry":       func(s *OwnerScope) { s.PilotLimits.ExpiresAt = s.PilotLimits.ExpiresAt.Add(-time.Hour) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			scope := ownerScopeFor(f.order.Request)
+			change(&scope)
+			w, err := NewOwnerWorkflow(NewPostgresStore(pool), scope, ownerNoIODependencies())
+			if err != nil {
+				t.Fatal(err)
+			}
+			o, err := w.Get(ctx, f.principal, f.order.ID)
+			if err != nil || o.ID != f.order.ID || o.RequestDigest != f.order.RequestDigest {
+				t.Fatal("changed limits hid original history", err)
+			}
+			for command, run := range ownerCommands(w, f.principal, f.order.ID) {
+				if command == "approve" || command == "preflight" || command == "send" {
+					if err := run(ctx); !errors.Is(err, ErrNotAuthorized) {
+						t.Fatal("changed limits admitted unattempted action", command, err)
+					}
+				}
+			}
+			// Post-attempt operations use this same false branch: policy changes
+			// must not obstruct recovery/revoke/cancel/reconcile/settlement.
+			if _, err := w.commandOrder(ctx, f.principal, f.order.ID, false); err != nil {
+				t.Fatal("changed limits obstructed resolution boundary", err)
+			}
+		})
 	}
 }
 

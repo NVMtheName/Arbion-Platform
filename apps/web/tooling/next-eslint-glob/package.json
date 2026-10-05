@@ -1,0 +1,11 @@
+{
+  "name": "@arbion/next-eslint-glob",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fail-closed guard for unused custom Next ESLint root globbing",
+  "type": "module",
+  "main": "index.mjs",
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

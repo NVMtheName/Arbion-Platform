@@ -46,6 +46,8 @@ type Request struct {
 	LimitPrice      string
 	FeeAllowanceUSD string
 	MaximumDebitUSD string
+	// Omission preserves original historical digests for recovery only.
+	PilotLimits *OwnerPilotLimits `json:",omitempty"`
 }
 
 type Order struct {
@@ -125,6 +127,9 @@ func requestDigest(r Request) (string, error) {
 			return "", ErrInvalid
 		}
 	} else if debit.Sign() != 0 {
+		return "", ErrInvalid
+	}
+	if r.PilotLimits != nil && !withinPilotCap(r) {
 		return "", ErrInvalid
 	}
 	// Bind the exact canonical request bytes, including all account identities.
