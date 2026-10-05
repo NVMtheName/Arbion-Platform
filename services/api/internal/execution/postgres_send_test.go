@@ -434,7 +434,8 @@ type sendDelayedClockTx struct {
 
 func (tx sendDelayedClockTx) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 	row := tx.Tx.QueryRow(ctx, query, args...)
-	if strings.Contains(query, "e.expires_at,c.authorization_expires_at,check_execution_pilot_limits(o.id),clock_timestamp()") {
+	if strings.Contains(query, "e.expires_at,c.authorization_expires_at,check_execution_pilot_limits(o.id),clock_timestamp()") ||
+		strings.Contains(query, "e.expires_at,c.authorization_expires_at,clock_timestamp()") {
 		return sendDelayedClockRow{Row: row, ctx: ctx, observed: tx.observed}
 	}
 	return row
@@ -451,7 +452,9 @@ func (r sendDelayedClockRow) Scan(dest ...any) error {
 		return err
 	}
 	*r.observed = true
-	end, now := *(dest[2].(**time.Time)), *(dest[4].(*time.Time))
+	// Submission has an additional pilot deadline; cancellation intentionally
+	// does not. Both final-clock queries place database wall time last.
+	end, now := *(dest[2].(**time.Time)), *(dest[len(dest)-1].(*time.Time))
 	if end == nil || !end.After(now) {
 		return errors.New("fixture expected positive final authority window")
 	}

@@ -216,8 +216,8 @@ func TestPostgresPilotLimitsNewAdmissionsExpire(t *testing.T) {
 	requireCurrentPilotDenial(t, err)
 	_, err = pool.Exec(ctx, `WITH observed AS (SELECT clock_timestamp() AS at)
 	 INSERT INTO execution_provider_preflights(order_id,owner_id,financial_account_id,provider_connection_id,credential_generation,request_digest,portfolio_id,reconciliation_id,observed_at,expires_at,evidence)
-	 SELECT $1,$2,$3,$4,$5,$6,$3,$7,at,at+interval '30 seconds',
-	 jsonb_build_object('RequestDigest',$6::text,'PortfolioID',$3::text,'StartedAt',at) FROM observed`, o.ID, r.OwnerID, r.AccountID, r.ConnectionID, f.approval.CredentialGeneration, o.RequestDigest, f.proof.ReconciliationID)
+	 SELECT $1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::bigint,$6::text,$3::uuid,$7::uuid,at,at+interval '30 seconds',
+	 jsonb_build_object('RequestDigest',$6::text,'PortfolioID',$3::uuid::text,'StartedAt',at) FROM observed`, o.ID, r.OwnerID, r.AccountID, r.ConnectionID, f.approval.CredentialGeneration, o.RequestDigest, f.proof.ReconciliationID)
 	requireCurrentPilotDenial(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO execution_dispatch_attempts(order_id,owner_id,financial_account_id,authorization_id,credential_generation,claimed_at,expires_at)
 	 VALUES($1,$2,$3,gen_random_uuid(),$4,clock_timestamp(),clock_timestamp()+interval '1 second')`, o.ID, r.OwnerID, r.AccountID, f.approval.CredentialGeneration)
