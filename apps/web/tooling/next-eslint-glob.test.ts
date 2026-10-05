@@ -75,16 +75,23 @@ describe("single-root Next ESLint guard", () => {
   });
 
   it("removes the affected implementation rather than renaming its source", () => {
-    const lock = readFileSync(
-      new URL("../package-lock.json", import.meta.url),
-      "utf8",
-    );
-    expect(lock).not.toMatch(
-      /registry\.npmjs\.org\/(?:braces|micromatch|fast-glob)\//,
-    );
-    expect(lock).not.toMatch(
-      /"(?:[^"\n]*\/)?node_modules\/(?:braces|micromatch)"/,
-    );
+    const lock = JSON.parse(
+      readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"),
+    ) as {
+      packages: Record<string, { name?: string; resolved?: string }>;
+    };
+    for (const [location, metadata] of Object.entries(lock.packages)) {
+      expect(["braces", "micromatch"]).not.toContain(
+        location.split("/").at(-1),
+      );
+      expect(["braces", "micromatch"]).not.toContain(metadata.name);
+      if (metadata.resolved?.startsWith("https://")) {
+        const archivePath = new URL(metadata.resolved).pathname.split("/");
+        for (const affected of ["braces", "micromatch", "fast-glob"]) {
+          expect(archivePath).not.toContain(affected);
+        }
+      }
+    }
   });
 
   it("keeps the composed repository config on the supported default-root path", async () => {
