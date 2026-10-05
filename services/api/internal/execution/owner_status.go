@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"math/big"
 	"time"
 )
@@ -22,6 +23,7 @@ type OwnerOrder struct {
 	ConnectionID       string                `json:"-"`
 	CapitalBucketID    string                `json:"-"`
 	Attempted          bool                  `json:"-"`
+	PilotLimits        *OwnerPilotLimits     `json:"-"`
 	State              string                `json:"state"`
 	Summary            string                `json:"summary"`
 	ApprovalStatus     string                `json:"approval_status"`
@@ -69,9 +71,10 @@ func (s *PostgresStore) ReadOwnerOrder(ctx context.Context, ownerID, orderID str
 	var accounting OwnerOrderAccounting
 	var recorded *time.Time
 	var clientID string
+	var limitsJSON []byte
 	err := s.db.QueryRow(ctx, `SELECT o.id::text,o.request_digest,o.request->>'ProductID',o.request->>'Side',
 	 o.request->>'BaseSize',o.request->>'LimitPrice',o.request->>'FeeAllowanceUSD',o.request->>'MaximumDebitUSD',o.created_at,
-	 o.financial_account_id::text,o.provider_connection_id::text,o.capital_bucket_id::text,o.client_order_id::text,statement_timestamp(),
+	 o.financial_account_id::text,o.provider_connection_id::text,o.capital_bucket_id::text,o.client_order_id::text,o.request->'PilotLimits',statement_timestamp(),
 	 p.id IS NOT NULL,p.expires_at,v.approval_id IS NOT NULL,a.order_id IS NOT NULL,b.order_id IS NOT NULL,r.order_id IS NOT NULL,
 	 h.order_id IS NOT NULL,c.order_id IS NOT NULL,c.released_at,
 	 EXISTS(SELECT 1 FROM execution_reconciliation_blocks q WHERE q.financial_account_id=o.financial_account_id),
@@ -96,7 +99,7 @@ func (s *PostgresStore) ReadOwnerOrder(ctx context.Context, ownerID, orderID str
 	 CROSS JOIN LATERAL (SELECT count(*) n,COALESCE(sum(base_quantity),0) q,COALESCE(sum(gross_usd),0) g,COALESCE(sum(fee_usd),0) fee FROM execution_fills WHERE order_id=o.id) fills
 	 WHERE o.id=$1 AND o.owner_id=$2`, orderID, ownerID).Scan(
 		&o.ID, &o.RequestDigest, &o.ProductID, &o.Side, &o.BaseSize, &o.LimitPrice, &o.FeeAllowanceUSD, &o.MaximumDebitUSD, &o.CreatedAt,
-		&o.AccountID, &o.ConnectionID, &o.CapitalBucketID, &clientID, &f.now, &f.approval, &o.ApprovalExpiresAt, &f.revoked, &o.Attempted, &f.acknowledged, &f.rejected,
+		&o.AccountID, &o.ConnectionID, &o.CapitalBucketID, &clientID, &limitsJSON, &f.now, &f.approval, &o.ApprovalExpiresAt, &f.revoked, &o.Attempted, &f.acknowledged, &f.rejected,
 		&o.AccountHeld, &f.capital, &f.capitalReleased, &o.AccountBlocked, &o.FillCount, &o.BaseFilled, &o.GrossUSD, &o.FeeUSD, &o.TerminalStatus, &f.terminalMatches,
 		&f.noSend, &f.cancellation, &f.cancellationReceipt, &accounting.OpeningCashUSD, &accounting.OpeningBase, &accounting.ClosingCashUSD, &accounting.ClosingBase, &recorded, &f.settlementMatches)
 	if err != nil {
@@ -106,8 +109,9 @@ func (s *PostgresStore) ReadOwnerOrder(ctx context.Context, ownerID, orderID str
 		accounting.RecordedAt = *recorded
 		o.Accounting = &accounting
 	}
-	digest, err := requestDigest(Request{OwnerID: ownerID, AccountID: o.AccountID, ConnectionID: o.ConnectionID, CapitalBucketID: o.CapitalBucketID, ClientOrderID: clientID, ProductID: o.ProductID, Side: o.Side, BaseSize: o.BaseSize, LimitPrice: o.LimitPrice, FeeAllowanceUSD: o.FeeAllowanceUSD, MaximumDebitUSD: o.MaximumDebitUSD})
-	f.termsValid = err == nil && digest == o.RequestDigest
+	limitsValid := len(limitsJSON) == 0 || json.Unmarshal(limitsJSON, &o.PilotLimits) == nil && validPilotLimits(o.PilotLimits)
+	digest, err := requestDigest(Request{OwnerID: ownerID, AccountID: o.AccountID, ConnectionID: o.ConnectionID, CapitalBucketID: o.CapitalBucketID, ClientOrderID: clientID, ProductID: o.ProductID, Side: o.Side, BaseSize: o.BaseSize, LimitPrice: o.LimitPrice, FeeAllowanceUSD: o.FeeAllowanceUSD, MaximumDebitUSD: o.MaximumDebitUSD, PilotLimits: o.PilotLimits})
+	f.termsValid = limitsValid && err == nil && digest == o.RequestDigest
 	return projectOwnerOrder(o, f), nil
 }
 

@@ -12,9 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func newSavedPreflightFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, side string) (authorityFixture, ProviderPreflight) {
+func newSavedPreflightFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, side string, limits ...OwnerPilotLimits) (authorityFixture, ProviderPreflight) {
 	t.Helper()
-	f := newAuthorityFixture(t, ctx, pool, side)
+	f := newAuthorityFixture(t, ctx, pool, side, limits...)
 	r := f.order.Request
 	if _, err := pool.Exec(ctx, `UPDATE financial_accounts SET provider_account_id=$2 WHERE id=$1`, r.AccountID, "portfolio:"+r.AccountID); err != nil {
 		t.Fatal(err)

@@ -205,7 +205,7 @@ func validateSendAuthorization(ctx context.Context, tx pgx.Tx, a Attempt, checke
 	o := checked.order
 	var approval, digest, rec string
 	var generation int64
-	var expires, authorized, now time.Time
+	var expires, authorized, now, pilotExpiry time.Time
 	var proofJSON, providerJSON []byte
 	err := tx.QueryRow(ctx, `SELECT approval_id::text,request_digest,reconciliation_id::text,credential_generation,checked_at,expires_at,preflight FROM execution_authorizations WHERE id=$1 AND order_id=$2 AND owner_id=$3 AND financial_account_id=$4`, a.AuthorizationID, o.ID, o.Request.OwnerID, o.Request.AccountID).
 		Scan(&approval, &digest, &rec, &generation, &authorized, &expires, &proofJSON)
@@ -226,9 +226,9 @@ func validateSendAuthorization(ctx context.Context, tx pgx.Tx, a Attempt, checke
 	// query round trip. Delay after this helper cannot extend the send window.
 	clockStart := time.Now()
 	var entitlementEnd, connectionEnd *time.Time
-	err = tx.QueryRow(ctx, `SELECT lock_execution_claim_controls(o.id),e.expires_at,c.authorization_expires_at,clock_timestamp()
+	err = tx.QueryRow(ctx, `SELECT lock_execution_claim_controls(o.id),e.expires_at,c.authorization_expires_at,check_execution_pilot_limits(o.id),clock_timestamp()
 		FROM execution_orders o JOIN user_entitlements e ON e.user_id=o.owner_id AND e.entitlement_key='founder'
-		JOIN provider_connections c ON c.id=o.provider_connection_id WHERE o.id=$1`, o.ID).Scan(&generation, &entitlementEnd, &connectionEnd, &now)
+		JOIN provider_connections c ON c.id=o.provider_connection_id WHERE o.id=$1`, o.ID).Scan(&generation, &entitlementEnd, &connectionEnd, &pilotExpiry, &now)
 	if err != nil {
 		return ConfirmedSubmission{}, time.Time{}, mapError(err)
 	}
@@ -236,7 +236,7 @@ func validateSendAuthorization(ctx context.Context, tx pgx.Tx, a Attempt, checke
 		return ConfirmedSubmission{}, time.Time{}, ErrNotAuthorized
 	}
 	budget := 5 * time.Second
-	ends := []time.Time{expires, checked.authorization.ExpiresAt}
+	ends := []time.Time{expires, checked.authorization.ExpiresAt, pilotExpiry}
 	for _, end := range []*time.Time{entitlementEnd, connectionEnd} {
 		if end != nil {
 			ends = append(ends, *end)

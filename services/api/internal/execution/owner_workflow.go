@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 
 	"github.com/arbion/platform/services/api/internal/authorization"
@@ -13,6 +14,7 @@ import (
 // or a substitute for the existing transactionally current financial controls.
 type OwnerScope struct {
 	OwnerID, AccountID, ConnectionID, CapitalBucketID, ProductID string
+	PilotLimits                                                  OwnerPilotLimits
 }
 
 // Dependencies stay server-only. Keep read/preview and write adapters separate;
@@ -45,14 +47,15 @@ func (w *OwnerWorkflow) Presentation(ctx context.Context, p authorization.Princi
 		return OwnerPresentation{}, err
 	}
 	s := w.scope
-	digest := sha256.Sum256([]byte("arbion-owner-scope-v1\x00" + s.OwnerID + "\x00" + s.AccountID + "\x00" + s.ConnectionID + "\x00" + s.CapitalBucketID + "\x00" + s.ProductID))
+	limits, _ := json.Marshal(s.PilotLimits)
+	digest := sha256.Sum256([]byte("arbion-owner-scope-v2\x00" + s.OwnerID + "\x00" + s.AccountID + "\x00" + s.ConnectionID + "\x00" + s.CapitalBucketID + "\x00" + s.ProductID + "\x00" + string(limits)))
 	return OwnerPresentation{ProductID: s.ProductID, AccountLabel: "Dedicated Coinbase portfolio", ScopeID: fmt.Sprintf("%x", digest)}, nil
 }
 
 func NewOwnerWorkflow(store *PostgresStore, scope OwnerScope, deps OwnerWorkflowDependencies) (*OwnerWorkflow, error) {
 	if store == nil || store.db == nil || !validUUID(scope.OwnerID) || !validUUID(scope.AccountID) ||
 		!validUUID(scope.ConnectionID) || !validUUID(scope.CapitalBucketID) || !productPattern.MatchString(scope.ProductID) || scope.ProductID == "USD-USD" ||
-		deps.StepUp == nil || deps.Vault == nil || deps.Preflight == nil || deps.Sender == nil || deps.Lookup == nil || deps.Observation == nil || deps.Cancellation == nil || deps.Settlement == nil {
+		!validPilotLimits(&scope.PilotLimits) || deps.StepUp == nil || deps.Vault == nil || deps.Preflight == nil || deps.Sender == nil || deps.Lookup == nil || deps.Observation == nil || deps.Cancellation == nil || deps.Settlement == nil {
 		return nil, ErrNotAuthorized
 	}
 	return &OwnerWorkflow{store: store, scope: scope, deps: deps}, nil
@@ -115,9 +118,10 @@ func (w *OwnerWorkflow) Prepare(ctx context.Context, p authorization.Principal, 
 	if !validUUID(c.RequestKey) {
 		return OwnerOrder{}, ErrInvalid
 	}
+	limits := w.scope.PilotLimits // Copy: request terms cannot alias mutable configuration.
 	r := Request{OwnerID: w.scope.OwnerID, AccountID: w.scope.AccountID, ConnectionID: w.scope.ConnectionID,
 		CapitalBucketID: w.scope.CapitalBucketID, ProductID: w.scope.ProductID, ClientOrderID: ownerClientID(p.UserID, c.RequestKey),
-		Side: c.Side, BaseSize: c.BaseSize, LimitPrice: c.LimitPrice, FeeAllowanceUSD: c.FeeAllowanceUSD, MaximumDebitUSD: c.MaximumDebitUSD}
+		Side: c.Side, BaseSize: c.BaseSize, LimitPrice: c.LimitPrice, FeeAllowanceUSD: c.FeeAllowanceUSD, MaximumDebitUSD: c.MaximumDebitUSD, PilotLimits: &limits}
 	o, err := w.store.Prepare(ctx, r)
 	if err != nil {
 		return OwnerOrder{}, err
@@ -149,6 +153,9 @@ func (w *OwnerWorkflow) commandOrder(ctx context.Context, p authorization.Princi
 	}
 	if unattempted && o.Attempted {
 		return OwnerOrder{}, ErrAlreadyAttempted
+	}
+	if unattempted && !samePilotLimits(o.PilotLimits, w.scope.PilotLimits) {
+		return OwnerOrder{}, ErrNotAuthorized
 	}
 	return o, nil
 }

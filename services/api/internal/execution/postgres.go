@@ -21,6 +21,9 @@ func NewPostgresStore(db Database) *PostgresStore { return &PostgresStore{db: db
 
 // Prepare saves immutable terms, not a live approval or a capital reservation.
 func (s *PostgresStore) Prepare(ctx context.Context, r Request) (Order, error) {
+	if !validPilotLimits(r.PilotLimits) {
+		return Order{}, ErrNotAuthorized
+	}
 	digest, err := requestDigest(r)
 	if err != nil {
 		return Order{}, err
@@ -31,6 +34,16 @@ func (s *PostgresStore) Prepare(ctx context.Context, r Request) (Order, error) {
 		return Order{}, err
 	}
 	defer rollback(tx)
+	// Exact replay is a saved read, including after pilot expiry. A lost prepare
+	// response must remain recoverable without creating or authorizing an order.
+	if existing, readErr := readOrder(ctx, tx, r.OwnerID, "client_order_id", r.ClientOrderID); readErr == nil {
+		if existing.RequestDigest != digest {
+			return Order{}, ErrConflict
+		}
+		return existing, nil
+	} else if !errors.Is(readErr, ErrNotFound) {
+		return Order{}, readErr
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO execution_orders
 		(owner_id,financial_account_id,provider_connection_id,capital_bucket_id,client_order_id,request_digest,request)
 		VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(client_order_id) DO NOTHING`,

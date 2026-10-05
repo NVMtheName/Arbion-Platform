@@ -56,7 +56,7 @@ func TestPostgresCancellationExactOutcomeIsOnceOnlyAndNeverSettlement(t *testing
 				if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 5*time.Second {
 					t.Error("unbounded cancellation deadline")
 				}
-				if sub.Order != f.order || sub.PortfolioID != f.preflight.PortfolioID || cr.PortfolioID != sub.PortfolioID || a.ProviderOrderID != f.ack.ProviderOrderID {
+				if !reflect.DeepEqual(sub.Order, f.order) || sub.PortfolioID != f.preflight.PortfolioID || cr.PortfolioID != sub.PortfolioID || a.ProviderOrderID != f.ack.ProviderOrderID {
 					t.Error("cancellation changed original identity")
 				}
 				saved, e := NewPostgresStore(pool).ReadCancellation(ctx, f.order.Request.OwnerID, f.order.ID)

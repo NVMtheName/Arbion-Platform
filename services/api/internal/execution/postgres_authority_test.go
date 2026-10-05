@@ -30,9 +30,13 @@ type authorityFixture struct {
 	proof     VerifiedPreflight
 }
 
-func newAuthorityFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, side string) authorityFixture {
+func newAuthorityFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, side string, limits ...OwnerPilotLimits) authorityFixture {
 	t.Helper()
 	r := newExecutionFixture(t, ctx, pool)
+	if len(limits) != 0 {
+		copy := limits[0]
+		r.PilotLimits = &copy
+	}
 	r.Side = side
 	if side == "SELL" {
 		r.MaximumDebitUSD = "0"
