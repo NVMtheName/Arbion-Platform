@@ -29,6 +29,11 @@ type sendFixture struct {
 func newSendFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, side string, limits ...OwnerPilotLimits) sendFixture {
 	t.Helper()
 	f, p := newSavedPreflightFixture(t, ctx, pool, side, limits...)
+	return newSendFixtureForPreflight(t, ctx, pool, f, p)
+}
+
+func newSendFixtureForPreflight(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f authorityFixture, p ProviderPreflight) sendFixture {
+	t.Helper()
 	id, err := NewPostgresStore(pool).savePreflight(ctx, f.order, f.approval.CredentialGeneration, p.PortfolioID, p)
 	if err != nil {
 		t.Fatal(err)

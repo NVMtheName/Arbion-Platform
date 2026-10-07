@@ -15,6 +15,11 @@ import (
 func newSavedPreflightFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, side string, limits ...OwnerPilotLimits) (authorityFixture, ProviderPreflight) {
 	t.Helper()
 	f := newAuthorityFixture(t, ctx, pool, side, limits...)
+	return newSavedPreflightForAuthority(t, ctx, pool, f)
+}
+
+func newSavedPreflightForAuthority(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f authorityFixture) (authorityFixture, ProviderPreflight) {
+	t.Helper()
 	r := f.order.Request
 	if _, err := pool.Exec(ctx, `UPDATE financial_accounts SET provider_account_id=$2 WHERE id=$1`, r.AccountID, "portfolio:"+r.AccountID); err != nil {
 		t.Fatal(err)
