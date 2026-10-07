@@ -125,6 +125,45 @@ Funding uses only settlement-attributed pilot cash and acquired base, bounded ag
 
 The existing automation service still refuses LIVE AI mandates. No endpoint, scheduler, AI tool, production factory or activation switch creates consent or calls this sender. Commissioning still needs a reviewed owner-controlled mandate/activation path and evidence of current portfolio compatibility. Rejected/unknown outcomes remain held without resend or absence-based unlock. Mock execution tests establish engineering controls only, not real broker compatibility or positive after-cost performance.
 
+### Fresh scheduled proposal intake (runtime disconnected)
+
+Migration63 gives fresh LIVE scheduled proposals an immutable, order-linked
+binding in the existing execution store. A cycle is the exact registered pilot
+bucket, mandate/version and scheduled UTC instant. Its server-derived client
+order identity does not include renewable consent or proposal terms. Preparation
+commits the binding and order together; identical replay recovers the original
+order, including after expiry, while changed consent, source or exact decimal
+terms conflict. An ambiguous commit grants no send authority and is recovered
+using the same cycle, never a new request identity.
+
+Intake requires the existing supported 30–1440 minute cadence, enabled
+CONTINUOUS scheduling and a version-bound effective-from anchor rounded up to a
+whole UTC second. A cycle must be
+on that grid, due and inside its fixed two-minute window. The deadline cannot
+extend past current consent, mandate or pilot expiry and is never refreshed by
+retrying. Account, bucket, product and pilot limits come from saved owner consent,
+not model output. Source mode must be LIVE and the AI connection/model must match
+the exact immutable mandate. All size, price and fee amounts remain exact; no
+silent rounding, repricing, market-order conversion or budget expansion occurs.
+
+Both autonomous claim and final-send authorization require the exact saved
+source/order/digest binding and a still-current deadline. A server-set immutable
+order marker and deferred database constraint require new autonomous orders to
+commit with their source; historical unbound orders cannot acquire that marker
+or be relabeled with fresh source evidence. Existing financial
+controls and the concrete one-shot sender remain authoritative; even fresh
+preflight evidence cannot revive an expired proposal. Source records are neither
+funding reservations nor fills, and remain immutable after no-send, rejection or
+settlement. Missing source binding denies autonomous dispatch; legacy manual
+orders and all historical read/recovery paths retain their existing semantics.
+
+The non-live scheduler, evaluator and saved PAPER/SHADOW proposals remain
+unchanged and cannot be promoted through this intake. It binds supplied source
+metadata; it does not prove an actual model invocation or implement model-output
+generation, an owner commissioning endpoint, a running live scheduler or an
+activation switch. Those boundaries still need their own bounded integration
+and security acceptance. Tests use synthetic source input and mock senders only.
+
 ### Private Coinbase preflight adapter
 
 The Coinbase collector uses fresh key permissions (View and Trade, explicitly no Transfer), complete portfolio-scoped account pagination, product restrictions/increments/size bounds, a timestamped product book, and an exact price-bounded `sor_limit_ioc` preview. Its only POST is the non-executing preview endpoint. No submit/cancel method is added to the existing financial read interface. The key's permissioned portfolio must match the saved account; supplying a portfolio ID in a preview is not proof of key scope. Nonzero foreign assets, external holds, incomplete responses, missing safety fields, duplicate JSON keys, changed preview size, fee overruns, redirects, pagination loops and stale quotes fail closed. Unknown zero-balance assets cannot contribute cash or inventory. No market-order fallback exists.

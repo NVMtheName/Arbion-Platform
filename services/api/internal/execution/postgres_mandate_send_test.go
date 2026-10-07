@@ -25,13 +25,11 @@ func newMandateSendOrder(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	if side == "SELL" {
 		r.MaximumDebitUSD = "0"
 	}
-	if err := pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&r.ClientOrderID); err != nil {
-		t.Fatal(err)
-	}
-	o, err := NewPostgresStore(pool).Prepare(ctx, r)
+	o, err := NewPostgresStore(pool).PrepareScheduledProposal(ctx, r.OwnerID, newScheduledProposalInput(t, ctx, pool, c, r))
 	if err != nil {
 		t.Fatal(err)
 	}
+	r = o.Request
 	cash, base := "1000", "1"
 	if len(funding) == 2 {
 		cash, base = funding[0], funding[1]
@@ -119,13 +117,15 @@ func settleMandateOrder(t *testing.T, ctx context.Context, pool *pgxpool.Pool, f
 	return e
 }
 
-func TestPostgresMandateSendReusesConsentAcrossSettledBuySell(t *testing.T) {
+func TestPostgresMandateSendSettledBuySellAcrossFreshScheduledVersions(t *testing.T) {
 	ctx, pool := setupExecutionTest(t)
 	c := newMandateConsentFixture(t, ctx, pool)
 	first := newMandateSendOrder(t, ctx, pool, c, "BUY")
 	sendMandateOrder(t, ctx, pool, c, first)
 	e := settleMandateOrder(t, ctx, pool, first)
 	assertPilotAllocationBalance(t, ctx, pool, c.request, "93.94", "0.0001", 1, false)
+	firstConsent := c.consent.ID
+	c = renewScheduledMandateFixture(t, ctx, pool, c, time.Time{})
 	second := newMandateSendOrder(t, ctx, pool, c, "SELL", e.CashUSD, e.TotalBase)
 	// MaxTradesPerDay=2: the final checker must exclude exactly this second
 	// durable claim, while still counting the already settled first order.
@@ -133,8 +133,8 @@ func TestPostgresMandateSendReusesConsentAcrossSettledBuySell(t *testing.T) {
 	settleMandateOrder(t, ctx, pool, second)
 	assertPilotAllocationBalance(t, ctx, pool, c.request, "99.88", "0", 2, false)
 	var authorizations, approvals int
-	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM execution_authorizations WHERE mandate_approval_id=$1),(SELECT count(*) FROM execution_mandate_approvals WHERE id=$1)`, c.consent.ID).Scan(&authorizations, &approvals); err != nil || authorizations != 2 || approvals != 1 {
-		t.Fatal("one immutable consent was not reused for two exact authorizations", err, authorizations, approvals)
+	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM execution_authorizations WHERE mandate_approval_id IN ($1,$2)),(SELECT count(*) FROM execution_mandate_approvals WHERE id IN ($1,$2))`, firstConsent, c.consent.ID).Scan(&authorizations, &approvals); err != nil || authorizations != 2 || approvals != 2 {
+		t.Fatal("fresh scheduled versions lost exact consent and authorization history", err, authorizations, approvals)
 	}
 	for _, f := range []sendFixture{first, second} {
 		if _, err := NewPostgresStore(pool).SendAutonomous(ctx, f.order.Request.OwnerID, f.order.ID, f.evidence, f.vault, sendFunc(func(context.Context, *financial.Credentials, ConfirmedSubmission) (SubmissionAcknowledgement, error) {

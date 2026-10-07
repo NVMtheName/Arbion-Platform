@@ -28,7 +28,6 @@ func (s *PostgresStore) Prepare(ctx context.Context, r Request) (Order, error) {
 	if err != nil {
 		return Order{}, err
 	}
-	body, _ := json.Marshal(r)
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return Order{}, err
@@ -44,6 +43,30 @@ func (s *PostgresStore) Prepare(ctx context.Context, r Request) (Order, error) {
 	} else if !errors.Is(readErr, ErrNotFound) {
 		return Order{}, readErr
 	}
+	if r.MandateApprovalID != "" {
+		return Order{}, ErrNotAuthorized // New autonomous orders need atomic source intake.
+	}
+	order, err := insertPreparedOrder(ctx, tx, r)
+	if err != nil {
+		return Order{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Order{}, ErrCommitUnknown
+	}
+	return order, nil
+}
+
+// The scheduled intake uses this same insertion inside its source-binding
+// transaction. It never commits an autonomous order without its source record.
+func insertPreparedOrder(ctx context.Context, tx pgx.Tx, r Request) (Order, error) {
+	if !validPilotLimits(r.PilotLimits) {
+		return Order{}, ErrNotAuthorized
+	}
+	digest, err := requestDigest(r)
+	if err != nil {
+		return Order{}, err
+	}
+	body, _ := json.Marshal(r)
 	_, err = tx.Exec(ctx, `INSERT INTO execution_orders
 		(owner_id,financial_account_id,provider_connection_id,capital_bucket_id,client_order_id,request_digest,request)
 		VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(client_order_id) DO NOTHING`,
@@ -60,9 +83,6 @@ func (s *PostgresStore) Prepare(ctx context.Context, r Request) (Order, error) {
 	}
 	if order.RequestDigest != digest {
 		return Order{}, ErrConflict
-	}
-	if err = tx.Commit(ctx); err != nil {
-		return Order{}, ErrCommitUnknown
 	}
 	return order, nil
 }
