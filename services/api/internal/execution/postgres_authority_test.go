@@ -41,6 +41,13 @@ func newAuthorityFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	if side == "SELL" {
 		r.MaximumDebitUSD = "0"
 	}
+	return newAuthorityFixtureForRequest(t, ctx, pool, r)
+}
+
+// Reuse an existing isolated account with fresh immutable order terms. Synthetic
+// credentials and the TOTP factor are seeded once, not rotated between orders.
+func newAuthorityFixtureForRequest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, r Request) authorityFixture {
+	t.Helper()
 	s := NewPostgresStore(pool)
 	o, err := s.Prepare(ctx, r)
 	if err != nil {
@@ -50,7 +57,7 @@ func newAuthorityFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	if _, err = pool.Exec(ctx, `UPDATE provider_connections SET encrypted_credential_payload=decode(repeat('11',32),'hex') WHERE id=$1`, r.ConnectionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO auth_totp_factors(user_id,secret_ciphertext,enabled_at) VALUES($1,decode(repeat('22',32),'hex'),clock_timestamp()-interval '1 minute')`, r.OwnerID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO auth_totp_factors(user_id,secret_ciphertext,enabled_at) VALUES($1,decode(repeat('22',32),'hex'),clock_timestamp()-interval '1 minute') ON CONFLICT(user_id) DO NOTHING`, r.OwnerID); err != nil {
 		t.Fatal(err)
 	}
 	f := authorityFixture{order: o, principal: authorization.Principal{UserID: r.OwnerID, Entitlement: authorization.EntitlementFounder}}

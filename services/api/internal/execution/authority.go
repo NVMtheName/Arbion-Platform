@@ -136,6 +136,12 @@ func (a *OwnerAuthority) check(ctx context.Context, tx pgx.Tx, o Order, claimed 
 	if err != nil {
 		return checkedOwnerAuthority{}, err
 	}
+	// Account locks acquired above serialize this settlement-derived projection
+	// with admission and release. Repeat for final send; a prior approval or
+	// broker-wide balance cannot authorize spending unrelated pilot capital.
+	if _, err = tx.Exec(ctx, `SELECT check_execution_pilot_capital($1)`, o.ID); err != nil {
+		return checkedOwnerAuthority{}, mapError(err)
+	}
 	var now time.Time
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
 		return checkedOwnerAuthority{}, err
