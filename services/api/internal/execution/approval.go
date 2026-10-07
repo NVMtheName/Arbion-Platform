@@ -27,9 +27,13 @@ func (s *PostgresStore) ApproveOrder(ctx context.Context, p authorization.Princi
 		return OwnerApproval{}, ErrNotAuthorized
 	}
 	var saved string
+	var autonomous bool
 	var pilotExpiry time.Time
-	if err := s.db.QueryRow(ctx, `SELECT request_digest,check_execution_pilot_limits(id) FROM execution_orders WHERE id=$1 AND owner_id=$2`, orderID, p.UserID).Scan(&saved, &pilotExpiry); err != nil {
+	if err := s.db.QueryRow(ctx, `SELECT request_digest,check_execution_pilot_limits(id),request ? 'MandateApprovalID' FROM execution_orders WHERE id=$1 AND owner_id=$2`, orderID, p.UserID).Scan(&saved, &pilotExpiry, &autonomous); err != nil {
 		return OwnerApproval{}, mapError(err)
+	}
+	if autonomous {
+		return OwnerApproval{}, ErrNotAuthorized
 	}
 	if saved != expectedDigest {
 		return OwnerApproval{}, ErrConflict
@@ -52,7 +56,7 @@ func (s *PostgresStore) ApproveOrder(ctx context.Context, p authorization.Princi
 	}
 	var now time.Time
 	var enabled *time.Time
-	if err = tx.QueryRow(ctx, `SELECT enabled_at FROM auth_totp_factors WHERE user_id=$1 FOR SHARE`, p.UserID).Scan(&enabled); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT enabled_at FROM auth_totp_factors WHERE user_id=$1 FOR UPDATE`, p.UserID).Scan(&enabled); err != nil {
 		return OwnerApproval{}, ErrNotAuthorized
 	}
 	if pilotExpiry, err = checkPilotLimits(ctx, tx, orderID); err != nil {

@@ -1,11 +1,38 @@
 package execution
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/arbion/platform/services/api/internal/risk"
 )
+
+func TestConcreteAuthoritiesRejectWrongConsentBranchBeforeDatabase(t *testing.T) {
+	r := requestFixture()
+	owner := NewOwnerAuthority(preflightFunc(nil))
+	mandate := NewMandateAuthority(preflightFunc(nil))
+	for _, claimed := range []bool{false, true} {
+		if _, err := mandate.check(context.Background(), nil, Order{Request: r}, claimed); !errors.Is(err, ErrNotAuthorized) {
+			t.Fatal("mandate authority accepted owner order", err)
+		}
+		r.MandateApprovalID = r.OwnerID
+		if _, err := owner.check(context.Background(), nil, Order{Request: r}, claimed); !errors.Is(err, ErrNotAuthorized) {
+			t.Fatal("owner authority accepted autonomous order", err)
+		}
+		r.MandateApprovalID = "invalid"
+		if _, err := mandate.check(context.Background(), nil, Order{Request: r}, claimed); !errors.Is(err, ErrNotAuthorized) {
+			t.Fatal("mandate authority accepted invalid consent", err)
+		}
+		r.MandateApprovalID = ""
+	}
+	for _, authority := range []Authority{(*OwnerAuthority)(nil), NewOwnerAuthority(nil), (*MandateAuthority)(nil), NewMandateAuthority(nil)} {
+		if _, err := authority.AuthorizeDispatch(context.Background(), nil, Order{Request: r}, time.Now()); !errors.Is(err, ErrNotAuthorized) {
+			t.Fatal("missing concrete authority dependency accepted", err)
+		}
+	}
+}
 
 func TestOwnerFundingRequiresExactAvailableFunds(t *testing.T) {
 	now := time.Now().UTC()

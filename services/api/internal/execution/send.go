@@ -8,6 +8,7 @@ import (
 
 	"github.com/arbion/platform/services/api/internal/credential"
 	"github.com/arbion/platform/services/api/internal/financial"
+	"github.com/arbion/platform/services/api/internal/risk"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -49,6 +50,36 @@ type ConfirmedOrderSender interface {
 // locks while a network request is in flight. Runtime activation requires review
 // of that unavoidable distributed boundary and the concrete transport.
 func (s *PostgresStore) SendConfirmed(ctx context.Context, ownerID, orderID, evidenceID string, vault FinancialCredentialReader, sender ConfirmedOrderSender) (Attempt, error) {
+	return s.sendAuthorized(ctx, ownerID, orderID, evidenceID, vault, sender, NewOwnerAuthority(NewSavedPreflightVerifier(evidenceID)))
+}
+
+// SendAutonomous is a separate inert entry point for an immutable, exact LIVE
+// mandate consent. It shares the bounded one-shot send and no-send closure, not
+// owner-confirmation authority. No scheduler, model, HTTP or runtime caller is
+// enabled by this method, and callers cannot select or inject its authority.
+func (s *PostgresStore) SendAutonomous(ctx context.Context, ownerID, orderID, evidenceID string, vault FinancialCredentialReader, sender ConfirmedOrderSender) (Attempt, error) {
+	return s.sendAuthorized(ctx, ownerID, orderID, evidenceID, vault, sender, NewMandateAuthority(NewSavedPreflightVerifier(evidenceID)))
+}
+
+// Only the concrete public entry points above select an authority. This private
+// interface lets the common sender repeat that same concrete check after claim.
+type sendAuthority interface {
+	Authority
+	check(context.Context, pgx.Tx, Order, bool) (checkedOwnerAuthority, error)
+}
+
+func matchesSendAuthority(authority sendAuthority, r Request) bool {
+	switch authority.(type) {
+	case *OwnerAuthority:
+		return r.MandateApprovalID == ""
+	case *MandateAuthority:
+		return validUUID(r.MandateApprovalID)
+	default:
+		return false
+	}
+}
+
+func (s *PostgresStore) sendAuthorized(ctx context.Context, ownerID, orderID, evidenceID string, vault FinancialCredentialReader, sender ConfirmedOrderSender, authority sendAuthority) (Attempt, error) {
 	if !validUUID(ownerID) || !validUUID(orderID) || !validUUID(evidenceID) || vault == nil || sender == nil {
 		return Attempt{}, ErrNotAuthorized
 	}
@@ -57,6 +88,9 @@ func (s *PostgresStore) SendConfirmed(ctx context.Context, ownerID, orderID, evi
 	o, portfolio, generation, err := s.loadSendContext(ctx, ownerID, orderID)
 	if err != nil {
 		return Attempt{}, err
+	}
+	if !matchesSendAuthority(authority, o.Request) {
+		return Attempt{}, ErrNotAuthorized
 	}
 	raw, materialGeneration, err := vault.RetrieveFinancialVersion(ctx, credential.Locator{ConnectionID: o.Request.ConnectionID, UserID: ownerID, Class: credential.Financial})
 	defer clear(raw)
@@ -68,7 +102,6 @@ func (s *PostgresStore) SendConfirmed(ctx context.Context, ownerID, orderID, evi
 		return Attempt{}, ErrNotAuthorized
 	}
 	defer func() { cr = financial.Credentials{} }()
-	authority := NewOwnerAuthority(NewSavedPreflightVerifier(evidenceID))
 	a, err := s.Claim(ctx, ownerID, orderID, authority)
 	if err != nil {
 		return Attempt{}, err // Commit ambiguity never reaches the sender.
@@ -88,12 +121,12 @@ func (s *PostgresStore) SendConfirmed(ctx context.Context, ownerID, orderID, evi
 }
 
 // Private process-local evidence, never supplied by a caller or adapter.
-// Panic/crash does not return to the only receipt writer in SendConfirmed.
+// Panic/crash does not return to the only receipt writer in sendAuthorized.
 type sendBoundaryState struct {
 	entered, cleanupComplete bool
 }
 
-func (s *PostgresStore) sendClaimed(ctx context.Context, o Order, a Attempt, portfolio string, materialGeneration int64, cr *financial.Credentials, authority *OwnerAuthority, sender ConfirmedOrderSender, boundary *sendBoundaryState) (Attempt, error) {
+func (s *PostgresStore) sendClaimed(ctx context.Context, o Order, a Attempt, portfolio string, materialGeneration int64, cr *financial.Credentials, authority sendAuthority, sender ConfirmedOrderSender, boundary *sendBoundaryState) (Attempt, error) {
 	if a.CredentialGeneration != materialGeneration {
 		boundary.cleanupComplete = true // No final transaction was opened.
 		return a, ErrNotAuthorized
@@ -203,17 +236,19 @@ func (s *PostgresStore) loadSendContext(ctx context.Context, ownerID, orderID st
 
 func validateSendAuthorization(ctx context.Context, tx pgx.Tx, a Attempt, checked checkedOwnerAuthority, portfolio string) (ConfirmedSubmission, time.Time, error) {
 	o := checked.order
-	var approval, digest, rec string
+	var approval, mandateApproval *string
+	var digest, rec string
 	var generation int64
 	var expires, authorized, now, pilotExpiry time.Time
-	var proofJSON, providerJSON []byte
-	err := tx.QueryRow(ctx, `SELECT approval_id::text,request_digest,reconciliation_id::text,credential_generation,checked_at,expires_at,preflight FROM execution_authorizations WHERE id=$1 AND order_id=$2 AND owner_id=$3 AND financial_account_id=$4`, a.AuthorizationID, o.ID, o.Request.OwnerID, o.Request.AccountID).
-		Scan(&approval, &digest, &rec, &generation, &authorized, &expires, &proofJSON)
+	var proofJSON, providerJSON, riskJSON []byte
+	err := tx.QueryRow(ctx, `SELECT approval_id::text,request_digest,reconciliation_id::text,credential_generation,checked_at,expires_at,preflight,mandate_approval_id::text,risk_evaluation FROM execution_authorizations WHERE id=$1 AND order_id=$2 AND owner_id=$3 AND financial_account_id=$4`, a.AuthorizationID, o.ID, o.Request.OwnerID, o.Request.AccountID).
+		Scan(&approval, &digest, &rec, &generation, &authorized, &expires, &proofJSON, &mandateApproval, &riskJSON)
 	if err != nil {
 		return ConfirmedSubmission{}, time.Time{}, ErrNotAuthorized
 	}
 	var proof VerifiedPreflight
-	if json.Unmarshal(proofJSON, &proof) != nil || approval != checked.approvalID || digest != o.RequestDigest || rec != checked.preflight.ReconciliationID || generation != a.CredentialGeneration || authorized.After(a.ClaimedAt) || authorized.Before(o.CreatedAt) || !expires.Equal(a.ExpiresAt) || !sameSendPreflight(proof, checked.preflight) {
+	var decision executionRiskEvidence
+	if json.Unmarshal(proofJSON, &proof) != nil || json.Unmarshal(riskJSON, &decision) != nil || !sameSendAuthority(approval, mandateApproval, decision, checked) || decision.ID != a.AuthorizationID || !decision.Timestamp.Equal(authorized) || digest != o.RequestDigest || rec != checked.preflight.ReconciliationID || generation != a.CredentialGeneration || authorized.After(a.ClaimedAt) || authorized.Before(o.CreatedAt) || !expires.Equal(a.ExpiresAt) || !sameSendPreflight(proof, checked.preflight) {
 		return ConfirmedSubmission{}, time.Time{}, ErrNotAuthorized
 	}
 	err = tx.QueryRow(ctx, `SELECT evidence FROM execution_provider_preflights WHERE id=$1 AND order_id=$2 AND owner_id=$3`, proof.EvidenceID, o.ID, o.Request.OwnerID).Scan(&providerJSON)
@@ -252,6 +287,17 @@ func validateSendAuthorization(ctx context.Context, tx pgx.Tx, a Attempt, checke
 		return ConfirmedSubmission{}, time.Time{}, ErrNotAuthorized
 	}
 	return ConfirmedSubmission{Order: o, PortfolioID: portfolio, PreviewID: p.PreviewID, Preflight: p}, deadline, nil
+}
+
+func sameSendAuthority(approval, mandateApproval *string, saved executionRiskEvidence, checked checkedOwnerAuthority) bool {
+	r := checked.order.Request
+	if saved.UserID != r.OwnerID || saved.AccountID != r.AccountID || saved.Decision != risk.Allow || saved.PlatformExecutionAvailable {
+		return false
+	}
+	if r.MandateApprovalID == "" {
+		return approval != nil && validUUID(*approval) && *approval == checked.approvalID && mandateApproval == nil && checked.mandateApprovalID == "" && saved.Source == "" && saved.Mode == "MANUAL_PROPOSAL" && saved.ApprovalRequired && saved.MandateID == nil && saved.MandateVersion == nil
+	}
+	return approval == nil && checked.approvalID == "" && mandateApproval != nil && validUUID(*mandateApproval) && *mandateApproval == r.MandateApprovalID && *mandateApproval == checked.mandateApprovalID && saved.Source == risk.SourceAI && saved.Mode == "LIVE" && !saved.ApprovalRequired && saved.MandateID != nil && checked.decision.MandateID != nil && *saved.MandateID == *checked.decision.MandateID && saved.MandateVersion != nil && checked.decision.MandateVersion != nil && *saved.MandateVersion == *checked.decision.MandateVersion
 }
 
 func sameSendPreflight(a, b VerifiedPreflight) bool {

@@ -48,6 +48,9 @@ type Request struct {
 	MaximumDebitUSD string
 	// Omission preserves original historical digests for recovery only.
 	PilotLimits *OwnerPilotLimits `json:",omitempty"`
+	// Exact immutable autonomous consent; absent on owner-confirmed orders.
+	// Omission must preserve the canonical bytes of all historical requests.
+	MandateApprovalID string `json:",omitempty"`
 }
 
 type Order struct {
@@ -110,6 +113,9 @@ func requestDigest(r Request) (string, error) {
 		if !validUUID(id) {
 			return "", ErrInvalid
 		}
+	}
+	if r.MandateApprovalID != "" && !validUUID(r.MandateApprovalID) {
+		return "", ErrInvalid
 	}
 	if !productPattern.MatchString(r.ProductID) || r.ProductID == "USD-USD" || (r.Side != "BUY" && r.Side != "SELL") {
 		return "", ErrInvalid

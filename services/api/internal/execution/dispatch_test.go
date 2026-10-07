@@ -2,6 +2,9 @@ package execution
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -60,6 +63,52 @@ func TestRequestBindsExactBoundedSpotTerms(t *testing.T) {
 				t.Fatalf("accepted invalid terms: %v", e)
 			}
 		})
+	}
+}
+
+func TestRequestMandateConsentBindsDigestWithoutChangingLegacyBytes(t *testing.T) {
+	r := requestFixture()
+	legacy := struct {
+		OwnerID, AccountID, ConnectionID, CapitalBucketID, ClientOrderID        string
+		ProductID, Side, BaseSize, LimitPrice, FeeAllowanceUSD, MaximumDebitUSD string
+		PilotLimits                                                             *OwnerPilotLimits `json:",omitempty"`
+	}{r.OwnerID, r.AccountID, r.ConnectionID, r.CapitalBucketID, r.ClientOrderID, r.ProductID, r.Side, r.BaseSize, r.LimitPrice, r.FeeAllowanceUSD, r.MaximumDebitUSD, r.PilotLimits}
+	for _, withPilot := range []bool{false, true} {
+		if !withPilot {
+			r.PilotLimits, legacy.PilotLimits = nil, nil
+		} else {
+			r.PilotLimits = requestFixture().PilotLimits
+			legacy.PilotLimits = r.PilotLimits
+		}
+		body, err := json.Marshal(legacy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hash := sha256.Sum256(append([]byte("arbion-coinbase-limit-ioc-v1\x00"), body...))
+		got, err := requestDigest(r)
+		if err != nil || got != hex.EncodeToString(hash[:]) {
+			t.Fatal("empty mandate consent changed historical digest", withPilot, got, err)
+		}
+	}
+	legacyDigest, err := requestDigest(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.MandateApprovalID = r.OwnerID
+	first, err := requestDigest(r)
+	if err != nil || first == legacyDigest {
+		t.Fatal("autonomous consent not bound", err)
+	}
+	r.MandateApprovalID = r.AccountID
+	second, err := requestDigest(r)
+	if err != nil || second == first {
+		t.Fatal("changed consent not bound", err)
+	}
+	for _, invalid := range []string{"not-a-uuid", "00000000-0000-0000-0000-000000000000", "11111111-1111-4111-8111-11111111111Z"} {
+		r.MandateApprovalID = invalid
+		if _, err := requestDigest(r); !errors.Is(err, ErrInvalid) {
+			t.Fatal("invalid mandate consent accepted", err)
+		}
 	}
 }
 
