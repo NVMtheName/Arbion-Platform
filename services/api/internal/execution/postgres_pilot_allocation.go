@@ -62,6 +62,7 @@ func (s *PostgresStore) RegisterPilotAllocation(ctx context.Context, p PilotAllo
 	if !validPilotAllocation(p) {
 		return PilotAllocation{}, ErrInvalid
 	}
+	p.Limits.ExpiresAt = p.Limits.ExpiresAt.UTC()
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return PilotAllocation{}, err
@@ -102,6 +103,9 @@ func readPilotAllocation(ctx context.Context, db interface {
 		FROM execution_pilot_allocations WHERE owner_id=$1 AND financial_account_id=$2`, ownerID, accountID).
 		Scan(&p.OwnerID, &p.AccountID, &p.ConnectionID, &p.CapitalBucketID, &p.ProductID, &p.InitialCashUSD,
 			&p.Limits.MaximumOrderUSD, &p.Limits.ExpiresAt)
+	// pgx may attach the process-local location to timestamptz. The saved
+	// instant is unchanged; present the same UTC terms on first call and replay.
+	p.Limits.ExpiresAt = p.Limits.ExpiresAt.UTC()
 	return p, mapError(err)
 }
 
@@ -123,5 +127,7 @@ func (s *PostgresStore) ReadPilotBalance(ctx context.Context, ownerID, accountID
 		Scan(&p.OwnerID, &p.AccountID, &p.ConnectionID, &p.CapitalBucketID, &p.ProductID, &p.InitialCashUSD,
 			&p.Limits.MaximumOrderUSD, &p.Limits.ExpiresAt, &p.RegisteredAt, &p.CashUSD, &p.BaseQuantity,
 			&p.SettledOrderCount, &p.Pending)
+	p.Limits.ExpiresAt = p.Limits.ExpiresAt.UTC()
+	p.RegisteredAt = p.RegisteredAt.UTC()
 	return p, mapError(err)
 }
