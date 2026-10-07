@@ -22,6 +22,12 @@ var snapshotDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 // expected immutable snapshot. An ambiguous commit must be recovered by reading
 // the saved receipt, never by automatically retrying MFA or extending consent.
 func (s *PostgresStore) ApproveMandate(ctx context.Context, p authorization.Principal, bucketID, mandateID string, version int, expectedSnapshotDigest, code string, stepUp ExecutionStepUp) (MandateConsent, error) {
+	return s.approveMandate(ctx, p, bucketID, mandateID, version, expectedSnapshotDigest, code, stepUp, "")
+}
+
+// fixedID is supplied only by the initial commissioning boundary. The public
+// generic consent API retains its existing independent receipt semantics.
+func (s *PostgresStore) approveMandate(ctx context.Context, p authorization.Principal, bucketID, mandateID string, version int, expectedSnapshotDigest, code string, stepUp ExecutionStepUp, fixedID string) (MandateConsent, error) {
 	if p.Entitlement != authorization.EntitlementFounder || !validUUID(p.UserID) || !validUUID(bucketID) || !validUUID(mandateID) || version < 1 || !snapshotDigestPattern.MatchString(expectedSnapshotDigest) || stepUp == nil {
 		return MandateConsent{}, ErrNotAuthorized
 	}
@@ -85,10 +91,10 @@ func (s *PostgresStore) ApproveMandate(ctx context.Context, p authorization.Prin
 		return MandateConsent{}, ErrNotAuthorized
 	}
 	var a MandateConsent
-	err = tx.QueryRow(ctx, `INSERT INTO execution_mandate_approvals(owner_id,financial_account_id,provider_connection_id,capital_bucket_id,mandate_id,mandate_version,snapshot_digest,credential_generation,mfa_method,mfa_verified_at,mfa_enabled_at,approved_at,expires_at)
-	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,'totp',$9,$10,$11,$12)
+	err = tx.QueryRow(ctx, `INSERT INTO execution_mandate_approvals(owner_id,financial_account_id,provider_connection_id,capital_bucket_id,mandate_id,mandate_version,snapshot_digest,credential_generation,mfa_method,mfa_verified_at,mfa_enabled_at,approved_at,expires_at,id)
+	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,'totp',$9,$10,$11,$12,COALESCE(NULLIF($13,'')::uuid,gen_random_uuid()))
 	 RETURNING id::text,owner_id::text,financial_account_id::text,provider_connection_id::text,capital_bucket_id::text,mandate_id::text,mandate_version,snapshot_digest,credential_generation,approved_at,expires_at`,
-		p.UserID, account, connection, bucketID, mandateID, version, digest, generation, verified, *enabled, now, until).Scan(&a.ID, &a.OwnerID, &a.AccountID, &a.ConnectionID, &a.CapitalBucketID, &a.MandateID, &a.MandateVersion, &a.SnapshotDigest, &a.CredentialGeneration, &a.ApprovedAt, &a.ExpiresAt)
+		p.UserID, account, connection, bucketID, mandateID, version, digest, generation, verified, *enabled, now, until, fixedID).Scan(&a.ID, &a.OwnerID, &a.AccountID, &a.ConnectionID, &a.CapitalBucketID, &a.MandateID, &a.MandateVersion, &a.SnapshotDigest, &a.CredentialGeneration, &a.ApprovedAt, &a.ExpiresAt)
 	if err != nil {
 		return MandateConsent{}, mapError(err)
 	}

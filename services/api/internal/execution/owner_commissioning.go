@@ -94,7 +94,15 @@ func validOwnerCommissioningTerms(t OwnerCommissioningTerms) bool {
 // mandate on the same account. Conflicting terms require an explicit later
 // reviewed lifecycle, not replacement/renewal through commissioning.
 func ownerCommissioningMandateID(ownerID, accountID string) string {
-	h := sha256.Sum256([]byte("arbion-owner-commissioning-mandate-v1\x00" + ownerID + "\x00" + accountID))
+	return ownerCommissioningID("arbion-owner-commissioning-mandate-v1", ownerID, accountID)
+}
+
+func ownerCommissioningConsentID(ownerID, accountID string) string {
+	return ownerCommissioningID("arbion-owner-commissioning-consent-v1", ownerID, accountID)
+}
+
+func ownerCommissioningID(domain, ownerID, accountID string) string {
+	h := sha256.Sum256([]byte(domain + "\x00" + ownerID + "\x00" + accountID))
 	h[6] = (h[6] & 0x0f) | 0x80
 	h[8] = (h[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", h[:4], h[4:6], h[6:8], h[8:10], h[10:16])
@@ -288,6 +296,13 @@ func (w *OwnerCommissioning) Approve(ctx context.Context, p authorization.Princi
 	if expectedTermsDigest != receipt.TermsDigest || expectedSnapshotDigest != receipt.SnapshotDigest {
 		return MandateConsent{}, ErrConflict
 	}
+	// A response can be lost after consent committed. Recover the one stable
+	// receipt before consuming MFA, including after expiry or revocation. This
+	// never renews the receipt or claims it is currently usable authority.
+	id := ownerCommissioningConsentID(w.terms.Pilot.OwnerID, w.terms.Pilot.AccountID)
+	if saved, readErr := w.ReadConsent(ctx, p, id); !errors.Is(readErr, ErrNotFound) {
+		return saved, readErr
+	}
 	// Avoid consuming MFA for already unavailable policy. This read transaction
 	// is not authority; ApproveMandate repeats the same locks after the step-up.
 	tx, err := w.store.db.Begin(ctx)
@@ -308,7 +323,49 @@ func (w *OwnerCommissioning) Approve(ctx context.Context, p authorization.Princi
 	if err != nil {
 		return MandateConsent{}, mapError(err)
 	}
-	return w.store.ApproveMandate(ctx, p, pilot.CapitalBucketID, receipt.MandateID, 1, receipt.SnapshotDigest, code, w.stepUp)
+	a, err := w.store.approveMandate(ctx, p, pilot.CapitalBucketID, receipt.MandateID, 1, receipt.SnapshotDigest, code, w.stepUp, id)
+	if err != nil {
+		// Recover only this exact scope after a concurrent winner or ambiguous
+		// commit. Absence/error is not permission to retry MFA or mint another ID.
+		if saved, readErr := w.ReadConsent(ctx, p, id); readErr == nil {
+			return saved, nil
+		}
+	}
+	return a, err
+}
+
+// OwnerCommissioningConsent is historical receipt evidence, not readiness.
+// Internal account, mandate, credential generation and MFA details stay private.
+type OwnerCommissioningConsent struct {
+	ID             string     `json:"id"`
+	SnapshotDigest string     `json:"snapshot_digest"`
+	ApprovedAt     time.Time  `json:"approved_at"`
+	ExpiresAt      time.Time  `json:"expires_at"`
+	RevokedAt      *time.Time `json:"revoked_at"`
+}
+
+func (w *OwnerCommissioning) Consent(ctx context.Context, p authorization.Principal) (OwnerCommissioningConsent, error) {
+	if err := w.checkOwner(ctx, p); err != nil {
+		return OwnerCommissioningConsent{}, err
+	}
+	a, err := w.ReadConsent(ctx, p, ownerCommissioningConsentID(w.terms.Pilot.OwnerID, w.terms.Pilot.AccountID))
+	if err != nil {
+		return OwnerCommissioningConsent{}, err
+	}
+	view := OwnerCommissioningConsent{ID: a.ID, SnapshotDigest: a.SnapshotDigest, ApprovedAt: a.ApprovedAt, ExpiresAt: a.ExpiresAt}
+	err = w.store.db.QueryRow(ctx, `SELECT (SELECT revoked_at FROM execution_mandate_revocations WHERE approval_id=$1)`, a.ID).Scan(&view.RevokedAt)
+	return view, err
+}
+
+func (w *OwnerCommissioning) RevokeInitialConsent(ctx context.Context, p authorization.Principal) (OwnerCommissioningConsent, error) {
+	a, err := w.Consent(ctx, p)
+	if err != nil {
+		return OwnerCommissioningConsent{}, err
+	}
+	if err = w.Revoke(ctx, p, a.ID); err != nil {
+		return OwnerCommissioningConsent{}, err
+	}
+	return w.Consent(ctx, p)
 }
 
 func (w *OwnerCommissioning) ReadConsent(ctx context.Context, p authorization.Principal, consentID string) (MandateConsent, error) {

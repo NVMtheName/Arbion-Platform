@@ -123,7 +123,7 @@ Migration62 and the existing execution store add explicit owner TOTP consent to 
 
 Funding uses only settlement-attributed pilot cash and acquired base, bounded again by available broker amounts. Existing inventory is valued conservatively using the greater of the validated ask and limit price; it is never zeroed to permit another purchase. Dollar position/deployment limits and cash reserves are enforced by the same risk engine. Daily limits count all immutable dispatch attempts on the account by UTC day, including unknown/rejected/no-send attempts, without resetting on a new consent/version. The final check excludes only its own already-counted claim. Same-side attempts retain a one-hour cooldown. Unsupported daily-loss and percentage-concentration policies are denied rather than approximated from cash flows or pre-trade denominators.
 
-The existing automation service still refuses LIVE AI mandates. No endpoint, scheduler, AI tool, production factory or activation switch creates consent or calls this sender. Commissioning still needs a reviewed owner-controlled mandate/activation path and evidence of current portfolio compatibility. Rejected/unknown outcomes remain held without resend or absence-based unlock. Mock execution tests establish engineering controls only, not real broker compatibility or positive after-cost performance.
+The existing automation service still refuses LIVE AI mandates. The separate owner commissioning interface can record exact consent only when explicitly composed with fixed owner terms; production mounts it nil. No scheduler, AI tool, production factory or activation switch calls this sender. Runtime composition still needs bounded security approval and evidence of current portfolio compatibility. Rejected/unknown outcomes remain held without resend or absence-based unlock. Mock execution tests establish engineering controls only, not real broker compatibility or positive after-cost performance.
 
 ### Exact owner commissioning (runtime disconnected)
 
@@ -146,8 +146,24 @@ Fresh owner MFA is a separate step **after** saving these exact terms, using
 revocation stay bound to the same owner, account, bucket and mandate/version.
 New mandate attachment serializes against connection lifecycle changes before
 account locks, preserving owner/entitlement-first ordering and post-wait checks.
-The generic automation API still rejects LIVE AI creation. This component has
-no HTTP, UI, scheduler or production caller; it does not activate trading.
+The generic automation API still rejects LIVE AI creation. The owner interface
+uses `/api/personal-execution/commissioning` with an authenticated cookie and a
+domain-separated binding to that current session and exact terms digest. Fixed
+nonsecret terms are displayed without account, bucket or credential identifiers.
+Preparation and fresh MFA consent are separate explicit actions. Reads recover
+the original setup and one permanent initial consent, even when a response was
+lost; changed terms conflict. The commissioning-only consent identity prevents
+concurrent approvals from making a second row. Recovered expired or revoked
+consent is historical evidence, never renewed authority. Generic mandate
+approval retains its independent generated receipt IDs.
+
+The screen uses strict response validation, a synchronous action lock, no
+automatic write retries or browser persistence, and read-only recovery after
+uncertain writes. MFA input clears after every outcome. Hidden/restored pages,
+logout, session replacement and context changes close the workspace and discard
+late responses. Production mounts both interfaces with nil workflows, so no
+pilot, mandate or consent can be created by production startup or page access.
+No scheduler or model/provider call is connected; this does not activate trading.
 
 ### Fresh scheduled proposal intake (runtime disconnected)
 
@@ -184,7 +200,7 @@ orders and all historical read/recovery paths retain their existing semantics.
 The non-live scheduler, evaluator and saved PAPER/SHADOW proposals remain
 unchanged and cannot be promoted through this intake. It binds supplied source
 metadata; it does not prove an actual model invocation or implement model-output
-generation, an owner commissioning endpoint, a running live scheduler or an
+generation, a running live scheduler or an
 activation switch. Those boundaries still need their own bounded integration
 and security acceptance. Tests use synthetic source input and mock senders only.
 
@@ -364,9 +380,9 @@ single-column small-screen layout. No result claims profitable trading.
 The durable dispatch, owner and standing-mandate authority, pilot accounting,
 Coinbase lifecycle adapters, exact settlement, trusted transport, authenticated
 owner-order workflow and screen, scheduled proposal intake, and inert
-commissioning component are implemented. Production still mounts a nil owner
-workflow. Remaining integration is the authenticated commissioning interface,
-fresh scheduled LIVE proposal generation, and reviewed runtime composition of
+commissioning component and authenticated interface are implemented. Production
+still mounts nil owner and commissioning workflows. Remaining integration is
+fresh scheduled LIVE proposal generation and reviewed runtime composition of
 these existing components. Resolve current portfolio compatibility and the
 rejected/unknown-attempt operational gate without weakening containment before
 the separately authorized pilot. No broker-write job or live runtime exists.

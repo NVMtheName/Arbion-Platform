@@ -46,12 +46,24 @@ func changedCommissioningTerms() map[string]func(*OwnerCommissioningTerms) {
 
 func commissioningCommands(w *OwnerCommissioning, p authorization.Principal) map[string]func(context.Context) error {
 	return map[string]func(context.Context) error{
-		"review":       func(c context.Context) error { _, e := w.Review(c, p); return e },
-		"prepare":      func(c context.Context) error { _, e := w.Prepare(c, p, "stale"); return e },
-		"read":         func(c context.Context) error { _, e := w.Read(c, p); return e },
-		"approve":      func(c context.Context) error { _, e := w.Approve(c, p, "stale", "stale", "synthetic"); return e },
-		"read consent": func(c context.Context) error { _, e := w.ReadConsent(c, p, requestFixture().ClientOrderID); return e },
-		"revoke":       func(c context.Context) error { return w.Revoke(c, p, requestFixture().ClientOrderID) },
+		"review":          func(c context.Context) error { _, e := w.Review(c, p); return e },
+		"prepare":         func(c context.Context) error { _, e := w.Prepare(c, p, "stale"); return e },
+		"read":            func(c context.Context) error { _, e := w.Read(c, p); return e },
+		"approve":         func(c context.Context) error { _, e := w.Approve(c, p, "stale", "stale", "synthetic"); return e },
+		"read consent":    func(c context.Context) error { _, e := w.ReadConsent(c, p, requestFixture().ClientOrderID); return e },
+		"revoke":          func(c context.Context) error { return w.Revoke(c, p, requestFixture().ClientOrderID) },
+		"initial consent": func(c context.Context) error { _, e := w.Consent(c, p); return e },
+		"revoke initial":  func(c context.Context) error { _, e := w.RevokeInitialConsent(c, p); return e },
+	}
+}
+
+func TestOwnerCommissioningConsentIdentityIsStableAndDomainSeparated(t *testing.T) {
+	terms := ownerCommissioningTermsFixture()
+	owner, account := terms.Pilot.OwnerID, terms.Pilot.AccountID
+	id := ownerCommissioningConsentID(owner, account)
+	if !validUUID(id) || id != ownerCommissioningConsentID(owner, account) || id == ownerCommissioningMandateID(owner, account) ||
+		id == ownerCommissioningConsentID(account, owner) || id == ownerCommissioningConsentID(owner, terms.Pilot.ConnectionID) {
+		t.Fatal("commissioning receipt scope identity is not stable/domain separated")
 	}
 }
 

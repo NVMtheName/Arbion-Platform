@@ -774,7 +774,16 @@ independent of request retries; changed terms conflict rather than renewing
 capital or expiry. Fresh MFA consent is collected separately through the existing
 authority boundary after terms are saved. New dependency attachment observes
 connection-lifecycle-before-account lock ordering and current owner controls.
-No endpoint, model call, scheduler, runtime activation or generic LIVE-AI creation
+A separate authenticated `/api/personal-execution/commissioning` namespace and
+owner setup screen expose fixed terms, preparation, historical recovery, fresh
+consent and revocation. A domain-separated session/terms binding, strict JSON,
+Origin checks and no-store responses reuse existing owner protections. No
+browser-selected account, allocation, model or expiry becomes authority. One
+permanent initial consent identity makes a lost approval response recoverable
+without another MFA consumption or renewed expiry. Expired/revoked receipts are
+historical, not current execution authorization. Generic consent behavior is
+unchanged. Both commissioning and order workflows remain nil at production
+startup; no model call, scheduler, runtime activation or generic LIVE-AI creation
 permission is added. See [execution engine](EXECUTION_ENGINE.md).
 
 ## Scalable AWS production topology

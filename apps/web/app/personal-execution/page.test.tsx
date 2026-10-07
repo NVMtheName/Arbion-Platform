@@ -13,6 +13,7 @@ vi.mock("../app-page-header", () => ({
   AppPageHeader: () => <header>Shared navigation</header>,
 }));
 import PersonalExecutionPage from "./page";
+import { context as commissioningContext } from "./commissioning.test-fixtures";
 const response = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), { status });
 beforeEach(() => {
@@ -26,7 +27,7 @@ afterEach(() => {
 });
 
 describe("default-disconnected authenticated execution page", () => {
-  it("loads exactly one private context and no provider/order request", async () => {
+  it("loads the two private contexts and no provider/order request", async () => {
     vi.mocked(fetch).mockResolvedValue(response({ available: false }));
     render(await PersonalExecutionPage());
     expect(
@@ -34,7 +35,7 @@ describe("default-disconnected authenticated execution page", () => {
         name: "Personal execution is not enabled",
       }),
     ).toBeInTheDocument();
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringMatching(/\/api\/personal-execution\/context$/),
       {
@@ -72,7 +73,7 @@ describe("default-disconnected authenticated execution page", () => {
         }),
       ).toBeInTheDocument();
       expect(screen.queryByText("private")).not.toBeInTheDocument();
-      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledTimes(2);
     },
   );
   it("mounts the exact available scope without provider or order I/O", async () => {
@@ -91,6 +92,29 @@ describe("default-disconnected authenticated execution page", () => {
     expect(
       screen.getByText(/Isolated portfolio · BTC-USD/),
     ).toBeInTheDocument();
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("redirects when the commissioning context detects an expired session", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(response({ available: false }))
+      .mockResolvedValueOnce(response({}, 401));
+    await expect(PersonalExecutionPage()).rejects.toThrow("redirect:/login");
+    expect(redirect).toHaveBeenCalledOnce();
+  });
+  it("mounts available setup independently without activating order execution", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(response({ available: false }))
+      .mockResolvedValueOnce(response(commissioningContext));
+    render(await PersonalExecutionPage());
+    expect(
+      screen.getByRole("heading", { name: "Review personal Coinbase pilot" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save exact pilot setup" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Prepare order" }),
+    ).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
