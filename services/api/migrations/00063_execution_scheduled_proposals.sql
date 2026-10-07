@@ -177,8 +177,10 @@ BEGIN
   RETURN NEW;
 END $$;
 -- +goose StatementEnd
+-- Evaluate the server-forced marker immediately; manual rows need no deferred
+-- event (including historical migration fixtures that restore their guards).
 CREATE CONSTRAINT TRIGGER execution_scheduled_order_commit AFTER INSERT ON execution_orders DEFERRABLE INITIALLY DEFERRED
-  FOR EACH ROW EXECUTE FUNCTION guard_execution_scheduled_order_commit();
+  FOR EACH ROW WHEN (NEW.scheduled_proposal_required) EXECUTE FUNCTION guard_execution_scheduled_order_commit();
 
 -- Preserve the existing authorization commit guard and add only the mandatory
 -- autonomous source/deadline condition. Manual owner authority is unchanged.
