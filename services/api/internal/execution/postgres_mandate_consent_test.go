@@ -45,10 +45,11 @@ func newMandateConsentSetup(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	if err := pool.QueryRow(ctx, `INSERT INTO provider_connections(user_id,provider_category,provider_name,display_name,status) VALUES($1,'ai','openai','Consent fixture','active') RETURNING id::text`, r.OwnerID).Scan(&f.aiConnectionID); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `INSERT INTO automation_mandates(user_id,financial_account_id,capital_bucket_id,ai_provider_connection_id,ai_model_id,automation_type,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,effective_from,effective_until)
+	if err := pool.QueryRow(ctx, `INSERT INTO automation_mandates(user_id,financial_account_id,capital_bucket_id,ai_provider_connection_id,ai_model_id,automation_type,autonomy_level,execution_mode,status,current_version,strategy_parameters,risk_parameters,allowed_universe,prohibited_universe,schedule_conditions,effective_from,effective_until)
 	 VALUES($1,$2,$3,$4,'gpt-5.4','AI_AUTONOMOUS','FULL_AUTONOMOUS','LIVE','READY',1,
 	 '{"profile":"COINBASE_SPOT_PILOT_V1","objective":"Test-only bounded spot decisions","max_proposal_notional":"25"}',
-	 '{"max_trades_per_day":2}', '{"symbols":["BTC"]}', '{"symbols":[]}',clock_timestamp()-interval '1 minute',COALESCE($5::timestamptz,clock_timestamp()+interval '2 hours')) RETURNING id::text`, r.OwnerID, r.AccountID, r.CapitalBucketID, f.aiConnectionID, until).Scan(&f.mandateID); err != nil {
+	 '{"max_trades_per_day":2}', '{"symbols":["BTC"]}', '{"symbols":[]}',
+	 '{"enabled":true,"interval_minutes":30,"session":"CONTINUOUS"}',date_trunc('second',clock_timestamp()-interval '1 minute'),COALESCE($5::timestamptz,clock_timestamp()+interval '2 hours')) RETURNING id::text`, r.OwnerID, r.AccountID, r.CapitalBucketID, f.aiConnectionID, until).Scan(&f.mandateID); err != nil {
 		t.Fatal(err)
 	}
 	// Tests intentionally exercise an otherwise-unwired LIVE policy. Archive its

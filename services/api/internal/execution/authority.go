@@ -158,7 +158,14 @@ func (a *MandateAuthority) check(ctx context.Context, tx pgx.Tx, o Order, claime
 	if consent.approvalID != o.Request.MandateApprovalID {
 		return checkedOwnerAuthority{}, ErrNotAuthorized
 	}
+	sourceExpiry, err := checkScheduledProposal(ctx, tx, o)
+	if err != nil {
+		return checkedOwnerAuthority{}, err
+	}
 	expiry := consent.expiresAt
+	if sourceExpiry.Before(expiry) {
+		expiry = sourceExpiry
+	}
 	if end := consent.mandate.EffectiveUntil; end != nil && end.Before(expiry) {
 		expiry = *end
 	}

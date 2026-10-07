@@ -758,6 +758,15 @@ added. Existing LIVE-AI mandate creation restrictions remain intact; explicit
 commissioning and runtime security acceptance are still required. Details and
 limitations are recorded in [execution engine](EXECUTION_ENGINE.md).
 
+Fresh scheduled LIVE proposals have a separate inert intake in the same execution
+store. It atomically binds an immutable cycle identity and exact source/terms to
+one prepared order; renewed consent or a process restart cannot create a second
+order for that cycle. Autonomous authorization requires this binding and its
+frozen deadline at claim and final send. This is not a conversion of PAPER/SHADOW
+history: the existing non-live scheduler and evaluator remain unchanged. No model
+invocation, runtime dispatch, live registration or activation is added. Source
+metadata binds supplied input but does not independently prove model generation.
+
 ## Scalable AWS production topology
 
 The long-term scalable production foundation retains the same modular-monolith-plus-Neural-Engine boundary. A public AWS ALB terminates ACM TLS and routes `/api/*` to private Go Fargate tasks and default traffic to private Next.js tasks. Python is private and discovered through AWS Cloud Map; token authentication remains mandatory. Private Multi-AZ RDS is durable truth and encrypted ElastiCache is ephemeral coordination/session infrastructure. Application tasks use private subnets with NAT egress for fixed provider adapters, while data subnets have no Internet route. ECR, Secrets Manager/KMS, CloudWatch, and GitHub OIDC supply image, secret, telemetry, and temporary deployment-identity boundaries. See [AWS deployment](AWS_DEPLOYMENT.md).
