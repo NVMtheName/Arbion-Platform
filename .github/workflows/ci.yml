@@ -86,6 +86,8 @@ jobs:
       - run: go test -race ./internal/orderintent -run TestPostgresOrderIntentIsIdempotentOwnerScopedImmutableAndNonExecuting -count=1
       - name: Durable dispatch concurrency, unknown commit, and process recovery
         run: go test -race ./internal/execution -run TestPostgres -count=1 -timeout=3m
+      - name: Authenticated owner commissioning recovery (isolated database, no providers)
+        run: go test -race ./internal/platform/http -run TestPostgresOwnerCommissioningHTTPAuthenticatedRecoveryAndRevocation -count=1 -timeout=2m
       - name: Coinbase submission and lost-acknowledgement recovery (local HTTP broker only)
         run: go test -race ./internal/financial/coinbase -run TestPostgres -count=1 -timeout=2m
       - run: go test -race ./internal/financialconnection -run TestPostgresConnectionLifecycleIsAccountScoped -count=1

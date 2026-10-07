@@ -127,6 +127,9 @@ func main() {
 	// Explicitly disconnected. No configuration flag or startup code constructs
 	// a sender; selecting and activating the owner's pilot requires approval.
 	applicationHandler = platformhttp.WithOwnerExecution(applicationHandler, cfg, authService, nil)
+	// Commissioning has a separate authenticated namespace but remains inert:
+	// startup does not select owner terms or create a pilot, mandate or consent.
+	applicationHandler = platformhttp.WithOwnerCommissioning(applicationHandler, cfg, authService, nil)
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           applicationHandler,
