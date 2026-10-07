@@ -125,6 +125,30 @@ Funding uses only settlement-attributed pilot cash and acquired base, bounded ag
 
 The existing automation service still refuses LIVE AI mandates. No endpoint, scheduler, AI tool, production factory or activation switch creates consent or calls this sender. Commissioning still needs a reviewed owner-controlled mandate/activation path and evidence of current portfolio compatibility. Rejected/unknown outcomes remain held without resend or absence-based unlock. Mock execution tests establish engineering controls only, not real broker compatibility or positive after-cost performance.
 
+### Exact owner commissioning (runtime disconnected)
+
+`OwnerCommissioning` prepares one explicit fixed scope within the existing
+execution store. Terms include the registered allocation, absolute pilot expiry,
+AI connection/model, objective, continuous cadence, and supported dollar/count
+risk limits. There are no live defaults or automatic account/model selection.
+The owner reviews the exact terms digest before preparation. Pilot registration
+and a new exact `COINBASE_SPOT_PILOT_V1` mandate/version commit atomically, without
+consent, an order, a provider call or a funds transfer.
+
+The private mandate identity derives from owner/account, not changing terms,
+request keys or clock time. The immutable pilot and version-one snapshot form
+the recovery receipt. Exact retries recover the original dates and digest;
+changed terms conflict, and replay cannot restore a paused mandate or renew its
+lifetime. Existing portfolio holdings are never imported as pilot inventory.
+
+Fresh owner MFA is a separate step **after** saving these exact terms, using
+`ApproveMandate` and its existing current-control checks. Consent reads and
+revocation stay bound to the same owner, account, bucket and mandate/version.
+New mandate attachment serializes against connection lifecycle changes before
+account locks, preserving owner/entitlement-first ordering and post-wait checks.
+The generic automation API still rejects LIVE AI creation. This component has
+no HTTP, UI, scheduler or production caller; it does not activate trading.
+
 ### Fresh scheduled proposal intake (runtime disconnected)
 
 Migration63 gives fresh LIVE scheduled proposals an immutable, order-linked
@@ -337,7 +361,20 @@ single-column small-screen layout. No result claims profitable trading.
 
 ## Remaining execution work
 
-The narrow durable dispatch, owner authority, Coinbase preflight/submit/recovery/status/fill/cancel adapters, exact account settlement, authenticated owner command service/transport and owner screen above are implemented but not runtime-wired. Final trusted runtime composition and mounting still require acceptance evidence and security approval. Resolve the rejected/unknown-attempt operational gate without weakening containment before the separately authorized pilot. Unattended execution additionally requires reviewed live-mandate authority; confirm-each approval cannot grant it. No broker-write job or live runtime exists. The existing `order_intents`, proposal reviews, and expiring preview reservations must not be promoted into execution authority. The [private fill observation store](PRIVATE_FILL_EVIDENCE.md) remains read-only history, not dispatch-bound settlement. Options, replacement orders, multi-leg execution, and other brokers are outside the personal pilot.
+The durable dispatch, owner and standing-mandate authority, pilot accounting,
+Coinbase lifecycle adapters, exact settlement, trusted transport, authenticated
+owner-order workflow and screen, scheduled proposal intake, and inert
+commissioning component are implemented. Production still mounts a nil owner
+workflow. Remaining integration is the authenticated commissioning interface,
+fresh scheduled LIVE proposal generation, and reviewed runtime composition of
+these existing components. Resolve current portfolio compatibility and the
+rejected/unknown-attempt operational gate without weakening containment before
+the separately authorized pilot. No broker-write job or live runtime exists.
+The existing `order_intents`, proposal reviews, non-live proposals and expiring
+preview reservations must not be promoted into execution authority. The
+[private fill observation store](PRIVATE_FILL_EVIDENCE.md) remains read-only
+history, not dispatch-bound settlement. Options, replacement orders, multi-leg
+execution and other brokers are outside the personal pilot.
 
 The separate [offline lifecycle laboratory](SIMULATION_LIFECYCLE.md) implements executable fixture state transitions and durable local replay for testing these mechanics now. Its fictional attempts, fills, and cash movements never enter production accounts or the Paper/Shadow scheduler. The fixture configuration is not risk approval, the synthetic provider labels do not certify broker compatibility, and passing the scenarios does not satisfy the live-execution approval gates.
 
