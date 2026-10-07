@@ -68,30 +68,44 @@ func (s *PostgresStore) RegisterPilotAllocation(ctx context.Context, p PilotAllo
 		return PilotAllocation{}, err
 	}
 	defer rollback(tx)
+	saved, created, err := registerPilotAllocation(ctx, tx, p)
+	if err != nil {
+		return PilotAllocation{}, err
+	}
+	if !created {
+		return saved, nil
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return PilotAllocation{}, ErrCommitUnknown
+	}
+	return saved, nil
+}
+
+// registerPilotAllocation lets commissioning register the immutable allocation
+// and its initial mandate version in one transaction. The caller owns commit.
+func registerPilotAllocation(ctx context.Context, tx pgx.Tx, p PilotAllocation) (PilotAllocation, bool, error) {
+	var err error
 	if _, err = tx.Exec(ctx, `SELECT lock_execution_pilot_account($1,$2)`, p.OwnerID, p.AccountID); err != nil {
-		return PilotAllocation{}, mapError(err)
+		return PilotAllocation{}, false, mapError(err)
 	}
 	existing, err := readPilotAllocation(ctx, tx, p.OwnerID, p.AccountID)
 	if err == nil {
 		if !samePilotAllocation(existing, p) {
-			return PilotAllocation{}, ErrConflict
+			return PilotAllocation{}, false, ErrConflict
 		}
-		return existing, nil
+		return existing, false, nil
 	}
 	if !errors.Is(err, ErrNotFound) {
-		return PilotAllocation{}, err
+		return PilotAllocation{}, false, err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO execution_pilot_allocations
 		(owner_id,financial_account_id,provider_connection_id,capital_bucket_id,product_id,initial_cash_usd,maximum_order_usd,expires_at)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, p.OwnerID, p.AccountID, p.ConnectionID, p.CapitalBucketID,
 		p.ProductID, p.InitialCashUSD, p.Limits.MaximumOrderUSD, p.Limits.ExpiresAt)
 	if err != nil {
-		return PilotAllocation{}, mapError(err)
+		return PilotAllocation{}, false, mapError(err)
 	}
-	if err = tx.Commit(ctx); err != nil {
-		return PilotAllocation{}, ErrCommitUnknown
-	}
-	return p, nil
+	return p, true, nil
 }
 
 func readPilotAllocation(ctx context.Context, db interface {
