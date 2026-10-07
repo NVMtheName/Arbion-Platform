@@ -41,13 +41,30 @@ func NewOwnerAuthority(verifier PreflightVerifier) *OwnerAuthority {
 	return &OwnerAuthority{preflight: verifier}
 }
 
+// MandateAuthority is the separate, inert autonomous authority boundary. Exact
+// standing consent and a current LIVE mandate never substitute for the shared
+// reconciliation, provider proof, pilot capital and risk controls.
+type MandateAuthority struct{ preflight PreflightVerifier }
+
+func NewMandateAuthority(verifier PreflightVerifier) *MandateAuthority {
+	return &MandateAuthority{preflight: verifier}
+}
+
 type checkedOwnerAuthority struct {
-	order         Order
-	authorization Authorization
-	approvalID    string
-	preflight     VerifiedPreflight
-	decision      risk.RiskEvaluation
-	checkedAt     time.Time
+	order             Order
+	authorization     Authorization
+	approvalID        string
+	mandateApprovalID string
+	preflight         VerifiedPreflight
+	decision          risk.RiskEvaluation
+	checkedAt         time.Time
+}
+
+// Keep autonomous source evidence local to this execution boundary. The common
+// risk result stays provider independent, and old manual JSON remains unchanged.
+type executionRiskEvidence struct {
+	risk.RiskEvaluation
+	Source risk.ActionSource `json:",omitempty"`
 }
 
 func (a *OwnerAuthority) AuthorizeDispatch(ctx context.Context, tx pgx.Tx, o Order, _ time.Time) (Authorization, error) {
@@ -55,12 +72,36 @@ func (a *OwnerAuthority) AuthorizeDispatch(ctx context.Context, tx pgx.Tx, o Ord
 	if err != nil {
 		return Authorization{}, err
 	}
-	o = checked.order
+	return persistCheckedAuthority(ctx, tx, checked)
+}
+
+func (a *MandateAuthority) AuthorizeDispatch(ctx context.Context, tx pgx.Tx, o Order, _ time.Time) (Authorization, error) {
+	checked, err := a.check(ctx, tx, o, false)
+	if err != nil {
+		return Authorization{}, err
+	}
+	return persistCheckedAuthority(ctx, tx, checked)
+}
+
+func persistCheckedAuthority(ctx context.Context, tx pgx.Tx, checked checkedOwnerAuthority) (Authorization, error) {
+	o := checked.order
 	authorization := checked.authorization
+	var approvalID, mandateApprovalID, mandateBucketID any
+	if checked.approvalID != "" {
+		approvalID = checked.approvalID
+	}
+	if checked.mandateApprovalID != "" {
+		mandateApprovalID = checked.mandateApprovalID
+		mandateBucketID = o.Request.CapitalBucketID
+	}
 	preflightJSON, _ := json.Marshal(checked.preflight)
-	riskJSON, _ := json.Marshal(checked.decision)
-	_, err = tx.Exec(ctx, `INSERT INTO execution_authorizations(id,order_id,owner_id,approval_id,reconciliation_id,financial_account_id,credential_generation,request_digest,preflight,risk_evaluation,checked_at,expires_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, authorization.ID, o.ID, o.Request.OwnerID, checked.approvalID, checked.preflight.ReconciliationID, o.Request.AccountID, authorization.CredentialGeneration, o.RequestDigest, preflightJSON, riskJSON, checked.checkedAt, authorization.ExpiresAt)
+	evidence := executionRiskEvidence{RiskEvaluation: checked.decision}
+	if checked.mandateApprovalID != "" {
+		evidence.Source = risk.SourceAI
+	}
+	riskJSON, _ := json.Marshal(evidence)
+	_, err := tx.Exec(ctx, `INSERT INTO execution_authorizations(id,order_id,owner_id,approval_id,reconciliation_id,financial_account_id,credential_generation,request_digest,preflight,risk_evaluation,checked_at,expires_at,mandate_approval_id,capital_bucket_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, authorization.ID, o.ID, o.Request.OwnerID, approvalID, checked.preflight.ReconciliationID, o.Request.AccountID, authorization.CredentialGeneration, o.RequestDigest, preflightJSON, riskJSON, checked.checkedAt, authorization.ExpiresAt, mandateApprovalID, mandateBucketID)
 	if err != nil {
 		return Authorization{}, mapError(err)
 	}
@@ -71,109 +112,182 @@ func (a *OwnerAuthority) AuthorizeDispatch(ctx context.Context, tx pgx.Tx, o Ord
 // A claimed order must retain its exact durable holds; its own reservation is
 // the only execution reservation excluded from the competing-capital check.
 func (a *OwnerAuthority) check(ctx context.Context, tx pgx.Tx, o Order, claimed bool) (checkedOwnerAuthority, error) {
-	if a == nil || a.preflight == nil {
+	if a == nil || a.preflight == nil || o.Request.MandateApprovalID != "" {
 		return checkedOwnerAuthority{}, ErrNotAuthorized
 	}
+	o, generation, err := checkExecutionControls(ctx, tx, o, claimed)
+	if err != nil {
+		return checkedOwnerAuthority{}, err
+	}
+	if o.Request.MandateApprovalID != "" {
+		return checkedOwnerAuthority{}, ErrNotAuthorized
+	}
+	approvalID, expiry, err := checkOwnerApproval(ctx, tx, o, generation)
+	if err != nil {
+		return checkedOwnerAuthority{}, err
+	}
+	checked, bucket, err := checkExecutionFunding(ctx, tx, o, generation, a.preflight, claimed, expiry)
+	if err != nil {
+		return checkedOwnerAuthority{}, err
+	}
+	decision := evaluateOwnerFunding(o, checked.preflight, bucket, checked.checkedAt)
+	if decision.Decision != risk.Allow || !decision.ApprovalRequired || decision.PlatformExecutionAvailable || decision.Mode != "MANUAL_PROPOSAL" || decision.MandateID != nil || decision.MandateVersion != nil {
+		return checkedOwnerAuthority{}, ErrNotAuthorized
+	}
+	checked.approvalID, checked.decision, checked.authorization.ID = approvalID, decision, decision.ID
+	return checked, nil
+}
+
+func (a *MandateAuthority) check(ctx context.Context, tx pgx.Tx, o Order, claimed bool) (checkedOwnerAuthority, error) {
+	if a == nil || a.preflight == nil || !validUUID(o.Request.MandateApprovalID) {
+		return checkedOwnerAuthority{}, ErrNotAuthorized
+	}
+	o, generation, err := checkExecutionControls(ctx, tx, o, claimed)
+	if err != nil {
+		return checkedOwnerAuthority{}, err
+	}
+	if !validUUID(o.Request.MandateApprovalID) {
+		return checkedOwnerAuthority{}, ErrNotAuthorized
+	}
+	// Existing owner/account/provider locks precede mandate, consent and factor
+	// locks. A concrete consent loader supplies the exact current policy.
+	consent, err := loadMandateConsent(ctx, tx, o, generation)
+	if err != nil {
+		return checkedOwnerAuthority{}, err
+	}
+	if consent.approvalID != o.Request.MandateApprovalID {
+		return checkedOwnerAuthority{}, ErrNotAuthorized
+	}
+	expiry := consent.expiresAt
+	if end := consent.mandate.EffectiveUntil; end != nil && end.Before(expiry) {
+		expiry = *end
+	}
+	checked, bucket, err := checkExecutionFunding(ctx, tx, o, generation, a.preflight, claimed, expiry)
+	if err != nil {
+		return checkedOwnerAuthority{}, err
+	}
+	decision, err := evaluateMandateFunding(ctx, tx, o, checked.preflight, bucket, consent.mandate, claimed, checked.checkedAt)
+	if err != nil {
+		return checkedOwnerAuthority{}, err
+	}
+	if decision.Decision != risk.Allow || decision.ApprovalRequired || decision.PlatformExecutionAvailable || decision.Mode != "LIVE" || decision.MandateID == nil || *decision.MandateID != consent.mandate.ID || decision.MandateVersion == nil || *decision.MandateVersion != consent.mandate.Version {
+		return checkedOwnerAuthority{}, ErrNotAuthorized
+	}
+	checked.mandateApprovalID, checked.decision, checked.authorization.ID = consent.approvalID, decision, decision.ID
+	return checked, nil
+}
+
+func checkExecutionControls(ctx context.Context, tx pgx.Tx, o Order, claimed bool) (Order, int64, error) {
 	stored, err := readOrder(ctx, tx, o.Request.OwnerID, "id", o.ID)
 	if err != nil {
-		return checkedOwnerAuthority{}, mapError(err)
+		return Order{}, 0, mapError(err)
 	}
 	if stored.RequestDigest != o.RequestDigest {
-		return checkedOwnerAuthority{}, ErrNotAuthorized
+		return Order{}, 0, ErrNotAuthorized
 	}
 	o = stored
 	var generation int64
 	if err := tx.QueryRow(ctx, `SELECT lock_execution_claim_controls($1)`, o.ID).Scan(&generation); err != nil {
-		return checkedOwnerAuthority{}, mapError(err)
+		return Order{}, 0, mapError(err)
 	}
 	if claimed {
 		if err = checkClaimedOwnerHolds(ctx, tx, o); err != nil {
-			return checkedOwnerAuthority{}, err
+			return Order{}, 0, err
 		}
 	}
+	var payload bool
+	if err = tx.QueryRow(ctx, `SELECT encrypted_credential_payload IS NOT NULL AND credential_reference IS NULL FROM provider_connections WHERE id=$1`, o.Request.ConnectionID).Scan(&payload); err != nil {
+		return Order{}, 0, err
+	}
+	if !payload {
+		return Order{}, 0, ErrNotAuthorized
+	}
+	return o, generation, nil
+}
+
+func checkOwnerApproval(ctx context.Context, tx pgx.Tx, o Order, generation int64) (string, time.Time, error) {
 	var approvalID, digest string
 	var approvedGeneration int64
 	var expiry, enabled time.Time
-	err = tx.QueryRow(ctx, `SELECT id::text,request_digest,credential_generation,expires_at,mfa_enabled_at FROM execution_owner_approvals WHERE order_id=$1 AND owner_id=$2 FOR SHARE`, o.ID, o.Request.OwnerID).Scan(&approvalID, &digest, &approvedGeneration, &expiry, &enabled)
+	err := tx.QueryRow(ctx, `SELECT id::text,request_digest,credential_generation,expires_at,mfa_enabled_at FROM execution_owner_approvals WHERE order_id=$1 AND owner_id=$2 FOR SHARE`, o.ID, o.Request.OwnerID).Scan(&approvalID, &digest, &approvedGeneration, &expiry, &enabled)
 	if err != nil {
-		return checkedOwnerAuthority{}, ErrNotAuthorized
+		return "", time.Time{}, ErrNotAuthorized
 	}
-	var revoked, payload bool
+	var revoked bool
 	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM execution_approval_revocations WHERE approval_id=$1)`, approvalID).Scan(&revoked); err != nil {
-		return checkedOwnerAuthority{}, err
+		return "", time.Time{}, err
 	}
 	var currentEnabled *time.Time
 	if err = tx.QueryRow(ctx, `SELECT enabled_at FROM auth_totp_factors WHERE user_id=$1 FOR SHARE`, o.Request.OwnerID).Scan(&currentEnabled); err != nil {
-		return checkedOwnerAuthority{}, ErrNotAuthorized
+		return "", time.Time{}, ErrNotAuthorized
 	}
-	if err = tx.QueryRow(ctx, `SELECT encrypted_credential_payload IS NOT NULL AND credential_reference IS NULL FROM provider_connections WHERE id=$1`, o.Request.ConnectionID).Scan(&payload); err != nil {
-		return checkedOwnerAuthority{}, err
+	if revoked || digest != o.RequestDigest || approvedGeneration != generation || currentEnabled == nil || !currentEnabled.Equal(enabled) {
+		return "", time.Time{}, ErrNotAuthorized
 	}
-	if revoked || digest != o.RequestDigest || approvedGeneration != generation || !payload || currentEnabled == nil || !currentEnabled.Equal(enabled) {
-		return checkedOwnerAuthority{}, ErrNotAuthorized
-	}
+	return approvalID, expiry, nil
+}
 
+// Common admission facts do not select a risk source or execution mode. The
+// concrete owner or mandate authority evaluates those only after every shared
+// funding, reconciliation and bounded-pilot condition has passed.
+func checkExecutionFunding(ctx context.Context, tx pgx.Tx, o Order, generation int64, verifier PreflightVerifier, claimed bool, expiry time.Time) (checkedOwnerAuthority, risk.CapitalBucket, error) {
 	// Account row is locked; migration48 serializes new reconciliations on it.
 	// Existing reconciliation amounts are NOT assumed to describe the current
 	// credential. They provide only the separate enforced drift/coverage gate.
 	var reconciliationID, provider string
 	var rec risk.ReconciliationSnapshot
-	err = tx.QueryRow(ctx, `SELECT id::text,financial_account_id::text,provider_name,comparison_status,balances_status,positions_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,change_count,blocking_change_count,observed_at
+	err := tx.QueryRow(ctx, `SELECT id::text,financial_account_id::text,provider_name,comparison_status,balances_status,positions_status,autonomy_signal,autonomy_enforcement_active,blocks_new_actions,change_count,blocking_change_count,observed_at
 		FROM portfolio_reconciliations WHERE user_id=$1 AND financial_account_id=$2 ORDER BY observed_at DESC,id DESC LIMIT 1`, o.Request.OwnerID, o.Request.AccountID).Scan(&reconciliationID, &rec.AccountID, &provider, &rec.ComparisonStatus, &rec.BalancesStatus, &rec.PositionsStatus, &rec.AutonomySignal, &rec.AutonomyEnforcementActive, &rec.BlocksNewActions, &rec.ChangeCount, &rec.BlockingChangeCount, &rec.ObservedAt)
 	if err != nil || provider != "coinbase" {
-		return checkedOwnerAuthority{}, ErrNotAuthorized
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, ErrNotAuthorized
 	}
 	var bucket risk.CapitalBucket
 	err = tx.QueryRow(ctx, `SELECT id::text,user_id::text,financial_account_id::text,name,allocation_type,allocation_value::text,currency,protected_amount::text,status,allocation_limit::text,is_reserve FROM capital_buckets WHERE id=$1`, o.Request.CapitalBucketID).Scan(&bucket.ID, &bucket.UserID, &bucket.AccountID, &bucket.Name, &bucket.AllocationType, &bucket.AllocationValue, &bucket.Currency, &bucket.ProtectedAmount, &bucket.Status, &bucket.AllocationLimit, &bucket.IsReserve)
 	if err != nil {
-		return checkedOwnerAuthority{}, err
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, err
 	}
-	proof, err := a.preflight.VerifyDispatchPreflight(ctx, tx, o, generation)
+	proof, err := verifier.VerifyDispatchPreflight(ctx, tx, o, generation)
 	if err != nil {
-		return checkedOwnerAuthority{}, err
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, err
 	}
 	pilotExpiry, err := checkPilotLimits(ctx, tx, o.ID)
 	if err != nil {
-		return checkedOwnerAuthority{}, err
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, err
 	}
 	// Account locks acquired above serialize this settlement-derived projection
 	// with admission and release. Repeat for final send; a prior approval or
 	// broker-wide balance cannot authorize spending unrelated pilot capital.
 	if _, err = tx.Exec(ctx, `SELECT check_execution_pilot_capital($1)`, o.ID); err != nil {
-		return checkedOwnerAuthority{}, mapError(err)
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, mapError(err)
 	}
 	var now time.Time
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
-		return checkedOwnerAuthority{}, err
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, err
 	}
 	if !expiry.After(now) || risk.CheckAutonomousReconciliation(&rec, o.Request.AccountID, now).Result != risk.Pass {
-		return checkedOwnerAuthority{}, ErrNotAuthorized
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, ErrNotAuthorized
 	}
 	if !validPreflight(proof, o, generation, reconciliationID, now) {
-		return checkedOwnerAuthority{}, ErrNotAuthorized
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, ErrNotAuthorized
 	}
 	// Provider reads and saved reconciliation have distinct observation times.
 	// Both must be fresh and their complete funding facts must agree exactly;
 	// never relabel a prior snapshot with the newer provider-read timestamp.
 	if rec.ObservedAt.Before(o.CreatedAt) || rec.ObservedAt.After(now) || now.Sub(rec.ObservedAt) > 30*time.Second {
-		return checkedOwnerAuthority{}, ErrNotAuthorized
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, ErrNotAuthorized
 	}
 	if err = matchFundingReconciliation(ctx, tx, o, proof); err != nil {
-		return checkedOwnerAuthority{}, err
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, err
 	}
 	var competing bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM capital_reservations WHERE financial_account_id=$1 AND expires_at>$2)
 		OR EXISTS(SELECT 1 FROM execution_capital_reservations WHERE financial_account_id=$1 AND released_at IS NULL AND (NOT $3::boolean OR order_id<>$4))
 		OR EXISTS(SELECT 1 FROM strategy_capital_reservations WHERE financial_account_id=$1 AND execution_mode<>'PAPER' AND released_at IS NULL)`, o.Request.AccountID, now, claimed, o.ID).Scan(&competing)
 	if err != nil {
-		return checkedOwnerAuthority{}, err
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, err
 	}
 	if competing {
-		return checkedOwnerAuthority{}, ErrCapitalHeld
-	}
-	decision := evaluateOwnerFunding(o, proof, bucket, now)
-	if decision.Decision != risk.Allow || !decision.ApprovalRequired || decision.PlatformExecutionAvailable {
-		return checkedOwnerAuthority{}, ErrNotAuthorized
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, ErrCapitalHeld
 	}
 	until := now.Add(30 * time.Second)
 	for _, limit := range []time.Time{expiry, proof.ExpiresAt, pilotExpiry} {
@@ -182,16 +296,14 @@ func (a *OwnerAuthority) check(ctx context.Context, tx pgx.Tx, o Order, claimed 
 		}
 	}
 	if !until.After(now) {
-		return checkedOwnerAuthority{}, ErrNotAuthorized
+		return checkedOwnerAuthority{}, risk.CapitalBucket{}, ErrNotAuthorized
 	}
 	return checkedOwnerAuthority{
 		order:         o,
-		authorization: Authorization{ID: decision.ID, RequestDigest: o.RequestDigest, CredentialGeneration: generation, ExpiresAt: until},
-		approvalID:    approvalID,
+		authorization: Authorization{RequestDigest: o.RequestDigest, CredentialGeneration: generation, ExpiresAt: until},
 		preflight:     proof,
-		decision:      decision,
 		checkedAt:     now,
-	}, nil
+	}, bucket, nil
 }
 
 func checkClaimedOwnerHolds(ctx context.Context, tx pgx.Tx, o Order) error {

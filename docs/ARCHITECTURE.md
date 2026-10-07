@@ -749,6 +749,15 @@ required. All adapter proofs use synthetic local HTTP/TLS, not
 real orders or live compatibility/strategy-profitability evidence. See
 [execution engine](EXECUTION_ENGINE.md).
 
+The personal Coinbase execution package also contains an inert standing-consent
+adapter for exact registered pilot/mandate versions. It reuses the same durable
+claim, sender and accounting lifecycle, with disjoint manual/mandate authority,
+current policy/MFA/revocation checks and actual pilot funds/activity in the
+SourceAI risk context. No service, transport, scheduler or production wiring is
+added. Existing LIVE-AI mandate creation restrictions remain intact; explicit
+commissioning and runtime security acceptance are still required. Details and
+limitations are recorded in [execution engine](EXECUTION_ENGINE.md).
+
 ## Scalable AWS production topology
 
 The long-term scalable production foundation retains the same modular-monolith-plus-Neural-Engine boundary. A public AWS ALB terminates ACM TLS and routes `/api/*` to private Go Fargate tasks and default traffic to private Next.js tasks. Python is private and discovered through AWS Cloud Map; token authentication remains mandatory. Private Multi-AZ RDS is durable truth and encrypted ElastiCache is ephemeral coordination/session infrastructure. Application tasks use private subnets with NAT egress for fixed provider adapters, while data subnets have no Internet route. ECR, Secrets Manager/KMS, CloudWatch, and GitHub OIDC supply image, secret, telemetry, and temporary deployment-identity boundaries. See [AWS deployment](AWS_DEPLOYMENT.md).
