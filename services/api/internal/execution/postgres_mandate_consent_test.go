@@ -51,6 +51,24 @@ func newMandateConsentSetup(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	 '{"max_trades_per_day":2}', '{"symbols":["BTC"]}', '{"symbols":[]}',clock_timestamp()-interval '1 minute',COALESCE($5::timestamptz,clock_timestamp()+interval '2 hours')) RETURNING id::text`, r.OwnerID, r.AccountID, r.CapitalBucketID, f.aiConnectionID, until).Scan(&f.mandateID); err != nil {
 		t.Fatal(err)
 	}
+	// Tests intentionally exercise an otherwise-unwired LIVE policy. Archive its
+	// exact current row before later operational-inventory tests run, preserving
+	// every immutable consent, execution record and policy version. Register this
+	// immediately after creation so even a failed snapshot/approval is isolated.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		result, err := pool.Exec(cleanupCtx, `WITH archived AS (
+		 UPDATE automation_mandates m SET execution_mode='SHADOW',status='ARCHIVED',updated_at=clock_timestamp(),
+		 current_version=GREATEST(m.current_version,COALESCE((SELECT max(v.version_number) FROM automation_mandate_versions v WHERE v.mandate_id=m.id),0))+1
+		 WHERE m.id=$1 AND m.user_id=$2 AND m.financial_account_id=$3 AND m.capital_bucket_id=$4 RETURNING m.*
+		) INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot,change_summary)
+		 SELECT id,current_version,user_id,'SYSTEM',(to_jsonb(archived)-ARRAY['id','user_id','current_version','created_at','updated_at'])||'{"execution_capable":false}'::jsonb,
+		 '{"change":"test fixture archived; immutable execution history preserved"}'::jsonb FROM archived`, f.mandateID, r.OwnerID, r.AccountID, r.CapitalBucketID)
+		if err != nil || result.RowsAffected() != 1 {
+			t.Errorf("archive synthetic mandate fixture: affected=%d err=%v", result.RowsAffected(), err)
+		}
+	})
 	if err := pool.QueryRow(ctx, `INSERT INTO automation_mandate_versions(mandate_id,version_number,created_by_user_id,source,snapshot)
 	 SELECT m.id,1,m.user_id,'SYSTEM',(to_jsonb(m)-ARRAY['id','user_id','current_version','created_at','updated_at'])||'{"execution_capable":false}'::jsonb FROM automation_mandates m WHERE id=$1
 	 RETURNING encode(sha256(convert_to(snapshot::text,'UTF8')),'hex')`, f.mandateID).Scan(&f.snapshotDigest); err != nil {
@@ -69,6 +87,31 @@ func newMandateConsentFixture(t *testing.T, ctx context.Context, pool *pgxpool.P
 	}
 	f.request.MandateApprovalID = f.consent.ID
 	return f
+}
+
+func TestPostgresMandateConsentFixtureArchivesWithoutErasingHistory(t *testing.T) {
+	ctx, pool := setupExecutionTest(t)
+	var f mandateConsentFixture
+	t.Run("synthetic live policy", func(t *testing.T) {
+		f = newMandateConsentFixture(t, ctx, pool)
+	})
+	if f.consent.ID == "" {
+		t.Fatal("fixture did not create consent")
+	}
+	var archived bool
+	var versions int
+	err := pool.QueryRow(ctx, `SELECT m.execution_mode='SHADOW' AND m.status='ARCHIVED'
+	 AND m.current_version=2 AND execution_mandate_snapshot_matches(m,v.snapshot),
+	 (SELECT count(*) FROM automation_mandate_versions WHERE mandate_id=m.id)
+	 FROM automation_mandates m JOIN automation_mandate_versions v ON v.mandate_id=m.id AND v.version_number=m.current_version
+	 WHERE m.id=$1 AND m.user_id=$2`, f.mandateID, f.request.OwnerID).Scan(&archived, &versions)
+	if err != nil || !archived || versions != 2 {
+		t.Fatal("synthetic LIVE policy leaked or immutable history changed", archived, versions, err)
+	}
+	got, err := NewPostgresStore(pool).ReadMandateConsent(ctx, f.request.OwnerID, f.consent.ID)
+	if err != nil || !reflect.DeepEqual(got, f.consent) {
+		t.Fatal("fixture cleanup rewrote original consent", got, err)
+	}
 }
 
 func TestPostgresMandateConsentExactRecoveryRevocationAndImmutable(t *testing.T) {
