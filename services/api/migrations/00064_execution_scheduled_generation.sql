@@ -84,9 +84,9 @@ BEGIN
   IF p.owner_id<>NEW.owner_id OR p.financial_account_id<>NEW.financial_account_id OR p.provider_connection_id<>NEW.provider_connection_id
     OR a.mandate_id<>NEW.mandate_id OR a.mandate_version<>NEW.mandate_version OR a.provider_connection_id<>NEW.provider_connection_id
     OR NEW.expires_at IS DISTINCT FROM until OR NEW.expires_at<=NEW.claimed_at
-    OR NEW.facts->'Pilot'-'Limits' IS DISTINCT FROM jsonb_build_object('OwnerID',p.owner_id,'AccountID',p.financial_account_id,
+    OR (NEW.facts->'Pilot')-'Limits' IS DISTINCT FROM jsonb_build_object('OwnerID',p.owner_id,'AccountID',p.financial_account_id,
       'ConnectionID',p.provider_connection_id,'CapitalBucketID',p.capital_bucket_id,'ProductID',p.product_id,'InitialCashUSD',p.initial_cash_usd)
-    OR NEW.facts->'Pilot'->'Limits'-'ExpiresAt' IS DISTINCT FROM jsonb_build_object('MaximumOrderUSD',p.maximum_order_usd)
+    OR (NEW.facts->'Pilot'->'Limits')-'ExpiresAt' IS DISTINCT FROM jsonb_build_object('MaximumOrderUSD',p.maximum_order_usd)
     OR (NEW.facts->'Pilot'->'Limits'->>'ExpiresAt')::timestamptz IS DISTINCT FROM p.expires_at
     OR (NEW.facts->>'ExpiresAt')::timestamptz IS DISTINCT FROM until
     OR (NEW.facts->>'ObservedAt')::timestamptz IS NULL OR (NEW.facts->>'ObservedAt')::timestamptz>NEW.claimed_at
