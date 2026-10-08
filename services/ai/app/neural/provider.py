@@ -58,6 +58,15 @@ class NeuralProvider(ABC):
     ) -> ShadowDecision:
         raise NeuralProviderError(ErrorCode.UNSUPPORTED)
 
+    async def propose_live_pilot(
+        self,
+        credential: str,
+        profile: str,
+        context: dict[str, object],
+        safety_identifier: str,
+    ) -> ShadowDecision:
+        raise NeuralProviderError(ErrorCode.UNSUPPORTED)
+
     async def generate(self, credential: str, model: str, request: Any) -> Any:
         raise NotImplementedError
 

@@ -767,6 +767,20 @@ history: the existing non-live scheduler and evaluator remain unchanged. No mode
 invocation, runtime dispatch, live registration or activation is added. Source
 metadata binds supplied input but does not independently prove model generation.
 
+An unmounted scheduled-generation coordinator now precedes that intake. A new,
+positively committed immutable slot claim alone permits one fresh model call;
+crashes, unknown commits, abstention and failures never permit regeneration in
+the same slot. Database-derived pilot cash and acquired units are the only
+portfolio facts sent to the existing AI-only credential boundary. A separate
+service-authenticated LIVE-pilot decision endpoint reuses fixed OpenAI routing
+and strict structured output, not the PAPER/SHADOW prompt or stored history.
+Models return only an untrusted proposal or abstention, never execution tools.
+Trusted Go fixes the original tick-aligned book price, requires a fresh post-model
+book, subtracts explicit fee allowance and rounds size down. An immutable result
+precedes exact existing intake; recovery cannot replace its terms. The coordinator
+has no sender, preview or execution-claim dependency. There is no production
+caller, scheduler registration, market collector or activation setting for it.
+
 An inert owner commissioning component in the same execution package now
 atomically prepares an explicit pilot allocation and exact fresh mandate/version.
 Its stable owner/account identity and immutable records make restart recovery

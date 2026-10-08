@@ -10,7 +10,7 @@ from typing import Literal, Self
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .neural.models import NeuralProviderError
 from .neural.registry import default_registry
@@ -381,6 +381,102 @@ class ShadowDecisionRequest(ProviderRequest):
         return self
 
 
+class LivePilotPositionFact(ShadowPositionFact):
+    model_config = ConfigDict(extra="forbid")
+    instrument: Literal["CRYPTO"]
+    performance_status: Literal["UNAVAILABLE"]
+
+    @model_validator(mode="after")
+    def validate_pilot_holding(self) -> Self:
+        if Decimal(self.quantity) <= 0 or Decimal(self.available_quantity) > Decimal(self.quantity):
+            raise ValueError("pilot position quantity is invalid")
+        return self
+
+
+class LivePilotMarketFact(ShadowMarketFact):
+    model_config = ConfigDict(extra="forbid")
+    asset_class: Literal["CRYPTO"]
+    history_status: Literal["UNAVAILABLE"]
+    liquidity_status: Literal["UNAVAILABLE"] = "UNAVAILABLE"
+
+    @model_validator(mode="after")
+    def validate_pilot_market(self) -> Self:
+        if (
+            not self.bid
+            or not self.ask
+            or Decimal(self.bid) <= 0
+            or Decimal(self.ask) < Decimal(self.bid)
+        ):
+            raise ValueError("pilot bid and ask are invalid")
+        if any(
+            (
+                self.mark,
+                self.last,
+                self.change_percent_1h,
+                self.change_percent_6h,
+                self.change_percent_24h,
+                self.volume_24h,
+                self.history_granularity_seconds,
+                self.history_contiguous_intervals,
+                self.history_expected_intervals,
+                self.history_feed,
+                self.history_quality,
+                self.history_observed_at,
+                self.spread_bps,
+                self.bid_depth_usd,
+                self.ask_depth_usd,
+                self.bid_levels,
+                self.ask_levels,
+                self.liquidity_feed,
+                self.liquidity_quality,
+                self.liquidity_observed_at,
+            )
+        ):
+            raise ValueError("pilot input cannot infer additional evidence")
+        return self
+
+
+class LivePilotDecisionRequest(ProviderRequest):
+    model_config = ConfigDict(extra="forbid")
+    provider: Literal["openai"]
+    profile: Literal["fast", "core", "deep"]
+    objective: str = Field(min_length=1, max_length=2000)
+    allowed_symbols: list[str] = Field(min_length=1, max_length=1)
+    max_proposal_notional: str = Field(pattern=r"^(0|[1-9][0-9]{0,17})(\.[0-9]{1,18})?$")
+    available_cash_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,32})?$")
+    buying_power_usd: str = Field(pattern=r"^(0|[1-9][0-9]{0,19})(\.[0-9]{1,32})?$")
+    positions: list[LivePilotPositionFact] = Field(max_length=1)
+    markets: list[LivePilotMarketFact] = Field(min_length=1, max_length=1)
+    market_event_coverage: list[ShadowMarketEventCoverage] = Field(
+        default_factory=list, max_length=0
+    )
+    market_events: list[ShadowMarketEventFact] = Field(default_factory=list, max_length=0)
+    recent_decisions: list[ShadowRecentDecision] = Field(default_factory=list, max_length=0)
+    observed_at: datetime
+    safety_identifier: str = Field(min_length=64, max_length=64, pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_live_pilot_context(self) -> Self:
+        symbol = self.allowed_symbols[0]
+        if (
+            not re.fullmatch(r"[A-Z][A-Z0-9]{0,15}", symbol)
+            or symbol == "USD"
+            or not self.objective.strip()
+            or Decimal(self.max_proposal_notional) <= 0
+            or self.observed_at.tzinfo is None
+            or Decimal(self.buying_power_usd) != Decimal(self.available_cash_usd)
+            or any(
+                market.symbol != symbol
+                or market.observed_at.tzinfo is None
+                or market.observed_at > self.observed_at
+                for market in self.markets
+            )
+            or any(position.symbol != symbol for position in self.positions)
+        ):
+            raise ValueError("pilot context is not one isolated spot USD pair")
+        return self
+
+
 def authorize(value: str | None) -> None:
     expected = os.environ.get("INTERNAL_SERVICE_TOKEN", "")
     if not expected or value != f"Bearer {expected}":
@@ -577,6 +673,46 @@ async def shadow_decision(
                     "latency_ms": result.metadata.latency_ms,
                 },
             }
+        }
+    except NeuralProviderError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code.value}) from None
+
+
+@app.post("/internal/neural/live-pilot-decision")
+async def live_pilot_decision(
+    request: LivePilotDecisionRequest, authorization: str | None = Header(None)
+) -> dict[str, object]:
+    authorize(authorization)
+    # The endpoint fixes purpose; neither request data nor model output can
+    # promote a stored non-live result. No identifiers or credentials enter input.
+    context = request.model_dump(
+        exclude={"provider", "credential", "profile", "safety_identifier"}, mode="json"
+    )
+    try:
+        result = await registry.get("openai").propose_live_pilot(
+            request.credential, request.profile, context, request.safety_identifier
+        )
+        return {
+            "purpose": "LIVE_PILOT",
+            "decision": {
+                "decision": result.decision,
+                "symbol": result.symbol,
+                "side": result.side,
+                "proposed_notional": result.proposed_notional,
+                "confidence": result.confidence,
+                "thesis": result.thesis,
+                "risk_flags": list(result.risk_flags),
+                "limitations": list(result.limitations),
+                "metadata": {
+                    "provider": result.metadata.provider,
+                    "model": result.metadata.model,
+                    "profile": result.metadata.profile,
+                    "input_usage": result.metadata.input_usage,
+                    "output_usage": result.metadata.output_usage,
+                    "request_id": result.metadata.request_id,
+                    "latency_ms": result.metadata.latency_ms,
+                },
+            },
         }
     except NeuralProviderError as exc:
         raise HTTPException(status_code=400, detail={"code": exc.code.value}) from None
