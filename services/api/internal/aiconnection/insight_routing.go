@@ -78,3 +78,16 @@ func resolveModelRoute(modelID string) (InsightRoute, error) {
 	}
 	return InsightRoute{}, ErrInvalid
 }
+
+// LivePilotModelRoute is exact and fail-closed: the initial personal pilot has
+// no model aliases, preferences, provider fallback or automatic catalog upgrade.
+func LivePilotModelRoute(modelID string) (InsightRoute, error) {
+	if modelID != strings.TrimSpace(modelID) {
+		return InsightRoute{}, ErrInvalid
+	}
+	route, err := resolveModelRoute(modelID)
+	if err != nil || route.Provider != "openai" {
+		return InsightRoute{}, ErrInvalid
+	}
+	return route, nil
+}

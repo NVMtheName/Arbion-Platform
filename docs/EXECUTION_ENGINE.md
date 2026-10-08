@@ -375,14 +375,53 @@ history and cash/position settlement remain distinct. The account quarantine
 warning remains visible. The workspace uses existing surface colors and a
 single-column small-screen layout. No result claims profitable trading.
 
+## Fresh scheduled generation (runtime disconnected)
+
+`ScheduledGenerator` bridges fresh, exact-version LIVE decisions into the
+existing `PrepareScheduledProposal` intake. It does not use or promote saved
+PAPER/SHADOW decisions. Two append-only tables record a permanent generation
+claim and at most one terminal result per owner/bucket/mandate-version/slot.
+Renewing consent cannot produce a second claim. Only the invocation receiving
+a positively confirmed new commit may call the model; no retry, lease, timeout,
+restart or missing-result inference grants another call. Unknown outcomes stay
+unknown. A confirmed result is saved before intake, so a lost response recovers
+the identical request, digest and stable client identity without regenerating.
+
+The claim rereads current consent, access, exact model, pilot and financial
+controls under the existing account-first fences. Its input contains only
+settlement-attributed pilot cash and inventory, one normalized CRYPTO/USD book
+and the approved objective. Credentials and internal identities do not enter
+model facts; unavailable history/performance remain explicitly unavailable.
+The existing OpenAI routing and AI-class vault serve a distinct LIVE-purpose,
+tool-free decision endpoint. Duplicate/unknown/missing fields, refusals,
+incomplete output, wrong models, unsupported pairs and invalid notionals fail
+closed. Existing PAPER/SHADOW endpoints and behavior remain unchanged.
+
+The call budget includes database response latency and is at most one minute,
+bounded by the original two-minute slot and earlier authority expiry. Fresh
+post-model evidence must have started after that call finished. Go derives a
+quantity using exact arithmetic, an explicit fee allowance deducted from the
+all-in cap, downward size rounding and only attributed cash/acquired units.
+Both books must be fresh, noncrossed and tick-aligned. The original ask/bid is
+the exact BUY/SELL price bound; worsening prices or incompatible new product
+rules deny the proposal rather than silently repricing it. Existing intake,
+preview, risk, current authorization and final-send controls remain independent
+and mandatory. This coordinator has no broker-write or preview dependency.
+
+No production caller or concrete market collector is installed, no actual
+model/provider calls are part of acceptance, and no trading is activated.
+Synthetic completion proves engineering behavior, not profitable trading or
+the AI's value after costs. Existing paper/shadow evaluation remains the place
+to evaluate strategy performance separately.
+
 ## Remaining execution work
 
 The durable dispatch, owner and standing-mandate authority, pilot accounting,
 Coinbase lifecycle adapters, exact settlement, trusted transport, authenticated
-owner-order workflow and screen, scheduled proposal intake, and inert
+owner-order workflow and screen, scheduled proposal intake/generation bridge, and inert
 commissioning component and authenticated interface are implemented. Production
 still mounts nil owner and commissioning workflows. Remaining integration is
-fresh scheduled LIVE proposal generation and reviewed runtime composition of
+the trusted read-only market collector and reviewed runtime composition of
 these existing components. Resolve current portfolio compatibility and the
 rejected/unknown-attempt operational gate without weakening containment before
 the separately authorized pilot. No broker-write job or live runtime exists.

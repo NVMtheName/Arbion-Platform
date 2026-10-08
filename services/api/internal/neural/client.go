@@ -266,7 +266,13 @@ func (c *HTTPClient) ProposeShadow(ctx context.Context, provider string, credent
 	var out struct {
 		Decision ShadowDecision `json:"decision"`
 	}
-	request := map[string]any{
+	request := shadowDecisionPayload(provider, credential, input, safetyIdentifier)
+	err := c.call(ctx, "/internal/neural/shadow-decision", request, &out)
+	return out.Decision, err
+}
+
+func shadowDecisionPayload(provider string, credential []byte, input ShadowDecisionRequest, safetyIdentifier string) map[string]any {
+	return map[string]any{
 		"provider": provider, "credential": string(credential), "profile": input.Profile,
 		"objective": input.Objective, "allowed_symbols": input.AllowedSymbols,
 		"max_proposal_notional": input.MaxProposalNotional, "available_cash_usd": input.AvailableCashUSD,
@@ -276,10 +282,12 @@ func (c *HTTPClient) ProposeShadow(ctx context.Context, provider string, credent
 		"recent_decisions":      append([]ShadowRecentDecision{}, input.RecentDecisions...),
 		"observed_at":           input.ObservedAt.UTC().Format(time.RFC3339Nano), "safety_identifier": safetyIdentifier,
 	}
-	err := c.call(ctx, "/internal/neural/shadow-decision", request, &out)
-	return out.Decision, err
 }
 func (c *HTTPClient) call(ctx context.Context, path string, request, out any) error {
+	return c.callMode(ctx, path, request, out, false)
+}
+
+func (c *HTTPClient) callMode(ctx context.Context, path string, request, out any, livePilot bool) error {
 	body, err := json.Marshal(request)
 	if err != nil {
 		return errors.New("encode neural request")
@@ -291,7 +299,20 @@ func (c *HTTPClient) call(ctx context.Context, path string, request, out any) er
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	res, err := c.client.Do(req)
+	client := c.client
+	if livePilot {
+		// A fresh paid generation is one request, never a redirect or transport
+		// replay. A redirected JSON body would also disclose the AI credential.
+		if client == nil {
+			clear(body)
+			return &ProviderError{Code: InternalError}
+		}
+		copyClient := *client
+		copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		client = &copyClient
+		req.GetBody = nil
+	}
+	res, err := client.Do(req)
 	clear(body)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -318,6 +339,9 @@ func (c *HTTPClient) call(ctx context.Context, path string, request, out any) er
 			return &ProviderError{Code: InvalidRequest}
 		}
 		return &ProviderError{Code: InternalError}
+	}
+	if livePilot && res.StatusCode != http.StatusOK {
+		return &ProviderError{Code: ProviderUnavailable}
 	}
 	if json.Unmarshal(payload, out) != nil {
 		return &ProviderError{Code: InternalError}

@@ -315,7 +315,24 @@ func (s *Service) GenerateTradeProposal(ctx context.Context, p authorization.Pri
 // into the mandate. Only normalized facts cross the internal boundary; account
 // identifiers and provider credentials never appear in the model input.
 func (s *Service) GenerateShadowDecision(ctx context.Context, p authorization.Principal, connectionID, modelID string, input neural.ShadowDecisionRequest) (neural.ShadowDecision, error) {
-	if !s.allowed(ctx, p, "neural_shadow_decision.rejected", connectionID, "") {
+	return s.generateDecision(ctx, p, connectionID, modelID, input, false)
+}
+
+// GenerateLivePilotDecision requests a fresh, untrusted single-pair proposal.
+// It neither reads non-live decisions nor grants broker/execution authority.
+func (s *Service) GenerateLivePilotDecision(ctx context.Context, p authorization.Principal, connectionID, modelID string, input neural.LivePilotDecisionRequest) (neural.LivePilotDecision, error) {
+	if neural.ValidateLivePilotDecisionRequest(input) != nil {
+		return neural.LivePilotDecision{}, ErrInvalid
+	}
+	return s.generateDecision(ctx, p, connectionID, modelID, input, true)
+}
+
+func (s *Service) generateDecision(ctx context.Context, p authorization.Principal, connectionID, modelID string, input neural.ShadowDecisionRequest, livePilot bool) (neural.ShadowDecision, error) {
+	auditPrefix, budgetPrefix := "neural_shadow_decision", "neural-shadow-decision:"
+	if livePilot {
+		auditPrefix, budgetPrefix = "neural_live_pilot_decision", "neural-live-pilot-decision:"
+	}
+	if !s.allowed(ctx, p, auditPrefix+".rejected", connectionID, "") {
 		return neural.ShadowDecision{}, ErrForbidden
 	}
 	budgetScope := strings.TrimSpace(input.BudgetScope)
@@ -323,6 +340,9 @@ func (s *Service) GenerateShadowDecision(ctx context.Context, p authorization.Pr
 		return neural.ShadowDecision{}, ErrInvalid
 	}
 	route, err := resolveModelRoute(modelID)
+	if livePilot {
+		route, err = LivePilotModelRoute(modelID)
+	}
 	if err != nil {
 		return neural.ShadowDecision{}, ErrInvalid
 	}
@@ -336,17 +356,24 @@ func (s *Service) GenerateShadowDecision(ctx context.Context, p authorization.Pr
 	if connection.Provider != route.Provider || s.limiter == nil {
 		return neural.ShadowDecision{}, &neural.ProviderError{Code: neural.Unsupported}
 	}
-	client, ok := s.neural.(neural.ShadowDecisionClient)
-	if !ok {
+	var propose func(context.Context, string, []byte, neural.ShadowDecisionRequest, string) (neural.ShadowDecision, error)
+	if livePilot {
+		if client, ok := s.neural.(neural.LivePilotDecisionClient); ok {
+			propose = client.ProposeLivePilotDecision
+		}
+	} else if client, ok := s.neural.(neural.ShadowDecisionClient); ok {
+		propose = client.ProposeShadow
+	}
+	if propose == nil {
 		return neural.ShadowDecision{}, ErrProvider
 	}
-	allowed, err := s.limiter.AllowWeighted(ctx, "neural-shadow-decision:"+p.UserID+":"+budgetScope, route.CreditUnits, ProposalCreditLimit, ProposalWindow)
+	allowed, err := s.limiter.AllowWeighted(ctx, budgetPrefix+p.UserID+":"+budgetScope, route.CreditUnits, ProposalCreditLimit, ProposalWindow)
 	if err != nil {
-		s.record(ctx, p.UserID, "neural_shadow_decision.failed", connection, routeAudit(route, "RATE_LIMITER_UNAVAILABLE"))
+		s.record(ctx, p.UserID, auditPrefix+".failed", connection, routeAudit(route, "RATE_LIMITER_UNAVAILABLE"))
 		return neural.ShadowDecision{}, ErrProvider
 	}
 	if !allowed {
-		s.record(ctx, p.UserID, "neural_shadow_decision.rate_limited", connection, routeAudit(route, "RATE_LIMITED"))
+		s.record(ctx, p.UserID, auditPrefix+".rate_limited", connection, routeAudit(route, "RATE_LIMITED"))
 		return neural.ShadowDecision{}, ErrRateLimit
 	}
 	secret, err := s.vault.Retrieve(ctx, credential.Locator{ConnectionID: connection.ID, UserID: p.UserID, Class: credential.AI})
@@ -357,17 +384,21 @@ func (s *Service) GenerateShadowDecision(ctx context.Context, p authorization.Pr
 	input.Profile = string(route.Profile)
 	digest := sha256.Sum256([]byte("arbion-neural:" + p.UserID))
 	started := time.Now()
-	result, err := client.ProposeShadow(ctx, connection.Provider, secret, input, hex.EncodeToString(digest[:]))
+	result, err := propose(ctx, connection.Provider, secret, input, hex.EncodeToString(digest[:]))
 	if err != nil {
 		code := neural.Code(err)
 		failed := routeAudit(route, code)
 		failed["latency_ms"] = time.Since(started).Milliseconds()
-		s.record(ctx, p.UserID, "neural_shadow_decision.failed", connection, failed)
+		s.record(ctx, p.UserID, auditPrefix+".failed", connection, failed)
 		return neural.ShadowDecision{}, &neural.ProviderError{Code: code}
 	}
 	if result.Metadata.Provider != route.Provider || result.Metadata.Model != route.ModelID || result.Metadata.Profile != string(route.Profile) {
-		s.record(ctx, p.UserID, "neural_shadow_decision.failed", connection, routeAudit(route, neural.InternalError))
+		s.record(ctx, p.UserID, auditPrefix+".failed", connection, routeAudit(route, neural.InternalError))
 		return neural.ShadowDecision{}, &neural.ProviderError{Code: neural.InternalError}
+	}
+	if livePilot && neural.ValidateLivePilotDecision(result, input) != nil {
+		s.record(ctx, p.UserID, auditPrefix+".failed", connection, routeAudit(route, neural.DecisionContractInvalid))
+		return neural.ShadowDecision{}, &neural.ProviderError{Code: neural.DecisionContractInvalid}
 	}
 	extra := routeAudit(route, "COMPLETED")
 	extra["latency_ms"] = time.Since(started).Milliseconds()
@@ -379,7 +410,7 @@ func (s *Service) GenerateShadowDecision(ctx context.Context, p authorization.Pr
 	if result.Metadata.RequestID != "" {
 		extra["provider_request_id"] = result.Metadata.RequestID
 	}
-	s.record(ctx, p.UserID, "neural_shadow_decision.completed", connection, extra)
+	s.record(ctx, p.UserID, auditPrefix+".completed", connection, extra)
 	return result, nil
 }
 
