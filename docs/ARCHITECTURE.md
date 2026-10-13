@@ -781,7 +781,25 @@ Trusted Go fixes the original tick-aligned book price, requires a fresh post-mod
 book, subtracts explicit fee allowance and rounds size down. An immutable result
 precedes exact existing intake; recovery cannot replace its terms. The coordinator
 has no sender, preview or execution-claim dependency. There is no production
-caller, scheduler registration, market collector or activation setting for it.
+caller, scheduler registration or activation setting for it.
+
+The separate scheduled market collector implements the coordinator's existing
+read-only market interface. Reviewed server composition fixes one owner/account,
+one exact spot USD pair and an explicit fee allowance; mismatches fail before I/O.
+It reads only Coinbase's public Advanced Trade product and top-of-book endpoints,
+with the owned fixed-origin/no-proxy/no-redirect transport and no credentials,
+cookies, account queries, previews or order methods. Strict bounded duplicate-safe
+decoding requires complete product flags, positive sizes, exact pair/currency,
+ordered limits and tick-aligned noncrossed prices. Provider book time must be no
+more than ten seconds old at completion, never future; each collection has a
+thirty-second total bound and no saved-price fallback. Collection after a model
+decision starts new reads. History and liquidity context remain unavailable.
+The allowance is a server-side budget, not an asserted fee rate; the existing
+private preview still checks actual fees. Scope binding is not proof of current
+account access: the transactional generation claim and final send checks remain
+authoritative. No runtime constructs this collector or enables live execution.
+Endpoint contracts: [public product](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/public/get-public-product)
+and [public book](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/public/get-public-product-book).
 
 An inert owner commissioning component in the same execution package now
 atomically prepares an explicit pilot allocation and exact fresh mandate/version.
