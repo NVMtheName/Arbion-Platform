@@ -75,31 +75,32 @@ func New(cfg Config, client *http.Client) (*Client, error) {
 		}
 		client = &http.Client{Timeout: timeout}
 	}
-	return &Client{base: base, http: client, now: time.Now}, nil
-}
-
-type permissions struct {
-	CanView       bool   `json:"can_view"`
-	CanTrade      bool   `json:"can_trade"`
-	CanTransfer   bool   `json:"can_transfer"`
-	PortfolioUUID string `json:"portfolio_uuid"`
-	PortfolioType string `json:"portfolio_type"`
+	// Never follow a provider redirect with a signed request. Copy the client so
+	// enforcing this boundary cannot change another caller's shared policy.
+	protectedClient := *client
+	protectedClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &Client{base: base, http: &protectedClient, now: time.Now}, nil
 }
 
 func (c *Client) VerifyConnection(ctx context.Context, credentials *financial.Credentials) error {
 	if err := normalizeCredentials(credentials); err != nil {
 		return err
 	}
-	var value permissions
-	if err := c.get(ctx, credentials, "/api/v3/brokerage/key_permissions", &value); err != nil {
+	// Permission evidence uses the same bounded, duplicate-safe decoder as the
+	// execution boundary. Missing or null Transfer must never mean false.
+	var value executionPermissions
+	if err := c.executionRequest(ctx, credentials, http.MethodGet, "/api/v3/brokerage/key_permissions", nil, &value); err != nil {
 		return err
 	}
-	portfolioID := strings.TrimSpace(value.PortfolioUUID)
-	if !value.CanView || value.CanTransfer || portfolioID == "" || (credentials.PortfolioID != "" && credentials.PortfolioID != portfolioID) {
+	if !requiredExecutionBools(value.CanView, value.CanTrade, value.CanTransfer) || value.PortfolioUUID == nil {
+		return invalidExecutionResponse()
+	}
+	portfolioID := strings.TrimSpace(*value.PortfolioUUID)
+	if !*value.CanView || *value.CanTransfer || portfolioID == "" || (credentials.PortfolioID != "" && credentials.PortfolioID != portfolioID) {
 		return &financial.ProviderError{Code: financial.PermissionDenied}
 	}
 	credentials.PortfolioID = portfolioID
-	credentials.ProviderCanTrade = value.CanTrade
+	credentials.ProviderCanTrade = *value.CanTrade
 	return nil
 }
 
@@ -1275,6 +1276,8 @@ func (c *Client) request(ctx context.Context, credentials *financial.Credentials
 	if err != nil {
 		return &financial.ProviderError{Code: financial.InternalError}
 	}
+	// Preview POST bodies must not be replayed by the standard HTTP client.
+	request.GetBody = nil
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Accept", "application/json")
 	if input != nil {

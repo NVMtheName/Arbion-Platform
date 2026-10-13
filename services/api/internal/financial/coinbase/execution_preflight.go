@@ -328,7 +328,7 @@ func executionAmount(n *big.Rat) string {
 }
 
 // executionRequest reuses the client's JWT and transport, not its permissive
-// display decoder or redirect policy. It has no retry and allows no send/cancel
+// display decoder. It also enforces its own no-redirect policy and allows no send/cancel
 // endpoint. A bounded whole-body read catches oversized trailing whitespace.
 func (c *Client) executionRequest(ctx context.Context, credentials *financial.Credentials, method, path string, input, output any) error {
 	u, err := c.base.Parse(path)
