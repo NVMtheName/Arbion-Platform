@@ -372,6 +372,12 @@ func (c *Client) executionRequest(ctx context.Context, credentials *financial.Cr
 		}
 		return &financial.ProviderError{Code: financial.ProviderUnavailable}
 	}
+	return decodeExecutionResponse(response, output)
+}
+
+// Shared strict response boundary for private execution evidence and the
+// credential-free public market collector. It performs no requests or signing.
+func decodeExecutionResponse(response *http.Response, output any) error {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))

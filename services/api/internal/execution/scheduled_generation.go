@@ -211,6 +211,13 @@ func scheduledGenerationProfile(modelID string) (string, error) {
 	return string(route.Profile), nil
 }
 
+// ValidateScheduledGenerationMarket checks normalized collector evidence only;
+// it grants no account, model-call or order authority. Claim and final send still
+// independently enforce current authorization, capital, preview and freshness.
+func ValidateScheduledGenerationMarket(product string, m ScheduledGenerationMarket, now time.Time) error {
+	return validateGenerationMarket(product, m, now)
+}
+
 func validateGenerationMarket(product string, m ScheduledGenerationMarket, now time.Time) error {
 	if !productPattern.MatchString(product) || product == "USD-USD" || m.ProductID != product || m.ProductType != "SPOT" ||
 		m.BaseCurrency != strings.TrimSuffix(product, "-USD") || m.QuoteCurrency != "USD" || m.Status != "online" ||
