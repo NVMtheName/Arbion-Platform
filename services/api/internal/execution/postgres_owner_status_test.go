@@ -195,3 +195,104 @@ func TestPostgresOwnerOrderNoSendSnapshotAndRejectedHeld(t *testing.T) {
 		t.Fatal("submission rejection falsely implied final accounting", rejected)
 	}
 }
+
+func TestPostgresOwnerOrderMandateLifecycleAndHistoricalRecovery(t *testing.T) {
+	ctx, pool := setupExecutionTest(t)
+	s := NewPostgresStore(pool)
+	c := newMandateConsentFixture(t, ctx, pool)
+	f := newMandateSendOrder(t, ctx, pool, c, "BUY")
+	p := newScheduledProposalInput(t, ctx, pool, c, f.order.Request)
+	read := func(state string) OwnerOrder {
+		t.Helper()
+		got := readOwnerState(t, ctx, pool, f.order, state)
+		if got.ApprovalStatus != "NONE" || got.ApprovalExpiresAt != nil {
+			t.Fatal("standing consent manufactured per-order approval", got)
+		}
+		return got
+	}
+	if got := read("PREPARED"); got.Attempted || got.AccountHeld || got.CapitalHeld {
+		t.Fatal("prepared autonomous order implied execution", got)
+	}
+	other := newExecutionFixture(t, ctx, pool)
+	if _, err := s.ReadOwnerOrder(ctx, other.OwnerID, f.order.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatal("mandate projection exposed another owner's order", err)
+	}
+	calls := 0
+	if _, err := s.SendAutonomous(ctx, f.order.Request.OwnerID, f.order.ID, f.evidence, f.vault, sendFunc(func(context.Context, *financial.Credentials, ConfirmedSubmission) (SubmissionAcknowledgement, error) {
+		calls++
+		if got := read("SUBMISSION_UNKNOWN"); !got.Attempted || !got.AccountHeld || !got.CapitalHeld {
+			t.Error("durable autonomous claim did not retain unresolved holds", got)
+		}
+		return f.ack, nil
+	})); err != nil || calls != 1 {
+		t.Fatal("synthetic autonomous callback was not entered once", calls, err)
+	}
+	read("BROKER_ACKNOWLEDGED")
+	evidence := pilotAllocationTerminal(t, ctx, pool, f, "FILLED", f.order.Request.BaseSize, f.preflight.PreviewQuoteSize, f.order.Request.FeeAllowanceUSD)
+	if got := read("AWAITING_ACCOUNT_SETTLEMENT"); got.AccountHeld || !got.CapitalHeld || got.TerminalStatus != "FILLED" {
+		t.Fatal("autonomous terminal projection lost settlement distinction", got)
+	}
+	if _, err := s.SettleBrokerAccount(ctx, f.order.Request.OwnerID, f.order.ID, f.vault, savedSettlement(evidence)); err != nil {
+		t.Fatal(err)
+	}
+	if got := read("SETTLED"); got.Accounting == nil || got.AccountHeld || got.CapitalHeld {
+		t.Fatal("autonomous settlement did not project exact closure", got)
+	}
+	if err := s.RevokeMandateConsent(ctx, c.request.OwnerID, c.consent.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Current authority may change, but the old immutable consent/source/order
+	// remain the historical identity. Recovery is a read, never reauthorization.
+	if _, err := pool.Exec(ctx, `UPDATE automation_mandates SET current_version=current_version+1,effective_until=clock_timestamp()-interval '1 second' WHERE id=$1`, c.mandateID); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := NewPostgresStore(pool).PrepareScheduledProposal(ctx, c.request.OwnerID, p)
+	if err != nil || recovered.ID != f.order.ID || recovered.RequestDigest != f.order.RequestDigest {
+		t.Fatal("historical exact autonomous order could not be recovered", recovered, err)
+	}
+	read("SETTLED")
+}
+
+func TestPostgresOwnerOrderRejectsCorruptMandateBindings(t *testing.T) {
+	ctx, pool := setupExecutionTest(t)
+	c := newMandateConsentFixture(t, ctx, pool)
+	f := newMandateSendOrder(t, ctx, pool, c, "BUY")
+	sendMandateOrder(t, ctx, pool, c, f)
+	cases := []struct{ name, table, query string }{
+		{"malformed request consent", "execution_orders", `UPDATE execution_orders SET request=jsonb_set(request,'{MandateApprovalID}','"invalid"') WHERE id=$1`},
+		{"missing request consent", "execution_orders", `UPDATE execution_orders SET request=request-'MandateApprovalID' WHERE id=$1`},
+		{"missing required source marker", "execution_orders", `UPDATE execution_orders SET scheduled_proposal_required=false WHERE id=$1`},
+		{"missing source", "execution_scheduled_proposals", `DELETE FROM execution_scheduled_proposals WHERE order_id=$1`},
+		{"source digest mismatch", "execution_scheduled_proposals", `UPDATE execution_scheduled_proposals SET request_digest=repeat('a',64) WHERE order_id=$1`},
+		{"source client mismatch", "execution_scheduled_proposals", `UPDATE execution_scheduled_proposals SET client_order_id=gen_random_uuid() WHERE order_id=$1`},
+		{"source model mismatch", "execution_scheduled_proposals", `UPDATE execution_scheduled_proposals SET ai_model_id='different-synthetic-model' WHERE order_id=$1`},
+		{"source connection mismatch", "execution_scheduled_proposals", `UPDATE execution_scheduled_proposals SET provider_connection_id=ai_provider_connection_id WHERE order_id=$1`},
+		{"consent snapshot mismatch", "execution_mandate_approvals", `UPDATE execution_mandate_approvals SET snapshot_digest=repeat('a',64) WHERE id=(SELECT (request->>'MandateApprovalID')::uuid FROM execution_orders WHERE id=$1)`},
+		{"attempt authority mismatch", "execution_dispatch_attempts", `UPDATE execution_dispatch_attempts SET authorization_id=gen_random_uuid() WHERE order_id=$1`},
+		{"authority digest mismatch", "execution_authorizations", `UPDATE execution_authorizations SET request_digest=repeat('a',64) WHERE order_id=$1`},
+		{"dual manual and mandate authority", "execution_owner_approvals", `INSERT INTO execution_owner_approvals(order_id,owner_id,request_digest,credential_generation,mfa_method,mfa_verified_at,mfa_enabled_at,approved_at,expires_at)
+		 SELECT id,owner_id,request_digest,1,'totp',clock_timestamp(),clock_timestamp(),clock_timestamp(),clock_timestamp()+interval '1 minute' FROM execution_orders WHERE id=$1`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer rollback(tx)
+			// Corruption is transaction-local synthetic data. Both the disabled
+			// guard and the mutation are rolled back; no corrupt history commits.
+			if _, err = tx.Exec(ctx, "ALTER TABLE "+tc.table+" DISABLE TRIGGER USER"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = tx.Exec(ctx, tc.query, f.order.ID); err != nil {
+				t.Fatal(err)
+			}
+			got, err := NewPostgresStore(tx).ReadOwnerOrder(ctx, c.request.OwnerID, f.order.ID)
+			if err != nil || got.State != "UNAVAILABLE" || got.Accounting != nil || !got.Attempted {
+				t.Fatal("corrupt autonomous authority appeared valid or reusable", got, err)
+			}
+		})
+		readOwnerState(t, ctx, pool, f.order, "BROKER_ACKNOWLEDGED")
+	}
+}

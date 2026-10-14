@@ -797,9 +797,37 @@ decision starts new reads. History and liquidity context remain unavailable.
 The allowance is a server-side budget, not an asserted fee rate; the existing
 private preview still checks actual fees. Scope binding is not proof of current
 account access: the transactional generation claim and final send checks remain
-authoritative. No runtime constructs this collector or enables live execution.
+authoritative. Production startup does not construct this collector or enable live execution.
 Endpoint contracts: [public product](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/public/get-public-product)
 and [public book](https://docs.cdp.coinbase.com/api-reference/advanced-trade-api/rest-api/public/get-public-product-book).
+
+An inert `ScheduledWorkflow` composes these existing stages for one immutable
+server-selected owner/account/connection/bucket/product, pilot limits and exact
+mandate/consent/version. One bounded invocation generates or recovers the saved
+slot, prepares its exact order, refreshes account reconciliation, captures the
+private preview and uses `SendAutonomous` (never manual `SendConfirmed`). Scope
+is checked on current facts, committed generation claims, saved history and the
+durable order before financial credential access. Abstention/missing generation
+results perform no financial work; an already attempted order returns saved
+status without refresh, preview or resubmission. Concurrent fresh callers may
+collect evidence, but the existing transactional claim still admits only one
+sender; newer evidence can deny another caller without automatic retry.
+
+The refresh reuses locked read-only account collection and append-only comparison.
+Both the preceding and new snapshots must be complete enforced `MATCHED` evidence;
+it never bootstraps, acknowledges drift, clears a block or reuses an older snapshot.
+The existing order-relative freshness and exact funding checks remain unchanged.
+Get/recovery/reconciliation/cancellation/settlement retain the exact historical
+mandate binding after revocation or expiry. The shared owner status projection
+validates immutable mandate/source/attempt identity without fabricating individual
+order approval; manual approval fields and manual send semantics are unchanged.
+
+The concrete Coinbase factory accepts existing server services, owns fixed-origin
+market/submission transports and performs no construction I/O. It retains the
+existing saved AI-connection boundary without sharing financial credentials with
+the model. No startup registration, timer, scheduler loop, route, activation
+setting, new credential or schema is added. Synthetic joined lifecycle tests are
+engineering acceptance only, not live compatibility or profitability evidence.
 
 An inert owner commissioning component in the same execution package now
 atomically prepares an explicit pilot allocation and exact fresh mandate/version.

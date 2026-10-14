@@ -51,6 +51,7 @@ type OwnerOrderAccounting struct {
 type ownerOrderFacts struct {
 	now                                time.Time
 	termsValid                         bool
+	mandate, authorityValid            bool
 	approval, revoked, acknowledged    bool
 	rejected, capital, cancellation    bool
 	cancellationReceipt                string
@@ -70,7 +71,7 @@ func (s *PostgresStore) ReadOwnerOrder(ctx context.Context, ownerID, orderID str
 	var f ownerOrderFacts
 	var accounting OwnerOrderAccounting
 	var recorded *time.Time
-	var clientID string
+	var clientID, mandateApprovalID string
 	var limitsJSON []byte
 	err := s.db.QueryRow(ctx, `SELECT o.id::text,o.request_digest,o.request->>'ProductID',o.request->>'Side',
 	 o.request->>'BaseSize',o.request->>'LimitPrice',o.request->>'FeeAllowanceUSD',o.request->>'MaximumDebitUSD',o.created_at,
@@ -82,11 +83,30 @@ func (s *PostgresStore) ReadOwnerOrder(ctx context.Context, ownerID, orderID str
 	 t.order_id IS NULL OR (t.fill_count=fills.n AND t.base_quantity=fills.q AND t.gross_usd=fills.g AND t.fee_usd=fills.fee),
 	 n.recorded_at,k.order_id IS NOT NULL,COALESCE(kr.outcome,''),
 	 COALESCE(z.opening_cash_usd::text,''),COALESCE(z.opening_base::text,''),COALESCE(z.closing_cash_usd::text,''),COALESCE(z.closing_base::text,''),z.recorded_at,
-	 z.order_id IS NULL OR COALESCE(t.order_id IS NOT NULL AND z.terminal_status=t.status AND z.fill_count=fills.n AND z.base_quantity=fills.q AND z.gross_usd=fills.g AND z.fee_usd=fills.fee AND c.released_at=z.recorded_at,false)
+	 z.order_id IS NULL OR COALESCE(t.order_id IS NOT NULL AND z.terminal_status=t.status AND z.fill_count=fills.n AND z.base_quantity=fills.q AND z.gross_usd=fills.g AND z.fee_usd=fills.fee AND c.released_at=z.recorded_at,false),
+	 COALESCE(o.request->>'MandateApprovalID',''),o.request ? 'MandateApprovalID',
+	 CASE WHEN o.request ? 'MandateApprovalID' THEN COALESCE(
+	   o.scheduled_proposal_required AND p.id IS NULL AND m.id IS NOT NULL AND sp.order_id IS NOT NULL
+	   AND m.owner_id=o.owner_id AND m.financial_account_id=o.financial_account_id AND m.provider_connection_id=o.provider_connection_id AND m.capital_bucket_id=o.capital_bucket_id
+	   AND sp.owner_id=o.owner_id AND sp.financial_account_id=o.financial_account_id AND sp.provider_connection_id=o.provider_connection_id AND sp.capital_bucket_id=o.capital_bucket_id
+	   AND sp.mandate_approval_id=m.id AND sp.mandate_id=m.mandate_id AND sp.mandate_version=m.mandate_version
+	   AND sp.request_digest=o.request_digest AND sp.client_order_id=o.client_order_id AND sp.source_mode='LIVE'
+	   AND sp.client_order_id=execution_scheduled_client_id(sp.capital_bucket_id,sp.mandate_id,sp.mandate_version,sp.scheduled_for)
+	   AND m.snapshot_digest=encode(sha256(convert_to(mv.snapshot::text,'UTF8')),'hex')
+	   AND sp.ai_provider_connection_id::text=mv.snapshot->>'ai_provider_connection_id' AND sp.ai_model_id=mv.snapshot->>'ai_model_id'
+	   AND ((a.order_id IS NULL AND aa.id IS NULL) OR (aa.id=a.authorization_id AND aa.order_id=o.id AND aa.owner_id=o.owner_id AND aa.financial_account_id=o.financial_account_id
+	     AND a.owner_id=o.owner_id AND a.financial_account_id=o.financial_account_id
+	     AND aa.approval_id IS NULL AND aa.mandate_approval_id=m.id AND aa.capital_bucket_id=o.capital_bucket_id AND aa.request_digest=o.request_digest
+	     AND aa.credential_generation=m.credential_generation AND aa.credential_generation=a.credential_generation)),false)
+	 ELSE NOT o.scheduled_proposal_required AND sp.order_id IS NULL AND aa.mandate_approval_id IS NULL END
 	 FROM execution_orders o
 	 LEFT JOIN execution_owner_approvals p ON p.order_id=o.id
 	 LEFT JOIN execution_approval_revocations v ON v.approval_id=p.id
 	 LEFT JOIN execution_dispatch_attempts a ON a.order_id=o.id
+	 LEFT JOIN execution_authorizations aa ON aa.order_id=o.id
+	 LEFT JOIN execution_mandate_approvals m ON m.id::text=o.request->>'MandateApprovalID'
+	 LEFT JOIN execution_scheduled_proposals sp ON sp.order_id=o.id
+	 LEFT JOIN automation_mandate_versions mv ON mv.mandate_id=m.mandate_id AND mv.version_number=m.mandate_version
 	 LEFT JOIN execution_broker_acknowledgements b ON b.order_id=o.id
 	 LEFT JOIN execution_submission_rejections r ON r.order_id=o.id
 	 LEFT JOIN execution_account_holds h ON h.order_id=o.id AND h.financial_account_id=o.financial_account_id
@@ -101,7 +121,8 @@ func (s *PostgresStore) ReadOwnerOrder(ctx context.Context, ownerID, orderID str
 		&o.ID, &o.RequestDigest, &o.ProductID, &o.Side, &o.BaseSize, &o.LimitPrice, &o.FeeAllowanceUSD, &o.MaximumDebitUSD, &o.CreatedAt,
 		&o.AccountID, &o.ConnectionID, &o.CapitalBucketID, &clientID, &limitsJSON, &f.now, &f.approval, &o.ApprovalExpiresAt, &f.revoked, &o.Attempted, &f.acknowledged, &f.rejected,
 		&o.AccountHeld, &f.capital, &f.capitalReleased, &o.AccountBlocked, &o.FillCount, &o.BaseFilled, &o.GrossUSD, &o.FeeUSD, &o.TerminalStatus, &f.terminalMatches,
-		&f.noSend, &f.cancellation, &f.cancellationReceipt, &accounting.OpeningCashUSD, &accounting.OpeningBase, &accounting.ClosingCashUSD, &accounting.ClosingBase, &recorded, &f.settlementMatches)
+		&f.noSend, &f.cancellation, &f.cancellationReceipt, &accounting.OpeningCashUSD, &accounting.OpeningBase, &accounting.ClosingCashUSD, &accounting.ClosingBase, &recorded, &f.settlementMatches,
+		&mandateApprovalID, &f.mandate, &f.authorityValid)
 	if err != nil {
 		return OwnerOrder{}, mapError(err)
 	}
@@ -110,7 +131,7 @@ func (s *PostgresStore) ReadOwnerOrder(ctx context.Context, ownerID, orderID str
 		o.Accounting = &accounting
 	}
 	limitsValid := len(limitsJSON) == 0 || json.Unmarshal(limitsJSON, &o.PilotLimits) == nil && validPilotLimits(o.PilotLimits)
-	digest, err := requestDigest(Request{OwnerID: ownerID, AccountID: o.AccountID, ConnectionID: o.ConnectionID, CapitalBucketID: o.CapitalBucketID, ClientOrderID: clientID, ProductID: o.ProductID, Side: o.Side, BaseSize: o.BaseSize, LimitPrice: o.LimitPrice, FeeAllowanceUSD: o.FeeAllowanceUSD, MaximumDebitUSD: o.MaximumDebitUSD, PilotLimits: o.PilotLimits})
+	digest, err := requestDigest(Request{OwnerID: ownerID, AccountID: o.AccountID, ConnectionID: o.ConnectionID, CapitalBucketID: o.CapitalBucketID, ClientOrderID: clientID, ProductID: o.ProductID, Side: o.Side, BaseSize: o.BaseSize, LimitPrice: o.LimitPrice, FeeAllowanceUSD: o.FeeAllowanceUSD, MaximumDebitUSD: o.MaximumDebitUSD, PilotLimits: o.PilotLimits, MandateApprovalID: mandateApprovalID})
 	f.termsValid = limitsValid && err == nil && digest == o.RequestDigest
 	return projectOwnerOrder(o, f), nil
 }
@@ -118,7 +139,10 @@ func (s *PostgresStore) ReadOwnerOrder(ctx context.Context, ownerID, orderID str
 func projectOwnerOrder(o OwnerOrder, f ownerOrderFacts) OwnerOrder {
 	o.State, o.ApprovalStatus, o.CancellationStatus = "UNAVAILABLE", "NONE", "NONE"
 	o.CapitalHeld = f.capital && f.capitalReleased == nil
-	valid := f.termsValid && f.approval == (o.ApprovalExpiresAt != nil) && (!f.revoked || f.approval)
+	// Standing consent is not a per-order manual approval. Verify its immutable
+	// source and exact attempted authority without reauthorizing historical state
+	// against today's expiry, revocation, credential or current mandate version.
+	valid := f.termsValid && f.authorityValid && !(f.mandate && f.approval) && f.approval == (o.ApprovalExpiresAt != nil) && (!f.revoked || f.approval)
 	if !f.termsValid {
 		// Do not echo malformed public fields or present an unverified digest.
 		o.RequestDigest, o.ProductID, o.Side = "", "", ""
@@ -176,7 +200,7 @@ func projectOwnerOrder(o OwnerOrder, f ownerOrderFacts) OwnerOrder {
 	if !o.Attempted {
 		valid = valid && !f.capital && !o.AccountHeld && !f.acknowledged && !f.rejected && o.FillCount == 0 && !terminal && !settled && !notSent && !f.cancellation
 	} else {
-		valid = valid && f.approval && f.capital
+		valid = valid && (f.approval || f.mandate) && f.capital
 	}
 	valid = valid && (!f.cancellation || (o.Attempted && f.acknowledged)) && (o.FillCount == 0 || f.acknowledged)
 	if notSent {
