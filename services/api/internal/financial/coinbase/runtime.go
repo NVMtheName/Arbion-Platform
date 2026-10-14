@@ -7,9 +7,11 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/credential"
 	"github.com/arbion/platform/services/api/internal/execution"
+	"github.com/arbion/platform/services/api/internal/financialconnection"
 )
 
 // NewProductionOwnerWorkflow composes the concrete owner workflow without any
@@ -29,6 +31,26 @@ func NewProductionOwnerWorkflow(store *execution.PostgresStore, scope execution.
 		StepUp: stepUp, Vault: vault, Preflight: client, Sender: adapter,
 		Lookup: adapter, Observation: adapter, Cancellation: adapter, Settlement: adapter,
 	})
+}
+
+// NewProductionScheduledWorkflow composes only existing reviewed boundaries.
+// The AI service retains its own saved AI connection; the market collector has
+// no vault and the financial adapters never receive the AI service. No I/O,
+// scheduler, startup registration, commissioning or activation occurs here.
+func NewProductionScheduledWorkflow(store *execution.PostgresStore, scope execution.ScheduledScope, feeAllowanceUSD string, stepUp *auth.Service, vault *credential.EncryptedVault, model *aiconnection.Service, refresh *financialconnection.Service) (*execution.ScheduledWorkflow, error) {
+	if store == nil || stepUp == nil || vault == nil || model == nil || refresh == nil {
+		return nil, execution.ErrNotAuthorized
+	}
+	market, err := NewScheduledMarketCollector(ScheduledMarketScope{OwnerID: scope.Owner.OwnerID, AccountID: scope.Owner.AccountID, ProductID: scope.Owner.ProductID, FeeAllowanceUSD: feeAllowanceUSD})
+	if err != nil {
+		return nil, err
+	}
+	client := newProductionExecutionClient()
+	adapter := NewExecutionAdapter(client)
+	return execution.NewScheduledWorkflow(store, scope, execution.OwnerWorkflowDependencies{
+		StepUp: stepUp, Vault: vault, Preflight: client, Sender: adapter,
+		Lookup: adapter, Observation: adapter, Cancellation: adapter, Settlement: adapter,
+	}, market, model, refresh)
 }
 
 // Own every transport setting. Cloning http.DefaultTransport or accepting the

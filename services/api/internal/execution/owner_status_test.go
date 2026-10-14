@@ -10,7 +10,7 @@ import (
 func ownerStatusFixture(state string) (OwnerOrder, ownerOrderFacts) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	o := OwnerOrder{ID: "safe-order", RequestDigest: strings.Repeat("a", 64), ProductID: "BTC-USD", Side: "BUY", BaseSize: "0.001", LimitPrice: "60000", FeeAllowanceUSD: "0.6", MaximumDebitUSD: "60.6", CreatedAt: now.Add(-time.Minute), BaseFilled: "0", GrossUSD: "0", FeeUSD: "0"}
-	f := ownerOrderFacts{now: now, termsValid: true, terminalMatches: true, settlementMatches: true}
+	f := ownerOrderFacts{now: now, termsValid: true, authorityValid: true, terminalMatches: true, settlementMatches: true}
 	if state == "PREPARED" {
 		return o, f
 	}
@@ -139,6 +139,29 @@ func TestOwnerOrderInconsistentFactsAreUnavailable(t *testing.T) {
 			}
 			if !f.termsValid && (got.RequestDigest != "" || got.BaseSize != "" || got.ProductID != "") {
 				t.Fatal("unverified public terms were returned", got)
+			}
+		})
+	}
+}
+
+func TestOwnerOrderMandateHistoryDoesNotInventManualApproval(t *testing.T) {
+	for _, state := range []string{"PREPARED", "SUBMISSION_UNKNOWN", "REJECTED_HELD", "BROKER_ACKNOWLEDGED", "PARTIALLY_FILLED", "AWAITING_ACCOUNT_SETTLEMENT", "SETTLED", "NOT_SENT"} {
+		t.Run(state, func(t *testing.T) {
+			o, f := ownerStatusFixture(state)
+			o.ApprovalExpiresAt, f.approval, f.mandate = nil, false, true
+			got := projectOwnerOrder(o, f)
+			if got.State != state || got.ApprovalStatus != "NONE" || got.ApprovalExpiresAt != nil || got.Attempted != o.Attempted {
+				t.Fatal("mandate history was unavailable or manufactured manual approval", got)
+			}
+			f.authorityValid = false
+			if got = projectOwnerOrder(o, f); got.State != "UNAVAILABLE" || got.Accounting != nil {
+				t.Fatal("unbound consent, source or attempted authorization was accepted", got)
+			}
+			f.authorityValid, f.approval = true, true
+			expires := f.now.Add(time.Minute)
+			o.ApprovalExpiresAt = &expires
+			if got = projectOwnerOrder(o, f); got.State != "UNAVAILABLE" || got.Accounting != nil {
+				t.Fatal("conflicting manual and mandate authority was accepted", got)
 			}
 		})
 	}

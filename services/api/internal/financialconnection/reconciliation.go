@@ -520,6 +520,44 @@ func (s *Service) RunReconciliationCommand(ctx context.Context, principal author
 	return report, err
 }
 
+// RefreshScheduledExecutionReconciliation takes one new read-only account
+// comparison for an already prepared scheduled order. Unlike Shadow freshness,
+// it never reuses an older snapshot. It cannot bootstrap a baseline or accept
+// drift; current and resulting evidence must both be complete, enforced MATCHED.
+// It grants no send authority. Execution still checks order-relative freshness,
+// exact account quantities, private preview and transactional authorization.
+func (s *Service) RefreshScheduledExecutionReconciliation(ctx context.Context, principal authorization.Principal, accountID string) error {
+	if !allowed(principal) {
+		return ErrForbidden
+	}
+	if s.reconciliations == nil {
+		return ErrReconciliationUnavailable
+	}
+	return s.store.WithLock(ctx, reconciliationLockKey(principal.UserID, accountID), func() error {
+		latest, err := s.reconciliations.LatestReconciliation(ctx, principal.UserID, accountID)
+		if err != nil {
+			return err
+		}
+		if latest.FinancialAccountID != accountID || latest.Provider != "coinbase" || !executionReconciliationMatched(latest, time.Now().UTC()) {
+			return ErrReconciliationReviewRequired
+		}
+		report, err := s.runReconciliationAt(ctx, principal, accountID, time.Now().UTC(), "SCHEDULED_EXECUTION_PREFLIGHT", "")
+		if err != nil {
+			return err
+		}
+		if report.FinancialAccountID != accountID || report.Provider != "coinbase" || !executionReconciliationMatched(report, time.Now().UTC()) {
+			return ErrReconciliationReviewRequired
+		}
+		return nil
+	})
+}
+
+func executionReconciliationMatched(r PortfolioReconciliation, now time.Time) bool {
+	return r.ComparisonStatus == "MATCHED" && r.BalancesStatus == "READY" && r.PositionsStatus == "READY" &&
+		r.AutonomyEnforcementActive && !r.BlocksNewActions && r.BlockingChangeCount == 0 && r.AutonomySignal == "CLEAR" &&
+		!r.ObservedAt.IsZero() && !r.ObservedAt.After(now)
+}
+
 // EnsureScheduledReconciliation keeps AI Shadow evidence current using only
 // provider balance and position reads. It never retries through confirmed
 // drift, so a later stable snapshot cannot silently acknowledge a real change.

@@ -14,13 +14,54 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arbion/platform/services/api/internal/aiconnection"
 	"github.com/arbion/platform/services/api/internal/auth"
 	"github.com/arbion/platform/services/api/internal/credential"
 	"github.com/arbion/platform/services/api/internal/execution"
+	"github.com/arbion/platform/services/api/internal/financialconnection"
 	"github.com/jackc/pgx/v5"
 )
 
 type runtimeNoDatabase struct{}
+
+func TestProductionScheduledWorkflowCompositionHasNoIO(t *testing.T) {
+	store := execution.NewPostgresStore(runtimeNoDatabase{})
+	stepUp := auth.NewService(nil, nil, nil, nil, time.Hour)
+	vault, err := credential.NewEncryptedVault(bytes.Repeat([]byte{17}, 32), runtimeNoBlobStore{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := aiconnection.NewService(nil, nil, nil, aiconnection.Registry{}, nil, nil)
+	refresh := financialconnection.NewService(nil, nil, nil, nil, nil)
+	scope := execution.ScheduledScope{Owner: execution.OwnerScope{
+		OwnerID: "10000000-0000-4000-8000-000000000001", AccountID: "20000000-0000-4000-8000-000000000001",
+		ConnectionID: "30000000-0000-4000-8000-000000000001", CapitalBucketID: "40000000-0000-4000-8000-000000000001", ProductID: "BTC-USD",
+		PilotLimits: execution.OwnerPilotLimits{MaximumOrderUSD: "25", ExpiresAt: time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)},
+	}, MandateApprovalID: "50000000-0000-4000-8000-000000000001", MandateID: "60000000-0000-4000-8000-000000000001", MandateVersion: 1}
+	trap := &submissionRetryTransport{}
+	oldClient, oldTransport := http.DefaultClient, http.DefaultTransport
+	http.DefaultClient = &http.Client{Transport: trap}
+	http.DefaultTransport = trap
+	t.Cleanup(func() { http.DefaultClient = oldClient; http.DefaultTransport = oldTransport })
+	if w, e := NewProductionScheduledWorkflow(store, scope, "0.25", stepUp, vault, model, refresh); e != nil || w == nil || trap.calls != 0 {
+		t.Fatal("construction performed I/O or failed", e)
+	}
+	for _, test := range []struct {
+		store   *execution.PostgresStore
+		fee     string
+		auth    *auth.Service
+		vault   *credential.EncryptedVault
+		model   *aiconnection.Service
+		refresh *financialconnection.Service
+	}{
+		{nil, "0.25", stepUp, vault, model, refresh}, {execution.NewPostgresStore(nil), "0.25", stepUp, vault, model, refresh}, {store, "", stepUp, vault, model, refresh},
+		{store, "0.25", nil, vault, model, refresh}, {store, "0.25", stepUp, nil, model, refresh}, {store, "0.25", stepUp, vault, nil, refresh}, {store, "0.25", stepUp, vault, model, nil},
+	} {
+		if w, e := NewProductionScheduledWorkflow(test.store, scope, test.fee, test.auth, test.vault, test.model, test.refresh); w != nil || e == nil {
+			t.Fatal("missing concrete dependency accepted")
+		}
+	}
+}
 
 func (runtimeNoDatabase) Begin(context.Context) (pgx.Tx, error) { panic("unexpected database I/O") }
 func (runtimeNoDatabase) QueryRow(context.Context, string, ...any) pgx.Row {
