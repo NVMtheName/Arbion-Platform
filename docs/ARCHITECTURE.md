@@ -829,6 +829,34 @@ the model. No startup registration, timer, scheduler loop, route, activation
 setting, new credential or schema is added. Synthetic joined lifecycle tests are
 engineering acceptance only, not live compatibility or profitability evidence.
 
+The inert `ScheduledWorker` registers exactly one such fixed workflow; nil is
+disabled with zero I/O. It is not constructed or started by production. A bounded
+pass gives an unresolved historical order priority over new generation: unknown
+submission recovery, acknowledged/partial fill reconciliation, or verified
+terminal account settlement. Each pass performs only one stage, never a new
+decision in the same pass. It has no automatic cancellation policy. Revoked or
+expired consent blocks new admissions without stranding historical recovery;
+existing owner/account/credential access checks still apply to that recovery.
+
+New scheduled runs require an immutable database admission receipt before any
+market/model/preview call. Only a confirmed new commit admits the existing
+`RunSlot` chain; row replay, an ambiguous commit or a failed chain never permits
+another chain. This receipt is not a reclaimable lease and grants no financial
+authority. Existing transactional generation, intake, preview and send controls
+remain authoritative. The due slot is derived from the exact approved snapshot
+and database clock, not a browser or model: only the current canonical slot
+inside its original two-minute window is eligible, with no missed-slot catch-up.
+An expired unattempted prepared order is bypassed only under the account fence
+after exact source/state checks and absence of attempts, authorization, holds or
+reservations; no closure or capital-release receipt is fabricated. Unknown,
+rejected, inconsistent and foreign unresolved orders cannot be bypassed.
+
+An explicitly composed worker can poll one stage every thirty seconds, stopping
+on errors instead of blindly retrying. Construction starts no goroutine, and no
+main registration, environment switch, route, paid infrastructure or real pilot
+state is added. Live-path review, secure portfolio reconnection and separately
+authorized owner activation remain prerequisites to actually starting it.
+
 An inert owner commissioning component in the same execution package now
 atomically prepares an explicit pilot allocation and exact fresh mandate/version.
 Its stable owner/account identity and immutable records make restart recovery
