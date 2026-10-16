@@ -53,6 +53,31 @@ func NewProductionScheduledWorkflow(store *execution.PostgresStore, scope execut
 	}, market, model, refresh)
 }
 
+// NewProductionOwnerRuntime composes commissioning, owner controls and one
+// worker from the same fixed terms. No independently supplied worker scope can
+// drift from what the owner reviews. It neither reads credentials nor calls a
+// provider, mounts routes, starts execution or chooses activation terms.
+func NewProductionOwnerRuntime(store *execution.PostgresStore, terms *execution.OwnerCommissioningTerms, feeAllowanceUSD string, stepUp *auth.Service, vault *credential.EncryptedVault, model *aiconnection.Service, refresh *financialconnection.Service) (*execution.OwnerRuntime, error) {
+	if terms == nil {
+		return nil, nil
+	}
+	if store == nil || stepUp == nil || vault == nil || model == nil || refresh == nil {
+		return nil, execution.ErrNotAuthorized
+	}
+	selected := *terms
+	market, err := NewScheduledMarketCollector(ScheduledMarketScope{OwnerID: selected.Pilot.OwnerID,
+		AccountID: selected.Pilot.AccountID, ProductID: selected.Pilot.ProductID, FeeAllowanceUSD: feeAllowanceUSD})
+	if err != nil {
+		return nil, err
+	}
+	client := newProductionExecutionClient()
+	adapter := NewExecutionAdapter(client)
+	return execution.NewOwnerRuntime(store, &selected, execution.OwnerWorkflowDependencies{
+		StepUp: stepUp, Vault: vault, Preflight: client, Sender: adapter,
+		Lookup: adapter, Observation: adapter, Cancellation: adapter, Settlement: adapter,
+	}, market, model, refresh)
+}
+
 // Own every transport setting. Cloning http.DefaultTransport or accepting the
 // existing financial Client could inherit proxies, insecure TLS, custom dialers,
 // or retry wrappers. Normal platform trust roots and hostname verification apply;

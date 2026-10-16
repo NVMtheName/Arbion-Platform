@@ -46,6 +46,23 @@ func TestProductionScheduledWorkflowCompositionHasNoIO(t *testing.T) {
 	if w, e := NewProductionScheduledWorkflow(store, scope, "0.25", stepUp, vault, model, refresh); e != nil || w == nil || trap.calls != 0 {
 		t.Fatal("construction performed I/O or failed", e)
 	}
+	terms := execution.OwnerCommissioningTerms{
+		Pilot: execution.PilotAllocation{OwnerID: scope.Owner.OwnerID, AccountID: scope.Owner.AccountID,
+			ConnectionID: scope.Owner.ConnectionID, CapitalBucketID: scope.Owner.CapitalBucketID,
+			ProductID: scope.Owner.ProductID, Limits: scope.Owner.PilotLimits, InitialCashUSD: "100"},
+		AIConnectionID: scope.MandateID, AIModelID: "synthetic-model", Objective: "Synthetic fixed pilot",
+		IntervalMinutes: 30, MaxTradesPerDay: 2, MaxCapitalDeployedUSD: "100", MaxSinglePositionUSD: "25",
+		MinimumCashReserveUSD: "0", EffectiveFrom: scope.Owner.PilotLimits.ExpiresAt.Add(-time.Hour),
+	}
+	if r, e := NewProductionOwnerRuntime(store, &terms, "0.25", stepUp, vault, model, refresh); e != nil || r == nil || r.Owner() == nil || r.Commissioning() == nil || r.Worker() == nil || trap.calls != 0 {
+		t.Fatal("owner runtime performed I/O or failed", e)
+	}
+	if r, e := NewProductionOwnerRuntime(nil, nil, "", nil, nil, nil, nil); e != nil || r != nil {
+		t.Fatal("absent terms did not remain disabled", e)
+	}
+	if r, e := NewProductionOwnerRuntime(store, &execution.OwnerCommissioningTerms{}, "0.25", stepUp, vault, model, refresh); e == nil || r != nil {
+		t.Fatal("invalid terms selected a fallback runtime")
+	}
 	for _, test := range []struct {
 		store   *execution.PostgresStore
 		fee     string
@@ -59,6 +76,9 @@ func TestProductionScheduledWorkflowCompositionHasNoIO(t *testing.T) {
 	} {
 		if w, e := NewProductionScheduledWorkflow(test.store, scope, test.fee, test.auth, test.vault, test.model, test.refresh); w != nil || e == nil {
 			t.Fatal("missing concrete dependency accepted")
+		}
+		if r, e := NewProductionOwnerRuntime(test.store, &terms, test.fee, test.auth, test.vault, test.model, test.refresh); r != nil || e == nil {
+			t.Fatal("owner runtime accepted missing concrete dependency")
 		}
 	}
 }

@@ -124,12 +124,11 @@ func main() {
 
 	applicationHandler := platformhttp.NewFullApplicationHandlerWithEvaluationMarketsOrderIntentsAndPlatformOperations(pool, cfg, authService, authorizationService, aiConnections, financialConnections, automations, strategies, evaluations, breakers, markets, orderIntents, platformOperations)
 	applicationHandler = platformhttp.WithOwnerAttention(applicationHandler, cfg, authService, ownerAttention)
-	// Explicitly disconnected. No configuration flag or startup code constructs
-	// a sender; selecting and activating the owner's pilot requires approval.
-	applicationHandler = platformhttp.WithOwnerExecution(applicationHandler, cfg, authService, nil)
-	// Commissioning has a separate authenticated namespace but remains inert:
-	// startup does not select owner terms or create a pilot, mandate or consent.
-	applicationHandler = platformhttp.WithOwnerCommissioning(applicationHandler, cfg, authService, nil)
+	// Explicitly disconnected. No flag or startup code selects owner terms,
+	// constructs a sender/worker, or creates a pilot, mandate or consent.
+	// The single mount keeps commissioning outside the owner namespace. Live
+	// runtime registration and owner activation still require separate approval.
+	applicationHandler = platformhttp.WithOwnerRuntime(applicationHandler, cfg, authService, nil)
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           applicationHandler,
