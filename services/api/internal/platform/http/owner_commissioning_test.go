@@ -182,11 +182,11 @@ func TestOwnerCommissioningHTTPUnknownOutcomesStayErrorsAndPrivate(t *testing.T)
 	}
 }
 
-func TestOwnerCommissioningNilMountPrecedesOwnerExecutionWithoutActivation(t *testing.T) {
+func TestOwnerRuntimeNilMountPrecedesOwnerExecutionWithoutActivation(t *testing.T) {
 	_, _, cookie, service, cfg := ownerExecutionFixture(t)
 	fallback := 0
 	base := stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, _ *stdhttp.Request) { fallback++; w.WriteHeader(418) })
-	h := WithOwnerCommissioning(WithOwnerExecution(base, config.Config{Auth: cfg}, service, nil), config.Config{Auth: cfg}, service, nil)
+	h := WithOwnerRuntime(base, config.Config{Auth: cfg}, service, nil)
 	for _, path := range []string{"/context", "/receipt", "/consent", "/prepare", "/approve", "/revoke", "/activate"} {
 		assertOwnerExecutionResponse(t, commissioningHTTPRequest(h, nil, "GET", path, "", ""), 401)
 		status := 503
@@ -204,5 +204,14 @@ func TestOwnerCommissioningNilMountPrecedesOwnerExecutionWithoutActivation(t *te
 	w = ownerExecutionRequest(h, cookie, "GET", "/unrelated", "", "")
 	if w.Code != 418 || fallback != 1 {
 		t.Fatal("mount escaped namespace")
+	}
+	// A nonnil zero runtime cannot accidentally enable either namespace.
+	zero := WithOwnerRuntime(base, config.Config{Auth: cfg}, service, &execution.OwnerRuntime{})
+	for _, path := range []string{"/api/personal-execution/context", ownerCommissioningRoot + "/context"} {
+		w := ownerExecutionRequest(zero, cookie, "GET", path, "", "")
+		assertOwnerExecutionResponse(t, w, 200)
+		if strings.TrimSpace(w.Body.String()) != `{"available":false}` {
+			t.Fatal("zero runtime exposed a capability")
+		}
 	}
 }

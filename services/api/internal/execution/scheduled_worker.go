@@ -10,7 +10,12 @@ import (
 // ScheduledWorker is an inert registration of exactly one reviewed workflow.
 // No production startup constructs or starts it. There is deliberately no
 // environment flag, browser command, account discovery or mutable registration.
-type ScheduledWorker struct{ workflow *ScheduledWorkflow }
+type ScheduledWorker struct {
+	workflow *ScheduledWorkflow
+	// Set only by the owner runtime composition. This pins all original terms,
+	// including model/objective/cadence, not just the scheduled account scope.
+	commissioning *OwnerCommissioning
+}
 
 type ScheduledWorkerReceipt struct {
 	Status       string
@@ -49,6 +54,14 @@ func (w *ScheduledWorker) RunOnce(ctx context.Context) (ScheduledWorkerReceipt, 
 	p := authorization.Principal{UserID: f.scope.Owner.OwnerID, Entitlement: authorization.EntitlementFounder}
 	if err := f.owner.checkOwner(ctx, p); err != nil {
 		return ScheduledWorkerReceipt{}, err
+	}
+	if w.commissioning != nil {
+		// Original immutable receipt equality is not current consent validation.
+		// It also applies after expiry/revocation so recovery is not stranded.
+		// Mismatched or unprepared terms cannot consume a slot or call providers.
+		if _, err := w.commissioning.readReceipt(ctx, f.owner.store.db); err != nil {
+			return ScheduledWorkerReceipt{}, err
+		}
 	}
 	work, err := f.owner.store.claimScheduledWork(ctx, f.scope)
 	if err != nil {

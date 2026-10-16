@@ -38,6 +38,13 @@ func (f scheduledWorkflowRefreshFunc) RefreshScheduledExecutionReconciliation(ct
 func newScheduledWorkflowFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, outcome string) *scheduledWorkflowFixture {
 	t.Helper()
 	c, slot, _ := newScheduledGenerationFixture(t, ctx, pool)
+	return scheduledWorkflowFixtureFromConsent(t, pool, c, slot, outcome, "gpt-5.6-sol")
+}
+
+// Reuse only synthetic external callbacks when joining a different existing
+// control-plane entry, without pre-creating its consent, allocation, or orders.
+func scheduledWorkflowFixtureFromConsent(t *testing.T, pool *pgxpool.Pool, c mandateConsentFixture, slot ScheduledGenerationSlot, outcome, modelID string) *scheduledWorkflowFixture {
+	t.Helper()
 	f := &scheduledWorkflowFixture{c: c, slot: slot, deps: ownerNoIODependencies(),
 		scope: ScheduledScope{Owner: ownerScopeFor(c.request), MandateApprovalID: c.consent.ID, MandateID: c.mandateID, MandateVersion: c.consent.MandateVersion}}
 	// The explicit refresh stage must run AFTER intake and before preview. Reuse
@@ -67,7 +74,7 @@ func newScheduledWorkflowFixture(t *testing.T, ctx context.Context, pool *pgxpoo
 	}
 	f.model = func(callCtx context.Context, p authorization.Principal, connection, model string, in neural.LivePilotDecisionRequest) (neural.LivePilotDecision, error) {
 		f.models.Add(1)
-		if p.UserID != c.request.OwnerID || connection != c.aiConnectionID || model != "gpt-5.6-sol" || in.AvailableCashUSD != "100" || in.BudgetScope != "live-pilot:"+c.mandateID {
+		if p.UserID != c.request.OwnerID || connection != c.aiConnectionID || model != modelID || in.AvailableCashUSD != "100" || in.BudgetScope != "live-pilot:"+c.mandateID {
 			return neural.LivePilotDecision{}, ErrNotAuthorized
 		}
 		r, err := NewPostgresStore(pool).ReadScheduledGeneration(callCtx, p.UserID, slot)

@@ -857,6 +857,22 @@ main registration, environment switch, route, paid infrastructure or real pilot
 state is added. Live-path review, secure portfolio reconnection and separately
 authorized owner activation remain prerequisites to actually starting it.
 
+The inert `OwnerRuntime` is the single composition of commissioning, owner
+controls and the worker. A copied, normalized fixed terms record determines every
+scope; the worker uses the original deterministic mandate/version-one consent
+identities and shares its owner workflow with HTTP controls. Each explicit worker
+pass verifies equality with the original immutable commissioning receipt before
+admission or external I/O, including model, objective and cadence. Missing or
+conflicting terms cannot consume a slot. This is historical equality, not active
+consent: current execution gates remain authoritative, and revoked/expired consent
+does not strand historical recovery. No latest-consent discovery or renewal exists.
+The concrete Coinbase runtime requires existing saved services and owned transports;
+absent terms return no runtime, invalid terms fail closed, and construction performs
+no I/O. `WithOwnerRuntime` mounts commissioning outside owner execution but never
+invokes the worker. Production passes nil: no selected owner terms, private provider
+request, scheduled dispatch, generic enable flag, commissioning or activation is
+introduced. Live-path approval and secure reconnection remain external prerequisites.
+
 An inert owner commissioning component in the same execution package now
 atomically prepares an explicit pilot allocation and exact fresh mandate/version.
 Its stable owner/account identity and immutable records make restart recovery
